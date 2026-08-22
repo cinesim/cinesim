@@ -1,0 +1,54 @@
+# Technical decisions
+
+## Toolchain and Electron build
+
+Cinesim uses pnpm workspaces for dependency resolution and Vite+ 0.2 for repository-wide formatting, linting, testing, task execution, and caching. There is one root `vite.config.ts`; the desktop package adds one mode-aware config because Electron has three genuinely different targets: Node-flavored main, sandbox-compatible preload, and browser renderer.
+
+We do not use `electron-vite`. Current Electron builds are straightforward Vite library builds, while coupling another wrapper to Vite+'s fast-moving Vite version would duplicate configuration and reduce transparency. `vp run desktop:build` invokes the same Vite implementation for all three targets. The small development launcher only coordinates watch processes; it is not another bundler.
+
+## Project state
+
+`cinesim.json` is the stable project entry point. Complex canonical collections live in deterministic JSON under `.cinesim/`; human-edited preferences live in `.cinesim/settings.toml`. The generated `.video/` tree contains only caches, proxies, perception artifacts, and runtime scratch data and is ignored as a unit.
+
+Core uses integer microseconds. IDs are stable, prefixed strings. Arrays are sorted before serialization. Unknown schema versions are rejected. Disk adapters use temp-file-plus-rename atomic replacement; core itself has no filesystem dependency.
+
+Undo/redo stores immutable project snapshots per committed command. This is the simplest correct V1 behavior and naturally makes a completed drag one undo step while ephemeral pointer previews remain UI-only.
+
+## Command pathway
+
+React, CLI, and MCP submit the same Zod-validated protocol commands. Protocol dispatch delegates to the single deterministic implementation in `@cinesim/core`. Only Electron main or a Node adapter persists returned canonical state.
+
+## Media access and playback
+
+Mediabunny 1.55 is used, unmodified, as an MPL-2.0 runtime dependency. Main-process metadata inspection uses `FilePathSource`, which performs lazy random access. Renderer playback uses `UrlSource` against an asset-ID-only custom Electron protocol with byte-range responses; raw paths are never exposed by preload.
+
+`VideoSampleSink` supplies decoded samples backed by WebCodecs. The runtime maps monotonic clock time to timeline microseconds, resolves active clips, coalesces scrubs with latest-request-wins semantics, and closes replaced `VideoFrame` objects. It prewarms the next clip near cuts. React receives throttled snapshots, not frame objects.
+
+Audio uses Mediabunny's `AudioBufferSink` and Web Audio scheduling. V1 treats `AudioContext.currentTime` as the audio scheduling reference when audio is active, but transport time still comes from the replaceable clock abstraction. An AudioWorklet is intentionally deferred until profiling demonstrates that buffered main-thread scheduling is insufficient.
+
+## Composition
+
+The preview compositor is WebGPU-first. `GPUDevice.importExternalTexture({ source: videoFrame })` feeds a WGSL pipeline without CPU pixel readback. Transform and opacity are uniforms; pipeline structure accepts multiple layers even though V1 commonly resolves one visible video clip per track. Frames are closed after submission, canvas resize is explicit, and device loss triggers reinitialization.
+
+Canvas2D is limited to filmstrip/thumbnail generation, where a CPU-readable image artifact is the desired output.
+
+## Workers and proxies
+
+The runtime interfaces keep perception generation separable from interactive playback. V1's sparse perception work can execute asynchronously without polluting React state. A dedicated decode worker and proxy encoder are deferred: they should be introduced only after measuring real renderer contention and codec behavior. No FFmpeg-backed Mediabunny codec extension is included.
+
+## Security
+
+The renderer has no Node access. `contextIsolation`, renderer sandboxing, web security, permission denial, navigation blocking, and a strict Content Security Policy are enabled. Preload exposes individual validated calls instead of `ipcRenderer`. Media access is restricted to asset IDs already present in the open project.
+
+## Research basis
+
+Decisions were checked against current stable documentation for Vite+, Electron security and custom protocols, React 19/Compiler, Mediabunny sources and sinks, the browser WebCodecs/WebGPU APIs, Web Audio, and the official MCP TypeScript SDK. Open-source editor structures (including FreeCut) were used as comparison points only; no third-party source was copied.
+
+Primary references:
+
+- [Vite+ configuration](https://viteplus.dev/config/) and [workspace task runner](https://viteplus.dev/guide/run)
+- [Electron security checklist](https://www.electronjs.org/docs/latest/tutorial/security) and [custom protocols](https://www.electronjs.org/docs/latest/api/protocol)
+- [Mediabunny file sources](https://mediabunny.dev/guide/reading-media-files) and [decoded media sinks](https://mediabunny.dev/guide/media-sinks)
+- [WebCodecs rendering and resource lifetime](https://developer.mozilla.org/en-US/docs/Web/API/WebCodecs_API/Using_the_WebCodecs_API)
+- [React Compiler](https://react.dev/learn/react-compiler/introduction)
+- [MCP TypeScript SDK](https://github.com/modelcontextprotocol/typescript-sdk)

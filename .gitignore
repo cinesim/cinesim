@@ -1,0 +1,13 @@
+node_modules/
+dist/
+out/
+coverage/
+.DS_Store
+*.log
+*.tsbuildinfo
+.vite/
+.vite-hooks/_/
+
+# Cinesim project runtime/derived media. Canonical project state lives in
+# cinesim.json and .cinesim/; this directory is always disposable.
+.video/

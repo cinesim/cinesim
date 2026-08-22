@@ -1,0 +1,21 @@
+{
+  "name": "@cinesim/cli",
+  "version": "0.1.0",
+  "private": true,
+  "license": "MIT",
+  "bin": {
+    "cinesim": "./src/index.ts",
+    "video": "./src/index.ts"
+  },
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./project-store": "./src/project-store.ts"
+  },
+  "dependencies": {
+    "@cinesim/core": "workspace:*",
+    "@cinesim/protocol": "workspace:*",
+    "commander": "15.0.0",
+    "smol-toml": "1.8.0"
+  }
+}
