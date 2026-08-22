@@ -39,8 +39,8 @@ export function MediaBin({ project, onSession }: MediaBinProps) {
   }
 
   return (
-    <aside className="flex min-h-0 flex-col border-r border-white/[0.07] bg-[#101013]">
-      <div className="flex h-10 items-center justify-between border-b border-white/[0.06] px-3">
+    <aside className="flex min-h-0 flex-col border-r border-border bg-panel">
+      <div className="flex h-10 items-center justify-between border-b border-border px-3">
         <span className="panel-title">Media</span>
         <Button
           size="icon"
@@ -51,10 +51,10 @@ export function MediaBin({ project, onSession }: MediaBinProps) {
           <Import size={14} />
         </Button>
       </div>
-      <div className="m-2 flex h-8 items-center gap-2 rounded-md border border-white/[0.07] bg-black/20 px-2 text-zinc-600">
+      <div className="m-2 flex h-8 items-center gap-2 rounded-md border border-border bg-panel-muted px-2 text-muted">
         <Search size={13} />
         <input
-          className="min-w-0 flex-1 bg-transparent text-xs text-zinc-300 outline-none placeholder:text-zinc-700"
+          className="min-w-0 flex-1 bg-transparent text-ui text-secondary outline-none placeholder:text-muted"
           placeholder="Search media"
         />
       </div>
@@ -62,39 +62,39 @@ export function MediaBin({ project, onSession }: MediaBinProps) {
         {project.assets.map((asset) => (
           <article
             key={asset.id}
-            className="group overflow-hidden rounded-lg border border-white/[0.07] bg-white/[0.025] hover:border-violet-400/30"
+            className="group overflow-hidden rounded-lg border border-border bg-panel-muted hover:border-border-strong"
           >
             <button
-              className="relative grid aspect-video w-full place-items-center bg-[linear-gradient(145deg,#202029,#111115)] text-zinc-600"
+              className="media-thumbnail relative grid aspect-video w-full place-items-center text-muted"
               onDoubleClick={() => void addToTimeline(asset)}
             >
               <KindIcon asset={asset} />
-              <span className="absolute bottom-1 right-1 rounded bg-black/70 px-1 py-0.5 font-mono text-[9px] text-zinc-400">
+              <span className="absolute bottom-1 right-1 rounded bg-accent px-1 py-0.5 text-ui-xs text-on-accent tabular-nums">
                 {formatDuration(asset.durationUs)}
               </span>
               <span className="absolute inset-0 grid place-items-center bg-black/40 opacity-0 transition group-hover:opacity-100">
-                <span className="grid size-7 place-items-center rounded-full bg-violet-500 text-white">
+                <span className="grid size-7 place-items-center rounded-full bg-accent text-on-accent">
                   <Plus size={14} />
                 </span>
               </span>
             </button>
             <div className="p-2">
-              <p className="truncate text-[11px] font-medium text-zinc-300" title={asset.name}>
+              <p className="truncate text-ui-xs font-medium text-secondary" title={asset.name}>
                 {asset.name}
               </p>
-              <p className="mt-0.5 truncate font-mono text-[9px] text-zinc-600">{asset.id}</p>
+              <p className="mt-0.5 truncate text-ui-xs text-muted tabular-nums">{asset.id}</p>
             </div>
           </article>
         ))}
         {project.assets.length === 0 && (
           <button
-            className="col-span-2 m-2 grid min-h-36 place-items-center rounded-lg border border-dashed border-white/10 p-5 text-center hover:border-violet-400/30"
+            className="col-span-2 m-2 grid min-h-36 place-items-center rounded-lg border border-dashed border-border-strong p-5 text-center hover:bg-surface"
             onClick={() => void importMedia()}
           >
             <span>
-              <Import className="mx-auto mb-2 text-zinc-700" size={22} />
-              <span className="block text-xs text-zinc-500">Import your first shot</span>
-              <span className="mt-1 block text-[10px] text-zinc-700">
+              <Import className="mx-auto mb-2 text-muted" size={22} />
+              <span className="block text-ui text-secondary">Import your first shot</span>
+              <span className="mt-1 block text-ui-xs text-muted">
                 MP4, MOV, WebM, audio, or image
               </span>
             </span>

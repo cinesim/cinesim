@@ -1,5 +1,5 @@
 import { join } from "node:path";
-import { app, BrowserWindow, dialog, ipcMain, protocol, shell } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, nativeTheme, protocol, shell } from "electron";
 import type { EditorCommand } from "@cinesim/core";
 import { DesktopProjectStore } from "./project-store";
 
@@ -18,7 +18,7 @@ function createWindow(): BrowserWindow {
     height: 982,
     minWidth: 1080,
     minHeight: 700,
-    backgroundColor: "#09090b",
+    backgroundColor: nativeTheme.shouldUseDarkColors ? "#111111" : "#f9f9f9",
     titleBarStyle: "hiddenInset",
     trafficLightPosition: { x: 16, y: 14 },
     webPreferences: {

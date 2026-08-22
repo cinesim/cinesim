@@ -75,9 +75,9 @@ function ClipBlock({ clip, track, pixelsPerUs, selected, name, onCommand }: Clip
       className={cn(
         "absolute top-1 h-11 overflow-hidden rounded-md border text-left shadow-sm outline-none transition-[border-color,filter]",
         track.kind === "audio"
-          ? "border-sky-400/25 bg-sky-600/25"
-          : "border-violet-400/30 bg-violet-600/35",
-        selected && "border-white/60 ring-1 ring-white/25",
+          ? "border-clip-border bg-clip-audio"
+          : "border-clip-border bg-clip-video",
+        selected && "border-primary ring-1 ring-primary",
         isDragging && "z-30 brightness-125",
         tool === "blade" && "cursor-crosshair",
       )}
@@ -92,27 +92,27 @@ function ClipBlock({ clip, track, pixelsPerUs, selected, name, onCommand }: Clip
         {...listeners}
         {...attributes}
         aria-label={`${selected ? "Selected " : ""}${name} clip`}
-        className="absolute inset-0 text-left outline-none focus-visible:ring-1 focus-visible:ring-white/70"
+        className="absolute inset-0 text-left outline-none focus-visible:ring-2 focus-visible:ring-focus"
         onClick={activate}
       >
-        <span className="pointer-events-none absolute inset-0 opacity-20 [background-image:repeating-linear-gradient(90deg,transparent_0,transparent_18px,rgba(255,255,255,.18)_19px)]" />
-        <span className="relative block truncate px-2 pt-1.5 text-[10px] font-medium text-white/90">
+        <span className="clip-texture pointer-events-none absolute inset-0 opacity-40" />
+        <span className="relative block truncate px-2 pt-1.5 text-ui-xs font-medium text-clip-text">
           {name}
         </span>
-        <span className="relative block px-2 pt-0.5 font-mono text-[8px] text-white/45">
+        <span className="relative block px-2 pt-0.5 text-ui-xs text-clip-text-muted tabular-nums">
           {clip.id}
         </span>
       </button>
       <button
         type="button"
         aria-label="Trim clip start"
-        className="absolute inset-y-0 left-0 w-1.5 cursor-ew-resize bg-white/0 hover:bg-white/60"
+        className="absolute inset-y-0 left-0 w-1.5 cursor-ew-resize hover:bg-primary"
         onPointerDown={(event) => trim("start", event)}
       />
       <button
         type="button"
         aria-label="Trim clip end"
-        className="absolute inset-y-0 right-0 w-1.5 cursor-ew-resize bg-white/0 hover:bg-white/60"
+        className="absolute inset-y-0 right-0 w-1.5 cursor-ew-resize hover:bg-primary"
         onPointerDown={(event) => trim("end", event)}
       />
     </div>
@@ -160,8 +160,8 @@ export function Timeline({ project, onCommand }: TimelineProps) {
   const tickCount = Math.ceil(contentDurationUs / 1_000_000 / majorSecondStep);
 
   return (
-    <section className="flex min-h-0 flex-col border-t border-white/[0.07] bg-[#0d0d10]">
-      <div className="flex h-10 shrink-0 items-center gap-1 border-b border-white/[0.06] px-2">
+    <section className="flex min-h-0 flex-col border-t border-border bg-panel-muted">
+      <div className="flex h-10 shrink-0 items-center gap-1 border-b border-border px-2">
         <span className="panel-title mr-3">Timeline</span>
         <Button
           size="icon"
@@ -179,7 +179,7 @@ export function Timeline({ project, onCommand }: TimelineProps) {
         >
           <Scissors size={14} />
         </Button>
-        <span className="mx-1 h-4 w-px bg-white/[0.08]" />
+        <span className="mx-1 h-4 w-px bg-border" />
         <Button
           size="icon"
           variant="ghost"
@@ -206,7 +206,7 @@ export function Timeline({ project, onCommand }: TimelineProps) {
         >
           <Trash2 size={14} />
         </Button>
-        <span className="ml-auto font-mono text-[10px] text-zinc-500">
+        <span className="ml-auto text-ui-xs text-muted tabular-nums">
           {formatTimecode(playheadUs, sequence.frameRate)}
         </span>
         <Button
@@ -219,7 +219,7 @@ export function Timeline({ project, onCommand }: TimelineProps) {
         </Button>
         <input
           aria-label="Timeline zoom"
-          className="h-1 w-20 accent-violet-500"
+          className="h-1 w-20 accent-accent"
           type="range"
           min="0.25"
           max="4"
@@ -237,35 +237,35 @@ export function Timeline({ project, onCommand }: TimelineProps) {
         </Button>
       </div>
       <div className="grid min-h-0 flex-1 grid-cols-[84px_1fr] overflow-hidden">
-        <div className="z-20 border-r border-white/[0.07] bg-[#111115] pt-6">
+        <div className="z-20 border-r border-border bg-panel pt-6">
           {sequence.tracks.map((track) => (
             <div
               key={track.id}
-              className="flex h-[52px] items-center gap-1 border-b border-white/[0.05] px-2"
+              className="flex h-[52px] items-center gap-1 border-b border-border px-2"
             >
-              <span className="min-w-0 flex-1 truncate text-[10px] font-medium text-zinc-500">
+              <span className="min-w-0 flex-1 truncate text-ui-xs font-medium text-muted">
                 {track.name}
               </span>
-              {track.muted && <VolumeX size={10} className="text-zinc-700" />}
-              {track.locked && <Lock size={10} className="text-zinc-700" />}
+              {track.muted && <VolumeX size={10} className="text-disabled" />}
+              {track.locked && <Lock size={10} className="text-disabled" />}
             </div>
           ))}
         </div>
         <div className="timeline-scroll relative min-h-0 overflow-auto">
           <div className="relative min-h-full" style={{ width: contentWidth }}>
             <div
-              className="sticky top-0 z-20 h-6 cursor-ew-resize border-b border-white/[0.06] bg-[#111115]/95"
+              className="sticky top-0 z-20 h-6 cursor-ew-resize border-b border-border bg-panel/95"
               onPointerDown={rulerSeek}
             >
               {Array.from({ length: tickCount + 1 }, (_, index) => {
                 const seconds = index * majorSecondStep;
                 return (
                   <div
-                    className="absolute bottom-0 h-2 border-l border-white/15"
+                    className="absolute bottom-0 h-2 border-l border-border-strong"
                     key={seconds}
                     style={{ left: seconds * 1_000_000 * pixelsPerUs }}
                   >
-                    <span className="absolute -top-2 left-1 font-mono text-[8px] text-zinc-700">
+                    <span className="absolute -top-2 left-1 text-ui-xs text-muted tabular-nums">
                       {seconds}s
                     </span>
                   </div>
@@ -276,7 +276,7 @@ export function Timeline({ project, onCommand }: TimelineProps) {
               {sequence.tracks.map((track) => (
                 <div
                   key={track.id}
-                  className="relative h-[52px] border-b border-white/[0.05] [background-image:linear-gradient(90deg,rgba(255,255,255,.025)_1px,transparent_1px)]"
+                  className="timeline-track relative h-[52px] border-b border-border"
                   style={{ backgroundSize: `${BASE_PIXELS_PER_SECOND * zoom}px 100%` }}
                 >
                   <button
@@ -300,10 +300,10 @@ export function Timeline({ project, onCommand }: TimelineProps) {
               ))}
             </DndContext>
             <div
-              className="pointer-events-none absolute bottom-0 top-0 z-10 w-px bg-red-400 shadow-[0_0_5px_rgba(248,113,113,.5)]"
+              className="pointer-events-none absolute bottom-0 top-0 z-10 w-px bg-playhead"
               style={{ left: playheadUs * pixelsPerUs }}
             >
-              <div className="-ml-1 h-2 w-2 rounded-b-sm bg-red-400" />
+              <div className="-ml-1 h-2 w-2 rounded-b-sm bg-playhead" />
             </div>
           </div>
         </div>

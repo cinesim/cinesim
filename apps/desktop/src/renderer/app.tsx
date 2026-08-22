@@ -16,7 +16,7 @@ export function App() {
 
   if (loading)
     return (
-      <div className="grid h-screen place-items-center bg-[#09090b] text-xs text-zinc-600">
+      <div className="grid h-screen place-items-center bg-canvas text-ui text-muted">
         Preparing Cinesim…
       </div>
     );

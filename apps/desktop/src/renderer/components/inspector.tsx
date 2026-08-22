@@ -24,8 +24,8 @@ export function Inspector({ project }: { project: Project }) {
     : null;
 
   return (
-    <aside className="flex min-h-0 flex-col border-l border-white/[0.07] bg-[#101013]">
-      <div className="flex h-10 items-center border-b border-white/[0.06] px-2">
+    <aside className="flex min-h-0 flex-col border-l border-border bg-panel">
+      <div className="flex h-10 items-center border-b border-border px-2">
         <Button
           className="flex-1"
           size="sm"
@@ -46,7 +46,7 @@ export function Inspector({ project }: { project: Project }) {
       <div className="min-h-0 flex-1 overflow-y-auto p-3">
         {tab === "notes" ? (
           <>
-            <p className="mb-2 text-[10px] leading-4 text-zinc-600">
+            <p className="mb-2 text-ui-xs leading-4 text-muted">
               Working notes surface powered by Lexical. Canonical creative direction belongs in the
               project's AGENTS.md.
             </p>
@@ -55,8 +55,8 @@ export function Inspector({ project }: { project: Project }) {
         ) : location && asset ? (
           <div className="space-y-5">
             <div>
-              <p className="truncate text-sm font-medium text-zinc-200">{asset.name}</p>
-              <p className="mt-1 font-mono text-[9px] text-zinc-600">{location.clip.id}</p>
+              <p className="truncate text-ui font-medium text-primary">{asset.name}</p>
+              <p className="mt-1 text-ui-xs text-muted tabular-nums">{location.clip.id}</p>
             </div>
             <InspectorGroup title="Timing">
               <ReadonlyField
@@ -103,9 +103,9 @@ export function Inspector({ project }: { project: Project }) {
         ) : (
           <div className="grid h-44 place-items-center text-center">
             <span>
-              <SlidersHorizontal className="mx-auto mb-2 text-zinc-800" size={21} />
-              <span className="block text-xs text-zinc-600">Select a clip</span>
-              <span className="mt-1 block text-[10px] text-zinc-700">
+              <SlidersHorizontal className="mx-auto mb-2 text-disabled" size={21} />
+              <span className="block text-ui text-muted">Select a clip</span>
+              <span className="mt-1 block text-ui-xs text-muted">
                 Its timing and transform will appear here
               </span>
             </span>
@@ -119,7 +119,7 @@ export function Inspector({ project }: { project: Project }) {
 function InspectorGroup({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <section>
-      <h3 className="mb-2 border-b border-white/[0.06] pb-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-zinc-600">
+      <h3 className="mb-2 border-b border-border pb-2 text-ui-xs font-semibold uppercase tracking-[0.12em] text-muted">
         {title}
       </h3>
       <div className="space-y-1.5">{children}</div>
@@ -129,9 +129,9 @@ function InspectorGroup({ title, children }: { title: string; children: React.Re
 
 function ReadonlyField({ label, value }: { label: string; value: string }) {
   return (
-    <div className="grid grid-cols-[84px_1fr] items-center text-[10px]">
-      <span className="text-zinc-600">{label}</span>
-      <span className="truncate rounded border border-white/[0.05] bg-white/[0.025] px-2 py-1.5 text-zinc-400">
+    <div className="grid grid-cols-[84px_1fr] items-center text-ui-xs">
+      <span className="text-muted">{label}</span>
+      <span className="truncate rounded border border-border bg-panel-muted px-2 py-1.5 text-secondary">
         {value}
       </span>
     </div>
