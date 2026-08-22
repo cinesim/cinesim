@@ -23,7 +23,7 @@ export function createProject(options: CreateProjectOptions): Project {
     sequences: [
       {
         id: sequenceId,
-        name: "Main sequence",
+        name: "Main timeline",
         width: options.width ?? 1920,
         height: options.height ?? 1080,
         frameRate: options.frameRate ?? 30,

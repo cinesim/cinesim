@@ -1,9 +1,11 @@
 import { join } from "node:path";
 import { app, BrowserWindow, dialog, ipcMain, nativeTheme, protocol, shell } from "electron";
 import type { EditorCommand } from "@cinesim/core";
+import { DesktopAppStateStore } from "./app-state-store";
 import { DesktopProjectStore } from "./project-store";
 
 const store = new DesktopProjectStore();
+let appState: DesktopAppStateStore;
 
 protocol.registerSchemesAsPrivileged([
   {
@@ -31,6 +33,19 @@ function createWindow(): BrowserWindow {
   });
   window.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
   window.webContents.on("will-navigate", (event) => event.preventDefault());
+  window.webContents.on("before-input-event", (event, input) => {
+    const closeTabModifier = process.platform === "darwin" ? input.meta : input.control;
+    if (
+      input.type === "keyDown" &&
+      closeTabModifier &&
+      !input.alt &&
+      !input.shift &&
+      input.key.toLowerCase() === "w"
+    ) {
+      event.preventDefault();
+      window.webContents.send("app:close-active-tab");
+    }
+  });
 
   const developmentUrl = process.env.CINESIM_DEV_SERVER_URL;
   if (developmentUrl) void window.loadURL(developmentUrl);
@@ -99,7 +114,10 @@ function registerIpc(): void {
       buttonLabel: "Create here",
       properties: ["openDirectory", "createDirectory"],
     });
-    return selection.canceled ? null : store.create(selection.filePaths[0]!, name);
+    if (selection.canceled) return null;
+    const session = await store.create(selection.filePaths[0]!, name);
+    await appState.rememberProject({ name: session.project.name, directory: session.directory });
+    return session;
   });
   ipcMain.handle("project:open", async () => {
     const selection = await dialog.showOpenDialog({
@@ -107,7 +125,17 @@ function registerIpc(): void {
       buttonLabel: "Open project",
       properties: ["openDirectory"],
     });
-    return selection.canceled ? null : store.open(selection.filePaths[0]!);
+    if (selection.canceled) return null;
+    const session = await store.open(selection.filePaths[0]!);
+    await appState.rememberProject({ name: session.project.name, directory: session.directory });
+    return session;
+  });
+  ipcMain.handle("project:open-recent", async (_event, directory: unknown) => {
+    if (typeof directory !== "string" || !appState.hasRecent(directory))
+      throw new Error("Project is not in the recent projects list");
+    const session = await store.open(directory);
+    await appState.rememberProject({ name: session.project.name, directory: session.directory });
+    return session;
   });
   ipcMain.handle("project:session", () => (store.project ? store.session() : null));
   ipcMain.handle("project:save", () => store.save());
@@ -135,10 +163,35 @@ function registerIpc(): void {
     return session;
   });
   ipcMain.handle("command:execute", (_event, command: EditorCommand) => store.execute(command));
+  ipcMain.handle("app-state:get", () => appState.snapshot());
+  ipcMain.handle("app-state:set-project-view", async (_event, candidate: unknown) => {
+    const directory = store.directory;
+    const project = store.project;
+    if (!directory || !project || typeof candidate !== "object" || candidate === null)
+      throw new Error("Open a project before changing its view");
+    const view = candidate as Record<string, unknown>;
+    const validIds = new Set<string>(project.sequences.map((sequence) => sequence.id));
+    if (
+      !Array.isArray(view.openSequenceIds) ||
+      view.openSequenceIds.length > project.sequences.length ||
+      view.openSequenceIds.some((id) => typeof id !== "string" || !validIds.has(id)) ||
+      typeof view.activeTab !== "string"
+    )
+      throw new Error("Invalid open timeline list");
+    const openSequenceIds = [...new Set<string>(view.openSequenceIds)];
+    const activeTab =
+      view.activeTab === "media" || openSequenceIds.includes(view.activeTab)
+        ? view.activeTab
+        : "media";
+    await appState.setProjectView(directory, { openSequenceIds, activeTab });
+    return appState.snapshot();
+  });
 }
 
 async function startApplication(): Promise<void> {
   await app.whenReady();
+  appState = new DesktopAppStateStore(join(app.getPath("userData"), "ui-state.json"));
+  await appState.load();
   await registerMediaProtocol();
   registerIpc();
   const window = createWindow();

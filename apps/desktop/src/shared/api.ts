@@ -8,9 +8,26 @@ export interface DesktopProjectSession {
   canRedo: boolean;
 }
 
+export interface RecentProject {
+  name: string;
+  directory: string;
+}
+
+export interface ProjectViewState {
+  openSequenceIds: string[];
+  activeTab: string;
+}
+
+export interface DesktopAppState {
+  version: 1;
+  recentProjects: RecentProject[];
+  projectViews: Record<string, ProjectViewState>;
+}
+
 export interface DesktopApi {
   createProject(name: string): Promise<DesktopProjectSession | null>;
   openProject(): Promise<DesktopProjectSession | null>;
+  openRecentProject(directory: string): Promise<DesktopProjectSession>;
   importMedia(): Promise<DesktopProjectSession | null>;
   execute(
     command: EditorCommand,
@@ -20,6 +37,9 @@ export interface DesktopApi {
   save(): Promise<DesktopProjectSession>;
   revealProject(): Promise<void>;
   getSession(): Promise<DesktopProjectSession | null>;
+  getAppState(): Promise<DesktopAppState>;
+  setProjectView(view: ProjectViewState): Promise<DesktopAppState>;
+  onCloseActiveTab(callback: () => void): () => void;
   platform: NodeJS.Platform;
 }
 

@@ -19,3 +19,4 @@ Cinesim is a local-first, agent-native nonlinear video editor. Keep the system s
 15. Do not add speculative cloud abstractions in V1.
 16. A drag/trim gesture creates one committed command and one undo step; do not persist every pointer movement.
 17. Run `vp check` and relevant `vp test` suites before completing changes. Do not launch Electron when the task explicitly prohibits it.
+18. Do not use the built-in browser skill in this workspace.
