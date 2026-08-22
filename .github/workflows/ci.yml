@@ -1,0 +1,47 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  VP_GIT_HOOKS: "0"
+
+jobs:
+  quality:
+    name: Check, test, and build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Vite+
+        uses: voidzero-dev/setup-vp@313600b80b104eadebb9111787d37a2e83e014ca # v1.17.0
+        with:
+          node-version: "24"
+          cache: true
+          run-install: false
+
+      - name: Install dependencies
+        run: vp install --frozen-lockfile
+
+      - name: Check formatting, lint, and types
+        run: vp check
+
+      - name: Verify TypeScript compiler
+        run: vp run typecheck
+
+      - name: Run tests
+        run: vp test --run
+
+      - name: Build desktop bundles
+        run: vp run desktop:build

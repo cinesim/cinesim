@@ -1,0 +1,15 @@
+"$schema" = "https://conductor.build/schemas/settings.repo.schema.json"
+
+[scripts]
+setup = "vp install"
+run_mode = "concurrent"
+
+[scripts.run.dev]
+available_in = ["local"]
+command = "CINESIM_DEV_SERVER_URL=http://127.0.0.1:$CONDUCTOR_PORT vp run desktop:dev"
+default = true
+icon = "play"
+
+[scripts.run.test]
+command = "vp test --run"
+icon = "test-tube"

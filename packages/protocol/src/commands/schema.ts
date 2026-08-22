@@ -1,0 +1,32 @@
+import { z } from "zod";
+import { assetSchema, transformSchema } from "@cinesim/core";
+
+const assetId = z.string().regex(/^asset_[a-zA-Z0-9][a-zA-Z0-9_-]*$/);
+const clipId = z.string().regex(/^clip_[a-zA-Z0-9][a-zA-Z0-9_-]*$/);
+const trackId = z.string().regex(/^track_[a-zA-Z0-9][a-zA-Z0-9_-]*$/);
+const timeUs = z.number().int().nonnegative().safe();
+
+export const editorCommandSchema = z.discriminatedUnion("type", [
+  z.object({ type: z.literal("asset.import"), asset: assetSchema }),
+  z.object({
+    type: z.literal("clip.add"),
+    trackId,
+    assetId,
+    timelineStartUs: timeUs,
+    sourceStartUs: timeUs.optional(),
+    sourceEndUs: timeUs.optional(),
+    transform: transformSchema.partial().optional(),
+  }),
+  z.object({ type: z.literal("clip.remove"), clipId }),
+  z.object({
+    type: z.literal("clip.move"),
+    clipId,
+    timelineStartUs: timeUs,
+    trackId: trackId.optional(),
+  }),
+  z.object({ type: z.literal("clip.trimStart"), clipId, atUs: timeUs }),
+  z.object({ type: z.literal("clip.trimEnd"), clipId, atUs: timeUs }),
+  z.object({ type: z.literal("clip.split"), clipId, atUs: timeUs }),
+]);
+
+export type ProtocolCommand = z.infer<typeof editorCommandSchema>;
