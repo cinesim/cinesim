@@ -4,17 +4,17 @@ import type { ComponentProps } from "react";
 import { cn } from "./cn";
 
 const buttonVariants = cva(
-  "inline-flex h-8 shrink-0 items-center justify-center gap-1.5 rounded-md px-2.5 text-xs font-medium outline-none transition-colors select-none focus-visible:ring-2 focus-visible:ring-violet-400/60 disabled:pointer-events-none disabled:opacity-40",
+  "inline-flex h-8 shrink-0 items-center justify-center gap-1.5 rounded-md px-2.5 text-ui font-medium outline-none transition-colors select-none focus-visible:ring-2 focus-visible:ring-focus disabled:pointer-events-none disabled:opacity-40",
   {
     variants: {
       variant: {
-        primary: "bg-violet-500 text-white hover:bg-violet-400",
-        secondary: "border border-white/10 bg-white/[0.06] text-zinc-200 hover:bg-white/10",
-        ghost: "text-zinc-400 hover:bg-white/[0.06] hover:text-zinc-100",
-        danger: "text-red-300 hover:bg-red-500/15 hover:text-red-200",
+        primary: "bg-accent text-on-accent hover:bg-accent-hover",
+        secondary: "border border-border bg-surface text-primary hover:bg-surface-hover",
+        ghost: "text-secondary hover:bg-surface hover:text-primary",
+        danger: "text-secondary hover:bg-surface-hover hover:text-primary",
       },
       size: {
-        sm: "h-7 px-2 text-[11px]",
+        sm: "h-7 px-2 text-ui-xs",
         md: "h-8 px-2.5",
         icon: "size-8 p-0",
       },

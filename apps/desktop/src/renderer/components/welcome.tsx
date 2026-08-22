@@ -37,25 +37,24 @@ export function Welcome({ onOpen }: WelcomeProps) {
   }
 
   return (
-    <main className="relative grid h-screen place-items-center overflow-hidden bg-[#09090b] text-zinc-100">
-      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_50%_25%,rgba(124,58,237,0.14),transparent_38%)]" />
-      <section className="relative w-[620px] rounded-2xl border border-white/10 bg-zinc-950/80 p-10 shadow-2xl shadow-black/60 backdrop-blur-xl">
+    <main className="relative grid h-screen place-items-center overflow-hidden bg-canvas text-primary">
+      <section className="relative w-[620px] rounded-2xl border border-border bg-panel/90 p-10 shadow-2xl shadow-black/20 backdrop-blur-xl">
         <div className="mb-9 flex items-center gap-3">
-          <div className="grid size-11 place-items-center rounded-xl bg-violet-500 text-white shadow-lg shadow-violet-500/20">
+          <div className="grid size-11 place-items-center rounded-xl bg-accent text-on-accent shadow-lg">
             <Clapperboard size={22} strokeWidth={1.8} />
           </div>
           <div>
-            <h1 className="text-xl font-semibold tracking-tight">Cinesim</h1>
-            <p className="text-xs text-zinc-500">A creative workspace for people and agents</p>
+            <h1 className="text-ui-lg font-semibold tracking-tight">Cinesim</h1>
+            <p className="text-ui text-secondary">A creative workspace for people and agents</p>
           </div>
         </div>
         <div className="grid grid-cols-[1fr_180px] gap-3">
           <label className="grid gap-1.5">
-            <span className="text-[11px] font-medium uppercase tracking-[0.12em] text-zinc-500">
+            <span className="text-ui-xs font-medium uppercase tracking-[0.12em] text-muted">
               New project
             </span>
             <input
-              className="h-10 rounded-lg border border-white/10 bg-white/[0.04] px-3 text-sm outline-none transition focus:border-violet-400/50 focus:ring-2 focus:ring-violet-500/15"
+              className="h-10 rounded-lg border border-border bg-panel-muted px-3 text-ui outline-none transition focus:border-border-strong focus:ring-2 focus:ring-focus"
               value={name}
               onChange={(event) => setName(event.target.value)}
               onKeyDown={(event) => event.key === "Enter" && void create()}
@@ -70,18 +69,18 @@ export function Welcome({ onOpen }: WelcomeProps) {
             <Sparkles size={15} /> Create project
           </Button>
         </div>
-        <div className="my-7 flex items-center gap-3 text-[10px] uppercase tracking-[0.18em] text-zinc-700 before:h-px before:flex-1 before:bg-white/[0.07] after:h-px after:flex-1 after:bg-white/[0.07]">
+        <div className="my-7 flex items-center gap-3 text-ui-xs uppercase tracking-[0.18em] text-muted before:h-px before:flex-1 before:bg-border after:h-px after:flex-1 after:bg-border">
           or
         </div>
         <Button className="h-11 w-full" onClick={() => void open()} disabled={busy}>
           <FolderOpen size={16} /> Open an existing Cinesim project
         </Button>
         {error && (
-          <p className="mt-4 rounded-md border border-red-500/20 bg-red-500/10 p-2.5 text-xs text-red-300">
+          <p className="mt-4 rounded-md border border-border-strong bg-surface p-2.5 text-ui text-primary">
             {error}
           </p>
         )}
-        <p className="mt-8 text-center text-[11px] text-zinc-600">
+        <p className="mt-8 text-center text-ui-xs text-muted">
           Canonical edits are written to cinesim.json + .cinesim/
         </p>
       </section>

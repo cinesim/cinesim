@@ -27,7 +27,7 @@ export function Workspace({ session, onSession }: WorkspaceProps) {
   }
 
   return (
-    <main className="relative grid h-screen grid-rows-[48px_minmax(0,1fr)_288px] overflow-hidden bg-[#09090b] text-zinc-100">
+    <main className="relative grid h-screen grid-rows-[48px_minmax(0,1fr)_288px] overflow-hidden bg-canvas text-primary">
       <TopBar session={session} onSession={onSession} />
       <div className="grid min-h-0 grid-cols-[260px_minmax(440px,1fr)_284px]">
         <MediaBin project={session.project} onSession={onSession} />
@@ -38,7 +38,7 @@ export function Workspace({ session, onSession }: WorkspaceProps) {
       <DebugOverlay />
       {error && (
         <button
-          className="absolute bottom-3 left-1/2 z-50 -translate-x-1/2 rounded-lg border border-red-400/20 bg-red-950/90 px-4 py-2 text-xs text-red-200 shadow-xl"
+          className="absolute bottom-3 left-1/2 z-50 -translate-x-1/2 rounded-lg border border-border-strong bg-panel px-4 py-2 text-ui text-primary shadow-xl"
           onClick={() => setError(null)}
         >
           {error}

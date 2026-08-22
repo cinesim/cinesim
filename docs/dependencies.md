@@ -6,6 +6,7 @@ Runtime dependencies:
 
 | Dependency                          | Purpose                              | License      |
 | ----------------------------------- | ------------------------------------ | ------------ |
+| Fontsource Geist Variable           | Bundled cross-platform UI typeface   | OFL-1.1      |
 | React / React DOM                   | Renderer UI                          | MIT          |
 | Tailwind CSS / Tailwind Vite plugin | Styling                              | MIT          |
 | Base UI                             | Accessible headless primitives       | MIT          |
