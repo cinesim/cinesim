@@ -7,6 +7,7 @@ import { LibraryCard, LibraryGrid } from "./library-card";
 interface WelcomeProps {
   appState: DesktopAppState;
   error: string | null;
+  loading: boolean;
   onOpen: (session: DesktopProjectSession) => void;
 }
 
@@ -35,7 +36,7 @@ function Shortcut({ children, dark = false }: { children: React.ReactNode; dark?
   );
 }
 
-export function Welcome({ appState, error: externalError, onOpen }: WelcomeProps) {
+export function Welcome({ appState, error: externalError, loading, onOpen }: WelcomeProps) {
   const [name, setName] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -99,6 +100,8 @@ export function Welcome({ appState, error: externalError, onOpen }: WelcomeProps
     window.addEventListener("keydown", shortcut);
     return () => window.removeEventListener("keydown", shortcut);
   }, [appState.recentProjects, open, openRecent]);
+
+  if (loading) return <WelcomeLoadingState />;
 
   return (
     <section className="h-full overflow-y-auto bg-canvas px-5 py-6">
@@ -178,6 +181,58 @@ export function Welcome({ appState, error: externalError, onOpen }: WelcomeProps
             {error ?? externalError}
           </p>
         )}
+      </div>
+    </section>
+  );
+}
+
+function WelcomeLoadingState() {
+  return (
+    <section
+      className="h-full overflow-y-auto bg-canvas px-5 py-6"
+      aria-busy="true"
+      aria-label="Loading projects"
+    >
+      <div>
+        <div className="mb-4 flex items-center justify-between">
+          <span className="h-4 w-20 animate-pulse rounded bg-surface-active" aria-hidden="true" />
+          <div className="flex items-center gap-3" aria-hidden="true">
+            <span className="h-3 w-12 animate-pulse rounded bg-surface" />
+            <span className="h-8 w-28 animate-pulse rounded-md bg-surface-active" />
+          </div>
+        </div>
+
+        <LibraryGrid>
+          <LibraryCard
+            previewClassName="media-thumbnail"
+            preview={
+              <span
+                className="size-12 animate-pulse rounded-xl bg-surface-active"
+                aria-hidden="true"
+              />
+            }
+          >
+            <div className="flex min-h-11 items-center gap-2" aria-hidden="true">
+              <span className="h-8 min-w-0 flex-1 animate-pulse rounded-md bg-surface" />
+              <span className="h-8 w-14 animate-pulse rounded-md bg-surface-active" />
+            </div>
+          </LibraryCard>
+
+          {Array.from({ length: 4 }, (_, index) => (
+            <LibraryCard
+              key={`project-loading-${index}`}
+              previewClassName="media-thumbnail"
+              preview={
+                <span className="absolute inset-0 animate-pulse bg-surface" aria-hidden="true" />
+              }
+            >
+              <div className="space-y-2" aria-hidden="true">
+                <span className="block h-3.5 w-3/5 animate-pulse rounded bg-surface-active" />
+                <span className="block h-3 w-4/5 animate-pulse rounded bg-surface" />
+              </div>
+            </LibraryCard>
+          ))}
+        </LibraryGrid>
       </div>
     </section>
   );
