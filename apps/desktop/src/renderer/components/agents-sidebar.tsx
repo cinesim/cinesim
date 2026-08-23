@@ -6,6 +6,7 @@ import {
   ChevronRight,
   CircleAlert,
   Clock3,
+  Gauge,
   Plus,
   RotateCcw,
   Send,
@@ -17,13 +18,17 @@ import {
 import { cn } from "@cinesim/ui";
 import type {
   AgentEvent,
+  AgentEffort,
   AgentProjectSnapshot,
   AgentProviderKind,
   AgentProviderStatus,
   AgentSessionSnapshot,
+  AgentSessionUpdate,
   AgentSettings,
+  AgentTokenUsage,
   DesktopProjectSession,
 } from "../../shared/api";
+import { formatTimecode } from "../lib/format";
 import { useUiStore } from "../store/ui-store";
 
 interface AgentsSidebarProps {
@@ -118,9 +123,25 @@ export function AgentsSidebar({ session, onConfigure }: AgentsSidebarProps) {
     setBusy(false);
   }
 
+  async function updateActiveSession(update: AgentSessionUpdate): Promise<void> {
+    if (!activeSession || busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      setSnapshot(await window.cinesim.updateAgent(activeSession.id, update));
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Could not update agent settings");
+    }
+    setBusy(false);
+  }
+
   const availableProviders = providers.filter((provider) => provider.state === "connected");
   if (!snapshot || !settings)
     return <div className="grid h-full place-items-center text-ui text-muted">Loading agents…</div>;
+  const agentRunning =
+    activeSession?.status === "starting" ||
+    activeSession?.status === "working" ||
+    activeSession?.status === "waiting";
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -261,16 +282,16 @@ export function AgentsSidebar({ session, onConfigure }: AgentsSidebarProps) {
             </p>
           )}
           <div className="shrink-0 border-t border-border p-3">
-            <div className="rounded-xl border border-border bg-canvas p-2 focus-within:border-border-strong">
+            <div className="rounded-xl border border-border bg-canvas p-2.5 shadow-sm shadow-black/5 transition-colors focus-within:border-border-strong">
               <textarea
-                className="block max-h-36 min-h-16 w-full resize-none bg-transparent px-1.5 py-1 text-ui leading-5 text-primary outline-none placeholder:text-disabled"
+                className="block max-h-44 min-h-24 w-full resize-none bg-transparent px-1 py-0.5 text-ui leading-5 text-primary outline-none placeholder:text-disabled"
                 value={composer}
                 placeholder={
-                  activeSession.status === "working" || activeSession.status === "waiting"
+                  agentRunning
                     ? "Agent is working…"
-                    : "Ask the agent to edit this project…"
+                    : "Ask to make edits, inspect the timeline, or reference clip IDs…"
                 }
-                disabled={activeSession.status === "working" || activeSession.status === "waiting"}
+                disabled={agentRunning}
                 onChange={(event) => setComposer(event.target.value)}
                 onKeyDown={(event) => {
                   if (event.key === "Enter" && !event.shiftKey) {
@@ -279,31 +300,69 @@ export function AgentsSidebar({ session, onConfigure }: AgentsSidebarProps) {
                   }
                 }}
               />
-              <div className="mt-1 flex items-center justify-between gap-2 px-1">
-                <span className="text-ui-xs text-muted">
-                  {activeSession.permissionMode === "supervised" ? "Supervised" : "Auto-edit"}
-                </span>
-                {activeSession.status === "working" || activeSession.status === "waiting" ? (
-                  <button
-                    className="grid size-7 place-items-center rounded-md bg-accent text-on-accent hover:bg-accent-hover"
-                    aria-label="Stop agent"
-                    title="Stop"
-                    onClick={() =>
-                      void window.cinesim.interruptAgent(activeSession.id).then(setSnapshot)
-                    }
-                  >
-                    <Square size={11} fill="currentColor" />
-                  </button>
-                ) : (
-                  <button
-                    className="grid size-7 place-items-center rounded-md bg-accent text-on-accent hover:bg-accent-hover disabled:bg-surface disabled:text-disabled"
-                    aria-label="Send message"
-                    disabled={!composer.trim() || busy}
-                    onClick={() => void sendMessage()}
-                  >
-                    <Send size={13} />
-                  </button>
-                )}
+              <div className="mt-2 flex min-w-0 items-center justify-between gap-2">
+                <div className="flex min-w-0 items-center gap-0.5">
+                  <ModelMenu
+                    session={activeSession}
+                    defaultModel={settings.providers[activeSession.provider].model}
+                    disabled={agentRunning || busy}
+                    onSelect={(model) => void updateActiveSession({ model })}
+                    onConfigure={onConfigure}
+                  />
+                  <label className="flex h-7 min-w-0 items-center gap-1 rounded-md px-1.5 text-ui-xs text-muted hover:bg-surface hover:text-secondary">
+                    <Gauge size={12} className="shrink-0" />
+                    <select
+                      className="min-w-0 max-w-16 appearance-none bg-transparent text-ui-xs capitalize text-inherit outline-none"
+                      aria-label="Agent reasoning effort"
+                      value={activeSession.effort}
+                      disabled={agentRunning || busy}
+                      onChange={(event) =>
+                        void updateActiveSession({
+                          effort: event.target.value as AgentEffort,
+                        })
+                      }
+                    >
+                      <option value="low">Low</option>
+                      <option value="medium">Medium</option>
+                      <option value="high">High</option>
+                      <option value="xhigh">Extra high</option>
+                      <option value="max">Maximum</option>
+                    </select>
+                  </label>
+                </div>
+                <div className="flex shrink-0 items-center gap-1">
+                  <ContextUsage
+                    usage={activeSession.tokenUsage}
+                    session={activeSession}
+                    playheadLabel={formatTimecode(
+                      playheadUs,
+                      session.project.sequences.find(
+                        (sequence) => sequence.id === session.project.activeSequenceId,
+                      )?.frameRate,
+                    )}
+                  />
+                  {agentRunning ? (
+                    <button
+                      className="grid size-7 place-items-center rounded-md bg-accent text-on-accent hover:bg-accent-hover"
+                      aria-label="Stop agent"
+                      title="Stop"
+                      onClick={() =>
+                        void window.cinesim.interruptAgent(activeSession.id).then(setSnapshot)
+                      }
+                    >
+                      <Square size={11} fill="currentColor" />
+                    </button>
+                  ) : (
+                    <button
+                      className="grid size-7 place-items-center rounded-md bg-accent text-on-accent hover:bg-accent-hover disabled:bg-surface disabled:text-disabled"
+                      aria-label="Send message"
+                      disabled={!composer.trim() || busy}
+                      onClick={() => void sendMessage()}
+                    >
+                      <Send size={13} />
+                    </button>
+                  )}
+                </div>
               </div>
             </div>
             <p className="mt-1.5 text-center text-[10px] leading-3 text-disabled">
@@ -314,6 +373,235 @@ export function AgentsSidebar({ session, onConfigure }: AgentsSidebarProps) {
       )}
     </div>
   );
+}
+
+const PROVIDER_MODELS: Record<AgentProviderKind, Array<{ value: string; label: string }>> = {
+  claude: [
+    { value: "sonnet", label: "Sonnet · latest" },
+    { value: "opus", label: "Opus · latest" },
+    { value: "fable", label: "Fable · latest" },
+    { value: "haiku", label: "Haiku · latest" },
+  ],
+  codex: [
+    { value: "gpt-5.6-sol", label: "GPT-5.6 Sol" },
+    { value: "gpt-5.6-terra", label: "GPT-5.6 Terra" },
+    { value: "gpt-5.6-luna", label: "GPT-5.6 Luna" },
+    { value: "gpt-5.5", label: "GPT-5.5" },
+    { value: "gpt-5.4", label: "GPT-5.4" },
+  ],
+};
+
+function ModelMenu({
+  session,
+  defaultModel,
+  disabled,
+  onSelect,
+  onConfigure,
+}: {
+  session: AgentSessionSnapshot;
+  defaultModel: string;
+  disabled: boolean;
+  onSelect: (model: string) => void;
+  onConfigure: () => void;
+}) {
+  const models = [
+    ...PROVIDER_MODELS[session.provider],
+    ...[session.model, defaultModel]
+      .filter(
+        (model, index, values) =>
+          model &&
+          values.indexOf(model) === index &&
+          !PROVIDER_MODELS[session.provider].some((option) => option.value === model),
+      )
+      .map((model) => ({ value: model, label: model })),
+  ];
+  const selected = models.find((model) => model.value === session.model)?.label ?? session.model;
+  return (
+    <details className="group relative">
+      <summary
+        className={cn(
+          "flex h-7 max-w-24 list-none items-center gap-1 rounded-md px-1.5 text-ui-xs text-secondary hover:bg-surface hover:text-primary",
+          disabled && "pointer-events-none opacity-50",
+        )}
+        title={`${providerLabel(session.provider)} model`}
+      >
+        <Bot size={12} className="shrink-0" />
+        <span className="truncate">{selected}</span>
+        <ChevronDown size={11} className="shrink-0 transition-transform group-open:rotate-180" />
+      </summary>
+      <div className="absolute bottom-9 left-0 z-50 w-60 overflow-hidden rounded-lg border border-border bg-panel p-1 shadow-xl shadow-black/15">
+        <p className="flex items-center gap-2 px-2 py-1.5 text-ui-xs font-medium text-muted">
+          <Bot size={12} /> {providerLabel(session.provider)} models
+        </p>
+        <div className="max-h-64 overflow-y-auto">
+          {models.map((model) => (
+            <button
+              key={model.value}
+              className={cn(
+                "flex w-full items-center gap-2 rounded-md px-2 py-2 text-left text-ui hover:bg-surface",
+                model.value === session.model && "bg-surface",
+              )}
+              onClick={(event) => {
+                event.currentTarget.closest("details")?.removeAttribute("open");
+                onSelect(model.value);
+              }}
+            >
+              <span className="grid size-4 place-items-center">
+                {model.value === session.model && <Check size={12} />}
+              </span>
+              <span className="min-w-0 flex-1 truncate">{model.label}</span>
+            </button>
+          ))}
+        </div>
+        <button
+          className="mt-1 flex w-full items-center gap-2 border-t border-border px-2 py-2 text-left text-ui-xs text-muted hover:text-primary"
+          onClick={(event) => {
+            event.currentTarget.closest("details")?.removeAttribute("open");
+            onConfigure();
+          }}
+        >
+          <Settings size={12} /> Custom model in Settings…
+        </button>
+      </div>
+    </details>
+  );
+}
+
+function ContextUsage({
+  usage,
+  session,
+  playheadLabel,
+}: {
+  usage: AgentTokenUsage | undefined;
+  session: AgentSessionSnapshot;
+  playheadLabel: string;
+}) {
+  const usedPercent = usage?.maxTokens
+    ? Math.min(100, Math.max(0, (usage.usedTokens / usage.maxTokens) * 100))
+    : 0;
+  const remainingPercent = 100 - usedPercent;
+  return (
+    <details className="group relative">
+      <summary
+        className="flex h-7 list-none items-center gap-1 rounded-md px-1.5 text-ui-xs text-muted hover:bg-surface hover:text-primary"
+        title="Context window"
+      >
+        <ContextRing percent={usedPercent} />
+        <span>{usage?.maxTokens ? `${Math.round(remainingPercent)}%` : "—"}</span>
+      </summary>
+      <div className="absolute bottom-9 right-0 z-50 w-72 rounded-lg border border-border bg-panel p-3 shadow-xl shadow-black/15">
+        <div className="flex items-center justify-between gap-3">
+          <p className="text-ui font-medium text-primary">Context</p>
+          <p className="text-ui-xs tabular-nums text-muted">
+            {usage
+              ? `${formatTokens(usage.usedTokens)}${usage.maxTokens ? ` / ${formatTokens(usage.maxTokens)}` : " used"}`
+              : "Waiting for provider"}
+          </p>
+        </div>
+        {usage ? (
+          <>
+            {usage.maxTokens ? (
+              <>
+                <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-surface">
+                  <div
+                    className="h-full rounded-full bg-primary transition-[width] duration-300 ease-in-out"
+                    style={{ width: `${usedPercent}%` }}
+                  />
+                </div>
+                <div className="mt-1.5 flex items-center justify-between text-ui-xs text-muted">
+                  <span>Window used</span>
+                  <span className="tabular-nums">{usedPercent.toFixed(1)}%</span>
+                </div>
+              </>
+            ) : (
+              <p className="mt-2 text-ui-xs leading-4 text-muted">
+                This provider reported token use without a context-window limit.
+              </p>
+            )}
+            <div className="mt-3 space-y-1.5 border-t border-border pt-3">
+              <UsageRow label="Input" value={usage.inputTokens} />
+              <UsageRow label="Cached input" value={usage.cachedInputTokens} />
+              <UsageRow label="Output" value={usage.outputTokens} />
+              <UsageRow label="Reasoning output" value={usage.reasoningOutputTokens} />
+              <UsageRow label="Processed this session" value={usage.totalProcessedTokens} />
+            </div>
+          </>
+        ) : (
+          <p className="mt-2 text-ui-xs leading-4 text-muted">
+            Context usage will appear after {providerLabel(session.provider)} reports the first
+            turn.
+          </p>
+        )}
+        <div className="mt-3 space-y-1.5 border-t border-border pt-3">
+          <UsageRow label="Provider" text={providerLabel(session.provider)} />
+          <UsageRow label="Model" text={session.model} />
+          <UsageRow label="Effort" text={effortLabel(session.effort)} />
+          <UsageRow label="Next turn playhead" text={playheadLabel} />
+          {usage && (
+            <UsageRow
+              label="Updated"
+              text={new Date(usage.updatedAt).toLocaleTimeString([], {
+                hour: "numeric",
+                minute: "2-digit",
+              })}
+            />
+          )}
+        </div>
+      </div>
+    </details>
+  );
+}
+
+function ContextRing({ percent }: { percent: number }) {
+  const circumference = Math.PI * 14;
+  return (
+    <svg className="size-4 -rotate-90" viewBox="0 0 18 18" aria-hidden="true">
+      <circle cx="9" cy="9" r="7" fill="none" stroke="currentColor" strokeOpacity="0.2" />
+      <circle
+        cx="9"
+        cy="9"
+        r="7"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeDasharray={circumference}
+        strokeDashoffset={circumference * (1 - percent / 100)}
+      />
+    </svg>
+  );
+}
+
+function UsageRow({
+  label,
+  value,
+  text,
+}: {
+  label: string;
+  value?: number | undefined;
+  text?: string | undefined;
+}) {
+  if (value === undefined && text === undefined) return null;
+  return (
+    <div className="flex items-start justify-between gap-4 text-ui-xs">
+      <span className="text-muted">{label}</span>
+      <span className="max-w-40 break-words text-right tabular-nums text-secondary">
+        {text ?? formatTokens(value!)}
+      </span>
+    </div>
+  );
+}
+
+function formatTokens(value: number): string {
+  if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}m`;
+  if (value >= 1_000) return `${(value / 1_000).toFixed(1)}k`;
+  return String(value);
+}
+
+function effortLabel(effort: AgentEffort): string {
+  if (effort === "xhigh") return "Extra high";
+  if (effort === "max") return "Maximum";
+  return effort[0]!.toUpperCase() + effort.slice(1);
 }
 
 function EmptyAgentState({

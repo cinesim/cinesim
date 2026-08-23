@@ -14,6 +14,7 @@ import type { EditorCommand } from "@cinesim/core";
 import type {
   AgentCreateInput,
   AgentProviderKind,
+  AgentSessionUpdate,
   AgentSettingsUpdate,
   AgentTurnContext,
 } from "../shared/api";
@@ -32,6 +33,16 @@ let shutdown: Promise<void> | null = null;
 
 function isProvider(value: unknown): value is AgentProviderKind {
   return value === "claude" || value === "codex";
+}
+
+function isAgentEffort(value: unknown): value is NonNullable<AgentSessionUpdate["effort"]> {
+  return (
+    value === "low" ||
+    value === "medium" ||
+    value === "high" ||
+    value === "xhigh" ||
+    value === "max"
+  );
 }
 
 function quoteShellArgument(value: string): string {
@@ -59,9 +70,12 @@ function parseAgentSettingsUpdate(value: unknown): AgentSettingsUpdate {
     input.permissionMode !== "auto-edit"
   )
     throw new Error("Invalid agent approval mode");
+  if (input.effort !== undefined && !isAgentEffort(input.effort))
+    throw new Error("Invalid agent reasoning effort");
   if (
     (input.executablePath !== undefined ||
       input.model !== undefined ||
+      input.effort !== undefined ||
       input.permissionMode !== undefined) &&
     !isProvider(input.provider)
   )
@@ -71,6 +85,7 @@ function parseAgentSettingsUpdate(value: unknown): AgentSettingsUpdate {
     ...(isProvider(input.provider) ? { provider: input.provider } : {}),
     ...(typeof input.executablePath === "string" ? { executablePath: input.executablePath } : {}),
     ...(typeof input.model === "string" ? { model: input.model } : {}),
+    ...(isAgentEffort(input.effort) ? { effort: input.effort } : {}),
     ...(input.permissionMode === "supervised" || input.permissionMode === "auto-edit"
       ? { permissionMode: input.permissionMode }
       : {}),
@@ -91,6 +106,7 @@ function parseAgentCreateInput(value: unknown): AgentCreateInput {
     projectDirectory: record.projectDirectory,
     provider: record.provider,
     ...(input.model ? { model: input.model } : {}),
+    ...(input.effort ? { effort: input.effort } : {}),
     ...(input.permissionMode ? { permissionMode: input.permissionMode } : {}),
   };
 }
@@ -122,6 +138,23 @@ function parseAgentTurnContext(value: unknown): AgentTurnContext {
       : {}),
     ...(typeof input.playheadUs === "number" ? { playheadUs: input.playheadUs } : {}),
     ...(Array.isArray(input.selectedIds) ? { selectedIds: input.selectedIds as string[] } : {}),
+  };
+}
+
+function parseAgentSessionUpdate(value: unknown): AgentSessionUpdate {
+  if (typeof value !== "object" || value === null || Array.isArray(value))
+    throw new Error("Invalid agent session settings");
+  const input = value as Record<string, unknown>;
+  const parsed = parseAgentSettingsUpdate({
+    provider: "claude",
+    model: input.model,
+    effort: input.effort,
+    permissionMode: input.permissionMode,
+  });
+  return {
+    ...(parsed.model ? { model: parsed.model } : {}),
+    ...(parsed.effort ? { effort: parsed.effort } : {}),
+    ...(parsed.permissionMode ? { permissionMode: parsed.permissionMode } : {}),
   };
 }
 
@@ -352,6 +385,10 @@ function registerIpc(): void {
   ipcMain.handle("agents:create", (_event, input: unknown) =>
     agents.create(parseAgentCreateInput(input)),
   );
+  ipcMain.handle("agents:update", (_event, sessionId: unknown, update: unknown) => {
+    if (typeof sessionId !== "string") throw new Error("Invalid agent session");
+    return agents.update(sessionId, parseAgentSessionUpdate(update));
+  });
   ipcMain.handle("agents:select", (_event, projectDirectory: unknown, sessionId: unknown) => {
     if (typeof projectDirectory !== "string" || typeof sessionId !== "string")
       throw new Error("Invalid agent selection");

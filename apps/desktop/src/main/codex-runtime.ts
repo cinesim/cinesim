@@ -103,6 +103,7 @@ export class CodexRuntime implements AgentProviderRuntime {
         approvalPolicy: "never",
         approvalsReviewer: "user",
         sandboxPolicy: { type: "readOnly" },
+        effort: this.options.effort,
         ...(this.options.model ? { model: this.options.model } : {}),
       }),
     );
@@ -179,6 +180,30 @@ export class CodexRuntime implements AgentProviderRuntime {
         status === "failed" ? "failed" : status === "interrupted" ? "interrupted" : "completed",
         stringValue(error?.message),
       );
+      return;
+    }
+    if (method === "thread/tokenUsage/updated") {
+      const tokenUsage = asRecord(params.tokenUsage);
+      const last = asRecord(tokenUsage?.last);
+      const total = asRecord(tokenUsage?.total);
+      const usedTokens = this.#tokenCount(last?.totalTokens);
+      if (usedTokens > 0) {
+        const maxTokens = this.#tokenCount(tokenUsage?.modelContextWindow);
+        const totalProcessedTokens = this.#tokenCount(total?.totalTokens);
+        const inputTokens = this.#tokenCount(last?.inputTokens);
+        const cachedInputTokens = this.#tokenCount(last?.cachedInputTokens);
+        const outputTokens = this.#tokenCount(last?.outputTokens);
+        const reasoningOutputTokens = this.#tokenCount(last?.reasoningOutputTokens);
+        this.callbacks.onTokenUsage({
+          usedTokens: maxTokens > 0 ? Math.min(usedTokens, maxTokens) : usedTokens,
+          ...(maxTokens > 0 ? { maxTokens } : {}),
+          ...(inputTokens > 0 ? { inputTokens } : {}),
+          ...(cachedInputTokens > 0 ? { cachedInputTokens } : {}),
+          ...(outputTokens > 0 ? { outputTokens } : {}),
+          ...(reasoningOutputTokens > 0 ? { reasoningOutputTokens } : {}),
+          ...(totalProcessedTokens > usedTokens ? { totalProcessedTokens } : {}),
+        });
+      }
       return;
     }
     if (method === "item/agentMessage/delta") {
@@ -266,5 +291,11 @@ export class CodexRuntime implements AgentProviderRuntime {
     if (!this.#child || this.#child.stdin.destroyed)
       throw new Error("Codex input stream is closed");
     this.#child.stdin.write(`${JSON.stringify(value)}\n`);
+  }
+
+  #tokenCount(value: unknown): number {
+    return typeof value === "number" && Number.isFinite(value) && value >= 0
+      ? Math.round(value)
+      : 0;
   }
 }

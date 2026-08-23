@@ -7,6 +7,19 @@ import type {
 } from "./agent-runtime";
 import { asRecord, stringValue } from "./agent-runtime";
 
+function tokenCount(value: unknown): number {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0 ? Math.round(value) : 0;
+}
+
+function lastUsageIteration(usage: Record<string, unknown>): Record<string, unknown> {
+  const iterations = Array.isArray(usage.iterations) ? usage.iterations : [];
+  for (let index = iterations.length - 1; index >= 0; index -= 1) {
+    const iteration = asRecord(iterations[index]);
+    if (iteration) return iteration;
+  }
+  return usage;
+}
+
 export class ClaudeRuntime implements AgentProviderRuntime {
   #child: ChildProcessWithoutNullStreams | null = null;
   #sawAssistantDelta = false;
@@ -49,6 +62,8 @@ export class ClaudeRuntime implements AgentProviderRuntime {
       "--strict-mcp-config",
       "--append-system-prompt",
       this.options.instructions,
+      "--effort",
+      this.options.effort,
       ...(this.options.model ? ["--model", this.options.model] : []),
       ...(this.options.providerSessionId ? ["--resume", this.options.providerSessionId] : []),
     ];
@@ -143,6 +158,7 @@ export class ClaudeRuntime implements AgentProviderRuntime {
       return;
     }
     if (type === "result") {
+      this.#handleUsage(message);
       const subtype = stringValue(message.subtype);
       const failed = subtype !== "success";
       const errors = Array.isArray(message.errors)
@@ -150,6 +166,33 @@ export class ClaudeRuntime implements AgentProviderRuntime {
         : undefined;
       this.callbacks.onTurnCompleted(failed ? "failed" : "completed", errors);
     }
+  }
+
+  #handleUsage(message: Record<string, unknown>): void {
+    const rawUsage = asRecord(message.usage);
+    if (!rawUsage) return;
+    const usage = lastUsageIteration(rawUsage);
+    const uncachedInputTokens = tokenCount(usage.input_tokens);
+    const cachedInputTokens =
+      tokenCount(usage.cache_creation_input_tokens) + tokenCount(usage.cache_read_input_tokens);
+    const inputTokens = uncachedInputTokens + cachedInputTokens;
+    const outputTokens = tokenCount(usage.output_tokens);
+    const usedTokens = tokenCount(usage.total_tokens) || inputTokens + outputTokens;
+    if (usedTokens <= 0) return;
+    const modelUsage = asRecord(message.modelUsage);
+    const contextWindows = modelUsage
+      ? Object.values(modelUsage).map((value) => tokenCount(asRecord(value)?.contextWindow))
+      : [];
+    const maxTokens = Math.max(0, ...contextWindows);
+    const totalProcessedTokens = tokenCount(rawUsage.total_tokens);
+    this.callbacks.onTokenUsage({
+      usedTokens: maxTokens > 0 ? Math.min(usedTokens, maxTokens) : usedTokens,
+      ...(maxTokens > 0 ? { maxTokens } : {}),
+      ...(inputTokens > 0 ? { inputTokens } : {}),
+      ...(cachedInputTokens > 0 ? { cachedInputTokens } : {}),
+      ...(outputTokens > 0 ? { outputTokens } : {}),
+      ...(totalProcessedTokens > usedTokens ? { totalProcessedTokens } : {}),
+    });
   }
 
   #handleStreamEvent(event: Record<string, unknown> | null): void {

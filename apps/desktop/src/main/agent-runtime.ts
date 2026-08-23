@@ -1,4 +1,4 @@
-import type { AgentEventKind } from "../shared/api";
+import type { AgentEffort, AgentEventKind, AgentTokenUsage } from "../shared/api";
 
 export interface AgentRuntimeEvent {
   kind: AgentEventKind;
@@ -14,6 +14,7 @@ export interface AgentRuntimeCallbacks {
   onProviderSessionId(providerSessionId: string): void;
   onTurnStarted(providerTurnId?: string): void;
   onTurnCompleted(status: "completed" | "failed" | "interrupted", detail?: string): void;
+  onTokenUsage(usage: Omit<AgentTokenUsage, "updatedAt">): void;
   onApproval(title: string, detail: string): Promise<boolean>;
   onExit(detail?: string): void;
 }
@@ -29,6 +30,7 @@ export interface AgentRuntimeLaunchOptions {
   executablePath: string;
   cwd: string;
   model: string;
+  effort: AgentEffort;
   providerSessionId?: string;
   mcpUrl: string;
   mcpToken: string;

@@ -24,6 +24,7 @@ describe("AgentSettingsStore", () => {
       provider: "codex",
       executablePath: "/opt/local/bin/codex",
       model: "gpt-test",
+      effort: "max",
       permissionMode: "auto-edit",
     });
     await store.update({ defaultProvider: "codex" });
@@ -36,6 +37,7 @@ describe("AgentSettingsStore", () => {
         codex: {
           executablePath: "/opt/local/bin/codex",
           model: "gpt-test",
+          effort: "max",
           permissionMode: "auto-edit",
         },
       },

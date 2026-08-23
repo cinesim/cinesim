@@ -66,7 +66,7 @@ The desktop also has independently resizable, animated left and agent sidebars w
 
 ## Local agents
 
-Agent chats use the user's installed Claude Code or Codex executable and persist normalized transcripts outside the canonical project. Claude runs through its streaming JSON protocol; Codex runs through the `app-server` JSON-RPC protocol. Provider-specific events are normalized before they reach React, so the sidebar can render messages, reasoning, tool progress, approval requests, errors, and completion consistently.
+Agent chats use the user's installed Claude Code or Codex executable and persist normalized transcripts outside the canonical project. Claude runs through its streaming JSON protocol; Codex runs through the `app-server` JSON-RPC protocol. Provider-specific events are normalized before they reach React, so the sidebar can render messages, reasoning, tool progress, approval requests, errors, completion, and provider-reported context-window usage consistently. The composer exposes functional per-session model and reasoning-effort controls, next-turn timeline context, and a context-remaining breakdown without estimating data a provider did not report; approval defaults remain in Agents settings.
 
 Each provider receives a session-scoped, bearer-authenticated loopback MCP endpoint. The embedded MCP server is owned by Electron main and delegates inspection and timeline edits to the already-open `DesktopProjectStore`; it does not create a second writer or duplicate editing semantics. Supervised mode asks in the Cinesim UI before canonical edits, while auto-edit mode allows the same validated commands without the prompt. One mutating agent may run per project at a time.
 

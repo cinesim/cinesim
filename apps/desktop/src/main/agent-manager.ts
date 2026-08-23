@@ -6,6 +6,8 @@ import type {
   AgentEvent,
   AgentProjectSnapshot,
   AgentSessionSnapshot,
+  AgentSessionUpdate,
+  AgentTokenUsage,
   AgentTurnContext,
 } from "../shared/api";
 import { AgentCheckpointStore } from "./agent-checkpoints";
@@ -88,6 +90,8 @@ export class AgentManager implements AgentToolHooks {
       const record = candidate as Record<string, unknown>;
       const sessions = Array.isArray(record.sessions) ? record.sessions.filter(isSession) : [];
       for (const session of sessions) {
+        if (!(["low", "medium", "high", "xhigh", "max"] as const).includes(session.effort))
+          session.effort = this.settingsStore.snapshot().providers[session.provider].effort;
         const resolvedApprovals = new Set(
           session.events
             .filter((event) => event.kind === "approval-resolved")
@@ -166,6 +170,7 @@ export class AgentManager implements AgentToolHooks {
       projectDirectory: input.projectDirectory,
       provider: input.provider,
       model: input.model?.trim() || settings.model,
+      effort: input.effort ?? settings.effort,
       permissionMode: input.permissionMode ?? settings.permissionMode,
       title: `New ${input.provider === "claude" ? "Claude" : "Codex"} agent`,
       status: "idle",
@@ -185,6 +190,33 @@ export class AgentManager implements AgentToolHooks {
       throw new Error("Agent is not in this project");
     this.#state.activeSessionByProject[projectDirectory] = sessionId;
     return this.#changed(projectDirectory);
+  }
+
+  async update(sessionId: string, input: AgentSessionUpdate): Promise<AgentProjectSnapshot> {
+    const session = this.#requireSession(sessionId);
+    if (
+      session.status === "starting" ||
+      session.status === "working" ||
+      session.status === "waiting"
+    )
+      throw new Error("Stop this agent before changing its model or approval mode");
+    const model = input.model?.trim();
+    const nextModel = model || session.model;
+    const nextEffort = input.effort ?? session.effort;
+    const nextPermissionMode = input.permissionMode ?? session.permissionMode;
+    if (
+      nextModel !== session.model ||
+      nextEffort !== session.effort ||
+      nextPermissionMode !== session.permissionMode
+    ) {
+      await this.#stopRuntime(sessionId);
+      if (nextModel !== session.model) session.tokenUsage = undefined;
+      session.model = nextModel;
+      session.effort = nextEffort;
+      session.permissionMode = nextPermissionMode;
+      session.updatedAt = now();
+    }
+    return this.#changed(session.projectDirectory);
   }
 
   async delete(projectDirectory: string, sessionId: string): Promise<AgentProjectSnapshot> {
@@ -297,6 +329,7 @@ export class AgentManager implements AgentToolHooks {
     await this.#checkpointStore(session.projectDirectory).restore(checkpoint.beforeRef);
     await this.projectStore.open(session.projectDirectory);
     session.providerSessionId = undefined;
+    session.tokenUsage = undefined;
     session.activeTurnId = undefined;
     session.status = "completed";
     session.updatedAt = now();
@@ -411,6 +444,11 @@ export class AgentManager implements AgentToolHooks {
       },
       onTurnCompleted: (status: "completed" | "failed" | "interrupted", detail?: string) =>
         void this.#completeTurn(session.id, status, detail),
+      onTokenUsage: (usage: Omit<AgentTokenUsage, "updatedAt">) => {
+        session.tokenUsage = { ...usage, updatedAt: now() };
+        session.updatedAt = now();
+        this.#changed(session.projectDirectory);
+      },
       onApproval: (title: string, detail: string) =>
         this.requestApproval(session.id, title, detail),
       onExit: (detail?: string) => void this.#providerExited(session.id, detail),
@@ -419,6 +457,7 @@ export class AgentManager implements AgentToolHooks {
       executablePath: providerSettings.executablePath,
       cwd: session.projectDirectory,
       model: session.model,
+      effort: session.effort,
       ...(session.providerSessionId ? { providerSessionId: session.providerSessionId } : {}),
       mcpUrl: credential.url,
       mcpToken: credential.token,

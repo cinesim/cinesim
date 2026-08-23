@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 import { cn } from "@cinesim/ui";
 import type {
+  AgentEffort,
   AgentPermissionMode,
   AgentProviderKind,
   AgentProviderStatus,
@@ -80,6 +81,7 @@ function AgentSettings() {
   async function updateProvider(input: {
     executablePath?: string;
     model?: string;
+    effort?: AgentEffort;
     permissionMode?: AgentPermissionMode;
   }): Promise<void> {
     const next = await window.cinesim.updateAgentSettings({ provider, ...input });
@@ -202,6 +204,22 @@ function AgentSettings() {
             }
             onBlur={(event) => void updateProvider({ model: event.target.value })}
           />
+        </SettingRow>
+        <SettingRow
+          title="Reasoning effort"
+          detail="Default thinking depth for new sessions with this provider."
+        >
+          <select
+            className="h-9 w-full rounded-md border border-border bg-canvas px-3 text-ui text-primary outline-none focus:border-border-strong"
+            value={configured.effort}
+            onChange={(event) => void updateProvider({ effort: event.target.value as AgentEffort })}
+          >
+            <option value="low">Low</option>
+            <option value="medium">Medium</option>
+            <option value="high">High</option>
+            <option value="xhigh">Extra high</option>
+            <option value="max">Maximum</option>
+          </select>
         </SettingRow>
         <SettingRow
           title="Editing approvals"

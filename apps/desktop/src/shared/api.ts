@@ -11,10 +11,12 @@ export interface DesktopProjectSession {
 
 export type AgentProviderKind = "claude" | "codex";
 export type AgentPermissionMode = "supervised" | "auto-edit";
+export type AgentEffort = "low" | "medium" | "high" | "xhigh" | "max";
 
 export interface AgentProviderSettings {
   executablePath: string;
   model: string;
+  effort: AgentEffort;
   permissionMode: AgentPermissionMode;
 }
 
@@ -78,11 +80,23 @@ export interface AgentCheckpoint {
   createdAt: string;
 }
 
+export interface AgentTokenUsage {
+  usedTokens: number;
+  maxTokens?: number;
+  inputTokens?: number;
+  cachedInputTokens?: number;
+  outputTokens?: number;
+  reasoningOutputTokens?: number;
+  totalProcessedTokens?: number;
+  updatedAt: string;
+}
+
 export interface AgentSessionSnapshot {
   id: string;
   projectDirectory: string;
   provider: AgentProviderKind;
   model: string;
+  effort: AgentEffort;
   permissionMode: AgentPermissionMode;
   title: string;
   status: AgentSessionStatus;
@@ -90,6 +104,7 @@ export interface AgentSessionSnapshot {
   updatedAt: string;
   providerSessionId?: string | undefined;
   activeTurnId?: string | undefined;
+  tokenUsage?: AgentTokenUsage | undefined;
   events: AgentEvent[];
   checkpoints: AgentCheckpoint[];
 }
@@ -110,6 +125,13 @@ export interface AgentCreateInput {
   projectDirectory: string;
   provider: AgentProviderKind;
   model?: string;
+  effort?: AgentEffort;
+  permissionMode?: AgentPermissionMode;
+}
+
+export interface AgentSessionUpdate {
+  model?: string;
+  effort?: AgentEffort;
   permissionMode?: AgentPermissionMode;
 }
 
@@ -118,6 +140,7 @@ export interface AgentSettingsUpdate {
   provider?: AgentProviderKind;
   executablePath?: string;
   model?: string;
+  effort?: AgentEffort;
   permissionMode?: AgentPermissionMode;
 }
 
@@ -159,6 +182,7 @@ export interface DesktopApi {
   openAgentLogin(provider: AgentProviderKind): Promise<string>;
   getAgents(projectDirectory: string): Promise<AgentProjectSnapshot>;
   createAgent(input: AgentCreateInput): Promise<AgentProjectSnapshot>;
+  updateAgent(sessionId: string, update: AgentSessionUpdate): Promise<AgentProjectSnapshot>;
   selectAgent(projectDirectory: string, sessionId: string): Promise<AgentProjectSnapshot>;
   deleteAgent(projectDirectory: string, sessionId: string): Promise<AgentProjectSnapshot>;
   sendAgentMessage(
