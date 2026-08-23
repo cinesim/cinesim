@@ -8,10 +8,21 @@ import {
   ChevronRight,
   CircleAlert,
   Clock3,
+  FilePenLine,
+  FileSearch,
+  Film,
+  FolderSearch,
+  Image as ImageIcon,
+  ListTree,
+  ListVideo,
+  Move,
   Plus,
   RotateCcw,
+  Scissors,
+  Search,
   Settings,
   Square,
+  Terminal,
   Trash2,
   Wrench,
 } from "lucide-react";
@@ -832,25 +843,35 @@ function AgentEventView({
       </div>
     );
   }
-  if (event.kind === "tool-started" || event.kind === "tool-completed")
+  if (event.kind === "tool-started" || event.kind === "tool-completed") {
+    const detail = event.detail?.trim();
+    const showDetail = detail && !["completed", "running"].includes(detail.toLowerCase());
+    const toolTitle = event.title ?? event.toolName ?? "Tool";
     return (
-      <div className="flex items-start gap-2 rounded-lg border border-border bg-panel-muted px-2.5 py-2">
-        <Wrench size={13} className="mt-0.5 shrink-0 text-muted" />
-        <div className="min-w-0 flex-1">
-          <p className="truncate text-ui-xs font-medium capitalize text-secondary">{event.title}</p>
-          {event.detail && (
-            <p className="mt-0.5 break-words text-ui-xs leading-4 text-muted">{event.detail}</p>
-          )}
-        </div>
+      <div className="flex min-w-0 items-center gap-2 px-1 py-1 text-ui-xs text-muted">
+        <ToolEventIcon toolName={event.toolName} title={toolTitle} />
+        <span className="shrink-0 font-medium text-secondary">
+          {toolEventLabel(event.toolName ?? toolTitle)}
+        </span>
+        {showDetail && (
+          <span
+            className="min-w-0 truncate rounded bg-surface px-1.5 py-0.5 text-disabled"
+            title={detail}
+          >
+            {detail}
+          </span>
+        )}
+        <span className="min-w-0 flex-1" />
         {event.status === "running" ? (
-          <span className="mt-1 size-1.5 animate-pulse rounded-full bg-muted" />
+          <span className="size-1.5 shrink-0 animate-pulse rounded-full bg-muted" />
         ) : event.status === "failed" ? (
-          <CircleAlert size={12} className="text-muted" />
+          <CircleAlert size={12} className="shrink-0 text-muted" />
         ) : (
-          <Check size={12} className="text-muted" />
+          <Check size={12} className="shrink-0 text-muted" />
         )}
       </div>
     );
+  }
   return (
     <div
       className={cn(
@@ -864,6 +885,54 @@ function AgentEventView({
       {event.detail && <p className="break-words">{event.detail}</p>}
     </div>
   );
+}
+
+function ToolEventIcon({ toolName, title }: { toolName: string | undefined; title: string }) {
+  const normalized = (toolName ?? title).toLowerCase().replaceAll(/[-_\s]/g, "");
+  const Icon = normalized.includes("projectinspect")
+    ? FolderSearch
+    : normalized.includes("timeline")
+      ? ListTree
+      : normalized.includes("assetslist")
+        ? ListVideo
+        : normalized.includes("assetinspect")
+          ? FileSearch
+          : normalized.includes("filmstrip")
+            ? Film
+            : normalized.includes("frame")
+              ? ImageIcon
+              : normalized.includes("clipadd")
+                ? Plus
+                : normalized.includes("clipmove")
+                  ? Move
+                  : normalized.includes("cliptrim") || normalized.includes("clipsplit")
+                    ? Scissors
+                    : normalized.includes("clipdelete")
+                      ? Trash2
+                      : normalized.includes("filechange") || normalized.includes("edit")
+                        ? FilePenLine
+                        : normalized.includes("command") ||
+                            normalized.includes("shell") ||
+                            normalized.includes("bash")
+                          ? Terminal
+                          : normalized.includes("search")
+                            ? Search
+                            : Wrench;
+  return <Icon size={13} className="shrink-0" />;
+}
+
+function toolEventLabel(value: string): string {
+  const normalized = value.toLowerCase().replaceAll(/[-_\s]/g, "");
+  if (normalized.includes("command") || normalized.includes("shell") || normalized.includes("bash"))
+    return "Bash";
+  if (normalized.includes("filechange")) return "Edit";
+  return value
+    .replaceAll(/([a-z0-9])([A-Z])/g, "$1 $2")
+    .replaceAll(/[-_]+/g, " ")
+    .trim()
+    .split(/\s+/)
+    .map((word) => word[0]!.toUpperCase() + word.slice(1))
+    .join(" ");
 }
 
 function providerLabel(provider: AgentProviderKind): string {
