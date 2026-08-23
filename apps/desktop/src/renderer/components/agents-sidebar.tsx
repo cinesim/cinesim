@@ -279,7 +279,7 @@ export function AgentsSidebar({ session, onConfigure }: AgentsSidebarProps) {
         />
       ) : (
         <>
-          <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto px-3 py-3">
+          <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto px-3 pb-14 pt-3">
             {activeSession.events.length > 0 && (
               <div className="space-y-2.5">
                 {activeSession.events.map((event) => (
@@ -298,7 +298,11 @@ export function AgentsSidebar({ session, onConfigure }: AgentsSidebarProps) {
               {error}
             </p>
           )}
-          <div className="shrink-0 p-3">
+          <div className="relative z-10 shrink-0 bg-canvas p-3">
+            <div
+              className="pointer-events-none absolute inset-x-0 -top-14 h-14 bg-linear-to-b from-transparent via-canvas/80 to-canvas"
+              aria-hidden="true"
+            />
             <div className="rounded-xl border border-border bg-canvas p-2.5 shadow-sm shadow-black/5 transition-colors focus-within:border-border-strong">
               <textarea
                 className="block max-h-44 min-h-24 w-full resize-none bg-transparent px-1 py-0.5 text-ui leading-5 text-primary outline-none placeholder:text-disabled"
