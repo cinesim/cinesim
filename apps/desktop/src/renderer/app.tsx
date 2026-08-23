@@ -139,13 +139,6 @@ export function App() {
     setAppState(await window.cinesim.setProjectEditorLayout(layout));
   }
 
-  if (loading)
-    return (
-      <div className="app-drag grid h-screen place-items-center bg-canvas text-ui text-muted">
-        Preparing Cinesim…
-      </div>
-    );
-
   const title =
     destination === "settings"
       ? "Settings"
@@ -245,7 +238,12 @@ export function App() {
           onSession={setSession}
         />
       ) : (
-        <Welcome appState={appState} error={error} onOpen={(next) => void showProject(next)} />
+        <Welcome
+          appState={appState}
+          error={error}
+          loading={loading}
+          onOpen={(next) => void showProject(next)}
+        />
       )}
     </AppShell>
   );

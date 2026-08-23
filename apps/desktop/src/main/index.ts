@@ -171,6 +171,7 @@ function createWindow(): BrowserWindow {
     height: 982,
     minWidth: 1080,
     minHeight: 700,
+    show: false,
     backgroundColor: nativeTheme.shouldUseDarkColors ? "#111111" : "#f9f9f9",
     titleBarStyle: "hiddenInset",
     trafficLightPosition: { x: 16, y: 14 },
@@ -182,6 +183,7 @@ function createWindow(): BrowserWindow {
       webSecurity: true,
     },
   });
+  window.once("ready-to-show", () => window.show());
   window.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
   window.webContents.on("will-navigate", (event) => event.preventDefault());
   const developmentUrl = process.env.CINESIM_DEV_SERVER_URL;
