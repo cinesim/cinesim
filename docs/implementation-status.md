@@ -62,6 +62,8 @@ Audio uses Mediabunny `AudioBufferSink`. A Web Audio scheduler anchors timeline 
 
 Implemented surfaces include project create/open, media import/bin, double-click add to timeline, WebGPU viewer transport/scrubber, multi-track custom timeline, dnd-kit clip movement, pointer edge trims, selection/blade tools, split/delete, inspector, Lexical working-notes surface, undo/redo/save/reveal controls, and a throttled runtime metrics overlay. Zustand stores only ephemeral UI state; canonical project snapshots remain outside it.
 
+The Edit workspace has persistent splitters for the Media Pool, Inspector, Notes, and Timeline. Media Pool, Inspector, and Notes visibility and final panel sizes are stored per project in the desktop's noncanonical UI state; resize movement does not write project files or create undo history.
+
 The desktop also has independently resizable, animated left and agent sidebars whose open state and width survive reloads. The settings destination replaces the project navigation with settings sections, including an Agents page for local Claude Code and Codex discovery, login status, executable paths, models, approval modes, and the default provider.
 
 ## Local agents

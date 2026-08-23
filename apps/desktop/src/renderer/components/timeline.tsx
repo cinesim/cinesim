@@ -160,9 +160,8 @@ export function Timeline({ project, onCommand }: TimelineProps) {
   const tickCount = Math.ceil(contentDurationUs / 1_000_000 / majorSecondStep);
 
   return (
-    <section className="flex min-h-0 flex-col border-t border-border bg-panel-muted">
+    <section className="flex min-h-0 flex-col bg-panel-muted">
       <div className="flex h-10 shrink-0 items-center gap-1 border-b border-border px-2">
-        <span className="panel-title mr-3">Timeline</span>
         <Button
           size="icon"
           variant={tool === "select" ? "secondary" : "ghost"}

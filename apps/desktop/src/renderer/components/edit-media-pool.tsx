@@ -25,14 +25,9 @@ export function EditMediaPool({ project, onAddAsset, onImport }: EditMediaPoolPr
   );
 
   return (
-    <aside className="flex min-h-0 flex-col border-r border-border bg-panel">
-      <div className="flex h-10 shrink-0 items-center border-b border-border px-3">
-        <span className="panel-title">Media Pool</span>
-        <span className="ml-auto text-ui-xs text-muted">{project.assets.length}</span>
-      </div>
-
-      <div className="border-b border-border p-2">
-        <div className="flex h-8 items-center gap-2 rounded-md border border-border bg-panel-muted px-2 text-muted">
+    <aside className="flex min-h-0 flex-col bg-panel">
+      <div className="flex h-10 shrink-0 items-center border-b border-border px-2">
+        <div className="flex h-8 w-full items-center gap-2 rounded-md border border-border bg-panel-muted px-2 text-muted">
           <Search size={12} />
           <input
             className="min-w-0 flex-1 bg-transparent text-ui-xs text-secondary outline-none placeholder:text-muted"

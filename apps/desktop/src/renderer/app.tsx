@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
-import { Library } from "lucide-react";
+import { Library, SlidersHorizontal, StickyNote } from "lucide-react";
 import { Button } from "@cinesim/ui";
-import type { DesktopAppState, DesktopProjectSession } from "../shared/api";
+import { DEFAULT_EDITOR_LAYOUT } from "../shared/api";
+import type { DesktopAppState, DesktopProjectSession, EditorLayoutState } from "../shared/api";
 import { AgentsSidebar } from "./components/agents-sidebar";
 import { AppShell } from "./components/app-shell";
 import { Settings } from "./components/settings";
@@ -16,6 +17,9 @@ const EMPTY_APP_STATE: DesktopAppState = {
   version: 1,
   recentProjects: [],
   mediaPoolOpenByProject: {},
+  inspectorOpenByProject: {},
+  notesOpenByProject: {},
+  editorLayoutsByProject: {},
 };
 
 export function App() {
@@ -25,6 +29,8 @@ export function App() {
   const [projectSection, setProjectSection] = useState<ProjectSection>("media");
   const [activeSequenceId, setActiveSequenceId] = useState<string | null>(null);
   const [mediaPoolOpen, setMediaPoolOpen] = useState(true);
+  const [inspectorOpen, setInspectorOpen] = useState(true);
+  const [notesOpen, setNotesOpen] = useState(true);
   const [settingsSection, setSettingsSection] = useState<"general" | "agents">("general");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -39,6 +45,10 @@ export function App() {
           setMediaPoolOpen(
             currentAppState.mediaPoolOpenByProject[currentSession.directory] ?? true,
           );
+          setInspectorOpen(
+            currentAppState.inspectorOpenByProject[currentSession.directory] ?? true,
+          );
+          setNotesOpen(currentAppState.notesOpenByProject[currentSession.directory] ?? true);
           setDestination("project");
         }
       })
@@ -56,6 +66,8 @@ export function App() {
     setProjectSection("media");
     setActiveSequenceId(nextSession.project.activeSequenceId);
     setMediaPoolOpen(nextAppState.mediaPoolOpenByProject[nextSession.directory] ?? true);
+    setInspectorOpen(nextAppState.inspectorOpenByProject[nextSession.directory] ?? true);
+    setNotesOpen(nextAppState.notesOpenByProject[nextSession.directory] ?? true);
     setDestination("project");
     setError(null);
     setAppState(nextAppState);
@@ -98,6 +110,35 @@ export function App() {
       });
   }
 
+  function toggleInspector(): void {
+    if (!session) return;
+    const nextOpen = !inspectorOpen;
+    setInspectorOpen(nextOpen);
+    void window.cinesim
+      .setProjectInspectorOpen(nextOpen)
+      .then(setAppState)
+      .catch(() => {
+        setInspectorOpen(!nextOpen);
+      });
+  }
+
+  function toggleNotes(): void {
+    if (!session) return;
+    const nextOpen = !notesOpen;
+    setNotesOpen(nextOpen);
+    void window.cinesim
+      .setProjectNotesOpen(nextOpen)
+      .then(setAppState)
+      .catch(() => {
+        setNotesOpen(!nextOpen);
+      });
+  }
+
+  async function saveEditorLayout(layout: EditorLayoutState): Promise<void> {
+    if (!session) return;
+    setAppState(await window.cinesim.setProjectEditorLayout(layout));
+  }
+
   if (loading)
     return (
       <div className="app-drag grid h-screen place-items-center bg-canvas text-ui text-muted">
@@ -123,14 +164,38 @@ export function App() {
       title={title}
       leadingToolbar={
         destination === "project" && session && projectSection === "edit" ? (
-          <Button
-            size="sm"
-            variant={mediaPoolOpen ? "secondary" : "ghost"}
-            aria-pressed={mediaPoolOpen}
-            onClick={toggleMediaPool}
-          >
-            <Library size={13} /> Media Pool
-          </Button>
+          <div className="flex items-center gap-1">
+            <Button
+              size="icon"
+              variant={mediaPoolOpen ? "secondary" : "ghost"}
+              aria-label={mediaPoolOpen ? "Hide Media Pool" : "Show Media Pool"}
+              aria-pressed={mediaPoolOpen}
+              title={mediaPoolOpen ? "Hide Media Pool" : "Show Media Pool"}
+              onClick={toggleMediaPool}
+            >
+              <Library size={14} />
+            </Button>
+            <Button
+              size="icon"
+              variant={inspectorOpen ? "secondary" : "ghost"}
+              aria-label={inspectorOpen ? "Hide Inspector" : "Show Inspector"}
+              aria-pressed={inspectorOpen}
+              title={inspectorOpen ? "Hide Inspector" : "Show Inspector"}
+              onClick={toggleInspector}
+            >
+              <SlidersHorizontal size={14} />
+            </Button>
+            <Button
+              size="icon"
+              variant={notesOpen ? "secondary" : "ghost"}
+              aria-label={notesOpen ? "Hide Notes" : "Show Notes"}
+              aria-pressed={notesOpen}
+              title={notesOpen ? "Hide Notes" : "Show Notes"}
+              onClick={toggleNotes}
+            >
+              <StickyNote size={14} />
+            </Button>
+          </div>
         ) : undefined
       }
       toolbar={
@@ -169,10 +234,14 @@ export function App() {
           section={projectSection}
           activeSequenceId={activeSequenceId ?? session.project.activeSequenceId}
           mediaPoolOpen={mediaPoolOpen}
+          inspectorOpen={inspectorOpen}
+          notesOpen={notesOpen}
+          editorLayout={appState.editorLayoutsByProject[session.directory] ?? DEFAULT_EDITOR_LAYOUT}
           onOpenTimeline={(sequenceId) => {
             setActiveSequenceId(sequenceId);
             setProjectSection("edit");
           }}
+          onEditorLayout={saveEditorLayout}
           onSession={setSession}
         />
       ) : (

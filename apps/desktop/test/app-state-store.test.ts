@@ -27,6 +27,9 @@ describe("DesktopAppStateStore", () => {
       version: 1,
       recentProjects: [],
       mediaPoolOpenByProject: {},
+      inspectorOpenByProject: {},
+      notesOpenByProject: {},
+      editorLayoutsByProject: {},
     });
 
     await store.rememberProject({ name: "First", directory: "/films/first" });
@@ -49,6 +52,9 @@ describe("DesktopAppStateStore", () => {
       version: 1,
       recentProjects: [],
       mediaPoolOpenByProject: {},
+      inspectorOpenByProject: {},
+      notesOpenByProject: {},
+      editorLayoutsByProject: {},
     });
   });
 
@@ -75,6 +81,9 @@ describe("DesktopAppStateStore", () => {
       version: 1,
       recentProjects: [{ name: "First", directory: "/films/first" }],
       mediaPoolOpenByProject: {},
+      inspectorOpenByProject: {},
+      notesOpenByProject: {},
+      editorLayoutsByProject: {},
     });
   });
 
@@ -90,6 +99,97 @@ describe("DesktopAppStateStore", () => {
     expect(restored.snapshot().mediaPoolOpenByProject).toEqual({
       "/films/first": false,
       "/films/second": true,
+    });
+  });
+
+  it("persists the Inspector state per project", async () => {
+    const { path } = await stateFixture();
+    const store = new DesktopAppStateStore(path);
+    await store.load();
+    await store.setInspectorOpen("/films/first", false);
+    await store.setInspectorOpen("/films/second", true);
+
+    const restored = new DesktopAppStateStore(path);
+    await restored.load();
+    expect(restored.snapshot().inspectorOpenByProject).toEqual({
+      "/films/first": false,
+      "/films/second": true,
+    });
+  });
+
+  it("persists the Notes state per project", async () => {
+    const { path } = await stateFixture();
+    const store = new DesktopAppStateStore(path);
+    await store.load();
+    await store.setNotesOpen("/films/first", false);
+    await store.setNotesOpen("/films/second", true);
+
+    const restored = new DesktopAppStateStore(path);
+    await restored.load();
+    expect(restored.snapshot().notesOpenByProject).toEqual({
+      "/films/first": false,
+      "/films/second": true,
+    });
+  });
+
+  it("persists editor panel sizes per project", async () => {
+    const { path } = await stateFixture();
+    const store = new DesktopAppStateStore(path);
+    await store.load();
+    await store.setEditorLayout("/films/first", {
+      mediaPoolWidth: 310,
+      inspectorWidth: 295,
+      notesWidth: 330,
+      timelineHeight: 360,
+    });
+
+    const restored = new DesktopAppStateStore(path);
+    await restored.load();
+    expect(restored.snapshot().editorLayoutsByProject).toEqual({
+      "/films/first": {
+        mediaPoolWidth: 310,
+        inspectorWidth: 295,
+        notesWidth: 330,
+        timelineHeight: 360,
+      },
+    });
+  });
+
+  it("ignores invalid persisted editor layouts", async () => {
+    const { path } = await stateFixture();
+    await writeFile(
+      path,
+      JSON.stringify({
+        version: 1,
+        recentProjects: [],
+        mediaPoolOpenByProject: {},
+        inspectorOpenByProject: {},
+        notesOpenByProject: {},
+        editorLayoutsByProject: {
+          "/films/valid": {
+            mediaPoolWidth: 280,
+            inspectorWidth: 300,
+            timelineHeight: 320,
+          },
+          "/films/invalid": {
+            mediaPoolWidth: -1,
+            inspectorWidth: 300,
+            timelineHeight: 320,
+          },
+        },
+      }),
+      "utf8",
+    );
+
+    const store = new DesktopAppStateStore(path);
+    await store.load();
+    expect(store.snapshot().editorLayoutsByProject).toEqual({
+      "/films/valid": {
+        mediaPoolWidth: 280,
+        inspectorWidth: 300,
+        notesWidth: 300,
+        timelineHeight: 320,
+      },
     });
   });
 });

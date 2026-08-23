@@ -21,7 +21,7 @@ import type {
 import { AgentManager } from "./agent-manager";
 import { detectProvider } from "./agent-provider-detection";
 import { AgentSettingsStore } from "./agent-settings-store";
-import { DesktopAppStateStore } from "./app-state-store";
+import { DesktopAppStateStore, parseEditorLayoutState } from "./app-state-store";
 import { DesktopProjectStore } from "./project-store";
 
 const store = new DesktopProjectStore();
@@ -305,6 +305,25 @@ function registerIpc(): void {
     if (!store.directory || typeof open !== "boolean")
       throw new Error("Open a project before changing the Media Pool");
     await appState.setMediaPoolOpen(store.directory, open);
+    return appState.snapshot();
+  });
+  ipcMain.handle("app-state:set-inspector-open", async (_event, open: unknown) => {
+    if (!store.directory || typeof open !== "boolean")
+      throw new Error("Open a project before changing the Inspector");
+    await appState.setInspectorOpen(store.directory, open);
+    return appState.snapshot();
+  });
+  ipcMain.handle("app-state:set-notes-open", async (_event, open: unknown) => {
+    if (!store.directory || typeof open !== "boolean")
+      throw new Error("Open a project before changing Notes");
+    await appState.setNotesOpen(store.directory, open);
+    return appState.snapshot();
+  });
+  ipcMain.handle("app-state:set-editor-layout", async (_event, input: unknown) => {
+    if (!store.directory) throw new Error("Open a project before changing the editor layout");
+    const layout = parseEditorLayoutState(input);
+    if (!layout) throw new Error("Invalid editor layout");
+    await appState.setEditorLayout(store.directory, layout);
     return appState.snapshot();
   });
   ipcMain.handle("agents:settings:get", () => agentSettings.snapshot());
