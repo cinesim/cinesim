@@ -58,6 +58,8 @@ export class DesktopProjectStore {
   #directory: string | null = null;
   #history: ProjectHistory | null = null;
   #settings: ProjectSettings = DEFAULT_SETTINGS;
+  #revision = 0;
+  #operationQueue: Promise<unknown> = Promise.resolve();
 
   get directory(): string | null {
     return this.#directory;
@@ -68,35 +70,40 @@ export class DesktopProjectStore {
   }
 
   async create(parentDirectory: string, name: string): Promise<DesktopProjectSession> {
-    const slug =
-      name
-        .trim()
-        .toLowerCase()
-        .replace(/[^a-z0-9]+/g, "-")
-        .replace(/^-|-$/g, "") || "untitled-project";
-    const directory = join(parentDirectory, slug);
-    await mkdir(directory, { recursive: false });
-    const project = createProject({ name });
-    this.#directory = directory;
-    this.#history = new ProjectHistory(project);
-    this.#settings = DEFAULT_SETTINGS;
-    await this.#ensureLayout();
-    await this.save();
-    return this.session();
+    return this.#serialize(async () => {
+      const slug =
+        name
+          .trim()
+          .toLowerCase()
+          .replace(/[^a-z0-9]+/g, "-")
+          .replace(/^-|-$/g, "") || "untitled-project";
+      const directory = join(parentDirectory, slug);
+      await mkdir(directory, { recursive: false });
+      const project = createProject({ name });
+      this.#directory = directory;
+      this.#history = new ProjectHistory(project);
+      this.#settings = DEFAULT_SETTINGS;
+      this.#revision = 1;
+      await this.#ensureLayout();
+      return this.#persist();
+    });
   }
 
   async open(directory: string): Promise<DesktopProjectSession> {
-    const manifest = await readJson(join(directory, PROJECT_FILES.manifest));
-    const assets = await readJson(join(directory, PROJECT_FILES.assets));
-    const timeline = await readJson(join(directory, PROJECT_FILES.timeline));
-    const settings = settingsFromToml(
-      await readFile(join(directory, PROJECT_FILES.settings), "utf8"),
-    );
-    this.#directory = directory;
-    this.#history = new ProjectHistory(joinProjectFiles(manifest, assets, timeline));
-    this.#settings = settings;
-    await this.#ensureLayout();
-    return this.session();
+    return this.#serialize(async () => {
+      const manifest = await readJson(join(directory, PROJECT_FILES.manifest));
+      const assets = await readJson(join(directory, PROJECT_FILES.assets));
+      const timeline = await readJson(join(directory, PROJECT_FILES.timeline));
+      const settings = settingsFromToml(
+        await readFile(join(directory, PROJECT_FILES.settings), "utf8"),
+      );
+      this.#directory = directory;
+      this.#history = new ProjectHistory(joinProjectFiles(manifest, assets, timeline));
+      this.#settings = settings;
+      this.#revision += 1;
+      await this.#ensureLayout();
+      return this.session();
+    });
   }
 
   async #ensureLayout(): Promise<void> {
@@ -114,6 +121,10 @@ export class DesktopProjectStore {
   }
 
   async save(): Promise<DesktopProjectSession> {
+    return this.#serialize(() => this.#persist());
+  }
+
+  async #persist(): Promise<DesktopProjectSession> {
     const directory = this.#requireDirectory();
     const files = splitProjectFiles(this.#requireProject());
     await Promise.all([
@@ -126,25 +137,34 @@ export class DesktopProjectStore {
   }
 
   async execute(command: EditorCommand) {
-    const project = this.#requireProject();
-    const dispatched = dispatchCommand(project, command);
-    if (!dispatched.ok) throw new Error(`${dispatched.error.code}: ${dispatched.error.message}`);
-    this.#history!.commit(dispatched.value.command);
-    await this.save();
-    const { project: _project, ...result } = dispatched.value;
-    return { session: this.session(), result };
+    return this.#serialize(async () => {
+      const project = this.#requireProject();
+      const dispatched = dispatchCommand(project, command);
+      if (!dispatched.ok) throw new Error(`${dispatched.error.code}: ${dispatched.error.message}`);
+      this.#history!.commit(dispatched.value.command);
+      this.#revision += 1;
+      await this.#persist();
+      const { project: _project, ...result } = dispatched.value;
+      return { session: this.session(), result };
+    });
   }
 
   async undo(): Promise<DesktopProjectSession> {
-    this.#requireProject();
-    this.#history!.undo();
-    return this.save();
+    return this.#serialize(async () => {
+      this.#requireProject();
+      this.#history!.undo();
+      this.#revision += 1;
+      return this.#persist();
+    });
   }
 
   async redo(): Promise<DesktopProjectSession> {
-    this.#requireProject();
-    this.#history!.redo();
-    return this.save();
+    return this.#serialize(async () => {
+      this.#requireProject();
+      this.#history!.redo();
+      this.#revision += 1;
+      return this.#persist();
+    });
   }
 
   async inspectAndImportMedia(filePath: string): Promise<DesktopProjectSession> {
@@ -190,6 +210,7 @@ export class DesktopProjectStore {
       directory: this.#requireDirectory(),
       project: this.#requireProject(),
       settings: structuredClone(this.#settings),
+      revision: this.#revision,
       canUndo: this.#history!.canUndo,
       canRedo: this.#history!.canRedo,
     };
@@ -227,5 +248,11 @@ export class DesktopProjectStore {
     const project = this.project;
     if (!project) throw new Error("No project is open");
     return project;
+  }
+
+  #serialize<T>(operation: () => Promise<T>): Promise<T> {
+    const result = this.#operationQueue.catch(() => undefined).then(operation);
+    this.#operationQueue = result;
+    return result;
   }
 }

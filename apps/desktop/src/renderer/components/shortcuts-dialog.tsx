@@ -29,7 +29,8 @@ export function ShortcutsDialog({ open, isMac, onClose }: ShortcutsDialogProps) 
       title: "Navigation",
       shortcuts: [
         { label: "Go Home", keys: `${command}⇧H` },
-        { label: "Toggle sidebar", keys: `${command}B` },
+        { label: "Toggle left sidebar", keys: `${command}B` },
+        ...(isMac ? [{ label: "Toggle agents sidebar", keys: "⌥⌘B", scope: "Project" }] : []),
         { label: "Show keyboard shortcuts", keys: `${command}/` },
       ],
     },
