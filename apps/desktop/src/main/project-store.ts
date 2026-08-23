@@ -16,6 +16,7 @@ import type { Asset, EditorCommand, Project, ProjectSettings } from "@cinesim/co
 import { dispatchCommand } from "@cinesim/protocol";
 import { ALL_FORMATS, FilePathSource, Input } from "mediabunny";
 import type { DesktopProjectSession } from "../shared/api";
+import { DerivedMediaStore } from "./derived-media-store";
 
 const PROJECT_AGENTS = `# Project creative direction
 
@@ -55,6 +56,7 @@ async function writeIfMissing(path: string, contents: string): Promise<void> {
 }
 
 export class DesktopProjectStore {
+  readonly derivedMedia = new DerivedMediaStore();
   #directory: string | null = null;
   #history: ProjectHistory | null = null;
   #settings: ProjectSettings = DEFAULT_SETTINGS;
@@ -85,6 +87,7 @@ export class DesktopProjectStore {
       this.#settings = DEFAULT_SETTINGS;
       this.#revision = 1;
       await this.#ensureLayout();
+      await this.derivedMedia.setProject(directory, project);
       return this.#persist();
     });
   }
@@ -102,6 +105,7 @@ export class DesktopProjectStore {
       this.#settings = settings;
       this.#revision += 1;
       await this.#ensureLayout();
+      await this.derivedMedia.setProject(directory, this.#history.project);
       return this.session();
     });
   }
@@ -142,6 +146,7 @@ export class DesktopProjectStore {
       const dispatched = dispatchCommand(project, command);
       if (!dispatched.ok) throw new Error(`${dispatched.error.code}: ${dispatched.error.message}`);
       this.#history!.commit(dispatched.value.command);
+      this.derivedMedia.updateProject(this.#history!.project);
       this.#revision += 1;
       await this.#persist();
       const { project: _project, ...result } = dispatched.value;
@@ -153,6 +158,7 @@ export class DesktopProjectStore {
     return this.#serialize(async () => {
       this.#requireProject();
       this.#history!.undo();
+      this.derivedMedia.updateProject(this.#history!.project);
       this.#revision += 1;
       return this.#persist();
     });
@@ -162,6 +168,7 @@ export class DesktopProjectStore {
     return this.#serialize(async () => {
       this.#requireProject();
       this.#history!.redo();
+      this.derivedMedia.updateProject(this.#history!.project);
       this.#revision += 1;
       return this.#persist();
     });

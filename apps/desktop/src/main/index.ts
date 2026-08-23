@@ -17,6 +17,10 @@ import type {
   AgentSessionUpdate,
   AgentSettingsUpdate,
   AgentTurnContext,
+  BeginDerivedWrite,
+  DerivedArtifactKind,
+  DerivedPerformanceObservation,
+  FinalizeDerivedWrite,
 } from "../shared/api";
 import { AgentManager } from "./agent-manager";
 import { detectProvider } from "./agent-provider-detection";
@@ -196,11 +200,51 @@ async function registerMediaProtocol(): Promise<void> {
   protocol.handle("cinesim-media", async (request) => {
     try {
       const url = new URL(request.url);
-      if (url.hostname !== "asset") return new Response("Not found", { status: 404 });
+      const derivedKind = (
+        { thumbnail: "thumbnail", filmstrip: "filmstrip", proxy: "proxy" } as const
+      )[url.hostname as "thumbnail" | "filmstrip" | "proxy"];
+      if (url.hostname !== "asset" && !derivedKind)
+        return new Response("Not found", { status: 404 });
       const assetId = url.pathname.slice(1);
       if (!/^asset_[a-zA-Z0-9][a-zA-Z0-9_-]*$/.test(assetId))
         return new Response("Bad asset ID", { status: 400 });
       const range = request.headers.get("range");
+      if (derivedKind) {
+        if (url.searchParams.get("v") !== "1")
+          return new Response("Unknown generator version", { status: 404 });
+        const profileId = url.searchParams.get("profile") ?? undefined;
+        if (
+          (derivedKind === "proxy" && !profileId) ||
+          (profileId !== undefined && !/^[a-z0-9][a-z0-9_-]{0,63}$/.test(profileId))
+        )
+          return new Response("Bad proxy profile", { status: 400 });
+        const match = range?.match(/^bytes=(\d+)-(\d*)$/);
+        const start = match ? Number(match[1]) : 0;
+        const requestedEnd = match?.[2] ? Number(match[2]) + 1 : start + 16 * 1024 * 1024;
+        const result = await store.derivedMedia.readArtifactRange(
+          derivedKind as DerivedArtifactKind,
+          assetId,
+          start,
+          request.method === "HEAD" ? start : requestedEnd,
+          profileId,
+        );
+        const end = start + result.data.byteLength;
+        return new Response(request.method === "HEAD" ? null : new Uint8Array(result.data), {
+          status: range && request.method !== "HEAD" ? 206 : 200,
+          headers: {
+            "Accept-Ranges": "bytes",
+            "Access-Control-Allow-Origin": "*",
+            "Content-Length": String(
+              request.method === "HEAD" ? result.size : result.data.byteLength,
+            ),
+            ...(range && request.method !== "HEAD"
+              ? { "Content-Range": `bytes ${start}-${Math.max(start, end - 1)}/${result.size}` }
+              : {}),
+            "Content-Type": result.mimeType,
+            "Cache-Control": "private, max-age=31536000, immutable",
+          },
+        });
+      }
       const path = store.assetPath(assetId);
       if (!path) return new Response("Unknown asset", { status: 404 });
       const fileSize = (await import("node:fs/promises")).stat(path).then((value) => value.size);
@@ -301,6 +345,38 @@ function registerIpc(): void {
       session = await store.inspectAndImportMedia(filePath);
     return session;
   });
+  ipcMain.handle("derived:get", () => store.derivedMedia.snapshot());
+  ipcMain.handle("derived:request-jobs", (_event, assetIds: unknown) => {
+    if (!Array.isArray(assetIds) || assetIds.some((id) => typeof id !== "string"))
+      throw new Error("Invalid derived job request");
+    return store.derivedMedia.requestJobs(assetIds);
+  });
+  ipcMain.handle("derived:write:begin", (_event, input: unknown) =>
+    store.derivedMedia.beginWrite(input as BeginDerivedWrite),
+  );
+  ipcMain.handle(
+    "derived:write:chunk",
+    (_event, writerId: unknown, offset: unknown, data: unknown) => {
+      if (
+        typeof writerId !== "string" ||
+        typeof offset !== "number" ||
+        !(data instanceof Uint8Array)
+      )
+        throw new Error("Invalid derived write chunk");
+      return store.derivedMedia.writeChunk(writerId, offset, data);
+    },
+  );
+  ipcMain.handle("derived:write:finalize", (_event, writerId: unknown, result: unknown) => {
+    if (typeof writerId !== "string") throw new Error("Invalid derived writer");
+    return store.derivedMedia.finalizeWrite(writerId, result as FinalizeDerivedWrite);
+  });
+  ipcMain.handle("derived:write:cancel", (_event, writerId: unknown) => {
+    if (typeof writerId !== "string") throw new Error("Invalid derived writer");
+    return store.derivedMedia.cancelWrite(writerId);
+  });
+  ipcMain.handle("derived:performance", (_event, observation: unknown) =>
+    store.derivedMedia.reportPerformance(observation as DerivedPerformanceObservation),
+  );
   ipcMain.handle("command:execute", (_event, command: EditorCommand) => store.execute(command));
   ipcMain.handle("app-state:get", () => appState.snapshot());
   ipcMain.handle("app-state:set-media-pool-open", async (_event, open: unknown) => {
@@ -431,6 +507,10 @@ async function startApplication(): Promise<void> {
   await appState.load();
   await agentSettings.load();
   await registerMediaProtocol();
+  store.derivedMedia.subscribe((snapshot) => {
+    for (const target of BrowserWindow.getAllWindows())
+      target.webContents.send("derived:changed", snapshot);
+  });
   agents = new AgentManager(
     join(app.getPath("userData"), "agent-sessions.json"),
     agentSettings,
