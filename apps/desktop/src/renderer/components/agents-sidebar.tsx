@@ -63,6 +63,10 @@ export function AgentsSidebar({ session, onConfigure }: AgentsSidebarProps) {
 
   useEffect(() => {
     let active = true;
+    setSnapshot(null);
+    setSettings(null);
+    setProviders([]);
+    setError(null);
     void Promise.all([
       window.cinesim.getAgents(session.directory),
       window.cinesim.getAgentSettings(),
@@ -169,8 +173,7 @@ export function AgentsSidebar({ session, onConfigure }: AgentsSidebarProps) {
   }
 
   const availableProviders = providers.filter((provider) => provider.state === "connected");
-  if (!snapshot || !settings)
-    return <div className="grid h-full place-items-center text-ui text-muted">Loading agents…</div>;
+  if (!snapshot || !settings) return <AgentsLoadingState error={error} />;
   const agentRunning =
     activeSession?.status === "starting" ||
     activeSession?.status === "working" ||
@@ -378,6 +381,68 @@ export function AgentsSidebar({ session, onConfigure }: AgentsSidebarProps) {
           </div>
         </>
       )}
+    </div>
+  );
+}
+
+function AgentsLoadingState({ error }: { error: string | null }) {
+  return (
+    <div className="flex h-full min-h-0 flex-col" aria-busy={!error}>
+      <div className="flex h-12 shrink-0 items-center gap-2 border-b border-border px-4">
+        <span className="size-2 animate-pulse rounded-full bg-surface-active" />
+        <span className="h-3 w-28 animate-pulse rounded bg-surface-active" />
+        <span className="min-w-0 flex-1" />
+        <span className="size-7 animate-pulse rounded-md bg-surface" />
+        <span className="size-7 animate-pulse rounded-md bg-surface" />
+      </div>
+
+      <div className="grid min-h-0 flex-1 place-items-center px-6 text-center">
+        {error ? (
+          <div className="flex max-w-64 items-start gap-2 text-ui-xs leading-4 text-muted">
+            <CircleAlert size={13} className="mt-0.5 shrink-0" />
+            <span>{error}</span>
+          </div>
+        ) : (
+          <output className="flex items-center gap-2 text-ui-xs text-muted">
+            <span className="size-1.5 animate-pulse rounded-full bg-muted" />
+            <span>Setting up agent…</span>
+          </output>
+        )}
+      </div>
+
+      <div className="relative z-10 shrink-0 bg-canvas p-3">
+        <div
+          className="pointer-events-none absolute inset-x-0 -top-14 h-14 bg-linear-to-b from-transparent via-canvas/80 to-canvas"
+          aria-hidden="true"
+        />
+        <div className="rounded-xl border border-border bg-canvas p-2.5 opacity-60 shadow-sm shadow-black/5">
+          <textarea
+            className="block min-h-24 w-full resize-none bg-transparent px-1 py-0.5 text-ui leading-5 text-disabled outline-none placeholder:text-disabled"
+            aria-label="Agent input is loading"
+            disabled
+            placeholder="Agent input will be ready shortly…"
+          />
+          <div className="mt-2 flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <span className="h-2.5 w-16 animate-pulse rounded bg-surface-active" />
+              <span className="h-2.5 w-10 animate-pulse rounded bg-surface" />
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="size-4 animate-pulse rounded-full border border-border-strong" />
+              <button
+                className="grid size-7 place-items-center rounded-md bg-surface text-disabled"
+                aria-label="Send message"
+                disabled
+              >
+                <ArrowUp size={15} strokeWidth={2.5} />
+              </button>
+            </div>
+          </div>
+        </div>
+        <p className="mt-1.5 text-center text-[10px] leading-3 text-disabled">
+          Agents can make mistakes. Review checkpoint changes before continuing.
+        </p>
+      </div>
     </div>
   );
 }
