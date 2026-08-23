@@ -525,7 +525,7 @@ function ContextUsage({
         className="flex h-7 list-none items-center gap-1 rounded-md px-1.5 text-ui-xs text-muted hover:bg-surface hover:text-primary"
         title="Context window"
       >
-        <ContextRing percent={usedPercent} />
+        <ContextCircle percent={usedPercent} />
         <span>{usage?.maxTokens ? `${Math.round(remainingPercent)}%` : "—"}</span>
       </summary>
       <div className="absolute bottom-9 right-0 z-50 w-72 rounded-lg border border-border bg-panel p-3 shadow-xl shadow-black/15">
@@ -591,23 +591,17 @@ function ContextUsage({
   );
 }
 
-function ContextRing({ percent }: { percent: number }) {
-  const circumference = Math.PI * 14;
+function ContextCircle({ percent }: { percent: number }) {
   return (
-    <svg className="size-4 -rotate-90" viewBox="0 0 18 18" aria-hidden="true">
-      <circle cx="9" cy="9" r="7" fill="none" stroke="currentColor" strokeOpacity="0.2" />
-      <circle
-        cx="9"
-        cy="9"
-        r="7"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="2"
-        strokeLinecap="round"
-        strokeDasharray={circumference}
-        strokeDashoffset={circumference * (1 - percent / 100)}
+    <span
+      className="relative size-3 shrink-0 overflow-hidden rounded-full border border-current"
+      aria-hidden="true"
+    >
+      <span
+        className="absolute inset-x-0 bottom-0 bg-current transition-[height] duration-300 ease-in-out"
+        style={{ height: `${percent}%` }}
       />
-    </svg>
+    </span>
   );
 }
 
