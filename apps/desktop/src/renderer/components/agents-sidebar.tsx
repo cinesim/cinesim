@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
+  ArrowUp,
   Bot,
   ChartNoAxesColumnIncreasing,
   Check,
@@ -9,7 +10,6 @@ import {
   Clock3,
   Plus,
   RotateCcw,
-  Send,
   Settings,
   Square,
   Trash2,
@@ -349,7 +349,7 @@ export function AgentsSidebar({ session, onConfigure }: AgentsSidebarProps) {
                       disabled={!composer.trim() || busy}
                       onClick={() => void sendMessage()}
                     >
-                      <Send size={13} />
+                      <ArrowUp size={15} strokeWidth={2.5} />
                     </button>
                   )}
                 </div>
