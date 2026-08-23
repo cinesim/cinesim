@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import {
+  Bot,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
@@ -24,12 +25,18 @@ interface AppShellProps {
   onSettings: () => void;
   onOpenRecent: (directory: string) => void;
   onOpenProject: () => void;
+  agentsSidebar?: React.ReactNode;
   children: React.ReactNode;
 }
 
 const MIN_SIDEBAR_WIDTH = 220;
 const MAX_SIDEBAR_WIDTH = 420;
 const DEFAULT_SIDEBAR_WIDTH = 272;
+const MIN_AGENTS_SIDEBAR_WIDTH = 260;
+const MAX_AGENTS_SIDEBAR_WIDTH = 420;
+const DEFAULT_AGENTS_SIDEBAR_WIDTH = 320;
+const SIDEBAR_OPEN_STORAGE_KEY = "cinesim.sidebarOpen";
+const AGENTS_SIDEBAR_OPEN_STORAGE_KEY = "cinesim.agentsSidebarOpen";
 
 function availableSidebarWidth(): number {
   return Math.max(MIN_SIDEBAR_WIDTH, Math.min(MAX_SIDEBAR_WIDTH, window.innerWidth - 740));
@@ -44,6 +51,34 @@ function initialSidebarWidth(): number {
     : DEFAULT_SIDEBAR_WIDTH;
 }
 
+function initialSidebarOpen(storageKey: string): boolean {
+  return localStorage.getItem(storageKey) !== "false";
+}
+
+function availableAgentsSidebarWidth(): number {
+  return Math.max(
+    MIN_AGENTS_SIDEBAR_WIDTH,
+    Math.min(MAX_AGENTS_SIDEBAR_WIDTH, window.innerWidth - 740),
+  );
+}
+
+function initialAgentsSidebarWidth(): number {
+  const rawStored = localStorage.getItem("cinesim.agentsSidebarWidth");
+  if (rawStored === null) return DEFAULT_AGENTS_SIDEBAR_WIDTH;
+  const stored = Number(rawStored);
+  return Number.isFinite(stored)
+    ? Math.min(availableAgentsSidebarWidth(), Math.max(MIN_AGENTS_SIDEBAR_WIDTH, stored))
+    : DEFAULT_AGENTS_SIDEBAR_WIDTH;
+}
+
+export function isAgentsSidebarShortcut(
+  event: Pick<KeyboardEvent, "altKey" | "code" | "ctrlKey" | "metaKey" | "shiftKey">,
+): boolean {
+  return (
+    event.metaKey && event.altKey && !event.ctrlKey && !event.shiftKey && event.code === "KeyB"
+  );
+}
+
 export function AppShell({
   session,
   appState,
@@ -55,20 +90,43 @@ export function AppShell({
   onSettings,
   onOpenRecent,
   onOpenProject,
+  agentsSidebar,
   children,
 }: AppShellProps) {
-  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [sidebarOpen, setSidebarOpen] = useState(() =>
+    initialSidebarOpen(SIDEBAR_OPEN_STORAGE_KEY),
+  );
+  const [agentsSidebarOpen, setAgentsSidebarOpen] = useState(() =>
+    initialSidebarOpen(AGENTS_SIDEBAR_OPEN_STORAGE_KEY),
+  );
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [sidebarWidth, setSidebarWidth] = useState(initialSidebarWidth);
+  const [agentsSidebarWidth, setAgentsSidebarWidth] = useState(initialAgentsSidebarWidth);
   const [resizing, setResizing] = useState(false);
+  const [resizingAgentsSidebar, setResizingAgentsSidebar] = useState(false);
   const resizeOrigin = useRef({ x: 0, width: DEFAULT_SIDEBAR_WIDTH });
+  const agentsResizeOrigin = useRef({ x: 0, width: DEFAULT_AGENTS_SIDEBAR_WIDTH });
   const isMac = window.cinesim.platform === "darwin";
+  const agentsSidebarAvailable = Boolean(agentsSidebar);
+
+  useEffect(() => {
+    localStorage.setItem(SIDEBAR_OPEN_STORAGE_KEY, String(sidebarOpen));
+  }, [sidebarOpen]);
+
+  useEffect(() => {
+    localStorage.setItem(AGENTS_SIDEBAR_OPEN_STORAGE_KEY, String(agentsSidebarOpen));
+  }, [agentsSidebarOpen]);
 
   useEffect(() => {
     function shortcut(event: KeyboardEvent) {
       const command = event.metaKey || event.ctrlKey;
       const key = event.key.toLowerCase();
-      if (command && !event.altKey && !event.shiftKey && key === "b") {
+      if (isAgentsSidebarShortcut(event)) {
+        if (agentsSidebarAvailable) {
+          event.preventDefault();
+          setAgentsSidebarOpen((open) => !open);
+        }
+      } else if (command && !event.altKey && !event.shiftKey && key === "b") {
         event.preventDefault();
         setSidebarOpen((open) => !open);
       } else if (command && !event.altKey && event.shiftKey && key === "h") {
@@ -84,7 +142,7 @@ export function AppShell({
     }
     window.addEventListener("keydown", shortcut);
     return () => window.removeEventListener("keydown", shortcut);
-  }, [onHome]);
+  }, [agentsSidebarAvailable, onHome]);
 
   function startResize(event: React.PointerEvent<HTMLDivElement>) {
     resizeOrigin.current = { x: event.clientX, width: sidebarWidth };
@@ -109,6 +167,31 @@ export function AppShell({
     event.currentTarget.releasePointerCapture(event.pointerId);
     localStorage.setItem("cinesim.sidebarWidth", String(sidebarWidth));
     setResizing(false);
+  }
+
+  function startAgentsResize(event: React.PointerEvent<HTMLDivElement>) {
+    agentsResizeOrigin.current = { x: event.clientX, width: agentsSidebarWidth };
+    event.currentTarget.setPointerCapture(event.pointerId);
+    setResizingAgentsSidebar(true);
+  }
+
+  function resizeAgentsSidebar(event: React.PointerEvent<HTMLDivElement>) {
+    if (!resizingAgentsSidebar) return;
+    const nextWidth = Math.min(
+      availableAgentsSidebarWidth(),
+      Math.max(
+        MIN_AGENTS_SIDEBAR_WIDTH,
+        agentsResizeOrigin.current.width + agentsResizeOrigin.current.x - event.clientX,
+      ),
+    );
+    setAgentsSidebarWidth(nextWidth);
+  }
+
+  function finishAgentsResize(event: React.PointerEvent<HTMLDivElement>) {
+    if (!resizingAgentsSidebar) return;
+    event.currentTarget.releasePointerCapture(event.pointerId);
+    localStorage.setItem("cinesim.agentsSidebarWidth", String(agentsSidebarWidth));
+    setResizingAgentsSidebar(false);
   }
 
   return (
@@ -198,10 +281,71 @@ export function AppShell({
             </button>
           )}
           <span className="max-w-[360px] truncate text-ui font-medium text-secondary">{title}</span>
-          {toolbar && <div className="no-drag absolute right-3">{toolbar}</div>}
+          {toolbar && (
+            <div
+              className={cn(
+                "no-drag absolute transition-[right] duration-200 ease-in-out",
+                agentsSidebar && !agentsSidebarOpen ? "right-12" : "right-3",
+              )}
+            >
+              {toolbar}
+            </div>
+          )}
+          {agentsSidebar && !agentsSidebarOpen && (
+            <button
+              className="no-drag absolute right-2 top-2 grid size-8 place-items-center rounded-md text-muted hover:bg-surface hover:text-primary"
+              aria-label="Open agents sidebar"
+              title="Open agents sidebar (⌥⌘B)"
+              onClick={() => setAgentsSidebarOpen(true)}
+            >
+              <ChevronLeft size={17} />
+            </button>
+          )}
         </header>
         <div className="min-h-0 flex-1">{children}</div>
       </div>
+
+      {agentsSidebar && (
+        <aside
+          className={cn(
+            "relative z-30 flex h-screen shrink-0 flex-col overflow-hidden border-l border-border bg-panel",
+            !resizingAgentsSidebar && "transition-[width] duration-200 ease-in-out",
+            !agentsSidebarOpen && "border-l-transparent",
+          )}
+          style={{ width: agentsSidebarOpen ? agentsSidebarWidth : 0 }}
+          aria-hidden={!agentsSidebarOpen}
+          inert={!agentsSidebarOpen}
+        >
+          <div className="app-drag relative flex h-12 min-w-[260px] shrink-0 items-center justify-center border-b border-border">
+            <button
+              className={cn(
+                "no-drag absolute left-2 top-2 grid size-8 place-items-center rounded-md text-muted transition-opacity hover:bg-surface hover:text-primary",
+                agentsSidebarOpen
+                  ? "delay-150 duration-75 opacity-100"
+                  : "pointer-events-none delay-0 duration-0 opacity-0",
+              )}
+              aria-label="Collapse agents sidebar"
+              title="Collapse agents sidebar (⌥⌘B)"
+              onClick={() => setAgentsSidebarOpen(false)}
+            >
+              <ChevronRight size={17} />
+            </button>
+            <span className="flex items-center gap-1.5 text-ui font-medium text-secondary">
+              <Bot size={15} /> Agents
+            </span>
+          </div>
+
+          <div className="min-w-[260px] min-h-0 flex-1 overflow-y-auto">{agentsSidebar}</div>
+
+          <div
+            className="no-drag absolute inset-y-0 left-[-3px] z-40 w-[6px] cursor-col-resize"
+            onPointerDown={startAgentsResize}
+            onPointerMove={resizeAgentsSidebar}
+            onPointerUp={finishAgentsResize}
+            onPointerCancel={finishAgentsResize}
+          />
+        </aside>
+      )}
       <ShortcutsDialog open={shortcutsOpen} isMac={isMac} onClose={() => setShortcutsOpen(false)} />
     </main>
   );

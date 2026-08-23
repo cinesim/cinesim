@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import type { DesktopAppState, DesktopProjectSession } from "../shared/api";
+import { AgentsSidebar } from "./components/agents-sidebar";
 import { AppShell } from "./components/app-shell";
 import { Settings } from "./components/settings";
 import { TopBar } from "./components/top-bar";
@@ -90,6 +91,7 @@ export function App() {
       onSettings={() => setDestination("settings")}
       onOpenRecent={(directory) => void openRecent(directory)}
       onOpenProject={() => void openProject()}
+      agentsSidebar={destination === "project" && session ? <AgentsSidebar /> : undefined}
     >
       {destination === "settings" ? (
         <Settings />
