@@ -21,6 +21,7 @@ const api: DesktopApi = {
   chooseAgentExecutable: (provider) => ipcRenderer.invoke("agents:executable:choose", provider),
   openAgentLogin: (provider) => ipcRenderer.invoke("agents:login", provider),
   getAgents: (projectDirectory) => ipcRenderer.invoke("agents:get", projectDirectory),
+  ensureAgent: (input) => ipcRenderer.invoke("agents:ensure", input),
   createAgent: (input) => ipcRenderer.invoke("agents:create", input),
   updateAgent: (sessionId, update) => ipcRenderer.invoke("agents:update", sessionId, update),
   selectAgent: (projectDirectory, sessionId) =>

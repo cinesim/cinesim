@@ -385,6 +385,9 @@ function registerIpc(): void {
   ipcMain.handle("agents:create", (_event, input: unknown) =>
     agents.create(parseAgentCreateInput(input)),
   );
+  ipcMain.handle("agents:ensure", (_event, input: unknown) =>
+    agents.ensure(parseAgentCreateInput(input)),
+  );
   ipcMain.handle("agents:update", (_event, sessionId: unknown, update: unknown) => {
     if (typeof sessionId !== "string") throw new Error("Invalid agent session");
     return agents.update(sessionId, parseAgentSessionUpdate(update));

@@ -184,6 +184,16 @@ export class AgentManager implements AgentToolHooks {
     return this.#changed(input.projectDirectory);
   }
 
+  async ensure(input: AgentCreateInput): Promise<AgentProjectSnapshot> {
+    this.#requireOpenProject(input.projectDirectory);
+    const existing = this.#state.sessions.find(
+      (session) => session.projectDirectory === input.projectDirectory,
+    );
+    if (!existing) return this.create(input);
+    this.#state.activeSessionByProject[input.projectDirectory] = existing.id;
+    return this.#changed(input.projectDirectory);
+  }
+
   async select(projectDirectory: string, sessionId: string): Promise<AgentProjectSnapshot> {
     const session = this.#requireSession(sessionId);
     if (session.projectDirectory !== projectDirectory)

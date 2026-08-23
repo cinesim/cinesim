@@ -181,6 +181,7 @@ export interface DesktopApi {
   chooseAgentExecutable(provider: AgentProviderKind): Promise<AgentSettings | null>;
   openAgentLogin(provider: AgentProviderKind): Promise<string>;
   getAgents(projectDirectory: string): Promise<AgentProjectSnapshot>;
+  ensureAgent(input: AgentCreateInput): Promise<AgentProjectSnapshot>;
   createAgent(input: AgentCreateInput): Promise<AgentProjectSnapshot>;
   updateAgent(sessionId: string, update: AgentSessionUpdate): Promise<AgentProjectSnapshot>;
   selectAgent(projectDirectory: string, sessionId: string): Promise<AgentProjectSnapshot>;

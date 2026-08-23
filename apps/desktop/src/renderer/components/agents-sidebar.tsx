@@ -55,11 +55,31 @@ export function AgentsSidebar({ session, onConfigure }: AgentsSidebarProps) {
       window.cinesim.getAgentSettings(),
       window.cinesim.refreshAgentProviders(),
     ])
-      .then(([agentSnapshot, agentSettings, providerStatuses]) => {
+      .then(async ([agentSnapshot, agentSettings, providerStatuses]) => {
         if (!active) return;
-        setSnapshot(agentSnapshot);
         setSettings(agentSettings);
         setProviders(providerStatuses);
+        let nextSnapshot = agentSnapshot;
+        if (agentSnapshot.sessions.length === 0) {
+          const connected = providerStatuses.filter((status) => status.state === "connected");
+          const preferred =
+            connected.find((status) => status.provider === agentSettings.defaultProvider) ??
+            connected[0];
+          if (preferred) {
+            try {
+              nextSnapshot = await window.cinesim.ensureAgent({
+                projectDirectory: session.directory,
+                provider: preferred.provider,
+              });
+            } catch (caught) {
+              if (active)
+                setError(
+                  caught instanceof Error ? caught.message : "Could not prepare a project agent",
+                );
+            }
+          }
+        }
+        if (active) setSnapshot(nextSnapshot);
       })
       .catch((caught) => {
         if (active) setError(caught instanceof Error ? caught.message : "Could not load agents");
@@ -226,6 +246,7 @@ export function AgentsSidebar({ session, onConfigure }: AgentsSidebarProps) {
           providers={providers}
           defaultProvider={settings.defaultProvider}
           busy={busy}
+          error={error}
           onCreate={(provider) => void create(provider)}
           onConfigure={onConfigure}
         />
@@ -608,12 +629,14 @@ function EmptyAgentState({
   providers,
   defaultProvider,
   busy,
+  error,
   onCreate,
   onConfigure,
 }: {
   providers: AgentProviderStatus[];
   defaultProvider: AgentProviderKind;
   busy: boolean;
+  error: string | null;
   onCreate: (provider: AgentProviderKind) => void;
   onConfigure: () => void;
 }) {
@@ -634,6 +657,11 @@ function EmptyAgentState({
             ? `${providerLabel(preferred.provider)} will work with the open Cinesim project through validated tools.`
             : "Cinesim could not find a connected Claude Code or Codex installation."}
         </p>
+        {error && (
+          <p className="mt-3 rounded-md border border-border bg-panel-muted px-2.5 py-2 text-ui-xs leading-4 text-secondary">
+            {error}
+          </p>
+        )}
         {preferred ? (
           <button
             className="mt-4 h-8 rounded-md bg-accent px-3 text-ui font-medium text-on-accent hover:bg-accent-hover disabled:opacity-50"
