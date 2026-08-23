@@ -1,12 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Bot,
+  ChartNoAxesColumnIncreasing,
   Check,
   ChevronDown,
   ChevronRight,
   CircleAlert,
   Clock3,
-  Gauge,
   Plus,
   RotateCcw,
   Send,
@@ -314,26 +314,11 @@ export function AgentsSidebar({ session, onConfigure }: AgentsSidebarProps) {
                     onSelect={(model) => void updateActiveSession({ model })}
                     onConfigure={onConfigure}
                   />
-                  <label className="flex h-7 min-w-0 items-center gap-1 rounded-md px-1.5 text-ui-xs text-muted hover:bg-surface hover:text-secondary">
-                    <Gauge size={12} className="shrink-0" />
-                    <select
-                      className="min-w-0 max-w-16 appearance-none bg-transparent text-ui-xs capitalize text-inherit outline-none"
-                      aria-label="Agent reasoning effort"
-                      value={activeSession.effort}
-                      disabled={agentRunning || busy}
-                      onChange={(event) =>
-                        void updateActiveSession({
-                          effort: event.target.value as AgentEffort,
-                        })
-                      }
-                    >
-                      <option value="low">Low</option>
-                      <option value="medium">Medium</option>
-                      <option value="high">High</option>
-                      <option value="xhigh">Extra high</option>
-                      <option value="max">Maximum</option>
-                    </select>
-                  </label>
+                  <EffortMenu
+                    effort={activeSession.effort}
+                    disabled={agentRunning || busy}
+                    onSelect={(effort) => void updateActiveSession({ effort })}
+                  />
                 </div>
                 <div className="flex shrink-0 items-center gap-1">
                   <ContextUsage
@@ -395,6 +380,55 @@ const PROVIDER_MODELS: Record<AgentProviderKind, Array<{ value: string; label: s
     { value: "gpt-5.4", label: "GPT-5.4" },
   ],
 };
+
+const AGENT_EFFORTS: AgentEffort[] = ["low", "medium", "high", "xhigh", "max"];
+
+function EffortMenu({
+  effort,
+  disabled,
+  onSelect,
+}: {
+  effort: AgentEffort;
+  disabled: boolean;
+  onSelect: (effort: AgentEffort) => void;
+}) {
+  return (
+    <details className="group relative">
+      <summary
+        className={cn(
+          "flex h-7 list-none items-center gap-1 rounded-md px-1.5 text-ui-xs text-muted hover:bg-surface hover:text-primary",
+          disabled && "pointer-events-none opacity-50",
+        )}
+        aria-label="Change agent reasoning effort"
+        title="Reasoning effort"
+      >
+        <ChartNoAxesColumnIncreasing size={13} className="shrink-0" />
+        <span>{effortLabel(effort)}</span>
+      </summary>
+      <div className="absolute bottom-9 left-0 z-50 w-40 rounded-lg border border-border bg-panel p-1 shadow-xl shadow-black/15">
+        <p className="px-2 py-1.5 text-ui-xs font-medium text-muted">Reasoning effort</p>
+        {AGENT_EFFORTS.map((option) => (
+          <button
+            key={option}
+            className={cn(
+              "flex w-full items-center gap-2 rounded-md px-2 py-2 text-left text-ui text-secondary hover:bg-surface hover:text-primary",
+              option === effort && "bg-surface text-primary",
+            )}
+            onClick={(event) => {
+              event.currentTarget.closest("details")?.removeAttribute("open");
+              if (option !== effort) onSelect(option);
+            }}
+          >
+            <span className="grid size-4 place-items-center">
+              {option === effort && <Check size={12} />}
+            </span>
+            <span>{effortLabel(option)}</span>
+          </button>
+        ))}
+      </div>
+    </details>
+  );
+}
 
 function ModelMenu({
   session,
