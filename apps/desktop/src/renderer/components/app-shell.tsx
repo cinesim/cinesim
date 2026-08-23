@@ -230,6 +230,13 @@ export function AppShell({
         <div className="min-w-[220px] flex-1 overflow-y-auto p-2">
           {destination === "settings" ? (
             <nav className="space-y-1" aria-label="Settings sections">
+              <SidebarButton active={false} onClick={onHome}>
+                <House size={15} /> <span>Home</span>
+                <span className="ml-auto">
+                  <ShortcutHint>{isMac ? "⌘⇧H" : "Ctrl+⇧H"}</ShortcutHint>
+                </span>
+              </SidebarButton>
+              <div className="my-2 h-px bg-border" />
               <p className="px-2.5 pb-2 pt-1 text-ui-xs font-semibold uppercase tracking-[0.12em] text-muted">
                 Settings
               </p>
