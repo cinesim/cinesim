@@ -1,11 +1,11 @@
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
-import type { DesktopAppState, ProjectViewState, RecentProject } from "../shared/api";
+import type { DesktopAppState, RecentProject } from "../shared/api";
 
 const EMPTY_STATE: DesktopAppState = {
   version: 1,
   recentProjects: [],
-  projectViews: {},
+  mediaPoolOpenByProject: {},
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -18,19 +18,6 @@ function parseRecentProject(value: unknown): RecentProject | null {
   return { name: value.name, directory: value.directory };
 }
 
-function parseProjectView(value: unknown): ProjectViewState | null {
-  if (!isRecord(value) || !Array.isArray(value.openSequenceIds)) return null;
-  const openSequenceIds = value.openSequenceIds.filter(
-    (id): id is string => typeof id === "string" && /^sequence_[a-zA-Z0-9][a-zA-Z0-9_-]*$/.test(id),
-  );
-  const activeTab =
-    value.activeTab === "media" ||
-    (typeof value.activeTab === "string" && openSequenceIds.includes(value.activeTab))
-      ? value.activeTab
-      : "media";
-  return { openSequenceIds: [...new Set(openSequenceIds)], activeTab };
-}
-
 function parseState(value: unknown): DesktopAppState {
   if (!isRecord(value) || value.version !== 1) return structuredClone(EMPTY_STATE);
   const recentProjects = Array.isArray(value.recentProjects)
@@ -39,14 +26,13 @@ function parseState(value: unknown): DesktopAppState {
         .filter((project): project is RecentProject => project !== null)
         .slice(0, 12)
     : [];
-  const projectViews: Record<string, ProjectViewState> = {};
-  if (isRecord(value.projectViews)) {
-    for (const [directory, candidate] of Object.entries(value.projectViews)) {
-      const view = parseProjectView(candidate);
-      if (view) projectViews[directory] = view;
+  const mediaPoolOpenByProject: Record<string, boolean> = {};
+  if (isRecord(value.mediaPoolOpenByProject)) {
+    for (const [directory, open] of Object.entries(value.mediaPoolOpenByProject)) {
+      if (typeof open === "boolean") mediaPoolOpenByProject[directory] = open;
     }
   }
-  return { version: 1, recentProjects, projectViews };
+  return { version: 1, recentProjects, mediaPoolOpenByProject };
 }
 
 export class DesktopAppStateStore {
@@ -79,8 +65,8 @@ export class DesktopAppStateStore {
     await this.#queueSave();
   }
 
-  async setProjectView(directory: string, view: ProjectViewState): Promise<void> {
-    this.#state.projectViews[directory] = structuredClone(view);
+  async setMediaPoolOpen(directory: string, open: boolean): Promise<void> {
+    this.#state.mediaPoolOpenByProject[directory] = open;
     await this.#queueSave();
   }
 

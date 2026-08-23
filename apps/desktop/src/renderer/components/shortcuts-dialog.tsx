@@ -42,11 +42,15 @@ export function ShortcutsDialog({ open, isMac, onClose }: ShortcutsDialogProps) 
       ],
     },
     {
-      title: "Media and tabs",
+      title: "Project sections",
       shortcuts: [
-        { label: "Import media", keys: `${command}I`, scope: "Media" },
-        { label: "Close active timeline", keys: `${command}W`, scope: "Timeline" },
+        { label: "Media", keys: `${command}1`, scope: "Project" },
+        { label: "Edit", keys: `${command}2`, scope: "Project" },
       ],
+    },
+    {
+      title: "Media",
+      shortcuts: [{ label: "Import media", keys: `${command}I`, scope: "Media" }],
     },
   ];
 

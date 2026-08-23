@@ -54,10 +54,16 @@ export function Viewer({ project }: { project: Project }) {
       </div>
       <div className="relative grid min-h-0 flex-1 place-items-center overflow-hidden bg-canvas p-6">
         <canvas ref={canvasRef} className="aspect-video max-h-full max-w-full bg-black" />
-        {project.assets.length === 0 && (
+        {durationUs === 0 && (
           <div className="pointer-events-none absolute text-center">
-            <p className="text-ui text-muted">The viewer is ready</p>
-            <p className="mt-1 text-ui-xs text-muted">Import media and add it to the timeline</p>
+            <p className="text-ui text-muted">
+              {project.assets.length === 0 ? "The viewer is ready" : "This timeline is empty"}
+            </p>
+            <p className="mt-1 text-ui-xs text-muted">
+              {project.assets.length === 0
+                ? "Import media and add it to the timeline"
+                : "Add media from the Media Pool to start editing"}
+            </p>
           </div>
         )}
         {error && (

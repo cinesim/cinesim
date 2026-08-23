@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { isAgentsSidebarShortcut } from "../src/renderer/components/app-shell";
+import {
+  isAgentsSidebarShortcut,
+  projectSectionForShortcut,
+} from "../src/renderer/components/app-shell";
 
 describe("keyboard shortcuts", () => {
   it("recognizes Option+Command+B by physical key code", () => {
@@ -23,5 +26,30 @@ describe("keyboard shortcuts", () => {
 
     expect(isAgentsSidebarShortcut({ ...baseEvent, altKey: false, ctrlKey: false })).toBe(false);
     expect(isAgentsSidebarShortcut({ ...baseEvent, altKey: false, ctrlKey: true })).toBe(false);
+  });
+
+  it("maps command-number shortcuts to project sections", () => {
+    const commandEvent = {
+      altKey: false,
+      ctrlKey: false,
+      metaKey: true,
+      shiftKey: false,
+    };
+
+    expect(projectSectionForShortcut({ ...commandEvent, key: "1" })).toBe("media");
+    expect(projectSectionForShortcut({ ...commandEvent, key: "2" })).toBe("edit");
+    expect(projectSectionForShortcut({ ...commandEvent, key: "3" })).toBeNull();
+  });
+
+  it("rejects project-section shortcuts with extra modifiers", () => {
+    const baseEvent = {
+      ctrlKey: false,
+      key: "1",
+      metaKey: true,
+      shiftKey: false,
+    };
+
+    expect(projectSectionForShortcut({ ...baseEvent, altKey: true })).toBeNull();
+    expect(projectSectionForShortcut({ ...baseEvent, altKey: false, shiftKey: true })).toBeNull();
   });
 });

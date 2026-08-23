@@ -149,15 +149,10 @@ export interface RecentProject {
   directory: string;
 }
 
-export interface ProjectViewState {
-  openSequenceIds: string[];
-  activeTab: string;
-}
-
 export interface DesktopAppState {
   version: 1;
   recentProjects: RecentProject[];
-  projectViews: Record<string, ProjectViewState>;
+  mediaPoolOpenByProject: Record<string, boolean>;
 }
 
 export interface DesktopApi {
@@ -174,7 +169,7 @@ export interface DesktopApi {
   revealProject(): Promise<void>;
   getSession(): Promise<DesktopProjectSession | null>;
   getAppState(): Promise<DesktopAppState>;
-  setProjectView(view: ProjectViewState): Promise<DesktopAppState>;
+  setProjectMediaPoolOpen(open: boolean): Promise<DesktopAppState>;
   getAgentSettings(): Promise<AgentSettings>;
   updateAgentSettings(update: AgentSettingsUpdate): Promise<AgentSettings>;
   refreshAgentProviders(): Promise<AgentProviderStatus[]>;
@@ -200,7 +195,6 @@ export interface DesktopApi {
   revertAgentTurn(sessionId: string, turnId: string): Promise<AgentProjectSnapshot>;
   onAgentsChanged(callback: (snapshot: AgentProjectSnapshot) => void): () => void;
   onProjectChanged(callback: (session: DesktopProjectSession) => void): () => void;
-  onCloseActiveTab(callback: () => void): () => void;
   platform: NodeJS.Platform;
 }
 
