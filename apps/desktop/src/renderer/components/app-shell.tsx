@@ -319,20 +319,20 @@ export function AppShell({
             <div
               className={cn(
                 "no-drag absolute transition-[right] duration-200 ease-in-out",
-                agentsSidebar && !agentsSidebarOpen ? "right-12" : "right-3",
+                agentsSidebar ? "right-12" : "right-3",
               )}
             >
               {toolbar}
             </div>
           )}
-          {agentsSidebar && !agentsSidebarOpen && (
+          {agentsSidebar && (
             <button
               className="no-drag absolute right-2 top-2 grid size-8 place-items-center rounded-md text-muted hover:bg-surface hover:text-primary"
-              aria-label="Open agents sidebar"
-              title="Open agents sidebar (⌥⌘B)"
-              onClick={() => setAgentsSidebarOpen(true)}
+              aria-label={agentsSidebarOpen ? "Collapse agents sidebar" : "Open agents sidebar"}
+              title={`${agentsSidebarOpen ? "Collapse" : "Open"} agents sidebar (⌥⌘B)`}
+              onClick={() => setAgentsSidebarOpen((open) => !open)}
             >
-              <ChevronLeft size={17} />
+              {agentsSidebarOpen ? <ChevronRight size={17} /> : <ChevronLeft size={17} />}
             </button>
           )}
         </header>
@@ -350,25 +350,6 @@ export function AppShell({
           aria-hidden={!agentsSidebarOpen}
           inert={!agentsSidebarOpen}
         >
-          <div className="app-drag relative flex h-12 min-w-[260px] shrink-0 items-center justify-center border-b border-border">
-            <button
-              className={cn(
-                "no-drag absolute left-2 top-2 grid size-8 place-items-center rounded-md text-muted transition-opacity hover:bg-surface hover:text-primary",
-                agentsSidebarOpen
-                  ? "delay-150 duration-75 opacity-100"
-                  : "pointer-events-none delay-0 duration-0 opacity-0",
-              )}
-              aria-label="Collapse agents sidebar"
-              title="Collapse agents sidebar (⌥⌘B)"
-              onClick={() => setAgentsSidebarOpen(false)}
-            >
-              <ChevronRight size={17} />
-            </button>
-            <span className="flex items-center gap-1.5 text-ui font-medium text-secondary">
-              <Bot size={15} /> Agents
-            </span>
-          </div>
-
           <div className="min-w-[260px] min-h-0 flex-1 overflow-y-auto">{agentsSidebar}</div>
 
           <div

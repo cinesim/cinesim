@@ -165,7 +165,7 @@ export function AgentsSidebar({ session, onConfigure }: AgentsSidebarProps) {
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="relative flex h-11 shrink-0 items-center gap-2 border-b border-border px-2.5">
+      <div className="relative flex h-12 shrink-0 items-center gap-2 border-b border-border px-2.5">
         {activeSession ? (
           <details className="sidebar-project-menu min-w-0 flex-1">
             <summary className="flex h-8 list-none items-center gap-2 rounded-md px-2 text-ui hover:bg-surface">
@@ -173,7 +173,7 @@ export function AgentsSidebar({ session, onConfigure }: AgentsSidebarProps) {
               <span className="min-w-0 flex-1 truncate font-medium">{activeSession.title}</span>
               <ChevronDown size={13} className="text-muted" />
             </summary>
-            <div className="absolute left-2 right-12 top-10 z-30 max-h-64 overflow-y-auto rounded-lg border border-border bg-panel p-1 shadow-xl shadow-black/15">
+            <div className="absolute left-2 right-12 top-12 z-30 max-h-64 overflow-y-auto rounded-lg border border-border bg-panel p-1 shadow-xl shadow-black/15">
               {snapshot.sessions.map((agent) => (
                 <button
                   key={agent.id}
@@ -200,6 +200,21 @@ export function AgentsSidebar({ session, onConfigure }: AgentsSidebarProps) {
         ) : (
           <span className="min-w-0 flex-1 px-2 text-ui text-muted">No agent selected</span>
         )}
+        {activeSession && (
+          <button
+            className="grid size-8 place-items-center rounded-md text-muted hover:bg-surface hover:text-primary"
+            aria-label="Delete agent"
+            title="Delete agent"
+            onClick={() => {
+              if (!window.confirm(`Delete “${activeSession.title}”?`)) return;
+              void window.cinesim
+                .deleteAgent(session.directory, activeSession.id)
+                .then(setSnapshot);
+            }}
+          >
+            <Trash2 size={13} />
+          </button>
+        )}
         <button
           className="grid size-8 place-items-center rounded-md text-muted hover:bg-surface hover:text-primary"
           aria-label="New agent"
@@ -209,7 +224,7 @@ export function AgentsSidebar({ session, onConfigure }: AgentsSidebarProps) {
           <Plus size={15} />
         </button>
         {creating && (
-          <div className="absolute right-2 top-10 z-40 w-52 rounded-lg border border-border bg-panel p-1 shadow-xl shadow-black/15">
+          <div className="absolute right-2 top-12 z-40 w-52 rounded-lg border border-border bg-panel p-1 shadow-xl shadow-black/15">
             {(["claude", "codex"] as const).map((provider) => {
               const status = providers.find((candidate) => candidate.provider === provider);
               return (
@@ -253,38 +268,7 @@ export function AgentsSidebar({ session, onConfigure }: AgentsSidebarProps) {
       ) : (
         <>
           <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto px-3 py-3">
-            <div className="mb-3 flex items-center justify-between gap-2 text-ui-xs text-muted">
-              <span>
-                {providerLabel(activeSession.provider)} · {activeSession.model}
-              </span>
-              <button
-                className="grid size-7 place-items-center rounded-md hover:bg-surface hover:text-primary"
-                aria-label="Delete agent"
-                title="Delete agent"
-                onClick={() => {
-                  if (!window.confirm(`Delete “${activeSession.title}”?`)) return;
-                  void window.cinesim
-                    .deleteAgent(session.directory, activeSession.id)
-                    .then(setSnapshot);
-                }}
-              >
-                <Trash2 size={13} />
-              </button>
-            </div>
-            {activeSession.events.length === 0 ? (
-              <div className="grid min-h-52 place-items-center px-5 text-center">
-                <div>
-                  <span className="mx-auto grid size-9 place-items-center rounded-lg border border-border bg-panel-muted text-muted">
-                    <Bot size={17} />
-                  </span>
-                  <p className="mt-3 text-ui font-medium text-primary">What should we edit?</p>
-                  <p className="mt-1 text-ui-xs leading-4 text-muted">
-                    The agent can inspect this project, use filmstrips and frames, and make
-                    validated timeline edits.
-                  </p>
-                </div>
-              </div>
-            ) : (
+            {activeSession.events.length > 0 && (
               <div className="space-y-2.5">
                 {activeSession.events.map((event) => (
                   <AgentEventView
