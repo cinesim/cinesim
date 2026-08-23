@@ -8,6 +8,7 @@ Runtime dependencies:
 | ----------------------------------- | ------------------------------------ | ------------ |
 | Fontsource Geist Variable           | Bundled cross-platform UI typeface   | OFL-1.1      |
 | React / React DOM                   | Renderer UI                          | MIT          |
+| react-markdown                      | Safe agent-response Markdown         | MIT          |
 | Tailwind CSS / Tailwind Vite plugin | Styling                              | MIT          |
 | Base UI                             | Accessible headless primitives       | MIT          |
 | class-variance-authority            | Component variants                   | Apache-2.0   |

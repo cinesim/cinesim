@@ -26,6 +26,7 @@
     "mediabunny": "1.55.2",
     "react": "19.2.8",
     "react-dom": "19.2.8",
+    "react-markdown": "10.1.0",
     "smol-toml": "1.8.0",
     "zod": "4.4.3",
     "zustand": "5.0.15"

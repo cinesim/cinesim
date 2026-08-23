@@ -15,6 +15,7 @@ import {
   Trash2,
   Wrench,
 } from "lucide-react";
+import ReactMarkdown from "react-markdown";
 import { cn } from "@cinesim/ui";
 import type {
   AgentEvent,
@@ -726,13 +727,30 @@ function AgentEventView({
 }) {
   if (event.kind === "user-message")
     return (
-      <div className="ml-7 rounded-xl bg-surface px-3 py-2 text-ui leading-5 text-primary">
+      <div className="ml-auto w-fit max-w-[85%] whitespace-pre-wrap break-words rounded-xl bg-surface px-3 py-2 text-ui leading-5 text-primary">
         {event.text}
       </div>
     );
   if (event.kind === "assistant-message")
     return (
-      <div className="whitespace-pre-wrap px-1 text-ui leading-5 text-primary">{event.text}</div>
+      <div className="min-w-0 px-1 text-ui leading-5 text-primary [&>*:first-child]:mt-0 [&>*:last-child]:mb-0 [&_blockquote]:my-3 [&_blockquote]:border-l-2 [&_blockquote]:border-border-strong [&_blockquote]:pl-3 [&_blockquote]:text-secondary [&_code]:rounded [&_code]:bg-surface [&_code]:px-1 [&_code]:py-0.5 [&_code]:text-ui-xs [&_h1]:mb-2 [&_h1]:mt-4 [&_h1]:text-ui-lg [&_h1]:font-semibold [&_h2]:mb-2 [&_h2]:mt-4 [&_h2]:text-ui [&_h2]:font-semibold [&_h3]:mb-1 [&_h3]:mt-3 [&_h3]:font-semibold [&_li]:my-1 [&_ol]:my-2 [&_ol]:list-decimal [&_ol]:pl-5 [&_p]:my-2 [&_pre]:my-3 [&_pre]:overflow-x-auto [&_pre]:rounded-lg [&_pre]:bg-surface [&_pre]:p-3 [&_pre_code]:bg-transparent [&_pre_code]:p-0 [&_strong]:font-semibold [&_ul]:my-2 [&_ul]:list-disc [&_ul]:pl-5">
+        <ReactMarkdown
+          components={{
+            a: ({ children, href }) => (
+              <a
+                className="text-secondary underline decoration-border-strong underline-offset-2 hover:text-primary"
+                href={href}
+                rel="noreferrer"
+                target="_blank"
+              >
+                {children}
+              </a>
+            ),
+          }}
+        >
+          {event.text}
+        </ReactMarkdown>
+      </div>
     );
   if (event.kind === "reasoning")
     return (
@@ -793,28 +811,24 @@ function AgentEventView({
   if (event.kind === "checkpoint") {
     const checkpoint = session.checkpoints.find((candidate) => candidate.turnId === event.turnId);
     return (
-      <div className="rounded-lg border border-border bg-panel-muted p-2.5">
-        <div className="flex items-start gap-2">
-          <Clock3 size={13} className="mt-0.5 text-muted" />
-          <div className="min-w-0 flex-1">
-            <p className="text-ui-xs font-medium text-secondary">{event.title}</p>
-            <p className="mt-1 whitespace-pre-wrap text-ui-xs leading-4 text-muted">
-              {event.detail}
-            </p>
-          </div>
-          {checkpoint && (
-            <button
-              className="grid size-7 shrink-0 place-items-center rounded-md text-muted hover:bg-surface hover:text-primary"
-              aria-label="Revert turn"
-              title="Revert this turn"
-              onClick={() =>
-                void window.cinesim.revertAgentTurn(session.id, checkpoint.turnId).then(onSnapshot)
-              }
-            >
-              <RotateCcw size={13} />
-            </button>
-          )}
-        </div>
+      <div className="flex min-w-0 items-center gap-2 px-1 py-1 text-ui-xs text-muted">
+        <Clock3 size={13} className="shrink-0" />
+        <p className="min-w-0 flex-1 truncate" title={event.detail ?? event.title}>
+          <span className="font-medium text-secondary">{event.title}</span>
+          {event.detail && <span> · {event.detail}</span>}
+        </p>
+        {checkpoint && (
+          <button
+            className="grid size-7 shrink-0 place-items-center rounded-md text-muted hover:bg-surface hover:text-primary"
+            aria-label="Revert turn"
+            title="Revert this turn"
+            onClick={() =>
+              void window.cinesim.revertAgentTurn(session.id, checkpoint.turnId).then(onSnapshot)
+            }
+          >
+            <RotateCcw size={13} />
+          </button>
+        )}
       </div>
     );
   }
