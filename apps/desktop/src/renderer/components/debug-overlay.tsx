@@ -9,11 +9,11 @@ export function DebugOverlay() {
     ["Timeline", formatTimecode(metrics.timeUs)],
     ["Render FPS", metrics.renderFps],
     ["Dropped", metrics.droppedFrames],
-    ["Decode queue", metrics.decodeQueueSize],
-    ["Decoders", metrics.activeDecoders],
+    ["Frame operations", metrics.frameOperationsInFlight],
+    ["Sources", metrics.activeSources],
     ["Active clips", metrics.activeClips],
     ["Seek latency", `${metrics.seekLatencyMs.toFixed(1)} ms`],
-    ["GPU submit", `${metrics.gpuFrameTimeMs.toFixed(2)} ms`],
+    ["GPU submit", `${metrics.gpuSubmitCpuMs.toFixed(2)} ms`],
     ["Preview", `${metrics.previewWidth}×${metrics.previewHeight}`],
   ];
   return (

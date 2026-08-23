@@ -46,12 +46,22 @@ export interface CompositorLayer {
 }
 
 export interface CompositorMetrics {
-  gpuFrameTimeMs: number;
+  gpuSubmitCpuMs: number;
   submittedFrames: number;
   activeFrames: number;
+  deviceLostCount: number;
+  outputWidth: number;
+  outputHeight: number;
 }
 
-export class WebGpuCompositor {
+export interface PreviewCompositor {
+  initialize(): Promise<void>;
+  render(layers: CompositorLayer[], output?: { width: number; height: number }): void;
+  readonly metrics: CompositorMetrics;
+  destroy(): void;
+}
+
+export class WebGpuCompositor implements PreviewCompositor {
   readonly #canvas: HTMLCanvasElement;
   #context: GPUCanvasContext | null = null;
   #device: GPUDevice | null = null;
@@ -59,7 +69,8 @@ export class WebGpuCompositor {
   #sampler: GPUSampler | null = null;
   #format: GPUTextureFormat | null = null;
   #submittedFrames = 0;
-  #lastGpuFrameTimeMs = 0;
+  #lastSubmitCpuMs = 0;
+  #deviceLostCount = 0;
   #destroyed = false;
 
   constructor(canvas: HTMLCanvasElement) {
@@ -103,6 +114,7 @@ export class WebGpuCompositor {
       primitive: { topology: "triangle-list" },
     });
     void device.lost.then(() => {
+      this.#deviceLostCount += 1;
       this.#device = null;
       this.#pipeline = null;
       if (!this.#destroyed) void this.initialize();
@@ -120,6 +132,7 @@ export class WebGpuCompositor {
 
   render(
     layers: CompositorLayer[],
+    output = { width: this.#canvas.width, height: this.#canvas.height },
     background: GPUColor = { r: 0.035, g: 0.035, b: 0.043, a: 1 },
   ): void {
     if (!this.#device || !this.#context || !this.#pipeline || !this.#sampler || !this.#format) {
@@ -143,6 +156,19 @@ export class WebGpuCompositor {
     pass.setPipeline(this.#pipeline);
     try {
       for (const layer of layers) {
+        const frameWidth = Math.max(1, layer.frame.displayWidth);
+        const frameHeight = Math.max(1, layer.frame.displayHeight);
+        const sourceAspect = frameWidth / frameHeight;
+        const outputAspect = Math.max(1, output.width) / Math.max(1, output.height);
+        let fitX = 1;
+        let fitY = 1;
+        if (layer.transform.fit === "contain") {
+          if (sourceAspect > outputAspect) fitY = outputAspect / sourceAspect;
+          else fitX = sourceAspect / outputAspect;
+        } else if (layer.transform.fit === "cover") {
+          if (sourceAspect > outputAspect) fitX = sourceAspect / outputAspect;
+          else fitY = outputAspect / sourceAspect;
+        }
         const uniform = this.#device.createBuffer({
           size: 32,
           usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
@@ -154,8 +180,8 @@ export class WebGpuCompositor {
           new Float32Array([
             layer.transform.x,
             -layer.transform.y,
-            layer.transform.scaleX,
-            layer.transform.scaleY,
+            layer.transform.scaleX * fitX,
+            layer.transform.scaleY * fitY,
             layer.transform.opacity,
             0,
             0,
@@ -181,15 +207,18 @@ export class WebGpuCompositor {
         .then(() => transientBuffers.forEach((buffer) => buffer.destroy()));
       for (const layer of layers) layer.frame.close();
       this.#submittedFrames += 1;
-      this.#lastGpuFrameTimeMs = performance.now() - started;
+      this.#lastSubmitCpuMs = performance.now() - started;
     }
   }
 
   get metrics(): CompositorMetrics {
     return {
-      gpuFrameTimeMs: this.#lastGpuFrameTimeMs,
+      gpuSubmitCpuMs: this.#lastSubmitCpuMs,
       submittedFrames: this.#submittedFrames,
       activeFrames: 0,
+      deviceLostCount: this.#deviceLostCount,
+      outputWidth: this.#canvas.width,
+      outputHeight: this.#canvas.height,
     };
   }
 

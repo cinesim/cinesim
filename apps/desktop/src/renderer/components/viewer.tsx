@@ -7,7 +7,20 @@ import { PlaybackRuntime, WebGpuCompositor } from "@cinesim/engine";
 import { formatTimecode } from "../lib/format";
 import { useUiStore } from "../store/ui-store";
 
-export function Viewer({ project }: { project: Project }) {
+export interface ViewerController {
+  seekTimeline(timeUs: number): Promise<void>;
+  enterAssetPreview(assetId: `asset_${string}`, sourceTimeUs: number): void;
+  updateAssetPreview(sourceTimeUs: number): void;
+  exitAssetPreview(): Promise<void>;
+}
+
+export function Viewer({
+  project,
+  onController,
+}: {
+  project: Project;
+  onController?: (controller: ViewerController | null) => void;
+}) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const runtimeRef = useRef<PlaybackRuntime | null>(null);
   const initialProjectRef = useRef(project);
@@ -24,8 +37,9 @@ export function Viewer({ project }: { project: Project }) {
     const compositor = new WebGpuCompositor(canvas);
     const playback = new PlaybackRuntime(initialProjectRef.current, compositor);
     runtimeRef.current = playback;
+    onController?.(playback);
     const unsubscribe = playback.subscribe(setRuntime);
-    void compositor
+    void playback
       .initialize()
       .catch((caught) =>
         setError(caught instanceof Error ? caught.message : "WebGPU initialization failed"),
@@ -35,8 +49,9 @@ export function Viewer({ project }: { project: Project }) {
       playback.destroy();
       compositor.destroy();
       runtimeRef.current = null;
+      onController?.(null);
     };
-  }, [setRuntime]);
+  }, [onController, setRuntime]);
 
   useEffect(() => runtimeRef.current?.setProject(project), [project]);
 

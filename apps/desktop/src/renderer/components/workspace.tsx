@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { cn } from "@cinesim/ui";
 import { sequenceDurationUs } from "@cinesim/core";
 import type { Asset, EditorCommand, SequenceId } from "@cinesim/core";
@@ -11,6 +11,7 @@ import { MediaBin } from "./media-bin";
 import { NotesPanel } from "./notes-panel";
 import { Timeline } from "./timeline";
 import { Viewer } from "./viewer";
+import type { ViewerController } from "./viewer";
 import { useUiStore } from "../store/ui-store";
 
 interface WorkspaceProps {
@@ -142,6 +143,10 @@ export function Workspace({
     y: number;
     layout: EditorLayoutState;
   } | null>(null);
+  const viewerControllerRef = useRef<ViewerController | null>(null);
+  const setViewerController = useCallback((controller: ViewerController | null) => {
+    viewerControllerRef.current = controller;
+  }, []);
   const selectClip = useUiStore((state) => state.selectClip);
   const setPlayheadUs = useUiStore((state) => state.setPlayheadUs);
   const activeSequence =
@@ -332,7 +337,11 @@ export function Workspace({
                 />
               </>
             )}
-            <Viewer key={activeSequence.id} project={editorProject} />
+            <Viewer
+              key={activeSequence.id}
+              project={editorProject}
+              onController={setViewerController}
+            />
             {inspectorOpen && (
               <>
                 <PanelResizeHandle
@@ -368,7 +377,11 @@ export function Workspace({
             onPointerUp={(event) => finishResize("timeline", event)}
             onPointerCancel={(event) => cancelResize("timeline", event)}
           />
-          <Timeline project={editorProject} onCommand={command} />
+          <Timeline
+            project={editorProject}
+            onCommand={command}
+            onSeek={(timeUs) => void viewerControllerRef.current?.seekTimeline(timeUs)}
+          />
         </div>
       ) : null}
 

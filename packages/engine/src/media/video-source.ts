@@ -1,4 +1,4 @@
-import type { TimeUs } from "@cinesim/core";
+import type { AssetId, TimeUs } from "@cinesim/core";
 
 export interface VideoSourceMetadata {
   durationUs: TimeUs;
@@ -14,6 +14,23 @@ export interface VideoSource {
   getFrame(timeUs: TimeUs): Promise<VideoFrame | null>;
   destroy(): void;
 }
+
+export type MediaSourceKind = "original" | "proxy";
+
+export interface MediaSourceDescriptor {
+  assetId: AssetId;
+  kind: MediaSourceKind;
+  url: string;
+}
+
+export interface MediaSourceResolver {
+  resolve(assetId: AssetId): MediaSourceDescriptor;
+  invalidate?(assetId?: AssetId): void;
+}
+
+export type VideoSourceFactory = (
+  descriptor: MediaSourceDescriptor,
+) => VideoSource & Partial<AudioSource>;
 
 export interface AudioBufferChunk {
   buffer: AudioBuffer;

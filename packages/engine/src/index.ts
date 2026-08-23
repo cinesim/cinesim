@@ -7,3 +7,4 @@ export * from "./playback/clock";
 export * from "./playback/latest-request";
 export * from "./playback/scene-resolver";
 export * from "./runtime/playback-runtime";
+export * from "./runtime/latest-only-executor";
