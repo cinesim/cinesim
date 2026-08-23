@@ -42,6 +42,7 @@ import type {
 } from "../../shared/api";
 import { formatTimecode } from "../lib/format";
 import { useUiStore } from "../store/ui-store";
+import { ProviderIcon } from "./provider-icon";
 
 interface AgentsSidebarProps {
   session: DesktopProjectSession;
@@ -246,7 +247,7 @@ export function AgentsSidebar({ session, onConfigure }: AgentsSidebarProps) {
                   disabled={status?.state !== "connected" || busy}
                   onClick={() => void create(provider)}
                 >
-                  <Bot size={14} className="text-muted" />
+                  <ProviderIcon provider={provider} className="shrink-0 text-muted" />
                   <span className="flex-1">{providerLabel(provider)}</span>
                   {status?.state === "connected" ? (
                     <Check size={13} className="text-emerald-500" />
@@ -480,13 +481,14 @@ function ModelMenu({
         )}
         title={`${providerLabel(session.provider)} model`}
       >
-        <Bot size={12} className="shrink-0" />
+        <ProviderIcon provider={session.provider} size={12} className="shrink-0" />
         <span className="truncate">{selected}</span>
         <ChevronDown size={11} className="shrink-0 transition-transform group-open:rotate-180" />
       </summary>
       <div className="absolute bottom-9 left-0 z-50 w-60 overflow-hidden rounded-lg border border-border bg-panel p-1 shadow-xl shadow-black/15">
         <p className="flex items-center gap-2 px-2 py-1.5 text-ui-xs font-medium text-muted">
-          <Bot size={12} /> {providerLabel(session.provider)} models
+          <ProviderIcon provider={session.provider} size={12} />
+          {providerLabel(session.provider)} models
         </p>
         <div className="max-h-64 overflow-y-auto">
           {models.map((model) => (
@@ -695,7 +697,7 @@ function EmptyAgentState({
     <div className="grid min-h-0 flex-1 place-items-center p-5 text-center">
       <div className="max-w-56">
         <span className="mx-auto grid size-10 place-items-center rounded-xl border border-border bg-panel-muted text-muted">
-          <Bot size={18} />
+          {preferred ? <ProviderIcon provider={preferred.provider} size={18} /> : <Bot size={18} />}
         </span>
         <p className="mt-3 text-ui font-medium text-primary">
           {preferred ? "Start a project agent" : "Configure an agent provider"}
