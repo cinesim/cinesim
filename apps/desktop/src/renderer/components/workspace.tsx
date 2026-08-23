@@ -4,7 +4,6 @@ import { sequenceDurationUs } from "@cinesim/core";
 import type { Asset, EditorCommand, SequenceId } from "@cinesim/core";
 import { EDITOR_LAYOUT_LIMITS } from "../../shared/api";
 import type { DesktopProjectSession, EditorLayoutState } from "../../shared/api";
-import { DebugOverlay } from "./debug-overlay";
 import { EditMediaPool } from "./edit-media-pool";
 import { Inspector } from "./inspector";
 import { MediaBin } from "./media-bin";
@@ -385,7 +384,6 @@ export function Workspace({
         </div>
       ) : null}
 
-      <DebugOverlay />
       {error && (
         <button
           className="absolute bottom-3 left-1/2 z-50 -translate-x-1/2 rounded-lg border border-border-strong bg-panel px-4 py-2 text-ui text-primary shadow-xl"

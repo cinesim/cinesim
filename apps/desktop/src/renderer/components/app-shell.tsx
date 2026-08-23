@@ -33,7 +33,19 @@ interface AppShellProps {
   onOpenRecent: (directory: string) => void;
   onOpenProject: () => void;
   agentsSidebar?: React.ReactNode;
+  metricsSidebar?: React.ReactNode;
+  auxiliaryMode: AuxiliarySidebarMode;
+  onAuxiliaryMode: (mode: AuxiliarySidebarMode) => void;
   children: React.ReactNode;
+}
+
+export type AuxiliarySidebarMode = "agents" | "metrics" | null;
+
+export function toggleAuxiliaryMode(
+  current: AuxiliarySidebarMode,
+  requested: Exclude<AuxiliarySidebarMode, null>,
+): AuxiliarySidebarMode {
+  return current === requested ? null : requested;
 }
 
 const MIN_SIDEBAR_WIDTH = 220;
@@ -43,7 +55,6 @@ const MIN_AGENTS_SIDEBAR_WIDTH = 260;
 const MAX_AGENTS_SIDEBAR_WIDTH = 420;
 const DEFAULT_AGENTS_SIDEBAR_WIDTH = 320;
 const SIDEBAR_OPEN_STORAGE_KEY = "cinesim.sidebarOpen";
-const AGENTS_SIDEBAR_OPEN_STORAGE_KEY = "cinesim.agentsSidebarOpen";
 
 function availableSidebarWidth(): number {
   return Math.max(MIN_SIDEBAR_WIDTH, Math.min(MAX_SIDEBAR_WIDTH, window.innerWidth - 740));
@@ -120,13 +131,13 @@ export function AppShell({
   onOpenRecent,
   onOpenProject,
   agentsSidebar,
+  metricsSidebar,
+  auxiliaryMode,
+  onAuxiliaryMode,
   children,
 }: AppShellProps) {
   const [sidebarOpen, setSidebarOpen] = useState(() =>
     initialSidebarOpen(SIDEBAR_OPEN_STORAGE_KEY),
-  );
-  const [agentsSidebarOpen, setAgentsSidebarOpen] = useState(() =>
-    initialSidebarOpen(AGENTS_SIDEBAR_OPEN_STORAGE_KEY),
   );
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [sidebarWidth, setSidebarWidth] = useState(initialSidebarWidth);
@@ -143,10 +154,6 @@ export function AppShell({
   }, [sidebarOpen]);
 
   useEffect(() => {
-    localStorage.setItem(AGENTS_SIDEBAR_OPEN_STORAGE_KEY, String(agentsSidebarOpen));
-  }, [agentsSidebarOpen]);
-
-  useEffect(() => {
     function shortcut(event: KeyboardEvent) {
       const command = event.metaKey || event.ctrlKey;
       const key = event.key.toLowerCase();
@@ -157,7 +164,7 @@ export function AppShell({
       if (isAgentsSidebarShortcut(event)) {
         if (agentsSidebarAvailable) {
           event.preventDefault();
-          setAgentsSidebarOpen((open) => !open);
+          onAuxiliaryMode(toggleAuxiliaryMode(auxiliaryMode, "agents"));
         }
       } else if (projectSection) {
         event.preventDefault();
@@ -178,7 +185,14 @@ export function AppShell({
     }
     window.addEventListener("keydown", shortcut);
     return () => window.removeEventListener("keydown", shortcut);
-  }, [agentsSidebarAvailable, destination, onHome, onProjectSection]);
+  }, [
+    agentsSidebarAvailable,
+    auxiliaryMode,
+    destination,
+    onAuxiliaryMode,
+    onHome,
+    onProjectSection,
+  ]);
 
   function startResize(event: React.PointerEvent<HTMLDivElement>) {
     resizeOrigin.current = { x: event.clientX, width: sidebarWidth };
@@ -385,29 +399,33 @@ export function AppShell({
           {agentsSidebar && (
             <button
               className="no-drag absolute right-2 top-2 grid size-8 place-items-center rounded-md text-muted hover:bg-surface hover:text-primary"
-              aria-label={agentsSidebarOpen ? "Collapse agents sidebar" : "Open agents sidebar"}
-              title={`${agentsSidebarOpen ? "Collapse" : "Open"} agents sidebar (⌥⌘B)`}
-              onClick={() => setAgentsSidebarOpen((open) => !open)}
+              aria-label={
+                auxiliaryMode === "agents" ? "Collapse agents sidebar" : "Open agents sidebar"
+              }
+              title={`${auxiliaryMode === "agents" ? "Collapse" : "Open"} agents sidebar (⌥⌘B)`}
+              onClick={() => onAuxiliaryMode(toggleAuxiliaryMode(auxiliaryMode, "agents"))}
             >
-              {agentsSidebarOpen ? <ChevronRight size={17} /> : <ChevronLeft size={17} />}
+              {auxiliaryMode === "agents" ? <ChevronRight size={17} /> : <ChevronLeft size={17} />}
             </button>
           )}
         </header>
         <div className="min-h-0 flex-1">{children}</div>
       </div>
 
-      {agentsSidebar && (
+      {(agentsSidebar || metricsSidebar) && (
         <aside
           className={cn(
             "relative z-30 flex h-screen shrink-0 flex-col overflow-hidden border-l border-border bg-panel",
             !resizingAgentsSidebar && "transition-[width] duration-200 ease-in-out",
-            !agentsSidebarOpen && "border-l-transparent",
+            auxiliaryMode === null && "border-l-transparent",
           )}
-          style={{ width: agentsSidebarOpen ? agentsSidebarWidth : 0 }}
-          aria-hidden={!agentsSidebarOpen}
-          inert={!agentsSidebarOpen}
+          style={{ width: auxiliaryMode ? agentsSidebarWidth : 0 }}
+          aria-hidden={auxiliaryMode === null}
+          inert={auxiliaryMode === null}
         >
-          <div className="min-w-[260px] min-h-0 flex-1 overflow-y-auto">{agentsSidebar}</div>
+          <div className="min-w-[260px] min-h-0 flex-1 overflow-y-auto">
+            {auxiliaryMode === "metrics" ? metricsSidebar : agentsSidebar}
+          </div>
 
           <div
             className="no-drag absolute inset-y-0 left-[-3px] z-40 w-[6px] cursor-col-resize"

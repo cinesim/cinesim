@@ -2,9 +2,17 @@ import { describe, expect, it } from "vitest";
 import {
   isAgentsSidebarShortcut,
   projectSectionForShortcut,
+  toggleAuxiliaryMode,
 } from "../src/renderer/components/app-shell";
 
 describe("keyboard shortcuts", () => {
+  it("keeps the auxiliary sidebars mutually exclusive", () => {
+    expect(toggleAuxiliaryMode(null, "metrics")).toBe("metrics");
+    expect(toggleAuxiliaryMode("metrics", "metrics")).toBeNull();
+    expect(toggleAuxiliaryMode("agents", "metrics")).toBe("metrics");
+    expect(toggleAuxiliaryMode("metrics", "agents")).toBe("agents");
+  });
+
   it("recognizes Option+Command+B by physical key code", () => {
     expect(
       isAgentsSidebarShortcut({

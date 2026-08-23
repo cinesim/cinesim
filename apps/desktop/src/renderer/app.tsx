@@ -4,7 +4,9 @@ import { Button } from "@cinesim/ui";
 import { DEFAULT_EDITOR_LAYOUT } from "../shared/api";
 import type { DesktopAppState, DesktopProjectSession, EditorLayoutState } from "../shared/api";
 import { AgentsSidebar } from "./components/agents-sidebar";
-import { AppShell } from "./components/app-shell";
+import { AppShell, toggleAuxiliaryMode } from "./components/app-shell";
+import type { AuxiliarySidebarMode } from "./components/app-shell";
+import { MetricsSidebar } from "./components/metrics-sidebar";
 import { Settings } from "./components/settings";
 import { TopBar } from "./components/top-bar";
 import { Welcome } from "./components/welcome";
@@ -34,6 +36,13 @@ export function App() {
   const [settingsSection, setSettingsSection] = useState<"general" | "agents">("general");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [auxiliaryMode, setAuxiliaryMode] = useState<AuxiliarySidebarMode>(() =>
+    localStorage.getItem("cinesim.agentsSidebarOpen") === "true" ? "agents" : null,
+  );
+
+  useEffect(() => {
+    localStorage.setItem("cinesim.agentsSidebarOpen", String(auxiliaryMode === "agents"));
+  }, [auxiliaryMode]);
 
   useEffect(() => {
     void Promise.all([window.cinesim.getSession(), window.cinesim.getAppState()])
@@ -193,7 +202,14 @@ export function App() {
       }
       toolbar={
         destination === "project" && session ? (
-          <TopBar session={session} onSession={setSession} />
+          <TopBar
+            session={session}
+            onSession={setSession}
+            metricsOpen={auxiliaryMode === "metrics"}
+            onToggleMetrics={() =>
+              setAuxiliaryMode((current) => toggleAuxiliaryMode(current, "metrics"))
+            }
+          />
         ) : null
       }
       onHome={() => setDestination("home")}
@@ -217,6 +233,9 @@ export function App() {
           />
         ) : undefined
       }
+      metricsSidebar={destination === "project" && session ? <MetricsSidebar /> : undefined}
+      auxiliaryMode={destination === "project" ? auxiliaryMode : null}
+      onAuxiliaryMode={setAuxiliaryMode}
     >
       {destination === "settings" ? (
         <Settings section={settingsSection} />
