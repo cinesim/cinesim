@@ -38,7 +38,7 @@ afterEach(async () => {
   );
 });
 
-describe("DesktopProjectStore media import", () => {
+describe("DesktopProjectStore", () => {
   it("inspects a filesystem-backed audio file through Mediabunny", async () => {
     const parentDirectory = await mkdtemp(join(tmpdir(), "cinesim-import-test-"));
     temporaryDirectories.push(parentDirectory);
@@ -57,5 +57,44 @@ describe("DesktopProjectStore media import", () => {
       durationUs: 1_000_000,
       hasAudio: true,
     });
+  });
+
+  it("serializes concurrent canonical writes through one desktop writer", async () => {
+    const parentDirectory = await mkdtemp(join(tmpdir(), "cinesim-writer-test-"));
+    temporaryDirectories.push(parentDirectory);
+    const store = new DesktopProjectStore();
+    const created = await store.create(parentDirectory, "Writer fixture");
+
+    await Promise.all([
+      store.execute({
+        type: "asset.import",
+        asset: {
+          id: "asset_first",
+          kind: "audio",
+          name: "First",
+          source: { kind: "local", path: join(parentDirectory, "first.wav") },
+          durationUs: 1_000_000,
+          hasAudio: true,
+        },
+      }),
+      store.execute({
+        type: "asset.import",
+        asset: {
+          id: "asset_second",
+          kind: "audio",
+          name: "Second",
+          source: { kind: "local", path: join(parentDirectory, "second.wav") },
+          durationUs: 1_000_000,
+          hasAudio: true,
+        },
+      }),
+    ]);
+
+    const reloaded = new DesktopProjectStore();
+    const session = await reloaded.open(created.directory);
+    expect(session.project.assets.map((asset) => asset.id)).toEqual([
+      "asset_first",
+      "asset_second",
+    ]);
   });
 });

@@ -65,6 +65,9 @@ importers:
       '@lexical/react':
         specifier: 0.49.0
         version: 0.49.0(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(typescript@7.0.2)(yjs@13.6.32)
+      '@modelcontextprotocol/sdk':
+        specifier: 1.30.0
+        version: 1.30.0(supports-color@7.2.0)(zod@4.4.3)
       '@tanstack/react-router':
         specifier: 1.170.31
         version: 1.170.31(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
@@ -86,6 +89,9 @@ importers:
       smol-toml:
         specifier: 1.8.0
         version: 1.8.0
+      zod:
+        specifier: 4.4.3
+        version: 4.4.3
       zustand:
         specifier: 5.0.15
         version: 5.0.15(@types/react@19.2.18)(react@19.2.8)(use-sync-external-store@1.6.0(react@19.2.8))

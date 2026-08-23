@@ -40,9 +40,17 @@ The runtime interfaces keep perception generation separable from interactive pla
 
 The renderer has no Node access. `contextIsolation`, renderer sandboxing, web security, permission denial, navigation blocking, and a strict Content Security Policy are enabled. Preload exposes individual validated calls instead of `ipcRenderer`. Media access is restricted to asset IDs already present in the open project.
 
+## Local agent orchestration
+
+Cinesim treats Claude Code and Codex as local provider runtimes rather than reimplementing an agent loop. Claude is driven with newline-delimited streaming JSON and Codex with the `app-server` JSON-RPC protocol. A small normalization layer converts both into one persistent UI event model. Provider session IDs are retained for normal continuation, while reverting a checkpoint intentionally clears provider context so conversation state cannot silently disagree with restored project state.
+
+Providers do not receive direct canonical write access. They connect to a bearer-authenticated MCP endpoint bound to loopback, scoped to one agent session and one open project. Electron main owns that endpoint and submits all mutations to `DesktopProjectStore`, preserving the same protocol validation, command history, renderer notifications, and single-writer boundary as manual edits. Claude's native tools are restricted to project reads and the Cinesim MCP namespace; Codex runs read-only and performs edits through that namespace.
+
+Agent checkpoints borrow T3 Code's Git-object approach without creating worktrees. A temporary index snapshots only `cinesim.json` and `.cinesim/` into hidden refs in an ignored bare repository under `.video/runtime/`. Media remains referenced in place and is never copied into checkpoints. This makes turn diffs and restoration cheap, local, inspectable, and independent of the user's branch or working-tree index.
+
 ## Research basis
 
-Decisions were checked against current stable documentation for Vite+, Electron security and custom protocols, React 19/Compiler, Mediabunny sources and sinks, the browser WebCodecs/WebGPU APIs, Web Audio, and the official MCP TypeScript SDK. Open-source editor structures (including FreeCut) were used as comparison points only; no third-party source was copied.
+Decisions were checked against current stable documentation for Vite+, Electron security and custom protocols, React 19/Compiler, Mediabunny sources and sinks, the browser WebCodecs/WebGPU APIs, Web Audio, and the official MCP TypeScript SDK. Open-source editor structures (including FreeCut) and agent orchestrators (including T3 Code) were used as comparison points only; no third-party source was copied.
 
 Primary references:
 

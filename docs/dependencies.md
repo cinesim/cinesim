@@ -21,6 +21,6 @@ Runtime dependencies:
 | Mediabunny                          | Container access and WebCodecs sinks | MPL-2.0      |
 | smol-toml                           | Human-readable settings parsing      | BSD-3-Clause |
 | Commander                           | CLI parsing                          | MIT          |
-| MCP TypeScript SDK                  | MCP stdio adapter                    | MIT          |
+| MCP TypeScript SDK                  | MCP adapters and local agent bridge  | MIT          |
 
 Build-only dependencies (Vite+, Vite, TypeScript, React Compiler, Electron, electron-builder, tsx, type packages) use MIT, Apache-2.0, or BSD-style licenses. Cinesim does not copy or modify Mediabunny source and does not include optional FFmpeg/libavcodec-backed codec extensions.

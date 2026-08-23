@@ -15,6 +15,37 @@ const api: DesktopApi = {
   getSession: () => ipcRenderer.invoke("project:session"),
   getAppState: () => ipcRenderer.invoke("app-state:get"),
   setProjectView: (view) => ipcRenderer.invoke("app-state:set-project-view", view),
+  getAgentSettings: () => ipcRenderer.invoke("agents:settings:get"),
+  updateAgentSettings: (update) => ipcRenderer.invoke("agents:settings:update", update),
+  refreshAgentProviders: () => ipcRenderer.invoke("agents:providers:refresh"),
+  chooseAgentExecutable: (provider) => ipcRenderer.invoke("agents:executable:choose", provider),
+  openAgentLogin: (provider) => ipcRenderer.invoke("agents:login", provider),
+  getAgents: (projectDirectory) => ipcRenderer.invoke("agents:get", projectDirectory),
+  createAgent: (input) => ipcRenderer.invoke("agents:create", input),
+  selectAgent: (projectDirectory, sessionId) =>
+    ipcRenderer.invoke("agents:select", projectDirectory, sessionId),
+  deleteAgent: (projectDirectory, sessionId) =>
+    ipcRenderer.invoke("agents:delete", projectDirectory, sessionId),
+  sendAgentMessage: (sessionId, message, context) =>
+    ipcRenderer.invoke("agents:send", sessionId, message, context),
+  interruptAgent: (sessionId) => ipcRenderer.invoke("agents:interrupt", sessionId),
+  respondAgentApproval: (sessionId, requestId, decision) =>
+    ipcRenderer.invoke("agents:approval", sessionId, requestId, decision),
+  revertAgentTurn: (sessionId, turnId) => ipcRenderer.invoke("agents:revert", sessionId, turnId),
+  onAgentsChanged: (callback) => {
+    const listener = (
+      _event: Electron.IpcRendererEvent,
+      snapshot: Parameters<typeof callback>[0],
+    ) => callback(snapshot);
+    ipcRenderer.on("agents:changed", listener);
+    return () => ipcRenderer.removeListener("agents:changed", listener);
+  },
+  onProjectChanged: (callback) => {
+    const listener = (_event: Electron.IpcRendererEvent, session: Parameters<typeof callback>[0]) =>
+      callback(session);
+    ipcRenderer.on("project:changed", listener);
+    return () => ipcRenderer.removeListener("project:changed", listener);
+  },
   onCloseActiveTab: (callback) => {
     const listener = () => callback();
     ipcRenderer.on("app:close-active-tab", listener);

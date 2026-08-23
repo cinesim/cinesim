@@ -62,6 +62,16 @@ Audio uses Mediabunny `AudioBufferSink`. A Web Audio scheduler anchors timeline 
 
 Implemented surfaces include project create/open, media import/bin, double-click add to timeline, WebGPU viewer transport/scrubber, multi-track custom timeline, dnd-kit clip movement, pointer edge trims, selection/blade tools, split/delete, inspector, Lexical working-notes surface, undo/redo/save/reveal controls, and a throttled runtime metrics overlay. Zustand stores only ephemeral UI state; canonical project snapshots remain outside it.
 
+The desktop also has independently resizable, animated left and agent sidebars whose open state and width survive reloads. The settings destination replaces the project navigation with settings sections, including an Agents page for local Claude Code and Codex discovery, login status, executable paths, models, approval modes, and the default provider.
+
+## Local agents
+
+Agent chats use the user's installed Claude Code or Codex executable and persist normalized transcripts outside the canonical project. Claude runs through its streaming JSON protocol; Codex runs through the `app-server` JSON-RPC protocol. Provider-specific events are normalized before they reach React, so the sidebar can render messages, reasoning, tool progress, approval requests, errors, and completion consistently.
+
+Each provider receives a session-scoped, bearer-authenticated loopback MCP endpoint. The embedded MCP server is owned by Electron main and delegates inspection and timeline edits to the already-open `DesktopProjectStore`; it does not create a second writer or duplicate editing semantics. Supervised mode asks in the Cinesim UI before canonical edits, while auto-edit mode allows the same validated commands without the prompt. One mutating agent may run per project at a time.
+
+Every agent turn captures canonical state before and after the turn with Git plumbing in ignored `.video/runtime/agent-checkpoints.git`. This does not require a worktree and never adds media. The UI shows the canonical diff stat and can restore the before-turn checkpoint; restoring also reloads the project and starts a fresh provider context on the next message.
+
 ## CLI and MCP
 
 The CLI is exposed as both `cinesim` and the specification's temporary `video` alias. Inspect commands support `--json`. Clip editing accepts stable IDs and human time strings and persists through the common dispatcher.
@@ -72,7 +82,7 @@ The MCP stdio server exposes project/asset/timeline inspection, clip add/move/tr
 
 - TypeScript whole-repository check: passed
 - Vite+ format and lint check: passed with no warnings
-- 14 semantic tests across 4 files: passed
+- Semantic tests, including agent settings persistence, Git checkpoint capture/restore, structured Claude/Codex runtime parsing, authenticated MCP tools, and sidebar shortcuts: passed
 - Vite production builds for main, preload, and renderer: passed
 - CLI help smoke check: passed
 - Electron application launch: intentionally not run
@@ -93,7 +103,8 @@ No FPS, decode, GPU, seek, or memory measurements are reported. Measuring them r
 - The Lexical notes surface is a working draft surface but does not write `AGENTS.md` or `script.md`.
 - V1 supports one active flat sequence, rejects overlaps per track, and has no transitions, nested timelines, keyframes, export/render, or cloud features.
 - Renderer output is currently a single large application chunk (about 1.05 MB minified); lazy route/vendor splitting is pending.
-- Concurrent desktop and external CLI/MCP writes do not yet use a cross-process project lock or desktop file watcher.
+- The embedded agent MCP bridge shares Electron main's single project writer, but concurrent desktop and external CLI/stdio-MCP writes do not yet use a cross-process project lock or desktop file watcher.
+- Local provider integration currently targets Claude Code's streaming JSON protocol and Codex's `app-server` protocol. Compatibility still depends on the installed CLI version and requires interactive desktop validation against each provider.
 
 ## Highest-value next steps
 

@@ -19,6 +19,7 @@ export function App() {
   const [session, setSession] = useState<DesktopProjectSession | null>(null);
   const [appState, setAppState] = useState<DesktopAppState>(EMPTY_APP_STATE);
   const [destination, setDestination] = useState<Destination>("home");
+  const [settingsSection, setSettingsSection] = useState<"general" | "agents">("general");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -34,6 +35,8 @@ export function App() {
       )
       .finally(() => setLoading(false));
   }, []);
+
+  useEffect(() => window.cinesim.onProjectChanged(setSession), []);
 
   async function showProject(nextSession: DesktopProjectSession): Promise<void> {
     setSession(nextSession);
@@ -80,6 +83,7 @@ export function App() {
       session={session}
       appState={appState}
       destination={destination}
+      settingsSection={settingsSection}
       title={title}
       toolbar={
         destination === "project" && session ? (
@@ -89,12 +93,23 @@ export function App() {
       onHome={() => setDestination("home")}
       onProject={() => session && setDestination("project")}
       onSettings={() => setDestination("settings")}
+      onSettingsSection={setSettingsSection}
       onOpenRecent={(directory) => void openRecent(directory)}
       onOpenProject={() => void openProject()}
-      agentsSidebar={destination === "project" && session ? <AgentsSidebar /> : undefined}
+      agentsSidebar={
+        destination === "project" && session ? (
+          <AgentsSidebar
+            session={session}
+            onConfigure={() => {
+              setSettingsSection("agents");
+              setDestination("settings");
+            }}
+          />
+        ) : undefined
+      }
     >
       {destination === "settings" ? (
-        <Settings />
+        <Settings section={settingsSection} />
       ) : destination === "project" && session ? (
         <Workspace
           key={session.directory}

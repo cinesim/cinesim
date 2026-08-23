@@ -8,6 +8,7 @@ import {
   FolderOpen,
   House,
   Keyboard,
+  SlidersHorizontal,
   Settings as SettingsIcon,
 } from "lucide-react";
 import { cn } from "@cinesim/ui";
@@ -18,11 +19,13 @@ interface AppShellProps {
   session: DesktopProjectSession | null;
   appState: DesktopAppState;
   destination: "home" | "project" | "settings";
+  settingsSection: "general" | "agents";
   title: string;
   toolbar: React.ReactNode;
   onHome: () => void;
   onProject: () => void;
   onSettings: () => void;
+  onSettingsSection: (section: "general" | "agents") => void;
   onOpenRecent: (directory: string) => void;
   onOpenProject: () => void;
   agentsSidebar?: React.ReactNode;
@@ -83,11 +86,13 @@ export function AppShell({
   session,
   appState,
   destination,
+  settingsSection,
   title,
   toolbar,
   onHome,
   onProject,
   onSettings,
+  onSettingsSection,
   onOpenRecent,
   onOpenProject,
   agentsSidebar,
@@ -223,21 +228,43 @@ export function AppShell({
         </div>
 
         <div className="min-w-[220px] flex-1 overflow-y-auto p-2">
-          <ProjectMenu
-            session={session}
-            recentProjects={appState.recentProjects}
-            onProject={onProject}
-            onOpenRecent={onOpenRecent}
-            onOpenProject={onOpenProject}
-          />
-          <nav className="mt-3 space-y-1" aria-label="Application">
-            <SidebarButton active={destination === "home"} onClick={onHome}>
-              <House size={15} /> <span>Home</span>
-              <span className="ml-auto">
-                <ShortcutHint>{isMac ? "⌘⇧H" : "Ctrl+⇧H"}</ShortcutHint>
-              </span>
-            </SidebarButton>
-          </nav>
+          {destination === "settings" ? (
+            <nav className="space-y-1" aria-label="Settings sections">
+              <p className="px-2.5 pb-2 pt-1 text-ui-xs font-semibold uppercase tracking-[0.12em] text-muted">
+                Settings
+              </p>
+              <SidebarButton
+                active={settingsSection === "general"}
+                onClick={() => onSettingsSection("general")}
+              >
+                <SlidersHorizontal size={15} /> General
+              </SidebarButton>
+              <SidebarButton
+                active={settingsSection === "agents"}
+                onClick={() => onSettingsSection("agents")}
+              >
+                <Bot size={15} /> Agents
+              </SidebarButton>
+            </nav>
+          ) : (
+            <>
+              <ProjectMenu
+                session={session}
+                recentProjects={appState.recentProjects}
+                onProject={onProject}
+                onOpenRecent={onOpenRecent}
+                onOpenProject={onOpenProject}
+              />
+              <nav className="mt-3 space-y-1" aria-label="Application">
+                <SidebarButton active={destination === "home"} onClick={onHome}>
+                  <House size={15} /> <span>Home</span>
+                  <span className="ml-auto">
+                    <ShortcutHint>{isMac ? "⌘⇧H" : "Ctrl+⇧H"}</ShortcutHint>
+                  </span>
+                </SidebarButton>
+              </nav>
+            </>
+          )}
         </div>
 
         <div className="flex min-w-[220px] gap-1 p-2">
