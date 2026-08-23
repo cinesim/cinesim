@@ -47,8 +47,7 @@ export function Viewer({ project }: { project: Project }) {
   return (
     <section className="relative flex min-h-0 flex-col bg-panel-muted">
       <div className="flex h-10 items-center justify-between border-b border-border px-3">
-        <span className="panel-title">Program</span>
-        <span className="rounded bg-surface px-2 py-1 text-ui-xs text-muted tabular-nums">
+        <span className="ml-auto rounded bg-surface px-2 py-1 text-ui-xs text-muted tabular-nums">
           {sequence.width} × {sequence.height} · {sequence.frameRate} fps
         </span>
       </div>

@@ -242,21 +242,7 @@ export function AppShell({
         aria-hidden={!sidebarOpen}
         inert={!sidebarOpen}
       >
-        <div className="app-drag relative h-12 shrink-0">
-          <button
-            className={cn(
-              "no-drag absolute right-2 top-2 grid size-8 place-items-center rounded-md text-muted transition-opacity hover:bg-surface hover:text-primary",
-              sidebarOpen
-                ? "delay-150 duration-75 opacity-100"
-                : "pointer-events-none delay-0 duration-0 opacity-0",
-            )}
-            aria-label="Collapse sidebar"
-            title={isMac ? "Collapse sidebar (⌘B)" : "Collapse sidebar (Ctrl+B)"}
-            onClick={() => setSidebarOpen(false)}
-          >
-            <ChevronLeft size={17} />
-          </button>
-        </div>
+        <div className="app-drag h-12 shrink-0" />
 
         <div className="min-w-[220px] flex-1 overflow-y-auto p-2">
           {destination === "settings" ? (
@@ -350,24 +336,22 @@ export function AppShell({
 
       <div className="relative flex min-w-0 flex-1 flex-col">
         <header className="app-drag relative flex h-12 shrink-0 items-center justify-center border-b border-border bg-panel px-3">
-          {!sidebarOpen && (
-            <button
-              className={cn(
-                "no-drag absolute top-2 grid size-8 place-items-center rounded-md text-muted hover:bg-surface hover:text-primary",
-                isMac ? "left-[76px]" : "left-2",
-              )}
-              aria-label="Open sidebar"
-              title={isMac ? "Open sidebar (⌘B)" : "Open sidebar (Ctrl+B)"}
-              onClick={() => setSidebarOpen(true)}
-            >
-              <ChevronRight size={17} />
-            </button>
-          )}
+          <button
+            className={cn(
+              "no-drag absolute top-2 grid size-8 place-items-center rounded-md text-muted hover:bg-surface hover:text-primary",
+              sidebarOpen ? "left-2" : isMac ? "left-[76px]" : "left-2",
+            )}
+            aria-label={sidebarOpen ? "Collapse sidebar" : "Open sidebar"}
+            title={`${sidebarOpen ? "Collapse" : "Open"} sidebar (${isMac ? "⌘B" : "Ctrl+B"})`}
+            onClick={() => setSidebarOpen((open) => !open)}
+          >
+            {sidebarOpen ? <ChevronLeft size={17} /> : <ChevronRight size={17} />}
+          </button>
           {leadingToolbar && (
             <div
               className={cn(
                 "no-drag absolute top-2",
-                sidebarOpen ? "left-3" : isMac ? "left-[116px]" : "left-12",
+                sidebarOpen ? "left-12" : isMac ? "left-[116px]" : "left-12",
               )}
             >
               {leadingToolbar}

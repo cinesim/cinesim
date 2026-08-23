@@ -149,10 +149,34 @@ export interface RecentProject {
   directory: string;
 }
 
+export interface EditorLayoutState {
+  mediaPoolWidth: number;
+  inspectorWidth: number;
+  notesWidth: number;
+  timelineHeight: number;
+}
+
+export const DEFAULT_EDITOR_LAYOUT: EditorLayoutState = {
+  mediaPoolWidth: 248,
+  inspectorWidth: 260,
+  notesWidth: 300,
+  timelineHeight: 288,
+};
+
+export const EDITOR_LAYOUT_LIMITS = {
+  mediaPoolWidth: { min: 180, max: 480 },
+  inspectorWidth: { min: 220, max: 480 },
+  notesWidth: { min: 220, max: 480 },
+  timelineHeight: { min: 160, max: 720 },
+} as const;
+
 export interface DesktopAppState {
   version: 1;
   recentProjects: RecentProject[];
   mediaPoolOpenByProject: Record<string, boolean>;
+  inspectorOpenByProject: Record<string, boolean>;
+  notesOpenByProject: Record<string, boolean>;
+  editorLayoutsByProject: Record<string, EditorLayoutState>;
 }
 
 export interface DesktopApi {
@@ -170,6 +194,9 @@ export interface DesktopApi {
   getSession(): Promise<DesktopProjectSession | null>;
   getAppState(): Promise<DesktopAppState>;
   setProjectMediaPoolOpen(open: boolean): Promise<DesktopAppState>;
+  setProjectInspectorOpen(open: boolean): Promise<DesktopAppState>;
+  setProjectNotesOpen(open: boolean): Promise<DesktopAppState>;
+  setProjectEditorLayout(layout: EditorLayoutState): Promise<DesktopAppState>;
   getAgentSettings(): Promise<AgentSettings>;
   updateAgentSettings(update: AgentSettingsUpdate): Promise<AgentSettings>;
   refreshAgentProviders(): Promise<AgentProviderStatus[]>;

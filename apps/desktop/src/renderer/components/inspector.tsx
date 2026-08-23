@@ -1,15 +1,11 @@
-import { useState } from "react";
-import { SlidersHorizontal, StickyNote } from "lucide-react";
-import { Button } from "@cinesim/ui";
+import { SlidersHorizontal } from "lucide-react";
 import { findClip } from "@cinesim/core";
 import type { Project } from "@cinesim/core";
 import { formatDuration } from "../lib/format";
-import { NotesEditor } from "./notes-editor";
 import { useUiStore } from "../store/ui-store";
 
 export function Inspector({ project }: { project: Project }) {
   const selectedClipId = useUiStore((state) => state.selectedClipId);
-  const [tab, setTab] = useState<"properties" | "notes">("properties");
   const location = selectedClipId
     ? (() => {
         try {
@@ -24,35 +20,9 @@ export function Inspector({ project }: { project: Project }) {
     : null;
 
   return (
-    <aside className="flex min-h-0 flex-col border-l border-border bg-panel">
-      <div className="flex h-10 items-center border-b border-border px-2">
-        <Button
-          className="flex-1"
-          size="sm"
-          variant={tab === "properties" ? "secondary" : "ghost"}
-          onClick={() => setTab("properties")}
-        >
-          <SlidersHorizontal size={12} /> Inspector
-        </Button>
-        <Button
-          className="flex-1"
-          size="sm"
-          variant={tab === "notes" ? "secondary" : "ghost"}
-          onClick={() => setTab("notes")}
-        >
-          <StickyNote size={12} /> Notes
-        </Button>
-      </div>
+    <aside className="flex min-h-0 flex-col bg-panel">
       <div className="min-h-0 flex-1 overflow-y-auto p-3">
-        {tab === "notes" ? (
-          <>
-            <p className="mb-2 text-ui-xs leading-4 text-muted">
-              Working notes surface powered by Lexical. Canonical creative direction belongs in the
-              project's AGENTS.md.
-            </p>
-            <NotesEditor />
-          </>
-        ) : location && asset ? (
+        {location && asset ? (
           <div className="space-y-5">
             <div>
               <p className="truncate text-ui font-medium text-primary">{asset.name}</p>
