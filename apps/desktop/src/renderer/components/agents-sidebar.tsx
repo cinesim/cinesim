@@ -522,11 +522,17 @@ function ContextUsage({
   return (
     <details className="group relative">
       <summary
-        className="flex h-7 list-none items-center gap-1 rounded-md px-1.5 text-ui-xs text-muted hover:bg-surface hover:text-primary"
-        title="Context window"
+        className="grid size-7 list-none place-items-center rounded-md text-muted hover:bg-surface hover:text-primary"
+        aria-label={
+          usage?.maxTokens
+            ? `Context window, ${Math.round(remainingPercent)}% remaining`
+            : "Context window"
+        }
+        title={
+          usage?.maxTokens ? `${Math.round(remainingPercent)}% context remaining` : "Context window"
+        }
       >
-        <ContextCircle percent={usedPercent} />
-        <span>{usage?.maxTokens ? `${Math.round(remainingPercent)}%` : "—"}</span>
+        <ContextRing percent={usedPercent} />
       </summary>
       <div className="absolute bottom-9 right-0 z-50 w-72 rounded-lg border border-border bg-panel p-3 shadow-xl shadow-black/15">
         <div className="flex items-center justify-between gap-3">
@@ -591,17 +597,31 @@ function ContextUsage({
   );
 }
 
-function ContextCircle({ percent }: { percent: number }) {
+function ContextRing({ percent }: { percent: number }) {
   return (
-    <span
-      className="relative size-3 shrink-0 overflow-hidden rounded-full border border-current"
-      aria-hidden="true"
-    >
-      <span
-        className="absolute inset-x-0 bottom-0 bg-current transition-[height] duration-300 ease-in-out"
-        style={{ height: `${percent}%` }}
+    <svg className="size-4 -rotate-90" viewBox="0 0 18 18" aria-hidden="true">
+      <circle
+        cx="9"
+        cy="9"
+        r="6.5"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeOpacity="0.25"
       />
-    </span>
+      <circle
+        className="transition-[stroke-dasharray] duration-300 ease-in-out"
+        cx="9"
+        cy="9"
+        r="6.5"
+        fill="none"
+        pathLength="100"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeDasharray={`${percent} 100`}
+      />
+    </svg>
   );
 }
 
