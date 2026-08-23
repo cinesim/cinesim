@@ -286,7 +286,7 @@ export function AgentsSidebar({ session, onConfigure }: AgentsSidebarProps) {
               {error}
             </p>
           )}
-          <div className="shrink-0 border-t border-border p-3">
+          <div className="shrink-0 p-3">
             <div className="rounded-xl border border-border bg-canvas p-2.5 shadow-sm shadow-black/5 transition-colors focus-within:border-border-strong">
               <textarea
                 className="block max-h-44 min-h-24 w-full resize-none bg-transparent px-1 py-0.5 text-ui leading-5 text-primary outline-none placeholder:text-disabled"
