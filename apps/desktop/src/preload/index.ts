@@ -14,7 +14,7 @@ const api: DesktopApi = {
   revealProject: () => ipcRenderer.invoke("project:reveal"),
   getSession: () => ipcRenderer.invoke("project:session"),
   getAppState: () => ipcRenderer.invoke("app-state:get"),
-  setProjectView: (view) => ipcRenderer.invoke("app-state:set-project-view", view),
+  setProjectMediaPoolOpen: (open) => ipcRenderer.invoke("app-state:set-media-pool-open", open),
   getAgentSettings: () => ipcRenderer.invoke("agents:settings:get"),
   updateAgentSettings: (update) => ipcRenderer.invoke("agents:settings:update", update),
   refreshAgentProviders: () => ipcRenderer.invoke("agents:providers:refresh"),
@@ -47,11 +47,6 @@ const api: DesktopApi = {
       callback(session);
     ipcRenderer.on("project:changed", listener);
     return () => ipcRenderer.removeListener("project:changed", listener);
-  },
-  onCloseActiveTab: (callback) => {
-    const listener = () => callback();
-    ipcRenderer.on("app:close-active-tab", listener);
-    return () => ipcRenderer.removeListener("app:close-active-tab", listener);
   },
   platform: process.platform,
 };

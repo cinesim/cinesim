@@ -71,7 +71,7 @@ export function MediaBin({ project, onSession, onOpenTimeline }: MediaBinProps) 
   }
 
   return (
-    <section className="flex min-h-0 flex-col bg-canvas">
+    <section className="flex h-full min-h-0 flex-col bg-canvas">
       <div className="flex h-14 shrink-0 items-center gap-3 border-b border-border px-5">
         <div className="flex h-8 min-w-52 max-w-sm flex-1 items-center gap-2 rounded-md border border-border bg-panel px-2.5 text-muted">
           <Search size={13} />

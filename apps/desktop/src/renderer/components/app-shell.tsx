@@ -1,29 +1,33 @@
 import { useEffect, useRef, useState } from "react";
 import {
   Bot,
-  ChevronDown,
   ChevronLeft,
   ChevronRight,
-  Clapperboard,
-  FolderOpen,
   House,
   Keyboard,
+  Library,
+  Scissors,
   SlidersHorizontal,
   Settings as SettingsIcon,
 } from "lucide-react";
 import { cn } from "@cinesim/ui";
 import type { DesktopAppState, DesktopProjectSession } from "../../shared/api";
+import { ProjectBreadcrumb } from "./project-breadcrumb";
 import { ShortcutHint, ShortcutsDialog } from "./shortcuts-dialog";
 
 interface AppShellProps {
   session: DesktopProjectSession | null;
   appState: DesktopAppState;
   destination: "home" | "project" | "settings";
+  projectSection: "media" | "edit";
+  activeSequenceId: string | null;
   settingsSection: "general" | "agents";
   title: string;
+  leadingToolbar?: React.ReactNode;
   toolbar: React.ReactNode;
   onHome: () => void;
-  onProject: () => void;
+  onProjectSection: (section: "media" | "edit") => void;
+  onTimeline: (sequenceId: string) => void;
   onSettings: () => void;
   onSettingsSection: (section: "general" | "agents") => void;
   onOpenRecent: (directory: string) => void;
@@ -82,15 +86,35 @@ export function isAgentsSidebarShortcut(
   );
 }
 
+export function projectSectionForShortcut(
+  event: Pick<KeyboardEvent, "altKey" | "ctrlKey" | "key" | "metaKey" | "shiftKey">,
+): "media" | "edit" | null {
+  if (!(event.metaKey || event.ctrlKey) || event.altKey || event.shiftKey) return null;
+  if (event.key === "1") return "media";
+  if (event.key === "2") return "edit";
+  return null;
+}
+
+function isEditableShortcutTarget(target: EventTarget | null): boolean {
+  return (
+    target instanceof HTMLElement &&
+    (target.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName))
+  );
+}
+
 export function AppShell({
   session,
   appState,
   destination,
+  projectSection,
+  activeSequenceId,
   settingsSection,
   title,
+  leadingToolbar,
   toolbar,
   onHome,
-  onProject,
+  onProjectSection,
+  onTimeline,
   onSettings,
   onSettingsSection,
   onOpenRecent,
@@ -126,11 +150,18 @@ export function AppShell({
     function shortcut(event: KeyboardEvent) {
       const command = event.metaKey || event.ctrlKey;
       const key = event.key.toLowerCase();
+      const projectSection =
+        destination === "project" && !isEditableShortcutTarget(event.target)
+          ? projectSectionForShortcut(event)
+          : null;
       if (isAgentsSidebarShortcut(event)) {
         if (agentsSidebarAvailable) {
           event.preventDefault();
           setAgentsSidebarOpen((open) => !open);
         }
+      } else if (projectSection) {
+        event.preventDefault();
+        onProjectSection(projectSection);
       } else if (command && !event.altKey && !event.shiftKey && key === "b") {
         event.preventDefault();
         setSidebarOpen((open) => !open);
@@ -147,7 +178,7 @@ export function AppShell({
     }
     window.addEventListener("keydown", shortcut);
     return () => window.removeEventListener("keydown", shortcut);
-  }, [agentsSidebarAvailable, onHome]);
+  }, [agentsSidebarAvailable, destination, onHome, onProjectSection]);
 
   function startResize(event: React.PointerEvent<HTMLDivElement>) {
     resizeOrigin.current = { x: event.clientX, width: sidebarWidth };
@@ -255,14 +286,7 @@ export function AppShell({
             </nav>
           ) : (
             <>
-              <ProjectMenu
-                session={session}
-                recentProjects={appState.recentProjects}
-                onProject={onProject}
-                onOpenRecent={onOpenRecent}
-                onOpenProject={onOpenProject}
-              />
-              <nav className="mt-3 space-y-1" aria-label="Application">
+              <nav className="space-y-1" aria-label="Application">
                 <SidebarButton active={destination === "home"} onClick={onHome}>
                   <House size={15} /> <span>Home</span>
                   <span className="ml-auto">
@@ -270,6 +294,31 @@ export function AppShell({
                   </span>
                 </SidebarButton>
               </nav>
+              {destination === "project" && session && (
+                <nav className="mt-3 space-y-1" aria-label="Project sections">
+                  <p className="px-2.5 pb-1 pt-1 text-ui-xs font-semibold uppercase tracking-[0.12em] text-muted">
+                    Project
+                  </p>
+                  <SidebarButton
+                    active={projectSection === "media"}
+                    onClick={() => onProjectSection("media")}
+                  >
+                    <Library size={15} /> Media
+                    <span className="ml-auto">
+                      <ShortcutHint>{isMac ? "⌘1" : "Ctrl+1"}</ShortcutHint>
+                    </span>
+                  </SidebarButton>
+                  <SidebarButton
+                    active={projectSection === "edit"}
+                    onClick={() => onProjectSection("edit")}
+                  >
+                    <Scissors size={15} /> Edit
+                    <span className="ml-auto">
+                      <ShortcutHint>{isMac ? "⌘2" : "Ctrl+2"}</ShortcutHint>
+                    </span>
+                  </SidebarButton>
+                </nav>
+              )}
             </>
           )}
         </div>
@@ -314,7 +363,31 @@ export function AppShell({
               <ChevronRight size={17} />
             </button>
           )}
-          <span className="max-w-[360px] truncate text-ui font-medium text-secondary">{title}</span>
+          {leadingToolbar && (
+            <div
+              className={cn(
+                "no-drag absolute top-2",
+                sidebarOpen ? "left-3" : isMac ? "left-[116px]" : "left-12",
+              )}
+            >
+              {leadingToolbar}
+            </div>
+          )}
+          {destination === "project" && session ? (
+            <ProjectBreadcrumb
+              session={session}
+              recentProjects={appState.recentProjects}
+              showTimeline={projectSection === "edit"}
+              activeSequenceId={activeSequenceId ?? session.project.activeSequenceId}
+              onOpenRecent={onOpenRecent}
+              onOpenProject={onOpenProject}
+              onTimeline={onTimeline}
+            />
+          ) : (
+            <span className="max-w-[360px] truncate text-ui font-medium text-secondary">
+              {title}
+            </span>
+          )}
           {toolbar && (
             <div
               className={cn(
@@ -363,78 +436,6 @@ export function AppShell({
       )}
       <ShortcutsDialog open={shortcutsOpen} isMac={isMac} onClose={() => setShortcutsOpen(false)} />
     </main>
-  );
-}
-
-function ProjectMenu({
-  session,
-  recentProjects,
-  onProject,
-  onOpenRecent,
-  onOpenProject,
-}: {
-  session: DesktopProjectSession | null;
-  recentProjects: DesktopAppState["recentProjects"];
-  onProject: () => void;
-  onOpenRecent: (directory: string) => void;
-  onOpenProject: () => void;
-}) {
-  return (
-    <details className="sidebar-project-menu relative">
-      <summary className="flex h-10 list-none items-center gap-2 rounded-lg border border-border bg-panel-muted px-2.5 outline-none hover:bg-surface focus-visible:ring-2 focus-visible:ring-focus">
-        <span className="grid size-6 shrink-0 place-items-center rounded-md bg-accent text-on-accent">
-          <Clapperboard size={13} />
-        </span>
-        <span className="min-w-0 flex-1 truncate text-left text-ui font-medium">
-          {session?.project.name ?? "Choose a project"}
-        </span>
-        <ChevronDown size={13} className="text-muted" />
-      </summary>
-      <div className="absolute left-0 right-0 top-11 z-50 overflow-hidden rounded-lg border border-border bg-panel p-1 shadow-xl shadow-black/15">
-        {session && (
-          <button
-            className="flex w-full items-center gap-2 rounded-md px-2 py-2 text-left text-ui hover:bg-surface"
-            onClick={(event) => {
-              event.currentTarget.closest("details")?.removeAttribute("open");
-              onProject();
-            }}
-          >
-            <Clapperboard size={14} className="text-muted" />
-            <span className="min-w-0 flex-1 truncate">{session.project.name}</span>
-          </button>
-        )}
-        {recentProjects
-          .filter((project) => project.directory !== session?.directory)
-          .slice(0, 6)
-          .map((project) => (
-            <button
-              key={project.directory}
-              className="block w-full rounded-md px-2 py-2 text-left hover:bg-surface"
-              title={project.directory}
-              onClick={(event) => {
-                event.currentTarget.closest("details")?.removeAttribute("open");
-                onOpenRecent(project.directory);
-              }}
-            >
-              <span className="block truncate text-ui text-primary">{project.name}</span>
-              <span className="block truncate text-ui-xs text-muted">{project.directory}</span>
-            </button>
-          ))}
-        {recentProjects.length === 0 && !session && (
-          <p className="px-2 py-3 text-ui-xs text-muted">Recent projects will appear here.</p>
-        )}
-        <div className="my-1 h-px bg-border" />
-        <button
-          className="flex w-full items-center gap-2 rounded-md px-2 py-2 text-left text-ui text-secondary hover:bg-surface hover:text-primary"
-          onClick={(event) => {
-            event.currentTarget.closest("details")?.removeAttribute("open");
-            onOpenProject();
-          }}
-        >
-          <FolderOpen size={14} /> Open another project…
-        </button>
-      </div>
-    </details>
   );
 }
 

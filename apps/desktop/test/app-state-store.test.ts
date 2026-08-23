@@ -23,7 +23,11 @@ describe("DesktopAppStateStore", () => {
     const { path } = await stateFixture();
     const store = new DesktopAppStateStore(path);
     await store.load();
-    expect(store.snapshot()).toEqual({ version: 1, recentProjects: [], projectViews: {} });
+    expect(store.snapshot()).toEqual({
+      version: 1,
+      recentProjects: [],
+      mediaPoolOpenByProject: {},
+    });
 
     await store.rememberProject({ name: "First", directory: "/films/first" });
     await store.rememberProject({ name: "Second", directory: "/films/second" });
@@ -36,28 +40,56 @@ describe("DesktopAppStateStore", () => {
     expect(await readFile(path, "utf8")).not.toContain("timestamp");
   });
 
-  it("restores open timeline tabs per project", async () => {
-    const { path } = await stateFixture();
-    const store = new DesktopAppStateStore(path);
-    await store.load();
-    await store.setProjectView("/films/first", {
-      openSequenceIds: ["sequence_1", "sequence_2"],
-      activeTab: "sequence_2",
-    });
-
-    const restored = new DesktopAppStateStore(path);
-    await restored.load();
-    expect(restored.snapshot().projectViews["/films/first"]).toEqual({
-      openSequenceIds: ["sequence_1", "sequence_2"],
-      activeTab: "sequence_2",
-    });
-  });
-
   it("recovers from invalid app state instead of affecting project data", async () => {
     const { path } = await stateFixture();
     await writeFile(path, "not json", "utf8");
     const store = new DesktopAppStateStore(path);
     await store.load();
-    expect(store.snapshot()).toEqual({ version: 1, recentProjects: [], projectViews: {} });
+    expect(store.snapshot()).toEqual({
+      version: 1,
+      recentProjects: [],
+      mediaPoolOpenByProject: {},
+    });
+  });
+
+  it("does not restore legacy timeline tab state", async () => {
+    const { path } = await stateFixture();
+    await writeFile(
+      path,
+      JSON.stringify({
+        version: 1,
+        recentProjects: [{ name: "First", directory: "/films/first" }],
+        projectViews: {
+          "/films/first": {
+            openSequenceIds: ["sequence_1"],
+            activeTab: "sequence_1",
+          },
+        },
+      }),
+      "utf8",
+    );
+
+    const store = new DesktopAppStateStore(path);
+    await store.load();
+    expect(store.snapshot()).toEqual({
+      version: 1,
+      recentProjects: [{ name: "First", directory: "/films/first" }],
+      mediaPoolOpenByProject: {},
+    });
+  });
+
+  it("persists the Media Pool state per project", async () => {
+    const { path } = await stateFixture();
+    const store = new DesktopAppStateStore(path);
+    await store.load();
+    await store.setMediaPoolOpen("/films/first", false);
+    await store.setMediaPoolOpen("/films/second", true);
+
+    const restored = new DesktopAppStateStore(path);
+    await restored.load();
+    expect(restored.snapshot().mediaPoolOpenByProject).toEqual({
+      "/films/first": false,
+      "/films/second": true,
+    });
   });
 });

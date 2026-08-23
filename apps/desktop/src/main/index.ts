@@ -184,20 +184,6 @@ function createWindow(): BrowserWindow {
   });
   window.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
   window.webContents.on("will-navigate", (event) => event.preventDefault());
-  window.webContents.on("before-input-event", (event, input) => {
-    const closeTabModifier = process.platform === "darwin" ? input.meta : input.control;
-    if (
-      input.type === "keyDown" &&
-      closeTabModifier &&
-      !input.alt &&
-      !input.shift &&
-      input.key.toLowerCase() === "w"
-    ) {
-      event.preventDefault();
-      window.webContents.send("app:close-active-tab");
-    }
-  });
-
   const developmentUrl = process.env.CINESIM_DEV_SERVER_URL;
   if (developmentUrl) void window.loadURL(developmentUrl);
   else void window.loadFile(join(app.getAppPath(), "dist/renderer/index.html"));
@@ -315,26 +301,10 @@ function registerIpc(): void {
   });
   ipcMain.handle("command:execute", (_event, command: EditorCommand) => store.execute(command));
   ipcMain.handle("app-state:get", () => appState.snapshot());
-  ipcMain.handle("app-state:set-project-view", async (_event, candidate: unknown) => {
-    const directory = store.directory;
-    const project = store.project;
-    if (!directory || !project || typeof candidate !== "object" || candidate === null)
-      throw new Error("Open a project before changing its view");
-    const view = candidate as Record<string, unknown>;
-    const validIds = new Set<string>(project.sequences.map((sequence) => sequence.id));
-    if (
-      !Array.isArray(view.openSequenceIds) ||
-      view.openSequenceIds.length > project.sequences.length ||
-      view.openSequenceIds.some((id) => typeof id !== "string" || !validIds.has(id)) ||
-      typeof view.activeTab !== "string"
-    )
-      throw new Error("Invalid open timeline list");
-    const openSequenceIds = [...new Set<string>(view.openSequenceIds)];
-    const activeTab =
-      view.activeTab === "media" || openSequenceIds.includes(view.activeTab)
-        ? view.activeTab
-        : "media";
-    await appState.setProjectView(directory, { openSequenceIds, activeTab });
+  ipcMain.handle("app-state:set-media-pool-open", async (_event, open: unknown) => {
+    if (!store.directory || typeof open !== "boolean")
+      throw new Error("Open a project before changing the Media Pool");
+    await appState.setMediaPoolOpen(store.directory, open);
     return appState.snapshot();
   });
   ipcMain.handle("agents:settings:get", () => agentSettings.snapshot());
