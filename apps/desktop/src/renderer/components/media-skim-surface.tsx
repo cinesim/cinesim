@@ -3,8 +3,8 @@ import { AlertTriangle, Film, Image as ImageIcon, LoaderCircle, Music2 } from "l
 import { nearestSampleIndex, pointerSourceTimeUs } from "@cinesim/engine";
 import type { Asset } from "@cinesim/core";
 import type { DerivedAssetSnapshot } from "../../shared/api";
-import { useUiStore } from "../store/ui-store";
-import { derivedArtifactUrl } from "../media/media-job-coordinator";
+import { useRendererStore } from "../store/renderer-store-context";
+import { derivedArtifactUrl } from "../media/media-url";
 
 interface MediaSkimSurfaceProps {
   asset: Asset;
@@ -22,11 +22,29 @@ function Placeholder({ asset }: { asset: Asset }) {
 export function thumbnailPresentation(
   record: DerivedAssetSnapshot | undefined,
 ): "ready" | "pending" | "failed" | "placeholder" {
-  if (record?.thumbnail.state === "ready") return "ready";
+  if (record?.thumbnail.state === "ready" && record.thumbnail.updatedAt) return "ready";
   if (record?.thumbnail.state === "queued" || record?.thumbnail.state === "running")
     return "pending";
   if (record?.thumbnail.state === "failed") return "failed";
   return "placeholder";
+}
+
+export function filmstripPresentationReady(record: DerivedAssetSnapshot | undefined): boolean {
+  const filmstrip = record?.filmstrip;
+  const tileCount = filmstrip?.tileTimesUs?.length ?? 0;
+  return Boolean(
+    filmstrip?.state === "ready" &&
+    filmstrip.updatedAt &&
+    tileCount > 0 &&
+    Number.isSafeInteger(filmstrip.columns) &&
+    filmstrip.columns! > 0 &&
+    Number.isSafeInteger(filmstrip.rows) &&
+    filmstrip.rows === Math.ceil(tileCount / filmstrip.columns!) &&
+    Number.isSafeInteger(filmstrip.tileWidth) &&
+    filmstrip.tileWidth! > 0 &&
+    Number.isSafeInteger(filmstrip.tileHeight) &&
+    filmstrip.tileHeight! > 0,
+  );
 }
 
 export function skimPositionPercent(skimTimeUs: number | null, durationUs: number): number | null {
@@ -41,15 +59,14 @@ export function MediaSkimSurface({
   onPreviewEnd,
 }: MediaSkimSurfaceProps) {
   const [skimTimeUs, setSkimTimeUs] = useState<number | null>(null);
-  const derived = useUiStore((state) => state.derivedMedia);
+  const derived = useRendererStore((state) => state.derivedMedia);
   const record = derived?.assets[asset.id];
   const thumbnailState = thumbnailPresentation(record);
   const filmstrip = record?.filmstrip;
-  const filmstripReady = filmstrip?.state === "ready" && filmstrip.tileTimesUs?.length;
+  const filmstripReady = filmstripPresentationReady(record);
+  const tileTimesUs = filmstripReady ? (filmstrip?.tileTimesUs ?? []) : [];
   const tileIndex =
-    skimTimeUs !== null && filmstripReady
-      ? nearestSampleIndex(filmstrip.tileTimesUs!, skimTimeUs)
-      : null;
+    skimTimeUs !== null && filmstripReady ? nearestSampleIndex(tileTimesUs, skimTimeUs) : null;
   const columns = Math.max(1, filmstrip?.columns ?? 1);
   const rows = Math.max(1, filmstrip?.rows ?? 1);
   const column = tileIndex === null ? 0 : tileIndex % columns;
@@ -84,14 +101,26 @@ export function MediaSkimSurface({
         <span
           className="absolute inset-0 bg-no-repeat"
           style={{
-            backgroundImage: `url("${derivedArtifactUrl("filmstrip", asset, derived?.generatorVersion)}")`,
+            backgroundImage: `url("${derivedArtifactUrl(
+              "filmstrip",
+              asset,
+              derived!.projectScope,
+              derived!.generatorVersion,
+              filmstrip!.updatedAt!,
+            )}")`,
             backgroundSize: `${columns * 100}% ${rows * 100}%`,
             backgroundPosition: `${columns === 1 ? 0 : (column / (columns - 1)) * 100}% ${rows === 1 ? 0 : (row / (rows - 1)) * 100}%`,
           }}
         />
       ) : thumbnailState === "ready" ? (
         <img
-          src={derivedArtifactUrl("thumbnail", asset, derived?.generatorVersion)}
+          src={derivedArtifactUrl(
+            "thumbnail",
+            asset,
+            derived!.projectScope,
+            derived!.generatorVersion,
+            record!.thumbnail.updatedAt!,
+          )}
           alt=""
           draggable={false}
           className="absolute inset-0 h-full w-full object-cover"

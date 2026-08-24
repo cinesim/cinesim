@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { cn } from "@cinesim/ui";
-import { sequenceDurationUs } from "@cinesim/core";
 import type { Asset, EditorCommand, SequenceId } from "@cinesim/core";
 import { EDITOR_LAYOUT_LIMITS } from "../../shared/api";
 import type { DesktopProjectSession, EditorLayoutState } from "../../shared/api";
@@ -11,7 +10,7 @@ import { NotesPanel } from "./notes-panel";
 import { Timeline } from "./timeline";
 import { Viewer } from "./viewer";
 import type { ViewerController } from "./viewer";
-import { useUiStore } from "../store/ui-store";
+import { useRendererStore } from "../store/renderer-store-context";
 
 interface WorkspaceProps {
   session: DesktopProjectSession;
@@ -22,8 +21,6 @@ interface WorkspaceProps {
   notesOpen: boolean;
   editorLayout: EditorLayoutState;
   onOpenTimeline: (sequenceId: string) => void;
-  onEditorLayout: (layout: EditorLayoutState) => Promise<void>;
-  onSession: (session: DesktopProjectSession) => void;
 }
 
 type ResizeTarget = "mediaPool" | "inspector" | "notes" | "timeline";
@@ -127,10 +124,7 @@ export function Workspace({
   notesOpen,
   editorLayout,
   onOpenTimeline,
-  onEditorLayout,
-  onSession,
 }: WorkspaceProps) {
-  const [error, setError] = useState<string | null>(null);
   const [layout, setLayout] = useState(editorLayout);
   const [layoutBounds, setLayoutBounds] = useState({ width: 0, height: 0 });
   const layoutRootRef = useRef<HTMLDivElement>(null);
@@ -146,8 +140,14 @@ export function Workspace({
   const setViewerController = useCallback((controller: ViewerController | null) => {
     viewerControllerRef.current = controller;
   }, []);
-  const selectClip = useUiStore((state) => state.selectClip);
-  const setPlayheadUs = useUiStore((state) => state.setPlayheadUs);
+  const error = useRendererStore((state) => state.operationError);
+  const clearError = useRendererStore((state) => state.clearError);
+  const execute = useRendererStore((state) => state.execute);
+  const importProjectMedia = useRendererStore((state) => state.importMedia);
+  const appendAsset = useRendererStore((state) => state.appendAsset);
+  const saveEditorLayout = useRendererStore((state) => state.saveEditorLayout);
+  const selectClip = useRendererStore((state) => state.selectClip);
+  const setPlayheadUs = useRendererStore((state) => state.setPlayheadUs);
   const activeSequence =
     session.project.sequences.find((sequence) => sequence.id === activeSequenceId) ??
     session.project.sequences.find(
@@ -238,67 +238,42 @@ export function Workspace({
   function finishResize(target: ResizeTarget, event: React.PointerEvent<HTMLDivElement>): void {
     const origin = resizeOrigin.current;
     if (!origin || origin.target !== target) return;
+    resizeOrigin.current = null;
     if (event.currentTarget.hasPointerCapture(event.pointerId))
       event.currentTarget.releasePointerCapture(event.pointerId);
-    resizeOrigin.current = null;
     const committed = layoutRef.current;
     setLayout(committed);
-    void onEditorLayout(committed).catch((caught) =>
-      setError(caught instanceof Error ? caught.message : "The editor layout could not be saved"),
-    );
+    void saveEditorLayout(committed);
   }
 
   function cancelResize(target: ResizeTarget, event: React.PointerEvent<HTMLDivElement>): void {
     const origin = resizeOrigin.current;
     if (!origin || origin.target !== target) return;
+    resizeOrigin.current = null;
     if (event.currentTarget.hasPointerCapture(event.pointerId))
       event.currentTarget.releasePointerCapture(event.pointerId);
-    resizeOrigin.current = null;
     applyTransientLayout(origin.layout);
     setLayout(origin.layout);
   }
 
-  async function command(input: EditorCommand): Promise<void> {
-    setError(null);
-    try {
-      const response = await window.cinesim.execute(input);
-      onSession(response.session);
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "The edit could not be applied");
-    }
+  async function command(input: EditorCommand) {
+    return execute(input);
   }
 
-  async function importMedia(): Promise<void> {
-    setError(null);
-    try {
-      const nextSession = await window.cinesim.importMedia();
-      if (nextSession) onSession(nextSession);
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "The media could not be imported");
-    }
+  async function importMedia() {
+    return importProjectMedia();
   }
 
-  async function addAsset(asset: Asset): Promise<void> {
-    if (!activeSequence) return;
-    const track = activeSequence.tracks.find(
-      (candidate) => candidate.kind === (asset.kind === "audio" ? "audio" : "video"),
-    );
-    if (!track) {
-      setError(`The active timeline has no ${asset.kind === "audio" ? "audio" : "video"} track`);
-      return;
-    }
-    await command({
-      type: "clip.add",
-      trackId: track.id,
-      assetId: asset.id,
-      timelineStartUs: sequenceDurationUs(activeSequence),
-    });
+  async function addAsset(asset: Asset) {
+    if (!activeSequence)
+      return { ok: false as const, error: "The active timeline is no longer available" };
+    return appendAsset(asset.id, activeSequence.id);
   }
 
   return (
     <div className="relative h-full min-h-0 bg-canvas">
       {section === "media" ? (
-        <MediaBin project={session.project} onSession={onSession} onOpenTimeline={onOpenTimeline} />
+        <MediaBin project={session.project} onOpenTimeline={onOpenTimeline} />
       ) : activeSequence ? (
         <div
           ref={layoutRootRef}
@@ -343,6 +318,9 @@ export function Workspace({
             <Viewer
               key={activeSequence.id}
               project={editorProject}
+              projectDirectory={session.directory}
+              derivedScope={session.derivedScope}
+              sequenceId={activeSequence.id}
               onController={setViewerController}
             />
             {inspectorOpen && (
@@ -391,7 +369,7 @@ export function Workspace({
       {error && (
         <button
           className="absolute bottom-3 left-1/2 z-50 -translate-x-1/2 rounded-lg border border-border-strong bg-panel px-4 py-2 text-ui text-primary shadow-xl"
-          onClick={() => setError(null)}
+          onClick={clearError}
         >
           {error}
         </button>
@@ -428,6 +406,7 @@ function PanelResizeHandle({
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
       onPointerCancel={onPointerCancel}
+      onLostPointerCapture={onPointerCancel}
     >
       <span
         className={cn(

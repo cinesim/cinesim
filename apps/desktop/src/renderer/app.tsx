@@ -1,235 +1,41 @@
-import { useEffect, useRef, useState } from "react";
 import { Library, SlidersHorizontal, StickyNote } from "lucide-react";
 import { Button } from "@cinesim/ui";
-import { DEFAULT_EDITOR_LAYOUT } from "../shared/api";
-import type { DesktopAppState, DesktopProjectSession, EditorLayoutState } from "../shared/api";
 import { AgentsSidebar } from "./components/agents-sidebar";
 import { AppShell, toggleAuxiliaryMode } from "./components/app-shell";
-import type { AuxiliarySidebarMode } from "./components/app-shell";
 import { MetricsSidebar } from "./components/metrics-sidebar";
 import { ProjectLoadingState } from "./components/project-loading-state";
 import { Settings } from "./components/settings";
 import { TopBar } from "./components/top-bar";
 import { Welcome } from "./components/welcome";
 import { Workspace } from "./components/workspace";
-import { MediaJobCoordinator } from "./media/media-job-coordinator";
-import { useUiStore } from "./store/ui-store";
-
-type Destination = "home" | "project" | "settings";
-type ProjectSection = "media" | "edit";
-
-const EMPTY_APP_STATE: DesktopAppState = {
-  version: 1,
-  recentProjects: [],
-  mediaPoolOpenByProject: {},
-  inspectorOpenByProject: {},
-  notesOpenByProject: {},
-  editorLayoutsByProject: {},
-};
+import { editorLayoutFromState, sessionFromLifecycle } from "./store/renderer-store";
+import { useRendererStore } from "./store/renderer-store-context";
 
 export function App() {
-  const [session, setSession] = useState<DesktopProjectSession | null>(null);
-  const [appState, setAppState] = useState<DesktopAppState>(EMPTY_APP_STATE);
-  const [destination, setDestination] = useState<Destination>("home");
-  const [projectSection, setProjectSection] = useState<ProjectSection>("media");
-  const [activeSequenceId, setActiveSequenceId] = useState<string | null>(null);
-  const [mediaPoolOpen, setMediaPoolOpen] = useState(true);
-  const [inspectorOpen, setInspectorOpen] = useState(true);
-  const [notesOpen, setNotesOpen] = useState(true);
-  const [settingsSection, setSettingsSection] = useState<"general" | "agents">("general");
-  const [loading, setLoading] = useState(true);
-  const [openingProject, setOpeningProject] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [auxiliaryMode, setAuxiliaryMode] = useState<AuxiliarySidebarMode>(() =>
-    localStorage.getItem("cinesim.agentsSidebarOpen") === "true" ? "agents" : null,
-  );
-  const mediaJobsRef = useRef<MediaJobCoordinator | null>(null);
-  const projectOpenInFlightRef = useRef(false);
-  const latestProjectRef = useRef(session?.project);
-  const projectDirectory = session?.directory;
-  const setDerivedMedia = useUiStore((state) => state.setDerivedMedia);
-  const setElectronHealth = useUiStore((state) => state.setElectronHealth);
-  const foregroundPressure = useUiStore((state) => state.runtime?.foregroundPressure ?? "idle");
-
-  useEffect(() => {
-    localStorage.setItem("cinesim.agentsSidebarOpen", String(auxiliaryMode === "agents"));
-  }, [auxiliaryMode]);
-
-  useEffect(() => {
-    latestProjectRef.current = session?.project;
-  }, [session?.project]);
-
-  useEffect(() => {
-    void Promise.all([window.cinesim.getSession(), window.cinesim.getAppState()])
-      .then(([currentSession, currentAppState]) => {
-        setSession(currentSession);
-        setAppState(currentAppState);
-        if (currentSession) {
-          setActiveSequenceId(currentSession.project.activeSequenceId);
-          setMediaPoolOpen(
-            currentAppState.mediaPoolOpenByProject[currentSession.directory] ?? true,
-          );
-          setInspectorOpen(
-            currentAppState.inspectorOpenByProject[currentSession.directory] ?? true,
-          );
-          setNotesOpen(currentAppState.notesOpenByProject[currentSession.directory] ?? true);
-          setDestination("project");
-        }
-      })
-      .catch((caught) =>
-        setError(caught instanceof Error ? caught.message : "Cinesim could not start"),
-      )
-      .finally(() => setLoading(false));
-  }, []);
-
-  useEffect(() => window.cinesim.onProjectChanged(setSession), []);
-
-  useEffect(() => {
-    let expectedProbeAt = performance.now() + 100;
-    let rendererLagSamples: number[] = [];
-    let requestInFlight = false;
-    let destroyed = false;
-    const probe = window.setInterval(() => {
-      const now = performance.now();
-      rendererLagSamples.push(Math.max(0, now - expectedProbeAt));
-      if (rendererLagSamples.length > 20) rendererLagSamples.shift();
-      expectedProbeAt = now + 100;
-    }, 100);
-    const sample = async () => {
-      if (requestInFlight) return;
-      requestInFlight = true;
-      const sortedLagSamples = rendererLagSamples.toSorted((left, right) => left - right);
-      const rendererEventLoopLagMs =
-        sortedLagSamples[Math.max(0, Math.ceil(sortedLagSamples.length * 0.95) - 1)] ?? 0;
-      rendererLagSamples = [];
-      try {
-        const snapshot = await window.cinesim.getElectronHealthSnapshot();
-        if (!destroyed) setElectronHealth({ ...snapshot, rendererEventLoopLagMs });
-      } catch {
-        if (!destroyed) setElectronHealth(null);
-      }
-      requestInFlight = false;
-    };
-    void sample();
-    const sampler = window.setInterval(() => void sample(), 1_000);
-    return () => {
-      destroyed = true;
-      window.clearInterval(probe);
-      window.clearInterval(sampler);
-    };
-  }, [setElectronHealth]);
-
-  useEffect(() => {
-    const project = latestProjectRef.current;
-    if (!project || !projectDirectory) {
-      setDerivedMedia(null);
-      return;
-    }
-    const coordinator = new MediaJobCoordinator(project, setDerivedMedia);
-    mediaJobsRef.current = coordinator;
-    void coordinator.start();
-    return () => {
-      mediaJobsRef.current = null;
-      void coordinator.destroy();
-    };
-  }, [projectDirectory, setDerivedMedia]);
-
-  useEffect(() => {
-    if (session) void mediaJobsRef.current?.updateProject(session.project);
-  }, [session]);
-
-  useEffect(() => {
-    mediaJobsRef.current?.setForegroundPressure(foregroundPressure);
-  }, [foregroundPressure]);
-
-  async function showProject(nextSession: DesktopProjectSession): Promise<void> {
-    const nextAppState = await window.cinesim.getAppState();
-    setSession(nextSession);
-    setProjectSection("media");
-    setActiveSequenceId(nextSession.project.activeSequenceId);
-    setMediaPoolOpen(nextAppState.mediaPoolOpenByProject[nextSession.directory] ?? true);
-    setInspectorOpen(nextAppState.inspectorOpenByProject[nextSession.directory] ?? true);
-    setNotesOpen(nextAppState.notesOpenByProject[nextSession.directory] ?? true);
-    setDestination("project");
-    setError(null);
-    setAppState(nextAppState);
-  }
-
-  async function openRecent(directory: string): Promise<void> {
-    if (projectOpenInFlightRef.current) return;
-    projectOpenInFlightRef.current = true;
-    setOpeningProject(true);
-    try {
-      await showProject(await window.cinesim.openRecentProject(directory));
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "The project could not be opened");
-      setDestination("home");
-    }
-    projectOpenInFlightRef.current = false;
-    setOpeningProject(false);
-  }
-
-  async function openProject(): Promise<void> {
-    if (projectOpenInFlightRef.current) return;
-    projectOpenInFlightRef.current = true;
-    setOpeningProject(true);
-    try {
-      const nextSession = await window.cinesim.openProject();
-      if (nextSession) await showProject(nextSession);
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "The project could not be opened");
-      setDestination("home");
-    }
-    projectOpenInFlightRef.current = false;
-    setOpeningProject(false);
-  }
-
-  function showProjectSection(section: ProjectSection): void {
-    if (!session) return;
-    setProjectSection(section);
-    setDestination("project");
-  }
-
-  function toggleMediaPool(): void {
-    if (!session) return;
-    const nextOpen = !mediaPoolOpen;
-    setMediaPoolOpen(nextOpen);
-    void window.cinesim
-      .setProjectMediaPoolOpen(nextOpen)
-      .then(setAppState)
-      .catch(() => {
-        setMediaPoolOpen(!nextOpen);
-      });
-  }
-
-  function toggleInspector(): void {
-    if (!session) return;
-    const nextOpen = !inspectorOpen;
-    setInspectorOpen(nextOpen);
-    void window.cinesim
-      .setProjectInspectorOpen(nextOpen)
-      .then(setAppState)
-      .catch(() => {
-        setInspectorOpen(!nextOpen);
-      });
-  }
-
-  function toggleNotes(): void {
-    if (!session) return;
-    const nextOpen = !notesOpen;
-    setNotesOpen(nextOpen);
-    void window.cinesim
-      .setProjectNotesOpen(nextOpen)
-      .then(setAppState)
-      .catch(() => {
-        setNotesOpen(!nextOpen);
-      });
-  }
-
-  async function saveEditorLayout(layout: EditorLayoutState): Promise<void> {
-    if (!session) return;
-    setAppState(await window.cinesim.setProjectEditorLayout(layout));
-  }
+  const project = useRendererStore((state) => state.project);
+  const session = useRendererStore((state) => sessionFromLifecycle(state.project));
+  const appState = useRendererStore((state) => state.appState);
+  const destination = useRendererStore((state) => state.destination);
+  const projectSection = useRendererStore((state) => state.projectSection);
+  const activeSequenceId = useRendererStore((state) => state.activeSequenceId);
+  const mediaPoolOpen = useRendererStore((state) => state.mediaPoolOpen);
+  const inspectorOpen = useRendererStore((state) => state.inspectorOpen);
+  const notesOpen = useRendererStore((state) => state.notesOpen);
+  const settingsSection = useRendererStore((state) => state.settingsSection);
+  const auxiliaryMode = useRendererStore((state) => state.auxiliaryMode);
+  const error = useRendererStore((state) => state.operationError);
+  const editorLayout = useRendererStore(editorLayoutFromState);
+  const navigate = useRendererStore((state) => state.navigate);
+  const showProjectSection = useRendererStore((state) => state.showProjectSection);
+  const showTimeline = useRendererStore((state) => state.showTimeline);
+  const setSettingsSection = useRendererStore((state) => state.setSettingsSection);
+  const setAuxiliaryMode = useRendererStore((state) => state.setAuxiliaryMode);
+  const togglePanel = useRendererStore((state) => state.togglePanel);
+  const openProject = useRendererStore((state) => state.openProject);
+  const openRecentProject = useRendererStore((state) => state.openRecentProject);
+  const createProject = useRendererStore((state) => state.createProject);
+  const loading = project.status === "booting";
+  const openingProject = project.status === "opening";
 
   const title =
     destination === "settings"
@@ -256,7 +62,7 @@ export function App() {
               aria-label={mediaPoolOpen ? "Hide Media Pool" : "Show Media Pool"}
               aria-pressed={mediaPoolOpen}
               title={mediaPoolOpen ? "Hide Media Pool" : "Show Media Pool"}
-              onClick={toggleMediaPool}
+              onClick={() => void togglePanel("mediaPool")}
             >
               <Library size={14} />
             </Button>
@@ -266,7 +72,7 @@ export function App() {
               aria-label={inspectorOpen ? "Hide Inspector" : "Show Inspector"}
               aria-pressed={inspectorOpen}
               title={inspectorOpen ? "Hide Inspector" : "Show Inspector"}
-              onClick={toggleInspector}
+              onClick={() => void togglePanel("inspector")}
             >
               <SlidersHorizontal size={14} />
             </Button>
@@ -276,7 +82,7 @@ export function App() {
               aria-label={notesOpen ? "Hide Notes" : "Show Notes"}
               aria-pressed={notesOpen}
               title={notesOpen ? "Hide Notes" : "Show Notes"}
-              onClick={toggleNotes}
+              onClick={() => void togglePanel("notes")}
             >
               <StickyNote size={14} />
             </Button>
@@ -286,28 +92,19 @@ export function App() {
       toolbar={
         destination === "project" && session ? (
           <TopBar
-            session={session}
-            onSession={setSession}
             metricsOpen={auxiliaryMode === "metrics"}
-            onToggleMetrics={() =>
-              setAuxiliaryMode((current) => toggleAuxiliaryMode(current, "metrics"))
-            }
+            onToggleMetrics={() => setAuxiliaryMode(toggleAuxiliaryMode(auxiliaryMode, "metrics"))}
             agentsOpen={auxiliaryMode === "agents"}
-            onToggleAgents={() =>
-              setAuxiliaryMode((current) => toggleAuxiliaryMode(current, "agents"))
-            }
+            onToggleAgents={() => setAuxiliaryMode(toggleAuxiliaryMode(auxiliaryMode, "agents"))}
           />
         ) : null
       }
-      onHome={() => setDestination("home")}
+      onHome={() => navigate("home")}
       onProjectSection={showProjectSection}
-      onTimeline={(sequenceId) => {
-        setActiveSequenceId(sequenceId);
-        setProjectSection("edit");
-      }}
-      onSettings={() => setDestination("settings")}
+      onTimeline={showTimeline}
+      onSettings={() => navigate("settings")}
       onSettingsSection={setSettingsSection}
-      onOpenRecent={(directory) => void openRecent(directory)}
+      onOpenRecent={(directory) => void openRecentProject(directory)}
       onOpenProject={() => void openProject()}
       agentsSidebar={
         destination === "project" && session ? (
@@ -315,7 +112,7 @@ export function App() {
             session={session}
             onConfigure={() => {
               setSettingsSection("agents");
-              setDestination("settings");
+              navigate("settings");
             }}
           />
         ) : undefined
@@ -337,21 +134,18 @@ export function App() {
           mediaPoolOpen={mediaPoolOpen}
           inspectorOpen={inspectorOpen}
           notesOpen={notesOpen}
-          editorLayout={appState.editorLayoutsByProject[session.directory] ?? DEFAULT_EDITOR_LAYOUT}
-          onOpenTimeline={(sequenceId) => {
-            setActiveSequenceId(sequenceId);
-            setProjectSection("edit");
-          }}
-          onEditorLayout={saveEditorLayout}
-          onSession={setSession}
+          editorLayout={editorLayout}
+          onOpenTimeline={showTimeline}
         />
       ) : (
         <Welcome
           appState={appState}
           error={error}
           loading={loading}
-          onOpen={showProject}
-          onOpeningChange={setOpeningProject}
+          opening={openingProject}
+          onCreate={createProject}
+          onOpen={openProject}
+          onOpenRecent={openRecentProject}
         />
       )}
     </AppShell>

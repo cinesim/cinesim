@@ -3,9 +3,10 @@ import { Maximize2, Pause, Play, SkipBack } from "lucide-react";
 import { Button } from "@cinesim/ui";
 import { getSequence, sequenceDurationUs } from "@cinesim/core";
 import type { Project } from "@cinesim/core";
+import type { DerivedProjectScope } from "../../shared/api";
 import { PlaybackRuntime, WebGpuCompositor } from "@cinesim/engine";
 import { formatTimecode } from "../lib/format";
-import { useUiStore } from "../store/ui-store";
+import { useRendererStore, useRendererStoreApi } from "../store/renderer-store-context";
 import { AdaptiveSourceResolver } from "../media/adaptive-source-resolver";
 
 export interface ViewerController {
@@ -17,18 +18,31 @@ export interface ViewerController {
 
 export function Viewer({
   project,
+  projectDirectory,
+  derivedScope,
+  sequenceId,
   onController,
 }: {
   project: Project;
+  projectDirectory: string;
+  derivedScope: DerivedProjectScope;
+  sequenceId: string;
   onController?: (controller: ViewerController | null) => void;
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const { cacheKey: derivedCacheKey, epoch: derivedEpoch } = derivedScope;
   const runtimeRef = useRef<PlaybackRuntime | null>(null);
   const initialProjectRef = useRef(project);
   const [error, setError] = useState<string | null>(null);
-  const runtime = useUiStore((state) => state.runtime);
-  const setRuntime = useUiStore((state) => state.setRuntime);
-  const playheadUs = useUiStore((state) => state.playheadUs);
+  const store = useRendererStoreApi();
+  const runtime = useRendererStore((state) =>
+    state.playbackRuntime?.projectDirectory === projectDirectory &&
+    state.playbackRuntime.sequenceId === sequenceId
+      ? state.playbackRuntime.snapshot
+      : null,
+  );
+  const setRuntime = useRendererStore((state) => state.setPlaybackRuntime);
+  const playheadUs = useRendererStore((state) => state.playheadUs);
   const sequence = getSequence(project);
   const durationUs = sequenceDurationUs(sequence);
 
@@ -38,7 +52,10 @@ export function Viewer({
     const reportPlaybackError = (caught: Error) => setError(caught.message);
     const compositor = new WebGpuCompositor(canvas, { onError: reportPlaybackError });
     const playback = new PlaybackRuntime(initialProjectRef.current, compositor, {
-      sourceResolver: new AdaptiveSourceResolver(),
+      sourceResolver: new AdaptiveSourceResolver(
+        { cacheKey: derivedCacheKey, epoch: derivedEpoch },
+        () => store.getState().derivedMedia,
+      ),
       onError: reportPlaybackError,
     });
     runtimeRef.current = playback;
@@ -49,7 +66,7 @@ export function Viewer({
     let previousObsolete = 0;
     let lastObservationAt = 0;
     const unsubscribe = playback.subscribe((snapshot) => {
-      setRuntime(snapshot);
+      setRuntime(projectDirectory, sequenceId, snapshot);
       const now = performance.now();
       const minimumInterval = snapshot.playing ? 1_000 : 250;
       if (
@@ -60,19 +77,22 @@ export function Viewer({
         now - lastObservationAt >= minimumInterval
       ) {
         void window.cinesim
-          .reportDerivedPerformance({
-            assetId: snapshot.activeAssetId,
-            sourceKind: snapshot.activeSourceKind,
-            operation: snapshot.mode.kind === "asset" ? "hover-seek" : "playback",
-            ...(snapshot.mode.kind === "asset" ? { latencyMs: snapshot.seekLatencyMs } : {}),
-            ...(snapshot.playing
-              ? { deadlineMiss: snapshot.renderFps < snapshot.targetFps * 0.95 }
-              : {}),
-            requestsReceived: snapshot.requestsReceived - previousReceived,
-            requestsCoalesced: snapshot.requestsCoalesced - previousCoalesced,
-            framesPresented: snapshot.framesPresented - previousPresented,
-            framesObsolete: snapshot.framesObsolete - previousObsolete,
-          })
+          .reportDerivedPerformance(
+            { cacheKey: derivedCacheKey, epoch: derivedEpoch },
+            {
+              assetId: snapshot.activeAssetId,
+              sourceKind: snapshot.activeSourceKind,
+              operation: snapshot.mode.kind === "asset" ? "hover-seek" : "playback",
+              ...(snapshot.mode.kind === "asset" ? { latencyMs: snapshot.seekLatencyMs } : {}),
+              ...(snapshot.playing
+                ? { deadlineMiss: snapshot.renderFps < snapshot.targetFps * 0.95 }
+                : {}),
+              requestsReceived: snapshot.requestsReceived - previousReceived,
+              requestsCoalesced: snapshot.requestsCoalesced - previousCoalesced,
+              framesPresented: snapshot.framesPresented - previousPresented,
+              framesObsolete: snapshot.framesObsolete - previousObsolete,
+            },
+          )
           .catch(() => undefined);
         lastObservationAt = now;
         previousPresented = snapshot.framesPresented;
@@ -93,9 +113,18 @@ export function Viewer({
       playback.destroy();
       compositor.destroy();
       runtimeRef.current = null;
+      setRuntime(projectDirectory, sequenceId, null);
       onController?.(null);
     };
-  }, [onController, setRuntime]);
+  }, [
+    derivedCacheKey,
+    derivedEpoch,
+    onController,
+    projectDirectory,
+    sequenceId,
+    setRuntime,
+    store,
+  ]);
 
   useEffect(() => runtimeRef.current?.setProject(project), [project]);
 

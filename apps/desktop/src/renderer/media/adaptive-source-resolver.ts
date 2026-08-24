@@ -1,18 +1,42 @@
 import type { AssetId } from "@cinesim/core";
 import type { MediaSourceDescriptor, MediaSourceResolver } from "@cinesim/engine";
-import { useUiStore } from "../store/ui-store";
+import type { DerivedMediaSnapshot } from "../../shared/api";
+import type { DerivedProjectScope } from "../../shared/api";
+import { derivedArtifactUrl, originalMediaUrl } from "./media-url";
 
 export class AdaptiveSourceResolver implements MediaSourceResolver {
+  constructor(
+    private readonly projectScope: DerivedProjectScope,
+    private readonly getDerivedMedia: () => DerivedMediaSnapshot | null,
+  ) {}
+
   resolve(assetId: AssetId): MediaSourceDescriptor {
-    const derived = useUiStore.getState().derivedMedia;
+    const derived = this.getDerivedMedia();
     const proxy = derived?.assets[assetId]?.proxy;
-    if (proxy?.state === "ready" && proxy.profileId) {
+    if (
+      derived?.projectScope.cacheKey === this.projectScope.cacheKey &&
+      derived.projectScope.epoch === this.projectScope.epoch &&
+      proxy?.state === "ready" &&
+      proxy.profileId &&
+      proxy.updatedAt
+    ) {
       return {
         assetId,
         kind: "proxy",
-        url: `cinesim-media://proxy/${assetId}?profile=${encodeURIComponent(proxy.profileId)}&v=${encodeURIComponent(derived?.generatorVersion ?? "1")}`,
+        url: derivedArtifactUrl(
+          "proxy",
+          { id: assetId },
+          this.projectScope,
+          derived.generatorVersion,
+          proxy.updatedAt,
+          proxy.profileId,
+        ),
       };
     }
-    return { assetId, kind: "original", url: `cinesim-media://asset/${assetId}` };
+    return {
+      assetId,
+      kind: "original",
+      url: originalMediaUrl({ id: assetId }, this.projectScope),
+    };
   }
 }

@@ -2,6 +2,7 @@ export interface GenerateDerivedRequest {
   type: "generate";
   jobId: string;
   assetId: string;
+  projectScope: DerivedProjectScope;
   durationUs: number;
   kinds: ("thumbnail" | "filmstrip")[];
   thumbnailSourceTimeUs?: number;
@@ -16,6 +17,7 @@ export interface GenerateProxyRequest {
   type: "proxy";
   jobId: string;
   assetId: string;
+  projectScope: DerivedProjectScope;
   width: number;
   height: number;
   frameRate?: number;
@@ -77,4 +79,4 @@ export type DerivedWorkerResponse =
     }
   | { type: "proxy-progress"; jobId: string; progress: number }
   | { type: "proxy-complete"; jobId: string; bytes: number };
-import type { DerivedWorkerStage } from "../../shared/api";
+import type { DerivedProjectScope, DerivedWorkerStage } from "../../shared/api";

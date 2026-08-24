@@ -8,8 +8,8 @@ import { MediaSkimSurface } from "./media-skim-surface";
 
 interface EditMediaPoolProps {
   project: Project;
-  onAddAsset: (asset: Asset) => Promise<void>;
-  onImport: () => Promise<void>;
+  onAddAsset: (asset: Asset) => Promise<unknown>;
+  onImport: () => Promise<unknown>;
   onPreviewAsset: (asset: Asset, sourceTimeUs: number) => void;
   onPreviewEnd: () => void;
 }

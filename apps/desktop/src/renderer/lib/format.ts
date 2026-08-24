@@ -14,3 +14,15 @@ export function formatDuration(timeUs: TimeUs): string {
   if (seconds < 60) return `${seconds.toFixed(seconds < 10 ? 1 : 0)}s`;
   return `${Math.floor(seconds / 60)}:${String(Math.floor(seconds % 60)).padStart(2, "0")}`;
 }
+
+export function formatByteCount(value: number): string {
+  if (value < 1024) return `${value} B`;
+  if (value < 1024 ** 2) return `${(value / 1024).toFixed(1)} KB`;
+  if (value < 1024 ** 3) return `${(value / 1024 ** 2).toFixed(1)} MB`;
+  return `${(value / 1024 ** 3).toFixed(1)} GB`;
+}
+
+export function formatDiagnosticDurationMs(value: number): string {
+  if (value < 1_000) return `${value.toFixed(1)} ms`;
+  return `${(value / 1_000).toFixed(2)} s`;
+}

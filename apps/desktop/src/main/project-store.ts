@@ -288,6 +288,7 @@ export class DesktopProjectStore {
   session(): DesktopProjectSession {
     return {
       directory: this.#requireDirectory(),
+      derivedScope: this.derivedMedia.scope(),
       project: this.#requireProject(),
       settings: structuredClone(this.#settings),
       revision: this.#revision,

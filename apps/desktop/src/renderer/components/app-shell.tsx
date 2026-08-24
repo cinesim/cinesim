@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Bot,
   ChevronLeft,
@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import { cn } from "@cinesim/ui";
 import type { DesktopAppState, DesktopProjectSession } from "../../shared/api";
+import { usePersistentSidebarWidth } from "../hooks/use-persistent-sidebar-width";
 import { ProjectBreadcrumb } from "./project-breadcrumb";
 import { ShortcutHint, ShortcutsDialog } from "./shortcuts-dialog";
 
@@ -60,15 +61,6 @@ function availableSidebarWidth(): number {
   return Math.max(MIN_SIDEBAR_WIDTH, Math.min(MAX_SIDEBAR_WIDTH, window.innerWidth - 740));
 }
 
-function initialSidebarWidth(): number {
-  const rawStored = localStorage.getItem("cinesim.sidebarWidth");
-  if (rawStored === null) return DEFAULT_SIDEBAR_WIDTH;
-  const stored = Number(rawStored);
-  return Number.isFinite(stored)
-    ? Math.min(availableSidebarWidth(), Math.max(MIN_SIDEBAR_WIDTH, stored))
-    : DEFAULT_SIDEBAR_WIDTH;
-}
-
 function initialSidebarOpen(storageKey: string): boolean {
   return localStorage.getItem(storageKey) !== "false";
 }
@@ -78,15 +70,6 @@ function availableAgentsSidebarWidth(): number {
     MIN_AGENTS_SIDEBAR_WIDTH,
     Math.min(MAX_AGENTS_SIDEBAR_WIDTH, window.innerWidth - 740),
   );
-}
-
-function initialAgentsSidebarWidth(): number {
-  const rawStored = localStorage.getItem("cinesim.agentsSidebarWidth");
-  if (rawStored === null) return DEFAULT_AGENTS_SIDEBAR_WIDTH;
-  const stored = Number(rawStored);
-  return Number.isFinite(stored)
-    ? Math.min(availableAgentsSidebarWidth(), Math.max(MIN_AGENTS_SIDEBAR_WIDTH, stored))
-    : DEFAULT_AGENTS_SIDEBAR_WIDTH;
 }
 
 export function isAgentsSidebarShortcut(
@@ -140,12 +123,28 @@ export function AppShell({
     initialSidebarOpen(SIDEBAR_OPEN_STORAGE_KEY),
   );
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
-  const [sidebarWidth, setSidebarWidth] = useState(initialSidebarWidth);
-  const [agentsSidebarWidth, setAgentsSidebarWidth] = useState(initialAgentsSidebarWidth);
-  const [resizing, setResizing] = useState(false);
-  const [resizingAgentsSidebar, setResizingAgentsSidebar] = useState(false);
-  const resizeOrigin = useRef({ x: 0, width: DEFAULT_SIDEBAR_WIDTH });
-  const agentsResizeOrigin = useRef({ x: 0, width: DEFAULT_AGENTS_SIDEBAR_WIDTH });
+  const sidebarWidthOptions = useMemo(
+    () => ({
+      storageKey: "cinesim.sidebarWidth",
+      minimum: MIN_SIDEBAR_WIDTH,
+      maximum: availableSidebarWidth,
+      defaultWidth: DEFAULT_SIDEBAR_WIDTH,
+      direction: 1 as const,
+    }),
+    [],
+  );
+  const auxiliaryWidthOptions = useMemo(
+    () => ({
+      storageKey: "cinesim.agentsSidebarWidth",
+      minimum: MIN_AGENTS_SIDEBAR_WIDTH,
+      maximum: availableAgentsSidebarWidth,
+      defaultWidth: DEFAULT_AGENTS_SIDEBAR_WIDTH,
+      direction: -1 as const,
+    }),
+    [],
+  );
+  const sidebarWidth = usePersistentSidebarWidth(sidebarWidthOptions);
+  const auxiliaryWidth = usePersistentSidebarWidth(auxiliaryWidthOptions);
   const isMac = window.cinesim.platform === "darwin";
   const agentsSidebarAvailable = Boolean(agentsSidebar);
 
@@ -194,65 +193,15 @@ export function AppShell({
     onProjectSection,
   ]);
 
-  function startResize(event: React.PointerEvent<HTMLDivElement>) {
-    resizeOrigin.current = { x: event.clientX, width: sidebarWidth };
-    event.currentTarget.setPointerCapture(event.pointerId);
-    setResizing(true);
-  }
-
-  function resize(event: React.PointerEvent<HTMLDivElement>) {
-    if (!resizing) return;
-    const nextWidth = Math.min(
-      availableSidebarWidth(),
-      Math.max(
-        MIN_SIDEBAR_WIDTH,
-        resizeOrigin.current.width + event.clientX - resizeOrigin.current.x,
-      ),
-    );
-    setSidebarWidth(nextWidth);
-  }
-
-  function finishResize(event: React.PointerEvent<HTMLDivElement>) {
-    if (!resizing) return;
-    event.currentTarget.releasePointerCapture(event.pointerId);
-    localStorage.setItem("cinesim.sidebarWidth", String(sidebarWidth));
-    setResizing(false);
-  }
-
-  function startAgentsResize(event: React.PointerEvent<HTMLDivElement>) {
-    agentsResizeOrigin.current = { x: event.clientX, width: agentsSidebarWidth };
-    event.currentTarget.setPointerCapture(event.pointerId);
-    setResizingAgentsSidebar(true);
-  }
-
-  function resizeAgentsSidebar(event: React.PointerEvent<HTMLDivElement>) {
-    if (!resizingAgentsSidebar) return;
-    const nextWidth = Math.min(
-      availableAgentsSidebarWidth(),
-      Math.max(
-        MIN_AGENTS_SIDEBAR_WIDTH,
-        agentsResizeOrigin.current.width + agentsResizeOrigin.current.x - event.clientX,
-      ),
-    );
-    setAgentsSidebarWidth(nextWidth);
-  }
-
-  function finishAgentsResize(event: React.PointerEvent<HTMLDivElement>) {
-    if (!resizingAgentsSidebar) return;
-    event.currentTarget.releasePointerCapture(event.pointerId);
-    localStorage.setItem("cinesim.agentsSidebarWidth", String(agentsSidebarWidth));
-    setResizingAgentsSidebar(false);
-  }
-
   return (
     <main className="flex h-screen overflow-hidden bg-canvas text-primary">
       <aside
         className={cn(
           "relative z-30 flex h-screen shrink-0 flex-col overflow-hidden border-r border-border bg-panel",
-          !resizing && "transition-[width] duration-200 ease-in-out",
+          !sidebarWidth.resizing && "transition-[width] duration-200 ease-in-out",
           !sidebarOpen && "border-r-transparent",
         )}
-        style={{ width: sidebarOpen ? sidebarWidth : 0 }}
+        style={{ width: sidebarOpen ? sidebarWidth.width : 0 }}
         aria-hidden={!sidebarOpen}
         inert={!sidebarOpen}
       >
@@ -341,10 +290,7 @@ export function AppShell({
 
         <div
           className="no-drag absolute inset-y-0 right-[-3px] z-40 w-[6px] cursor-col-resize"
-          onPointerDown={startResize}
-          onPointerMove={resize}
-          onPointerUp={finishResize}
-          onPointerCancel={finishResize}
+          {...sidebarWidth.resizeHandleProps}
         />
       </aside>
 
@@ -395,10 +341,10 @@ export function AppShell({
         <aside
           className={cn(
             "relative z-30 flex h-screen shrink-0 flex-col overflow-hidden border-l border-border bg-panel",
-            !resizingAgentsSidebar && "transition-[width] duration-200 ease-in-out",
+            !auxiliaryWidth.resizing && "transition-[width] duration-200 ease-in-out",
             auxiliaryMode === null && "border-l-transparent",
           )}
-          style={{ width: auxiliaryMode ? agentsSidebarWidth : 0 }}
+          style={{ width: auxiliaryMode ? auxiliaryWidth.width : 0 }}
           aria-hidden={auxiliaryMode === null}
           inert={auxiliaryMode === null}
         >
@@ -408,10 +354,7 @@ export function AppShell({
 
           <div
             className="no-drag absolute inset-y-0 left-[-3px] z-40 w-[6px] cursor-col-resize"
-            onPointerDown={startAgentsResize}
-            onPointerMove={resizeAgentsSidebar}
-            onPointerUp={finishAgentsResize}
-            onPointerCancel={finishAgentsResize}
+            {...auxiliaryWidth.resizeHandleProps}
           />
         </aside>
       )}

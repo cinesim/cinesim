@@ -8,6 +8,11 @@ import type {
 } from "../src/renderer/media/derived-worker-api";
 import { MediaJobCoordinator } from "../src/renderer/media/media-job-coordinator";
 
+const projectScope = {
+  cacheKey: "aaaaaaaaaaaaaaaaaaaaaaaa",
+  epoch: "00000000-0000-4000-8000-000000000001",
+};
+
 class FakeWorker {
   static instance: FakeWorker | null = null;
   static readonly instances: FakeWorker[] = [];
@@ -54,7 +59,8 @@ function snapshot(
     value === "ready" ? ({ state: value, bytes: 100 } as const) : ({ state: value } as const);
   return {
     version: 1,
-    generatorVersion: "1",
+    generatorVersion: "2",
+    projectScope,
     assets: {
       asset_fixture: {
         assetId: "asset_fixture",
@@ -101,13 +107,19 @@ function snapshot(
 
 function setup(initial: DerivedMediaSnapshot) {
   const current = structuredClone(initial);
+  let derivedMediaListener: ((snapshot: DerivedMediaSnapshot) => void) | null = null;
   const finalized: { writerId: string; result: FinalizeDerivedWrite }[] = [];
   const canceled: { writerId: string; failureCode?: string; detail?: string }[] = [];
   const api = {
     getDerivedMediaSnapshot: vi.fn(async () => current),
     requestDerivedJobs: vi.fn(async () => current),
-    onDerivedMediaChanged: vi.fn(() => () => undefined),
-    beginDerivedWrite: vi.fn(async ({ kind }: { kind: string }) => ({
+    onDerivedMediaChanged: vi.fn((listener: (snapshot: DerivedMediaSnapshot) => void) => {
+      derivedMediaListener = listener;
+      return () => {
+        derivedMediaListener = null;
+      };
+    }),
+    beginDerivedWrite: vi.fn(async (_scope, { kind }: { kind: string }) => ({
       writerId: `${kind}-writer`,
     })),
     writeDerivedChunk: vi.fn(async () => undefined),
@@ -133,7 +145,12 @@ function setup(initial: DerivedMediaSnapshot) {
   } as unknown as DesktopApi;
   vi.stubGlobal("window", { cinesim: api });
   vi.stubGlobal("Worker", FakeWorker);
-  return { api, finalized, canceled };
+  return {
+    api,
+    finalized,
+    canceled,
+    emitDerivedMedia: (next: DerivedMediaSnapshot) => derivedMediaListener?.(next),
+  };
 }
 
 afterEach(() => {
@@ -144,9 +161,27 @@ afterEach(() => {
 });
 
 describe("MediaJobCoordinator", () => {
+  it("ignores snapshots emitted for another project with the same asset IDs", async () => {
+    const { emitDerivedMedia } = setup(snapshot("ready", "ready"));
+    const coordinator = new MediaJobCoordinator(project(), projectScope, () => undefined);
+    await coordinator.start();
+    expect(FakeWorker.instance?.sent).toHaveLength(0);
+
+    emitDerivedMedia({
+      ...snapshot(),
+      projectScope: { ...projectScope, cacheKey: "bbbbbbbbbbbbbbbbbbbbbbbb" },
+    });
+    await Promise.resolve();
+    expect(FakeWorker.instance?.sent).toHaveLength(0);
+
+    emitDerivedMedia(snapshot());
+    await vi.waitFor(() => expect(FakeWorker.instance?.sent).toHaveLength(1));
+    await coordinator.destroy();
+  });
+
   it("publishes the thumbnail before filmstrip generation completes", async () => {
     const { finalized } = setup(snapshot());
-    const coordinator = new MediaJobCoordinator(project(), () => undefined);
+    const coordinator = new MediaJobCoordinator(project(), projectScope, () => undefined);
     await coordinator.start();
     await vi.waitFor(() => expect(FakeWorker.instance?.sent).toHaveLength(1));
     const request = FakeWorker.instance!.sent[0]!;
@@ -171,7 +206,7 @@ describe("MediaJobCoordinator", () => {
 
   it("keeps a published thumbnail when later filmstrip generation fails", async () => {
     const { finalized, canceled } = setup(snapshot());
-    const coordinator = new MediaJobCoordinator(project(), () => undefined);
+    const coordinator = new MediaJobCoordinator(project(), projectScope, () => undefined);
     await coordinator.start();
     await vi.waitFor(() => expect(FakeWorker.instance?.sent).toHaveLength(1));
     const request = FakeWorker.instance!.sent[0]!;
@@ -204,7 +239,7 @@ describe("MediaJobCoordinator", () => {
 
   it("only requests missing artifacts and reuses the thumbnail sample time", async () => {
     setup(snapshot("ready", "queued"));
-    const coordinator = new MediaJobCoordinator(project(), () => undefined);
+    const coordinator = new MediaJobCoordinator(project(), projectScope, () => undefined);
     await coordinator.start();
     await vi.waitFor(() => expect(FakeWorker.instance?.sent).toHaveLength(1));
 
@@ -218,7 +253,7 @@ describe("MediaJobCoordinator", () => {
 
   it("replaces a crashed worker after recording the active job failure", async () => {
     const { canceled } = setup(snapshot());
-    const coordinator = new MediaJobCoordinator(project(), () => undefined);
+    const coordinator = new MediaJobCoordinator(project(), projectScope, () => undefined);
     await coordinator.start();
     await vi.waitFor(() => expect(FakeWorker.instance?.sent).toHaveLength(1));
     const crashed = FakeWorker.instance!;
@@ -246,7 +281,7 @@ describe("MediaJobCoordinator", () => {
   it("fails and replaces a worker that stops producing activity", async () => {
     vi.useFakeTimers();
     const { canceled } = setup(snapshot());
-    const coordinator = new MediaJobCoordinator(project(), () => undefined);
+    const coordinator = new MediaJobCoordinator(project(), projectScope, () => undefined);
     await coordinator.start();
     await vi.advanceTimersByTimeAsync(0);
     expect(FakeWorker.instance?.sent).toHaveLength(1);
