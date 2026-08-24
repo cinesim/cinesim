@@ -18,6 +18,7 @@ import {
   EmptyTitle,
   Menu,
   MenuContent,
+  MenuItem,
   MenuLabel,
   MenuTrigger,
   PaneHeader,
@@ -588,14 +589,14 @@ function GuideToggle({
   onClick: () => void;
 }) {
   return (
-    <button
-      type="button"
+    <MenuItem
+      closeOnClick={false}
       className="flex h-8 w-full items-center gap-2 rounded-md px-2 text-left text-ui text-secondary hover:bg-surface hover:text-primary"
       onClick={onClick}
     >
       <span className="grid size-4 place-items-center">{active && <Check size={13} />}</span>
       {label}
-    </button>
+    </MenuItem>
   );
 }
 

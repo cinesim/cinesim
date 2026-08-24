@@ -8,7 +8,7 @@ import {
 } from "@cinesim/engine";
 import {
   ALL_FORMATS,
-  AudioBufferSink,
+  AudioSampleSink,
   CanvasSink,
   Conversion,
   Input,
@@ -27,6 +27,7 @@ import {
   WAVEFORM_FORMAT_VERSION,
   waveformPeakCount,
 } from "../../shared/waveform-format";
+import { accumulateWaveformSample } from "../media/waveform-sampling";
 
 const scope = self as DedicatedWorkerGlobalScope;
 const canceled = new Set<string>();
@@ -275,32 +276,21 @@ async function generateWaveform(
   const minima = new Float32Array(peakCount);
   const maxima = new Float32Array(peakCount);
   const durationSeconds = Math.max(request.durationUs / 1_000_000, Number.EPSILON);
-  const sink = new AudioBufferSink(track);
+  const sink = new AudioSampleSink(track);
   activity(request.jobId, "waveform-decoding", started);
-  for await (const wrapped of sink.buffers(0, durationSeconds, { verifyKeyPackets: false })) {
-    await waitUntilPerceptionResumed(request.jobId);
-    assertActive(request.jobId);
-    const buffer = wrapped.buffer;
-    const channels = Array.from({ length: buffer.numberOfChannels }, (_, channel) =>
-      buffer.getChannelData(channel),
-    );
-    for (let sampleIndex = 0; sampleIndex < buffer.length; sampleIndex += 1) {
-      const timestamp = wrapped.timestamp + sampleIndex / buffer.sampleRate;
-      const peakIndex = Math.max(
-        0,
-        Math.min(peakCount - 1, Math.floor((timestamp / durationSeconds) * peakCount)),
+  for await (const sample of sink.samples(0, durationSeconds, { verifyKeyPackets: false })) {
+    try {
+      await waitUntilPerceptionResumed(request.jobId);
+      assertActive(request.jobId);
+      accumulateWaveformSample(sample, durationSeconds, minima, maxima);
+      progress(
+        request.jobId,
+        "waveform",
+        Math.min(0.99, Math.max(0, (sample.timestamp + sample.duration) / durationSeconds)),
       );
-      for (const channel of channels) {
-        const sample = channel[sampleIndex] ?? 0;
-        if (sample < minima[peakIndex]!) minima[peakIndex] = sample;
-        if (sample > maxima[peakIndex]!) maxima[peakIndex] = sample;
-      }
+    } finally {
+      sample.close();
     }
-    progress(
-      request.jobId,
-      "waveform",
-      Math.min(0.99, Math.max(0, (wrapped.timestamp + wrapped.duration) / durationSeconds)),
-    );
   }
   assertActive(request.jobId);
   activity(request.jobId, "waveform-encoding", started);
