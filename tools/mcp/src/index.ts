@@ -5,23 +5,28 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
 import type { AssetId, ClipId, TrackId } from "@cinesim/core";
+import { createCinesimLogger } from "@cinesim/logging";
 import { inspectAsset, inspectProject, inspectTimeline, listAssets } from "@cinesim/protocol";
 import { DiskProjectStore } from "@cinesim/cli/project-store";
 
 const projectDirectory = process.env.CINESIM_PROJECT ?? process.cwd();
 const server = new McpServer({ name: "cinesim", version: "0.1.0" });
+const log = createCinesimLogger({ service: "mcp" });
 
 const textResult = (value: Record<string, unknown>) => ({
   content: [{ type: "text" as const, text: JSON.stringify(value, null, 2) }],
   structuredContent: value,
 });
 
-const failure = (error: unknown) => ({
-  isError: true,
-  content: [
-    { type: "text" as const, text: error instanceof Error ? error.message : String(error) },
-  ],
-});
+const failure = (error: unknown) => {
+  log.error({ err: error }, "MCP operation failed");
+  return {
+    isError: true,
+    content: [
+      { type: "text" as const, text: error instanceof Error ? error.message : String(error) },
+    ],
+  };
+};
 
 async function loaded() {
   return new DiskProjectStore(projectDirectory).load();

@@ -9,6 +9,177 @@ export interface DesktopProjectSession {
   canRedo: boolean;
 }
 
+export type DerivedArtifactKind = "thumbnail" | "filmstrip" | "proxy";
+export type DerivedArtifactState = "missing" | "queued" | "running" | "ready" | "failed";
+
+export interface SourceFingerprint {
+  size: number;
+  mtimeMs: number;
+  edgeHash: string;
+}
+
+export interface DerivedArtifactSnapshot {
+  state: DerivedArtifactState;
+  bytes?: number;
+  progress?: number;
+  failureCode?: string;
+  updatedAt?: string;
+  lastAccessAt?: string;
+  sourceTimeUs?: number;
+  tileTimesUs?: number[];
+  columns?: number;
+  rows?: number;
+  tileWidth?: number;
+  tileHeight?: number;
+  profileId?: string;
+}
+
+export interface SourcePerformanceSnapshot {
+  observations: number;
+  warmSeekP50Ms?: number;
+  warmSeekP95Ms?: number;
+  deadlineMissRate?: number;
+  requestsReceived: number;
+  requestsCoalesced: number;
+  framesPresented: number;
+  framesObsolete: number;
+}
+
+export interface DerivedAssetSnapshot {
+  assetId: string;
+  fingerprintStatus: "current" | "stale" | "missing";
+  thumbnail: DerivedArtifactSnapshot;
+  filmstrip: DerivedArtifactSnapshot;
+  proxy: DerivedArtifactSnapshot;
+  performance: {
+    original: SourcePerformanceSnapshot;
+    proxy?: SourcePerformanceSnapshot;
+    decision: "observing" | "original-sufficient" | "proxy-queued" | "proxy-ready" | "proxy-failed";
+    reasons: string[];
+  };
+}
+
+export interface DerivedMediaEvent {
+  at: string;
+  assetId?: string;
+  kind: string;
+  detail: string;
+}
+
+export type DerivedWorkerStage =
+  | "scheduled"
+  | "input-opening"
+  | "container-ready"
+  | "track-ready"
+  | "decoder-ready"
+  | "thumbnail-sampling"
+  | "thumbnail-encoding"
+  | "thumbnail-ready"
+  | "filmstrip-sampling"
+  | "filmstrip-encoding"
+  | "filmstrip-ready"
+  | "proxy-converting"
+  | "completed"
+  | "failed";
+
+export interface DerivedWorkerActivity {
+  jobId: string;
+  assetId: string;
+  jobKind: "perception" | "proxy";
+  stage: DerivedWorkerStage;
+  elapsedMs: number;
+  completedSamples?: number;
+  totalSamples?: number;
+  failureCode?: string;
+  detail?: string;
+}
+
+export interface DerivedRuntimeSnapshot {
+  activeJob?: {
+    jobId: string;
+    assetId: string;
+    jobKind: "perception" | "proxy";
+    stage: DerivedWorkerStage;
+    progress: number;
+    elapsedMs: number;
+    startedAt: string;
+    lastActivityAt: string;
+    completedSamples?: number;
+    totalSamples?: number;
+  };
+  lastJob?: {
+    assetId: string;
+    jobKind: "perception" | "proxy";
+    stage: "completed" | "failed";
+    durationMs: number;
+    finishedAt: string;
+    failureCode?: string;
+  };
+  protocol: {
+    requests: number;
+    rangeRequests: number;
+    bytesRead: number;
+    averageLatencyMs: number;
+    lastLatencyMs?: number;
+    lastBytesRead?: number;
+    lastAssetId?: string;
+    errors: number;
+  };
+}
+
+export interface DerivedMediaSnapshot {
+  version: 1;
+  generatorVersion: string;
+  assets: Record<string, DerivedAssetSnapshot>;
+  storage: {
+    totalBytes: number;
+    budgetBytes: number;
+    safetyReserveBytes: number;
+    thumbnailBytes: number;
+    filmstripBytes: number;
+    proxyBytes: number;
+    evictionCount: number;
+    lastEvictionReason?: string;
+  };
+  jobs: {
+    queued: number;
+    running: number;
+    completed: number;
+    failed: number;
+  };
+  runtime: DerivedRuntimeSnapshot;
+  decisionLog: DerivedMediaEvent[];
+}
+
+export interface BeginDerivedWrite {
+  assetId: string;
+  kind: DerivedArtifactKind;
+  expectedBytes?: number;
+  profileId?: string;
+}
+
+export interface FinalizeDerivedWrite {
+  bytes: number;
+  sourceTimeUs?: number;
+  tileTimesUs?: number[];
+  columns?: number;
+  rows?: number;
+  tileWidth?: number;
+  tileHeight?: number;
+}
+
+export interface DerivedPerformanceObservation {
+  assetId: string;
+  sourceKind: "original" | "proxy";
+  operation: "sampling" | "hover-seek" | "playback";
+  latencyMs?: number;
+  deadlineMiss?: boolean;
+  requestsReceived?: number;
+  requestsCoalesced?: number;
+  framesPresented?: number;
+  framesObsolete?: number;
+}
+
 export type AgentProviderKind = "claude" | "codex";
 export type AgentPermissionMode = "supervised" | "auto-edit";
 export type AgentEffort = "low" | "medium" | "high" | "xhigh" | "max";
@@ -179,11 +350,38 @@ export interface DesktopAppState {
   editorLayoutsByProject: Record<string, EditorLayoutState>;
 }
 
+export type ElectronProcessGroupKind = "main" | "renderer" | "gpu" | "utility" | "other";
+
+export interface ElectronProcessGroupMetric {
+  cpuPercent: number;
+  memoryBytes: number;
+  processCount: number;
+}
+
+export interface ElectronHealthSnapshot {
+  sampledAt: string;
+  totalCpuPercent: number;
+  totalMemoryBytes: number;
+  processCount: number;
+  mainEventLoopLagMs: number;
+  rendererEventLoopLagMs: number | null;
+  processes: Record<ElectronProcessGroupKind, ElectronProcessGroupMetric>;
+}
+
 export interface DesktopApi {
   createProject(name: string): Promise<DesktopProjectSession | null>;
   openProject(): Promise<DesktopProjectSession | null>;
   openRecentProject(directory: string): Promise<DesktopProjectSession>;
   importMedia(): Promise<DesktopProjectSession | null>;
+  getDerivedMediaSnapshot(): Promise<DerivedMediaSnapshot>;
+  requestDerivedJobs(assetIds: string[]): Promise<DerivedMediaSnapshot>;
+  beginDerivedWrite(input: BeginDerivedWrite): Promise<{ writerId: string }>;
+  writeDerivedChunk(writerId: string, offset: number, data: Uint8Array): Promise<void>;
+  finalizeDerivedWrite(writerId: string, result: FinalizeDerivedWrite): Promise<void>;
+  cancelDerivedWrite(writerId: string, failureCode?: string, detail?: string): Promise<void>;
+  updateDerivedProgress(writerId: string, progress: number): Promise<void>;
+  reportDerivedActivity(activity: DerivedWorkerActivity): Promise<void>;
+  reportDerivedPerformance(observation: DerivedPerformanceObservation): Promise<void>;
   execute(
     command: EditorCommand,
   ): Promise<{ session: DesktopProjectSession; result: Omit<CommandResult, "project"> }>;
@@ -193,6 +391,7 @@ export interface DesktopApi {
   revealProject(): Promise<void>;
   getSession(): Promise<DesktopProjectSession | null>;
   getAppState(): Promise<DesktopAppState>;
+  getElectronHealthSnapshot(): Promise<ElectronHealthSnapshot>;
   setProjectMediaPoolOpen(open: boolean): Promise<DesktopAppState>;
   setProjectInspectorOpen(open: boolean): Promise<DesktopAppState>;
   setProjectNotesOpen(open: boolean): Promise<DesktopAppState>;
@@ -222,6 +421,7 @@ export interface DesktopApi {
   revertAgentTurn(sessionId: string, turnId: string): Promise<AgentProjectSnapshot>;
   onAgentsChanged(callback: (snapshot: AgentProjectSnapshot) => void): () => void;
   onProjectChanged(callback: (session: DesktopProjectSession) => void): () => void;
+  onDerivedMediaChanged(callback: (snapshot: DerivedMediaSnapshot) => void): () => void;
   platform: NodeJS.Platform;
 }
 

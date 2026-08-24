@@ -1,4 +1,4 @@
-import { mkdir, open, readFile, rename, stat, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, stat, writeFile } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
 import {
   createProject,
@@ -13,9 +13,13 @@ import {
   stableJson,
 } from "@cinesim/core";
 import type { Asset, EditorCommand, Project, ProjectSettings } from "@cinesim/core";
+import { createCinesimLogger } from "@cinesim/logging";
 import { dispatchCommand } from "@cinesim/protocol";
 import { ALL_FORMATS, FilePathSource, Input } from "mediabunny";
 import type { DesktopProjectSession } from "../shared/api";
+import { DerivedMediaStore } from "./derived-media-store";
+
+const log = createCinesimLogger({ service: "desktop-commands" });
 
 const PROJECT_AGENTS = `# Project creative direction
 
@@ -55,6 +59,7 @@ async function writeIfMissing(path: string, contents: string): Promise<void> {
 }
 
 export class DesktopProjectStore {
+  readonly derivedMedia = new DerivedMediaStore();
   #directory: string | null = null;
   #history: ProjectHistory | null = null;
   #settings: ProjectSettings = DEFAULT_SETTINGS;
@@ -85,6 +90,7 @@ export class DesktopProjectStore {
       this.#settings = DEFAULT_SETTINGS;
       this.#revision = 1;
       await this.#ensureLayout();
+      await this.derivedMedia.setProject(directory, project);
       return this.#persist();
     });
   }
@@ -102,6 +108,7 @@ export class DesktopProjectStore {
       this.#settings = settings;
       this.#revision += 1;
       await this.#ensureLayout();
+      await this.derivedMedia.setProject(directory, this.#history.project);
       return this.session();
     });
   }
@@ -138,14 +145,41 @@ export class DesktopProjectStore {
 
   async execute(command: EditorCommand) {
     return this.#serialize(async () => {
-      const project = this.#requireProject();
-      const dispatched = dispatchCommand(project, command);
-      if (!dispatched.ok) throw new Error(`${dispatched.error.code}: ${dispatched.error.message}`);
-      this.#history!.commit(dispatched.value.command);
-      this.#revision += 1;
-      await this.#persist();
-      const { project: _project, ...result } = dispatched.value;
-      return { session: this.session(), result };
+      const operationId = crypto.randomUUID();
+      const startedAt = Date.now();
+      log.info({ operationId, operation: command.type }, "command started");
+      try {
+        const project = this.#requireProject();
+        const dispatched = dispatchCommand(project, command);
+        if (!dispatched.ok) {
+          const error = new Error(`${dispatched.error.code}: ${dispatched.error.message}`);
+          (error as Error & { code: string }).code = dispatched.error.code;
+          throw error;
+        }
+        this.#history!.commit(dispatched.value.command);
+        this.derivedMedia.updateProject(this.#history!.project);
+        this.#revision += 1;
+        await this.#persist();
+        const { project: _project, ...result } = dispatched.value;
+        log.info(
+          {
+            operationId,
+            operation: command.type,
+            projectRevision: this.#revision,
+            durationMs: Date.now() - startedAt,
+            changedIds: result.changedIds,
+            createdIds: result.createdIds,
+          },
+          "command completed",
+        );
+        return { session: this.session(), result };
+      } catch (error) {
+        log.error(
+          { err: error, operationId, operation: command.type, durationMs: Date.now() - startedAt },
+          "command failed",
+        );
+        throw error;
+      }
     });
   }
 
@@ -153,6 +187,7 @@ export class DesktopProjectStore {
     return this.#serialize(async () => {
       this.#requireProject();
       this.#history!.undo();
+      this.derivedMedia.updateProject(this.#history!.project);
       this.#revision += 1;
       return this.#persist();
     });
@@ -162,6 +197,7 @@ export class DesktopProjectStore {
     return this.#serialize(async () => {
       this.#requireProject();
       this.#history!.redo();
+      this.derivedMedia.updateProject(this.#history!.project);
       this.#revision += 1;
       return this.#persist();
     });
@@ -214,29 +250,6 @@ export class DesktopProjectStore {
       canUndo: this.#history!.canUndo,
       canRedo: this.#history!.canRedo,
     };
-  }
-
-  async readRange(
-    assetId: string,
-    start: number,
-    endExclusive: number,
-  ): Promise<{ data: Buffer; size: number }> {
-    const path = this.assetPath(assetId);
-    if (!path) throw new Error("Unknown asset");
-    const info = await stat(path);
-    const safeStart = Math.max(0, Math.min(start, info.size));
-    const safeEnd = Math.max(
-      safeStart,
-      Math.min(endExclusive, info.size, safeStart + 16 * 1024 * 1024),
-    );
-    const handle = await open(path, "r");
-    try {
-      const data = Buffer.alloc(safeEnd - safeStart);
-      await handle.read(data, 0, data.byteLength, safeStart);
-      return { data, size: info.size };
-    } finally {
-      await handle.close();
-    }
   }
 
   #requireDirectory(): string {

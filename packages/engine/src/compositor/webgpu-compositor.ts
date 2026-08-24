@@ -2,10 +2,8 @@ import type { Transform } from "@cinesim/core";
 
 const SHADER = /* wgsl */ `
 struct LayerUniforms {
-  offset: vec2f,
-  scale: vec2f,
-  opacity: f32,
-  _padding: vec3f,
+  offsetAndScale: vec4f,
+  opacityAndPadding: vec4f,
 }
 
 @group(0) @binding(0) var videoTexture: texture_external;
@@ -28,7 +26,11 @@ fn vertexMain(@builtin(vertex_index) index: u32) -> VertexOutput {
     vec2f(0.0, 0.0), vec2f(1.0, 1.0), vec2f(1.0, 0.0)
   );
   var output: VertexOutput;
-  output.position = vec4f(positions[index] * layer.scale + layer.offset, 0.0, 1.0);
+  output.position = vec4f(
+    positions[index] * layer.offsetAndScale.zw + layer.offsetAndScale.xy,
+    0.0,
+    1.0
+  );
   output.uv = uvs[index];
   return output;
 }
@@ -36,9 +38,24 @@ fn vertexMain(@builtin(vertex_index) index: u32) -> VertexOutput {
 @fragment
 fn fragmentMain(input: VertexOutput) -> @location(0) vec4f {
   let color = textureSampleBaseClampToEdge(videoTexture, videoSampler, input.uv);
-  return vec4f(color.rgb, color.a * layer.opacity);
+  return vec4f(color.rgb, color.a * layer.opacityAndPadding.x);
 }
 `;
+
+export const LAYER_UNIFORM_BYTE_SIZE = 32;
+
+export function packLayerUniform(transform: Transform, fitX: number, fitY: number): Float32Array {
+  return new Float32Array([
+    transform.x,
+    -transform.y,
+    transform.scaleX * fitX,
+    transform.scaleY * fitY,
+    transform.opacity,
+    0,
+    0,
+    0,
+  ]);
+}
 
 export interface CompositorLayer {
   frame: VideoFrame;
@@ -46,24 +63,42 @@ export interface CompositorLayer {
 }
 
 export interface CompositorMetrics {
-  gpuFrameTimeMs: number;
+  gpuSubmitCpuMs: number;
   submittedFrames: number;
   activeFrames: number;
+  deviceLostCount: number;
+  outputWidth: number;
+  outputHeight: number;
 }
 
-export class WebGpuCompositor {
+export interface PreviewCompositor {
+  initialize(): Promise<void>;
+  render(layers: CompositorLayer[], output?: { width: number; height: number }): void;
+  readonly metrics: CompositorMetrics;
+  destroy(): void;
+}
+
+export interface WebGpuCompositorOptions {
+  onError?: (error: Error) => void;
+}
+
+export class WebGpuCompositor implements PreviewCompositor {
   readonly #canvas: HTMLCanvasElement;
+  readonly #onError: (error: Error) => void;
   #context: GPUCanvasContext | null = null;
   #device: GPUDevice | null = null;
   #pipeline: GPURenderPipeline | null = null;
   #sampler: GPUSampler | null = null;
   #format: GPUTextureFormat | null = null;
+  #deviceErrorListener: ((event: GPUUncapturedErrorEvent) => void) | null = null;
   #submittedFrames = 0;
-  #lastGpuFrameTimeMs = 0;
+  #lastSubmitCpuMs = 0;
+  #deviceLostCount = 0;
   #destroyed = false;
 
-  constructor(canvas: HTMLCanvasElement) {
+  constructor(canvas: HTMLCanvasElement, options: WebGpuCompositorOptions = {}) {
     this.#canvas = canvas;
+    this.#onError = options.onError ?? (() => undefined);
   }
 
   async initialize(): Promise<void> {
@@ -82,30 +117,91 @@ export class WebGpuCompositor {
     this.#device = device;
     this.#context = context;
     this.#format = format;
+    const deviceErrorListener = (event: GPUUncapturedErrorEvent) => {
+      if (this.#device === device) this.#pipeline = null;
+      this.#reportError(new Error(`WebGPU validation failed: ${event.error.message}`));
+    };
+    device.addEventListener("uncapturederror", deviceErrorListener);
+    this.#deviceErrorListener = deviceErrorListener;
     this.#sampler = device.createSampler({ magFilter: "linear", minFilter: "linear" });
     const module = device.createShaderModule({ code: SHADER });
-    this.#pipeline = device.createRenderPipeline({
-      layout: "auto",
-      vertex: { module, entryPoint: "vertexMain" },
-      fragment: {
-        module,
-        entryPoint: "fragmentMain",
-        targets: [
-          {
-            format,
-            blend: {
-              color: { srcFactor: "src-alpha", dstFactor: "one-minus-src-alpha", operation: "add" },
-              alpha: { srcFactor: "one", dstFactor: "one-minus-src-alpha", operation: "add" },
-            },
-          },
-        ],
-      },
-      primitive: { topology: "triangle-list" },
+    const bindGroupLayout = device.createBindGroupLayout({
+      label: "cinesim-preview-layer-layout",
+      entries: [
+        {
+          binding: 0,
+          visibility: GPUShaderStage.FRAGMENT,
+          externalTexture: {},
+        },
+        {
+          binding: 1,
+          visibility: GPUShaderStage.FRAGMENT,
+          sampler: { type: "filtering" },
+        },
+        {
+          binding: 2,
+          visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT,
+          buffer: { type: "uniform", minBindingSize: LAYER_UNIFORM_BYTE_SIZE },
+        },
+      ],
     });
-    void device.lost.then(() => {
+    const pipelineLayout = device.createPipelineLayout({
+      label: "cinesim-preview-pipeline-layout",
+      bindGroupLayouts: [bindGroupLayout],
+    });
+    let pipeline: GPURenderPipeline;
+    try {
+      pipeline = await device.createRenderPipelineAsync({
+        label: "cinesim-preview-pipeline",
+        layout: pipelineLayout,
+        vertex: { module, entryPoint: "vertexMain" },
+        fragment: {
+          module,
+          entryPoint: "fragmentMain",
+          targets: [
+            {
+              format,
+              blend: {
+                color: {
+                  srcFactor: "src-alpha",
+                  dstFactor: "one-minus-src-alpha",
+                  operation: "add",
+                },
+                alpha: { srcFactor: "one", dstFactor: "one-minus-src-alpha", operation: "add" },
+              },
+            },
+          ],
+        },
+        primitive: { topology: "triangle-list" },
+      });
+    } catch (error) {
+      device.removeEventListener("uncapturederror", deviceErrorListener);
+      if (this.#device === device) {
+        context.unconfigure();
+        this.#device = null;
+        this.#context = null;
+        this.#sampler = null;
+        this.#format = null;
+        this.#deviceErrorListener = null;
+      }
+      device.destroy();
+      throw error;
+    }
+    if (this.#destroyed || this.#device !== device) {
+      device.removeEventListener("uncapturederror", deviceErrorListener);
+      device.destroy();
+      return;
+    }
+    this.#pipeline = pipeline;
+    void device.lost.then((info) => {
+      if (this.#device !== device) return;
+      device.removeEventListener("uncapturederror", deviceErrorListener);
+      this.#deviceErrorListener = null;
+      this.#deviceLostCount += 1;
       this.#device = null;
       this.#pipeline = null;
-      if (!this.#destroyed) void this.initialize();
+      if (!this.#destroyed && info.reason !== "destroyed")
+        void this.initialize().catch((error: unknown) => this.#reportError(error));
     });
     this.resize();
   }
@@ -120,6 +216,7 @@ export class WebGpuCompositor {
 
   render(
     layers: CompositorLayer[],
+    output = { width: this.#canvas.width, height: this.#canvas.height },
     background: GPUColor = { r: 0.035, g: 0.035, b: 0.043, a: 1 },
   ): void {
     if (!this.#device || !this.#context || !this.#pipeline || !this.#sampler || !this.#format) {
@@ -143,26 +240,28 @@ export class WebGpuCompositor {
     pass.setPipeline(this.#pipeline);
     try {
       for (const layer of layers) {
+        const frameWidth = Math.max(1, layer.frame.displayWidth);
+        const frameHeight = Math.max(1, layer.frame.displayHeight);
+        const sourceAspect = frameWidth / frameHeight;
+        const outputAspect = Math.max(1, output.width) / Math.max(1, output.height);
+        let fitX = 1;
+        let fitY = 1;
+        if (layer.transform.fit === "contain") {
+          if (sourceAspect > outputAspect) fitY = outputAspect / sourceAspect;
+          else fitX = sourceAspect / outputAspect;
+        } else if (layer.transform.fit === "cover") {
+          if (sourceAspect > outputAspect) fitX = sourceAspect / outputAspect;
+          else fitY = outputAspect / sourceAspect;
+        }
         const uniform = this.#device.createBuffer({
-          size: 32,
+          label: "cinesim-preview-layer-uniform",
+          size: LAYER_UNIFORM_BYTE_SIZE,
           usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
         });
         transientBuffers.push(uniform);
-        this.#device.queue.writeBuffer(
-          uniform,
-          0,
-          new Float32Array([
-            layer.transform.x,
-            -layer.transform.y,
-            layer.transform.scaleX,
-            layer.transform.scaleY,
-            layer.transform.opacity,
-            0,
-            0,
-            0,
-          ]),
-        );
+        this.#device.queue.writeBuffer(uniform, 0, packLayerUniform(layer.transform, fitX, fitY));
         const bindGroup = this.#device.createBindGroup({
+          label: "cinesim-preview-layer-bind-group",
           layout: this.#pipeline.getBindGroupLayout(0),
           entries: [
             { binding: 0, resource: this.#device.importExternalTexture({ source: layer.frame }) },
@@ -176,25 +275,34 @@ export class WebGpuCompositor {
     } finally {
       pass.end();
       this.#device.queue.submit([encoder.finish()]);
-      void this.#device.queue
-        .onSubmittedWorkDone()
-        .then(() => transientBuffers.forEach((buffer) => buffer.destroy()));
+      void this.#device.queue.onSubmittedWorkDone().then(
+        () => transientBuffers.forEach((buffer) => buffer.destroy()),
+        (error: unknown) => {
+          transientBuffers.forEach((buffer) => buffer.destroy());
+          this.#reportError(error);
+        },
+      );
       for (const layer of layers) layer.frame.close();
       this.#submittedFrames += 1;
-      this.#lastGpuFrameTimeMs = performance.now() - started;
+      this.#lastSubmitCpuMs = performance.now() - started;
     }
   }
 
   get metrics(): CompositorMetrics {
     return {
-      gpuFrameTimeMs: this.#lastGpuFrameTimeMs,
+      gpuSubmitCpuMs: this.#lastSubmitCpuMs,
       submittedFrames: this.#submittedFrames,
       activeFrames: 0,
+      deviceLostCount: this.#deviceLostCount,
+      outputWidth: this.#canvas.width,
+      outputHeight: this.#canvas.height,
     };
   }
 
   destroy(): void {
     this.#destroyed = true;
+    if (this.#device && this.#deviceErrorListener)
+      this.#device.removeEventListener("uncapturederror", this.#deviceErrorListener);
     this.#context?.unconfigure();
     this.#device?.destroy();
     this.#context = null;
@@ -202,5 +310,14 @@ export class WebGpuCompositor {
     this.#pipeline = null;
     this.#sampler = null;
     this.#format = null;
+    this.#deviceErrorListener = null;
+  }
+
+  #reportError(error: unknown): void {
+    try {
+      this.#onError(error instanceof Error ? error : new Error(String(error)));
+    } catch {
+      // Error observers must not create a second uncaptured error or rejected promise.
+    }
   }
 }

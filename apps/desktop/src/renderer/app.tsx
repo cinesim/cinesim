@@ -1,14 +1,18 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Library, SlidersHorizontal, StickyNote } from "lucide-react";
 import { Button } from "@cinesim/ui";
 import { DEFAULT_EDITOR_LAYOUT } from "../shared/api";
 import type { DesktopAppState, DesktopProjectSession, EditorLayoutState } from "../shared/api";
 import { AgentsSidebar } from "./components/agents-sidebar";
-import { AppShell } from "./components/app-shell";
+import { AppShell, toggleAuxiliaryMode } from "./components/app-shell";
+import type { AuxiliarySidebarMode } from "./components/app-shell";
+import { MetricsSidebar } from "./components/metrics-sidebar";
 import { Settings } from "./components/settings";
 import { TopBar } from "./components/top-bar";
 import { Welcome } from "./components/welcome";
 import { Workspace } from "./components/workspace";
+import { MediaJobCoordinator } from "./media/media-job-coordinator";
+import { useUiStore } from "./store/ui-store";
 
 type Destination = "home" | "project" | "settings";
 type ProjectSection = "media" | "edit";
@@ -34,6 +38,23 @@ export function App() {
   const [settingsSection, setSettingsSection] = useState<"general" | "agents">("general");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [auxiliaryMode, setAuxiliaryMode] = useState<AuxiliarySidebarMode>(() =>
+    localStorage.getItem("cinesim.agentsSidebarOpen") === "true" ? "agents" : null,
+  );
+  const mediaJobsRef = useRef<MediaJobCoordinator | null>(null);
+  const latestProjectRef = useRef(session?.project);
+  const projectDirectory = session?.directory;
+  const setDerivedMedia = useUiStore((state) => state.setDerivedMedia);
+  const setElectronHealth = useUiStore((state) => state.setElectronHealth);
+  const foregroundPressure = useUiStore((state) => state.runtime?.foregroundPressure ?? "idle");
+
+  useEffect(() => {
+    localStorage.setItem("cinesim.agentsSidebarOpen", String(auxiliaryMode === "agents"));
+  }, [auxiliaryMode]);
+
+  useEffect(() => {
+    latestProjectRef.current = session?.project;
+  }, [session?.project]);
 
   useEffect(() => {
     void Promise.all([window.cinesim.getSession(), window.cinesim.getAppState()])
@@ -59,6 +80,64 @@ export function App() {
   }, []);
 
   useEffect(() => window.cinesim.onProjectChanged(setSession), []);
+
+  useEffect(() => {
+    let expectedProbeAt = performance.now() + 100;
+    let rendererLagSamples: number[] = [];
+    let requestInFlight = false;
+    let destroyed = false;
+    const probe = window.setInterval(() => {
+      const now = performance.now();
+      rendererLagSamples.push(Math.max(0, now - expectedProbeAt));
+      if (rendererLagSamples.length > 20) rendererLagSamples.shift();
+      expectedProbeAt = now + 100;
+    }, 100);
+    const sample = async () => {
+      if (requestInFlight) return;
+      requestInFlight = true;
+      const sortedLagSamples = rendererLagSamples.toSorted((left, right) => left - right);
+      const rendererEventLoopLagMs =
+        sortedLagSamples[Math.max(0, Math.ceil(sortedLagSamples.length * 0.95) - 1)] ?? 0;
+      rendererLagSamples = [];
+      try {
+        const snapshot = await window.cinesim.getElectronHealthSnapshot();
+        if (!destroyed) setElectronHealth({ ...snapshot, rendererEventLoopLagMs });
+      } catch {
+        if (!destroyed) setElectronHealth(null);
+      }
+      requestInFlight = false;
+    };
+    void sample();
+    const sampler = window.setInterval(() => void sample(), 1_000);
+    return () => {
+      destroyed = true;
+      window.clearInterval(probe);
+      window.clearInterval(sampler);
+    };
+  }, [setElectronHealth]);
+
+  useEffect(() => {
+    const project = latestProjectRef.current;
+    if (!project || !projectDirectory) {
+      setDerivedMedia(null);
+      return;
+    }
+    const coordinator = new MediaJobCoordinator(project, setDerivedMedia);
+    mediaJobsRef.current = coordinator;
+    void coordinator.start();
+    return () => {
+      mediaJobsRef.current = null;
+      void coordinator.destroy();
+    };
+  }, [projectDirectory, setDerivedMedia]);
+
+  useEffect(() => {
+    if (session) void mediaJobsRef.current?.updateProject(session.project);
+  }, [session]);
+
+  useEffect(() => {
+    mediaJobsRef.current?.setForegroundPressure(foregroundPressure);
+  }, [foregroundPressure]);
 
   async function showProject(nextSession: DesktopProjectSession): Promise<void> {
     const nextAppState = await window.cinesim.getAppState();
@@ -193,7 +272,14 @@ export function App() {
       }
       toolbar={
         destination === "project" && session ? (
-          <TopBar session={session} onSession={setSession} />
+          <TopBar
+            session={session}
+            onSession={setSession}
+            metricsOpen={auxiliaryMode === "metrics"}
+            onToggleMetrics={() =>
+              setAuxiliaryMode((current) => toggleAuxiliaryMode(current, "metrics"))
+            }
+          />
         ) : null
       }
       onHome={() => setDestination("home")}
@@ -217,6 +303,9 @@ export function App() {
           />
         ) : undefined
       }
+      metricsSidebar={destination === "project" && session ? <MetricsSidebar /> : undefined}
+      auxiliaryMode={destination === "project" ? auxiliaryMode : null}
+      onAuxiliaryMode={setAuxiliaryMode}
     >
       {destination === "settings" ? (
         <Settings section={settingsSection} />

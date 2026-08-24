@@ -10,6 +10,9 @@ const externals = [
   // Keep Mediabunny external so Electron's Node runtime selects its `node`
   // conditional export, which includes the filesystem-backed FilePathSource.
   "mediabunny",
+  // Pino's Node build is CommonJS and performs runtime built-in requires.
+  // Keep it external so Node executes it instead of inlining it into ESM.
+  "pino",
   ...builtinModules,
   ...builtinModules.map((module) => `node:${module}`),
 ];
@@ -18,6 +21,12 @@ const rootDirectory = fileURLToPath(new URL(".", import.meta.url));
 export default defineConfig(({ mode }) => {
   if (mode === "main") {
     return {
+      // Electron main runs in Node. Do not let packages with a `browser` field
+      // (for example Pino) resolve to browser shims during bundling.
+      resolve: {
+        conditions: ["node"],
+        mainFields: ["module", "main"],
+      },
       build: {
         target: "node22",
         outDir: "dist/main",
@@ -34,6 +43,10 @@ export default defineConfig(({ mode }) => {
   }
   if (mode === "preload") {
     return {
+      resolve: {
+        conditions: ["node"],
+        mainFields: ["module", "main"],
+      },
       build: {
         target: "node22",
         outDir: "dist/preload",

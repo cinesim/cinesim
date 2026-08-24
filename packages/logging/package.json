@@ -1,0 +1,16 @@
+{
+  "name": "@cinesim/logging",
+  "version": "0.1.0",
+  "private": true,
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "check": "vp check"
+  },
+  "dependencies": {
+    "pino": "10.3.1"
+  }
+}

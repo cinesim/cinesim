@@ -6,8 +6,22 @@ import type { Project } from "@cinesim/core";
 import { PlaybackRuntime, WebGpuCompositor } from "@cinesim/engine";
 import { formatTimecode } from "../lib/format";
 import { useUiStore } from "../store/ui-store";
+import { AdaptiveSourceResolver } from "../media/adaptive-source-resolver";
 
-export function Viewer({ project }: { project: Project }) {
+export interface ViewerController {
+  seekTimeline(timeUs: number): Promise<void>;
+  enterAssetPreview(assetId: `asset_${string}`, sourceTimeUs: number): void;
+  updateAssetPreview(sourceTimeUs: number): void;
+  exitAssetPreview(): Promise<void>;
+}
+
+export function Viewer({
+  project,
+  onController,
+}: {
+  project: Project;
+  onController?: (controller: ViewerController | null) => void;
+}) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const runtimeRef = useRef<PlaybackRuntime | null>(null);
   const initialProjectRef = useRef(project);
@@ -21,22 +35,67 @@ export function Viewer({ project }: { project: Project }) {
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
-    const compositor = new WebGpuCompositor(canvas);
-    const playback = new PlaybackRuntime(initialProjectRef.current, compositor);
+    const reportPlaybackError = (caught: Error) => setError(caught.message);
+    const compositor = new WebGpuCompositor(canvas, { onError: reportPlaybackError });
+    const playback = new PlaybackRuntime(initialProjectRef.current, compositor, {
+      sourceResolver: new AdaptiveSourceResolver(),
+      onError: reportPlaybackError,
+    });
     runtimeRef.current = playback;
-    const unsubscribe = playback.subscribe(setRuntime);
-    void compositor
+    onController?.(playback);
+    let previousPresented = 0;
+    let previousReceived = 0;
+    let previousCoalesced = 0;
+    let previousObsolete = 0;
+    let lastObservationAt = 0;
+    const unsubscribe = playback.subscribe((snapshot) => {
+      setRuntime(snapshot);
+      const now = performance.now();
+      const minimumInterval = snapshot.playing ? 1_000 : 250;
+      if (
+        snapshot.activeAssetId &&
+        snapshot.activeSourceKind &&
+        snapshot.framesPresented > previousPresented &&
+        (snapshot.playing || snapshot.mode.kind === "asset") &&
+        now - lastObservationAt >= minimumInterval
+      ) {
+        void window.cinesim
+          .reportDerivedPerformance({
+            assetId: snapshot.activeAssetId,
+            sourceKind: snapshot.activeSourceKind,
+            operation: snapshot.mode.kind === "asset" ? "hover-seek" : "playback",
+            ...(snapshot.mode.kind === "asset" ? { latencyMs: snapshot.seekLatencyMs } : {}),
+            ...(snapshot.playing
+              ? { deadlineMiss: snapshot.renderFps < snapshot.targetFps * 0.95 }
+              : {}),
+            requestsReceived: snapshot.requestsReceived - previousReceived,
+            requestsCoalesced: snapshot.requestsCoalesced - previousCoalesced,
+            framesPresented: snapshot.framesPresented - previousPresented,
+            framesObsolete: snapshot.framesObsolete - previousObsolete,
+          })
+          .catch(() => undefined);
+        lastObservationAt = now;
+        previousPresented = snapshot.framesPresented;
+        previousReceived = snapshot.requestsReceived;
+        previousCoalesced = snapshot.requestsCoalesced;
+        previousObsolete = snapshot.framesObsolete;
+      }
+    });
+    void playback
       .initialize()
       .catch((caught) =>
-        setError(caught instanceof Error ? caught.message : "WebGPU initialization failed"),
+        reportPlaybackError(
+          caught instanceof Error ? caught : new Error("WebGPU initialization failed"),
+        ),
       );
     return () => {
       unsubscribe();
       playback.destroy();
       compositor.destroy();
       runtimeRef.current = null;
+      onController?.(null);
     };
-  }, [setRuntime]);
+  }, [onController, setRuntime]);
 
   useEffect(() => runtimeRef.current?.setProject(project), [project]);
 

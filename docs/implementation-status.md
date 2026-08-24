@@ -52,15 +52,19 @@ The only edit semantics are core commands: asset import and clip add, remove, mo
 
 Main-process metadata reads use Mediabunny `Input` + `FilePathSource`. Renderer decode uses `Input` + `UrlSource` + `VideoSampleSink` through an asset-ID custom protocol supporting bounded byte ranges. The renderer never receives raw paths or unrestricted filesystem APIs.
 
-The monotonic playback clock resolves active timeline layers and source timestamps. A latest-generation controller discards obsolete scrub results. Upcoming clips within the prewarm window call `prepare()` before a cut. Replaced samples and presented `VideoFrame` objects are explicitly closed.
+The monotonic playback clock resolves active timeline layers and source timestamps. A latest-only executor permits one decode/render operation in flight and retains only the newest pending request; obsolete frames are closed before compositor submission. The preview coordinator keeps timeline transport separate from temporary asset-source preview and restores the timeline frame after hover. Upcoming clips within the prewarm window call `prepare()` before a cut.
 
-The WebGPU compositor imports each `VideoFrame` with `GPUDevice.importExternalTexture`, applies WGSL position/scale/opacity, supports ordered layers, and submits directly to a `GPUCanvasContext`. It resizes explicitly and reinitializes after device loss.
+The WebGPU compositor imports each `VideoFrame` with `GPUDevice.importExternalTexture`, applies WGSL position/scale/opacity plus contain/cover/fill aspect fitting, supports ordered layers, and submits directly to a `GPUCanvasContext`. It resizes explicitly and reinitializes after device loss. CPU submission duration is reported honestly; GPU execution duration remains unavailable until timestamp queries are implemented.
+
+A dedicated renderer worker uses Mediabunny sparse canvas sinks to generate deterministic representative JPEG thumbnails and bounded 32-tile filmstrip contact sheets. A project-scoped main-process store fingerprints bounded source edges, atomically publishes artifacts, recovers interrupted jobs, serves validated derived-media protocol routes, accounts for storage, and evicts proxies/filmstrips before thumbnails.
+
+Live hover/playback observations feed a pure adaptive policy with minimum samples, explicit reason codes, disk-headroom gating, and proxy hysteresis. When the original persistently misses interaction budgets, the worker creates a video-only, 1280-long-edge editing proxy through Mediabunny conversion and a backpressured streamed writer. Proxy conversion pauses under foreground pressure, resumes after an idle grace period, and is adopted automatically while audio continues from the original.
 
 Audio uses Mediabunny `AudioBufferSink`. A Web Audio scheduler anchors timeline microseconds to `AudioContext.currentTime`, schedules short rolling windows, stops on pause/seek, and reschedules across clip boundaries. AudioWorklet is deferred pending profiling.
 
 ## Desktop UI
 
-Implemented surfaces include project create/open, media import/bin, double-click add to timeline, WebGPU viewer transport/scrubber, multi-track custom timeline, dnd-kit clip movement, pointer edge trims, selection/blade tools, split/delete, inspector, Lexical working-notes surface, undo/redo/save/reveal controls, and a throttled runtime metrics overlay. Zustand stores only ephemeral UI state; canonical project snapshots remain outside it.
+Implemented surfaces include project create/open, media import/bin, representative thumbnails, silent filmstrip card skimming, exact Media Pool source hover preview in the WebGPU Viewer, double-click add to timeline, viewer transport/scrubber, multi-track custom timeline, dnd-kit clip movement, pointer edge trims, selection/blade tools, split/delete, inspector, Lexical working-notes surface, and undo/redo/save/reveal controls. The bug control opens a dedicated Metrics sidebar that is mutually exclusive with the Agents sidebar and reports bounded runtime, adaptive, artifact, job, GPU, and storage diagnostics. Zustand stores only ephemeral UI state; canonical project snapshots remain outside it.
 
 The Edit workspace has persistent splitters for the Media Pool, Inspector, Notes, and Timeline. Media Pool, Inspector, and Notes visibility and final panel sizes are stored per project in the desktop's noncanonical UI state; resize movement does not write project files or create undo history.
 
@@ -84,32 +88,32 @@ The MCP stdio server exposes project/asset/timeline inspection, clip add/move/tr
 
 - TypeScript whole-repository check: passed
 - Vite+ format and lint check: passed with no warnings
-- Semantic tests, including agent settings persistence, Git checkpoint capture/restore, structured Claude/Codex runtime parsing, authenticated MCP tools, and sidebar shortcuts: passed
+- All 50 semantic tests in 14 files, including latest-only execution, source-preview restoration, adaptive policy, derived storage/writers, source resolution, agent integration, and sidebar shortcuts: passed
 - Vite production builds for main, preload, and renderer: passed
 - CLI help smoke check: passed
 - Electron application launch: intentionally not run
 
-Tests cover command semantics, invalid edits/overlaps, stable ID allocation, undo/redo, deterministic serialization and version rejection, protocol errors, timeline-to-source mapping, monotonic timing, stale-seek coalescing, and sparse perception sampling.
+Tests cover command semantics, invalid edits/overlaps, stable ID allocation, undo/redo, deterministic serialization and version rejection, protocol errors, timeline-to-source mapping, monotonic timing, latest-only coalescing, source-preview isolation/restoration, deterministic perception sampling/scoring, bounded derived writes/recovery, adaptive decisions, and original/proxy resolution.
 
 ## Performance measurements
 
-No FPS, decode, GPU, seek, or memory measurements are reported. Measuring them requires launching Electron with representative 1080p30, 1080p60, and 4K30 media, which was explicitly left to the user. The debug overlay has counters for the first profiling pass.
+No benchmark numbers are reported. The Metrics sidebar now exposes live FPS, seek latency, request coalescing, dropped frames, CPU GPU-submit duration, artifact jobs, adaptive reasons, and storage, but measuring representative media still requires the interactive Electron validation matrix left to the user.
 
 ## Known limitations and deviations
 
 - Electron/WebCodecs/WebGPU/Web Audio behavior is compiled but not interactively verified.
-- Filmstrip and exact-frame CLI/MCP tools currently report deterministic derived paths and availability; actual image generation/writing is not yet connected.
-- No proxy encoder, dedicated media worker, or waveform generator is implemented.
+- Filmstrip generation now preserves the CLI/MCP deterministic path; exact-frame and waveform generation remain lookup-only/unimplemented.
+- Worker-based thumbnail, filmstrip, and adaptive proxy paths are compiled but still require real-media Electron validation across the codec matrix.
 - Audio scheduling is a V1 rolling Web Audio buffer path, not an AudioWorklet mixer.
 - Audio embedded in a video clip follows that clip; linked/unlinked A/V editing is not modeled.
 - The Lexical notes surface is a working draft surface but does not write `AGENTS.md` or `script.md`.
 - V1 supports one active flat sequence, rejects overlaps per track, and has no transitions, nested timelines, keyframes, export/render, or cloud features.
-- Renderer output is currently a single large application chunk (about 1.05 MB minified); lazy route/vendor splitting is pending.
+- The derived worker is emitted as a separate chunk; the renderer application chunk remains large (about 1.4 MB minified), so lazy route/vendor splitting is pending.
 - The embedded agent MCP bridge shares Electron main's single project writer, but concurrent desktop and external CLI/stdio-MCP writes do not yet use a cross-process project lock or desktop file watcher.
 - Local provider integration currently targets Claude Code's streaming JSON protocol and Codex's `app-server` protocol. Compatibility still depends on the installed CLI version and requires interactive desktop validation against each provider.
 
 ## Highest-value next steps
 
 1. Run the media validation matrix, fix any platform codec/GPU findings, and capture honest playback/seek/memory metrics.
-2. Connect sparse filmstrip/frame generation and waveform jobs to cancellable workers that write `.video/` artifacts.
+2. Tune adaptive thresholds from captured media-matrix measurements and add exact-frame/waveform jobs to the existing bounded worker/storage path.
 3. Add cross-process project locking/file watching, then exercise desktop ↔ CLI ↔ MCP live synchronization in integration tests.

@@ -6,8 +6,10 @@ interface LibraryCardProps {
   badge?: string;
   corner?: React.ReactNode;
   bottomCorner?: React.ReactNode;
+  action?: React.ReactNode;
   previewClassName?: string;
   previewStyle?: React.CSSProperties;
+  size?: "default" | "compact";
   ariaLabel?: string;
   title?: string;
   disabled?: boolean;
@@ -21,8 +23,10 @@ export function LibraryCard({
   badge,
   corner,
   bottomCorner,
+  action,
   previewClassName,
   previewStyle,
+  size = "default",
   ariaLabel,
   title,
   disabled,
@@ -30,6 +34,34 @@ export function LibraryCard({
   onDoubleClick,
 }: LibraryCardProps) {
   const interactive = Boolean(onClick || onDoubleClick);
+  const contents = (
+    <>
+      <div
+        data-library-preview
+        className={cn(
+          "relative grid aspect-video w-full place-items-center overflow-hidden border-b border-border text-muted",
+          previewClassName,
+        )}
+        style={previewStyle}
+      >
+        {badge && (
+          <span className="pointer-events-none absolute left-2 top-2 z-20 rounded bg-panel/85 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-[0.1em] text-secondary backdrop-blur-sm">
+            {badge}
+          </span>
+        )}
+        {corner && (
+          <span className="pointer-events-none absolute right-2 top-2 z-20">{corner}</span>
+        )}
+        {bottomCorner && (
+          <span className="pointer-events-none absolute bottom-2 right-2 z-20">{bottomCorner}</span>
+        )}
+        {preview}
+      </div>
+      <div className={cn("relative", size === "compact" ? "min-h-14 p-2" : "min-h-[68px] p-3")}>
+        {children}
+      </div>
+    </>
+  );
 
   return (
     <article
@@ -39,34 +71,22 @@ export function LibraryCard({
           "hover:-translate-y-0.5 hover:border-border-strong hover:shadow-lg hover:shadow-black/10",
       )}
     >
-      {interactive && (
+      {interactive ? (
         <button
           type="button"
-          className="absolute inset-0 z-40 rounded-xl outline-none focus-visible:ring-2 focus-visible:ring-focus"
+          className="block w-full rounded-xl text-left outline-none focus-visible:ring-2 focus-visible:ring-focus"
           aria-label={ariaLabel}
           title={title}
           disabled={disabled}
           onClick={onClick}
           onDoubleClick={onDoubleClick}
-        />
+        >
+          {contents}
+        </button>
+      ) : (
+        contents
       )}
-      <div
-        className={cn(
-          "relative grid aspect-video w-full place-items-center overflow-hidden border-b border-border text-muted",
-          previewClassName,
-        )}
-        style={previewStyle}
-      >
-        {badge && (
-          <span className="absolute left-2 top-2 rounded bg-panel/85 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-[0.1em] text-secondary backdrop-blur-sm">
-            {badge}
-          </span>
-        )}
-        {corner && <span className="absolute right-2 top-2">{corner}</span>}
-        {bottomCorner && <span className="absolute bottom-2 right-2">{bottomCorner}</span>}
-        {preview}
-      </div>
-      <div className="relative z-30 min-h-[68px] p-3">{children}</div>
+      {action && <div className="absolute right-1.5 top-1.5 z-30">{action}</div>}
     </article>
   );
 }

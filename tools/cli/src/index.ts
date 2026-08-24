@@ -3,9 +3,12 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { Command } from "commander";
 import type { AssetId, ClipId } from "@cinesim/core";
+import { createCinesimLogger } from "@cinesim/logging";
 import { inspectAsset, inspectProject, inspectTimeline, listAssets } from "@cinesim/protocol";
 import { DiskProjectStore } from "./project-store";
 import { parseTime } from "./time";
+
+const log = createCinesimLogger({ service: "cli" });
 
 const program = new Command()
   .name("cinesim")
@@ -161,6 +164,7 @@ program
   });
 
 program.parseAsync().catch((error: unknown) => {
+  log.error({ err: error }, "CLI command failed");
   process.stderr.write(`cinesim: ${error instanceof Error ? error.message : String(error)}\n`);
   process.exitCode = 1;
 });

@@ -1,22 +1,17 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Clock3, Film, Image as ImageIcon, Music2, Plus, Search } from "lucide-react";
+import { Clock3, Film, Search } from "lucide-react";
 import { Button } from "@cinesim/ui";
 import { getSequence, sequenceDurationUs } from "@cinesim/core";
 import type { Asset, Project } from "@cinesim/core";
 import type { DesktopProjectSession } from "../../shared/api";
 import { formatDuration } from "../lib/format";
 import { LibraryCard, LibraryGrid } from "./library-card";
+import { MediaSkimSurface } from "./media-skim-surface";
 
 interface MediaBinProps {
   project: Project;
   onSession: (session: DesktopProjectSession) => void;
   onOpenTimeline: (sequenceId: string) => void;
-}
-
-function KindIcon({ asset }: { asset: Asset }) {
-  if (asset.kind === "audio") return <Music2 size={21} />;
-  if (asset.kind === "image") return <ImageIcon size={21} />;
-  return <Film size={21} />;
 }
 
 export function MediaBin({ project, onSession, onOpenTimeline }: MediaBinProps) {
@@ -124,16 +119,7 @@ export function MediaBin({ project, onSession, onOpenTimeline }: MediaBinProps) 
               ariaLabel={`Add ${asset.name} to the default timeline`}
               title="Double-click to add to the default timeline"
               previewClassName="media-thumbnail"
-              preview={
-                <>
-                  <KindIcon asset={asset} />
-                  <span className="absolute inset-0 grid place-items-center bg-black/35 opacity-0 transition-opacity group-hover:opacity-100">
-                    <span className="grid size-8 place-items-center rounded-full bg-accent text-on-accent">
-                      <Plus size={15} />
-                    </span>
-                  </span>
-                </>
-              }
+              preview={<MediaSkimSurface asset={asset} />}
               bottomCorner={
                 <span className="rounded bg-panel/90 px-1.5 py-0.5 text-ui-xs tabular-nums text-secondary">
                   {formatDuration(asset.durationUs)}

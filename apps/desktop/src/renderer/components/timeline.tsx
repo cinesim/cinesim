@@ -19,6 +19,7 @@ const BASE_PIXELS_PER_SECOND = 86;
 interface TimelineProps {
   project: Project;
   onCommand: (command: EditorCommand) => Promise<void>;
+  onSeek?: (timeUs: number) => void;
 }
 
 interface ClipBlockProps {
@@ -119,7 +120,7 @@ function ClipBlock({ clip, track, pixelsPerUs, selected, name, onCommand }: Clip
   );
 }
 
-export function Timeline({ project, onCommand }: TimelineProps) {
+export function Timeline({ project, onCommand, onSeek }: TimelineProps) {
   const zoom = useUiStore((state) => state.timelineZoom);
   const setZoom = useUiStore((state) => state.setTimelineZoom);
   const tool = useUiStore((state) => state.tool);
@@ -153,7 +154,10 @@ export function Timeline({ project, onCommand }: TimelineProps) {
     const bounds = event.currentTarget.getBoundingClientRect();
     const scrollParent = event.currentTarget.parentElement!;
     const x = event.clientX - bounds.left + scrollParent.scrollLeft;
-    setPlayheadUs(Math.max(0, Math.round(x / pixelsPerUs)));
+    const timeUs = Math.max(0, Math.round(x / pixelsPerUs));
+    setPlayheadUs(timeUs);
+    onSeek?.(timeUs);
+    if (event.type === "pointerdown") event.currentTarget.setPointerCapture(event.pointerId);
   }
 
   const majorSecondStep = zoom < 0.6 ? 5 : zoom < 1.5 ? 2 : 1;
@@ -255,6 +259,9 @@ export function Timeline({ project, onCommand }: TimelineProps) {
             <div
               className="sticky top-0 z-20 h-6 cursor-ew-resize border-b border-border bg-panel/95"
               onPointerDown={rulerSeek}
+              onPointerMove={(event) => {
+                if (event.buttons & 1) rulerSeek(event);
+              }}
             >
               {Array.from({ length: tickCount + 1 }, (_, index) => {
                 const seconds = index * majorSecondStep;

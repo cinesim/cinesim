@@ -1,17 +1,15 @@
 import { Bug, FolderOpen, Redo2, Save, Undo2 } from "lucide-react";
 import { Button } from "@cinesim/ui";
 import type { DesktopProjectSession } from "../../shared/api";
-import { useUiStore } from "../store/ui-store";
 
 interface TopBarProps {
   session: DesktopProjectSession;
   onSession: (session: DesktopProjectSession) => void;
+  metricsOpen: boolean;
+  onToggleMetrics: () => void;
 }
 
-export function TopBar({ session, onSession }: TopBarProps) {
-  const showDebug = useUiStore((state) => state.showDebug);
-  const setShowDebug = useUiStore((state) => state.setShowDebug);
-
+export function TopBar({ session, onSession, metricsOpen, onToggleMetrics }: TopBarProps) {
   return (
     <div className="flex items-center gap-0.5">
       <Button
@@ -42,9 +40,10 @@ export function TopBar({ session, onSession }: TopBarProps) {
       </Button>
       <Button
         size="icon"
-        variant={showDebug ? "secondary" : "ghost"}
-        aria-label="Toggle debug metrics"
-        onClick={() => setShowDebug(!showDebug)}
+        variant={metricsOpen ? "secondary" : "ghost"}
+        aria-label={metricsOpen ? "Close Metrics sidebar" : "Open Metrics sidebar"}
+        aria-pressed={metricsOpen}
+        onClick={onToggleMetrics}
       >
         <Bug size={15} />
       </Button>

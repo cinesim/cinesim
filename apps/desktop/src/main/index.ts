@@ -1,5 +1,7 @@
 import { join } from "node:path";
 import { execFile } from "node:child_process";
+import { createReadStream } from "node:fs";
+import { Readable } from "node:stream";
 import {
   app,
   BrowserWindow,
@@ -11,25 +13,71 @@ import {
   shell,
 } from "electron";
 import type { EditorCommand } from "@cinesim/core";
+import { createCinesimLogger } from "@cinesim/logging";
 import type {
   AgentCreateInput,
   AgentProviderKind,
   AgentSessionUpdate,
   AgentSettingsUpdate,
   AgentTurnContext,
+  BeginDerivedWrite,
+  DerivedArtifactKind,
+  DerivedPerformanceObservation,
+  DerivedWorkerActivity,
+  DerivedWorkerStage,
+  FinalizeDerivedWrite,
 } from "../shared/api";
 import { AgentManager } from "./agent-manager";
 import { detectProvider } from "./agent-provider-detection";
 import { AgentSettingsStore } from "./agent-settings-store";
 import { DesktopAppStateStore, parseEditorLayoutState } from "./app-state-store";
+import { electronHealthSnapshot } from "./electron-health";
 import { DesktopProjectStore } from "./project-store";
 
 const store = new DesktopProjectStore();
+const log = createCinesimLogger({ service: "desktop" });
+const DERIVED_WORKER_STAGES = new Set<DerivedWorkerStage>([
+  "scheduled",
+  "input-opening",
+  "container-ready",
+  "track-ready",
+  "decoder-ready",
+  "thumbnail-sampling",
+  "thumbnail-encoding",
+  "thumbnail-ready",
+  "filmstrip-sampling",
+  "filmstrip-encoding",
+  "filmstrip-ready",
+  "proxy-converting",
+  "completed",
+  "failed",
+]);
 let appState: DesktopAppStateStore;
 let agentSettings: AgentSettingsStore;
 let agents: AgentManager;
 let quitReady = false;
 let shutdown: Promise<void> | null = null;
+let mainEventLoopProbe: NodeJS.Timeout | null = null;
+let mainEventLoopExpectedAt = 0;
+let mainEventLoopLagSamples: number[] = [];
+let healthSamplingLogged = false;
+
+function startMainEventLoopProbe(): void {
+  mainEventLoopExpectedAt = performance.now() + 100;
+  mainEventLoopProbe = setInterval(() => {
+    const now = performance.now();
+    mainEventLoopLagSamples.push(Math.max(0, now - mainEventLoopExpectedAt));
+    if (mainEventLoopLagSamples.length > 20) mainEventLoopLagSamples.shift();
+    mainEventLoopExpectedAt = now + 100;
+  }, 100);
+  mainEventLoopProbe.unref();
+}
+
+function takeMainEventLoopP95(): number {
+  const sorted = mainEventLoopLagSamples.toSorted((left, right) => left - right);
+  mainEventLoopLagSamples = [];
+  return sorted[Math.max(0, Math.ceil(sorted.length * 0.95) - 1)] ?? 0;
+}
 
 function isProvider(value: unknown): value is AgentProviderKind {
   return value === "claude" || value === "codex";
@@ -43,6 +91,41 @@ function isAgentEffort(value: unknown): value is NonNullable<AgentSessionUpdate[
     value === "xhigh" ||
     value === "max"
   );
+}
+
+function parseDerivedWorkerActivity(value: unknown): DerivedWorkerActivity {
+  if (typeof value !== "object" || value === null || Array.isArray(value))
+    throw new Error("Invalid derived worker activity");
+  const input = value as Record<string, unknown>;
+  if (
+    typeof input.jobId !== "string" ||
+    !/^[a-f0-9-]{36}$/.test(input.jobId) ||
+    typeof input.assetId !== "string" ||
+    !/^asset_[a-zA-Z0-9][a-zA-Z0-9_-]*$/.test(input.assetId) ||
+    (input.jobKind !== "perception" && input.jobKind !== "proxy") ||
+    typeof input.stage !== "string" ||
+    !DERIVED_WORKER_STAGES.has(input.stage as DerivedWorkerStage) ||
+    typeof input.elapsedMs !== "number" ||
+    !Number.isFinite(input.elapsedMs) ||
+    input.elapsedMs < 0 ||
+    input.elapsedMs > 86_400_000
+  )
+    throw new Error("Invalid derived worker activity");
+  for (const sample of [input.completedSamples, input.totalSamples]) {
+    if (sample !== undefined && (!Number.isSafeInteger(sample) || (sample as number) < 0))
+      throw new Error("Invalid derived worker sample count");
+  }
+  if (
+    input.failureCode !== undefined &&
+    (typeof input.failureCode !== "string" || !/^[a-z0-9][a-z0-9-]{0,63}$/.test(input.failureCode))
+  )
+    throw new Error("Invalid derived worker failure code");
+  if (
+    input.detail !== undefined &&
+    (typeof input.detail !== "string" || input.detail.length > 2_000)
+  )
+    throw new Error("Invalid derived worker detail");
+  return input as unknown as DerivedWorkerActivity;
 }
 
 function quoteShellArgument(value: string): string {
@@ -161,7 +244,13 @@ function parseAgentSessionUpdate(value: unknown): AgentSessionUpdate {
 protocol.registerSchemesAsPrivileged([
   {
     scheme: "cinesim-media",
-    privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true },
+    privileges: {
+      standard: true,
+      secure: true,
+      supportFetchAPI: true,
+      stream: true,
+      corsEnabled: true,
+    },
   },
 ]);
 
@@ -192,20 +281,147 @@ function createWindow(): BrowserWindow {
   return window;
 }
 
+function streamedMediaResponse(input: {
+  path: string;
+  size: number;
+  mimeType: string;
+  assetId: string;
+  start: number;
+  endExclusive: number;
+  range: boolean;
+  cacheControl: string;
+  requestStarted: number;
+}): Response {
+  const start = Math.max(0, Math.min(input.start, input.size));
+  const endExclusive = Math.max(start, Math.min(input.endExclusive, input.size));
+  const length = endExclusive - start;
+  const headers = {
+    "Accept-Ranges": "bytes",
+    "Access-Control-Allow-Origin": "*",
+    "Content-Length": String(length),
+    ...(input.range
+      ? { "Content-Range": `bytes ${start}-${Math.max(start, endExclusive - 1)}/${input.size}` }
+      : {}),
+    "Content-Type": input.mimeType,
+    "Cache-Control": input.cacheControl,
+  };
+  if (length === 0) {
+    store.derivedMedia.recordProtocolRead({
+      assetId: input.assetId,
+      start,
+      requestedEnd: endExclusive,
+      bytesRead: 0,
+      durationMs: performance.now() - input.requestStarted,
+      range: input.range,
+    });
+    return new Response(null, { status: input.range ? 206 : 200, headers });
+  }
+  const stream = createReadStream(input.path, {
+    start,
+    end: endExclusive - 1,
+    highWaterMark: 64 * 1024,
+  });
+  let settled = false;
+  const recordRead = () => {
+    if (settled) return;
+    settled = true;
+    store.derivedMedia.recordProtocolRead({
+      assetId: input.assetId,
+      start,
+      requestedEnd: endExclusive,
+      bytesRead: stream.bytesRead,
+      durationMs: performance.now() - input.requestStarted,
+      range: input.range,
+    });
+  };
+  stream.once("error", (error) => {
+    if (error.name === "AbortError") {
+      recordRead();
+      return;
+    }
+    settled = true;
+    store.derivedMedia.recordProtocolError(
+      input.assetId,
+      error.message,
+      performance.now() - input.requestStarted,
+    );
+  });
+  stream.once("close", recordRead);
+  return new Response(Readable.toWeb(stream) as ReadableStream<Uint8Array>, {
+    status: input.range ? 206 : 200,
+    headers,
+  });
+}
+
 async function registerMediaProtocol(): Promise<void> {
   protocol.handle("cinesim-media", async (request) => {
+    const requestStarted = performance.now();
+    let diagnosticAssetId: string | undefined;
     try {
       const url = new URL(request.url);
-      if (url.hostname !== "asset") return new Response("Not found", { status: 404 });
+      const derivedKind = (
+        { thumbnail: "thumbnail", filmstrip: "filmstrip", proxy: "proxy" } as const
+      )[url.hostname as "thumbnail" | "filmstrip" | "proxy"];
+      if (url.hostname !== "asset" && !derivedKind)
+        return new Response("Not found", { status: 404 });
       const assetId = url.pathname.slice(1);
       if (!/^asset_[a-zA-Z0-9][a-zA-Z0-9_-]*$/.test(assetId))
         return new Response("Bad asset ID", { status: 400 });
+      diagnosticAssetId = assetId;
       const range = request.headers.get("range");
+      if (derivedKind) {
+        if (url.searchParams.get("v") !== "1")
+          return new Response("Unknown generator version", { status: 404 });
+        const profileId = url.searchParams.get("profile") ?? undefined;
+        if (
+          (derivedKind === "proxy" && !profileId) ||
+          (profileId !== undefined && !/^[a-z0-9][a-z0-9_-]{0,63}$/.test(profileId))
+        )
+          return new Response("Bad proxy profile", { status: 400 });
+        const result = await store.derivedMedia.artifactFile(
+          derivedKind as DerivedArtifactKind,
+          assetId,
+          profileId,
+        );
+        if (request.method === "HEAD")
+          return new Response(null, {
+            status: 200,
+            headers: {
+              "Accept-Ranges": "bytes",
+              "Access-Control-Allow-Origin": "*",
+              "Content-Length": String(result.size),
+              "Content-Type": result.mimeType,
+              "Cache-Control": "private, max-age=31536000, immutable",
+            },
+          });
+        const match = range?.match(/^bytes=(\d+)-(\d*)$/);
+        const start = match ? Number(match[1]) : 0;
+        const requestedEnd = match?.[2] ? Number(match[2]) + 1 : result.size;
+        return streamedMediaResponse({
+          path: result.path,
+          size: result.size,
+          mimeType: result.mimeType,
+          assetId,
+          start,
+          endExclusive: requestedEnd,
+          range: Boolean(range),
+          cacheControl: "private, max-age=31536000, immutable",
+          requestStarted,
+        });
+      }
       const path = store.assetPath(assetId);
       if (!path) return new Response("Unknown asset", { status: 404 });
       const fileSize = (await import("node:fs/promises")).stat(path).then((value) => value.size);
       const size = await fileSize;
       if (request.method === "HEAD") {
+        store.derivedMedia.recordProtocolRead({
+          assetId,
+          start: 0,
+          requestedEnd: 0,
+          bytesRead: 0,
+          durationMs: performance.now() - requestStarted,
+          range: false,
+        });
         return new Response(null, {
           status: 200,
           headers: {
@@ -218,25 +434,24 @@ async function registerMediaProtocol(): Promise<void> {
       }
       const match = range?.match(/^bytes=(\d+)-(\d*)$/);
       const start = match ? Number(match[1]) : 0;
-      const requestedEnd = match?.[2]
-        ? Number(match[2]) + 1
-        : Math.min(size, start + 16 * 1024 * 1024);
-      const { data } = await store.readRange(assetId, start, requestedEnd);
-      const end = start + data.byteLength;
-      return new Response(request.method === "HEAD" ? null : new Uint8Array(data), {
-        status: range || data.byteLength < size ? 206 : 200,
-        headers: {
-          "Accept-Ranges": "bytes",
-          "Access-Control-Allow-Origin": "*",
-          "Content-Length": String(data.byteLength),
-          ...(range || data.byteLength < size
-            ? { "Content-Range": `bytes ${start}-${Math.max(start, end - 1)}/${size}` }
-            : {}),
-          "Content-Type": "application/octet-stream",
-          "Cache-Control": "no-store",
-        },
+      const requestedEnd = match?.[2] ? Number(match[2]) + 1 : size;
+      return streamedMediaResponse({
+        path,
+        size,
+        mimeType: "application/octet-stream",
+        assetId,
+        start,
+        endExclusive: requestedEnd,
+        range: Boolean(range),
+        cacheControl: "no-store",
+        requestStarted,
       });
     } catch (error) {
+      store.derivedMedia.recordProtocolError(
+        diagnosticAssetId,
+        error instanceof Error ? error.message : "Media read failed",
+        performance.now() - requestStarted,
+      );
       return new Response(error instanceof Error ? error.message : "Media read failed", {
         status: 500,
       });
@@ -301,8 +516,74 @@ function registerIpc(): void {
       session = await store.inspectAndImportMedia(filePath);
     return session;
   });
+  ipcMain.handle("derived:get", () => store.derivedMedia.snapshot());
+  ipcMain.handle("derived:request-jobs", (_event, assetIds: unknown) => {
+    if (!Array.isArray(assetIds) || assetIds.some((id) => typeof id !== "string"))
+      throw new Error("Invalid derived job request");
+    return store.derivedMedia.requestJobs(assetIds);
+  });
+  ipcMain.handle("derived:write:begin", (_event, input: unknown) =>
+    store.derivedMedia.beginWrite(input as BeginDerivedWrite),
+  );
+  ipcMain.handle(
+    "derived:write:chunk",
+    (_event, writerId: unknown, offset: unknown, data: unknown) => {
+      if (
+        typeof writerId !== "string" ||
+        typeof offset !== "number" ||
+        !(data instanceof Uint8Array)
+      )
+        throw new Error("Invalid derived write chunk");
+      return store.derivedMedia.writeChunk(writerId, offset, data);
+    },
+  );
+  ipcMain.handle("derived:write:finalize", (_event, writerId: unknown, result: unknown) => {
+    if (typeof writerId !== "string") throw new Error("Invalid derived writer");
+    return store.derivedMedia.finalizeWrite(writerId, result as FinalizeDerivedWrite);
+  });
+  ipcMain.handle(
+    "derived:write:cancel",
+    (_event, writerId: unknown, failureCode: unknown, detail: unknown) => {
+      if (
+        typeof writerId !== "string" ||
+        (failureCode !== undefined &&
+          (typeof failureCode !== "string" || !/^[a-z0-9][a-z0-9-]{0,63}$/.test(failureCode))) ||
+        (detail !== undefined && (typeof detail !== "string" || detail.length > 2_000))
+      )
+        throw new Error("Invalid derived writer cancellation");
+      return store.derivedMedia.cancelWrite(writerId, failureCode, detail);
+    },
+  );
+  ipcMain.handle("derived:write:progress", (_event, writerId: unknown, progress: unknown) => {
+    if (typeof writerId !== "string" || typeof progress !== "number")
+      throw new Error("Invalid derived progress");
+    return store.derivedMedia.updateProgress(writerId, progress);
+  });
+  ipcMain.handle("derived:activity", (_event, activity: unknown) =>
+    store.derivedMedia.reportActivity(parseDerivedWorkerActivity(activity)),
+  );
+  ipcMain.handle("derived:performance", (_event, observation: unknown) =>
+    store.derivedMedia.reportPerformance(observation as DerivedPerformanceObservation),
+  );
   ipcMain.handle("command:execute", (_event, command: EditorCommand) => store.execute(command));
   ipcMain.handle("app-state:get", () => appState.snapshot());
+  ipcMain.handle("app:health", () => {
+    const snapshot = electronHealthSnapshot(app.getAppMetrics(), takeMainEventLoopP95());
+    if (!healthSamplingLogged) {
+      healthSamplingLogged = true;
+      log.info(
+        {
+          operation: "electron-health-sampling",
+          processCount: snapshot.processCount,
+          processGroups: Object.fromEntries(
+            Object.entries(snapshot.processes).map(([kind, group]) => [kind, group.processCount]),
+          ),
+        },
+        "Electron health sampling started",
+      );
+    }
+    return snapshot;
+  });
   ipcMain.handle("app-state:set-media-pool-open", async (_event, open: unknown) => {
     if (!store.directory || typeof open !== "boolean")
       throw new Error("Open a project before changing the Media Pool");
@@ -426,11 +707,28 @@ function registerIpc(): void {
 
 async function startApplication(): Promise<void> {
   await app.whenReady();
+  startMainEventLoopProbe();
   appState = new DesktopAppStateStore(join(app.getPath("userData"), "ui-state.json"));
   agentSettings = new AgentSettingsStore(join(app.getPath("userData"), "agent-settings.json"));
   await appState.load();
   await agentSettings.load();
+  const diagnosticProject = process.env.CINESIM_DIAGNOSTIC_PROJECT;
+  if (
+    process.env.CINESIM_DEV_SERVER_URL &&
+    diagnosticProject &&
+    diagnosticProject.length <= 4_096
+  ) {
+    await store.open(diagnosticProject);
+    log.info(
+      { operation: "diagnostic-project-open", projectId: store.project?.id },
+      "opened development diagnostic project",
+    );
+  }
   await registerMediaProtocol();
+  store.derivedMedia.subscribe((snapshot) => {
+    for (const target of BrowserWindow.getAllWindows())
+      target.webContents.send("derived:changed", snapshot);
+  });
   agents = new AgentManager(
     join(app.getPath("userData"), "agent-sessions.json"),
     agentSettings,
@@ -458,7 +756,7 @@ async function startApplication(): Promise<void> {
 }
 
 void startApplication().catch((error: unknown) => {
-  console.error("Cinesim failed to start", error);
+  log.error({ err: error }, "Cinesim failed to start");
   app.quit();
 });
 
@@ -467,11 +765,15 @@ app.on("window-all-closed", () => {
 });
 
 app.on("before-quit", (event) => {
+  if (mainEventLoopProbe) {
+    clearInterval(mainEventLoopProbe);
+    mainEventLoopProbe = null;
+  }
   if (quitReady || !agents) return;
   event.preventDefault();
   shutdown ??= agents
     .close()
-    .catch((error: unknown) => console.error("Cinesim agent shutdown failed", error))
+    .catch((error: unknown) => log.error({ err: error }, "Cinesim agent shutdown failed"))
     .then(() => {
       quitReady = true;
       app.quit();

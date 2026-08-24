@@ -1,16 +1,16 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { cn } from "@cinesim/ui";
 import { sequenceDurationUs } from "@cinesim/core";
 import type { Asset, EditorCommand, SequenceId } from "@cinesim/core";
 import { EDITOR_LAYOUT_LIMITS } from "../../shared/api";
 import type { DesktopProjectSession, EditorLayoutState } from "../../shared/api";
-import { DebugOverlay } from "./debug-overlay";
 import { EditMediaPool } from "./edit-media-pool";
 import { Inspector } from "./inspector";
 import { MediaBin } from "./media-bin";
 import { NotesPanel } from "./notes-panel";
 import { Timeline } from "./timeline";
 import { Viewer } from "./viewer";
+import type { ViewerController } from "./viewer";
 import { useUiStore } from "../store/ui-store";
 
 interface WorkspaceProps {
@@ -142,6 +142,10 @@ export function Workspace({
     y: number;
     layout: EditorLayoutState;
   } | null>(null);
+  const viewerControllerRef = useRef<ViewerController | null>(null);
+  const setViewerController = useCallback((controller: ViewerController | null) => {
+    viewerControllerRef.current = controller;
+  }, []);
   const selectClip = useUiStore((state) => state.selectClip);
   const setPlayheadUs = useUiStore((state) => state.setPlayheadUs);
   const activeSequence =
@@ -321,6 +325,10 @@ export function Workspace({
                   project={editorProject}
                   onAddAsset={addAsset}
                   onImport={importMedia}
+                  onPreviewAsset={(asset, sourceTimeUs) =>
+                    viewerControllerRef.current?.enterAssetPreview(asset.id, sourceTimeUs)
+                  }
+                  onPreviewEnd={() => void viewerControllerRef.current?.exitAssetPreview()}
                 />
                 <PanelResizeHandle
                   orientation="vertical"
@@ -332,7 +340,11 @@ export function Workspace({
                 />
               </>
             )}
-            <Viewer key={activeSequence.id} project={editorProject} />
+            <Viewer
+              key={activeSequence.id}
+              project={editorProject}
+              onController={setViewerController}
+            />
             {inspectorOpen && (
               <>
                 <PanelResizeHandle
@@ -368,11 +380,14 @@ export function Workspace({
             onPointerUp={(event) => finishResize("timeline", event)}
             onPointerCancel={(event) => cancelResize("timeline", event)}
           />
-          <Timeline project={editorProject} onCommand={command} />
+          <Timeline
+            project={editorProject}
+            onCommand={command}
+            onSeek={(timeUs) => void viewerControllerRef.current?.seekTimeline(timeUs)}
+          />
         </div>
       ) : null}
 
-      <DebugOverlay />
       {error && (
         <button
           className="absolute bottom-3 left-1/2 z-50 -translate-x-1/2 rounded-lg border border-border-strong bg-panel px-4 py-2 text-ui text-primary shadow-xl"

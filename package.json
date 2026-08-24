@@ -13,6 +13,7 @@
     "test": "vp test --run",
     "fmt": "vp fmt",
     "lint": "vp lint",
+    "diagnostics": "tsx tools/diagnostics.ts",
     "cli": "tsx tools/cli/src/index.ts",
     "mcp": "tsx tools/mcp/src/index.ts"
   },

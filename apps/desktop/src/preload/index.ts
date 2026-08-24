@@ -7,6 +7,19 @@ const api: DesktopApi = {
   openProject: () => ipcRenderer.invoke("project:open"),
   openRecentProject: (directory) => ipcRenderer.invoke("project:open-recent", directory),
   importMedia: () => ipcRenderer.invoke("media:import"),
+  getDerivedMediaSnapshot: () => ipcRenderer.invoke("derived:get"),
+  requestDerivedJobs: (assetIds) => ipcRenderer.invoke("derived:request-jobs", assetIds),
+  beginDerivedWrite: (input) => ipcRenderer.invoke("derived:write:begin", input),
+  writeDerivedChunk: (writerId, offset, data) =>
+    ipcRenderer.invoke("derived:write:chunk", writerId, offset, data),
+  finalizeDerivedWrite: (writerId, result) =>
+    ipcRenderer.invoke("derived:write:finalize", writerId, result),
+  cancelDerivedWrite: (writerId, failureCode, detail) =>
+    ipcRenderer.invoke("derived:write:cancel", writerId, failureCode, detail),
+  updateDerivedProgress: (writerId, progress) =>
+    ipcRenderer.invoke("derived:write:progress", writerId, progress),
+  reportDerivedActivity: (activity) => ipcRenderer.invoke("derived:activity", activity),
+  reportDerivedPerformance: (observation) => ipcRenderer.invoke("derived:performance", observation),
   execute: (command: EditorCommand) => ipcRenderer.invoke("command:execute", command),
   undo: () => ipcRenderer.invoke("project:undo"),
   redo: () => ipcRenderer.invoke("project:redo"),
@@ -14,6 +27,7 @@ const api: DesktopApi = {
   revealProject: () => ipcRenderer.invoke("project:reveal"),
   getSession: () => ipcRenderer.invoke("project:session"),
   getAppState: () => ipcRenderer.invoke("app-state:get"),
+  getElectronHealthSnapshot: () => ipcRenderer.invoke("app:health"),
   setProjectMediaPoolOpen: (open) => ipcRenderer.invoke("app-state:set-media-pool-open", open),
   setProjectInspectorOpen: (open) => ipcRenderer.invoke("app-state:set-inspector-open", open),
   setProjectNotesOpen: (open) => ipcRenderer.invoke("app-state:set-notes-open", open),
@@ -50,6 +64,14 @@ const api: DesktopApi = {
       callback(session);
     ipcRenderer.on("project:changed", listener);
     return () => ipcRenderer.removeListener("project:changed", listener);
+  },
+  onDerivedMediaChanged: (callback) => {
+    const listener = (
+      _event: Electron.IpcRendererEvent,
+      snapshot: Parameters<typeof callback>[0],
+    ) => callback(snapshot);
+    ipcRenderer.on("derived:changed", listener);
+    return () => ipcRenderer.removeListener("derived:changed", listener);
   },
   platform: process.platform,
 };

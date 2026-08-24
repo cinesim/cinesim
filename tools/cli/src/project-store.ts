@@ -9,7 +9,10 @@ import {
   stableJson,
 } from "@cinesim/core";
 import type { EditorCommand, Project, ProjectSettings } from "@cinesim/core";
+import { createCinesimLogger } from "@cinesim/logging";
 import { dispatchCommand } from "@cinesim/protocol";
+
+const log = createCinesimLogger({ service: "commands" });
 
 async function json(path: string): Promise<unknown> {
   return JSON.parse(await readFile(path, "utf8")) as unknown;
@@ -53,10 +56,35 @@ export class DiskProjectStore {
   }
 
   async execute(command: EditorCommand) {
-    const result = dispatchCommand(this.project, command);
-    if (!result.ok) throw new Error(`${result.error.code}: ${result.error.message}`);
-    this.project = result.value.project;
-    await this.save();
-    return result.value;
+    const operationId = crypto.randomUUID();
+    const startedAt = Date.now();
+    log.info({ operationId, operation: command.type }, "command started");
+    try {
+      const result = dispatchCommand(this.project, command);
+      if (!result.ok) {
+        const error = new Error(`${result.error.code}: ${result.error.message}`);
+        (error as Error & { code: string }).code = result.error.code;
+        throw error;
+      }
+      this.project = result.value.project;
+      await this.save();
+      log.info(
+        {
+          operationId,
+          operation: command.type,
+          durationMs: Date.now() - startedAt,
+          changedIds: result.value.changedIds,
+          createdIds: result.value.createdIds,
+        },
+        "command completed",
+      );
+      return result.value;
+    } catch (error) {
+      log.error(
+        { err: error, operationId, operation: command.type, durationMs: Date.now() - startedAt },
+        "command failed",
+      );
+      throw error;
+    }
   }
 }
