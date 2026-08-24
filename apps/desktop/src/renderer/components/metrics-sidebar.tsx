@@ -1,4 +1,5 @@
 import { Activity, Cpu, Database, Gauge, Image, Sparkles } from "lucide-react";
+import { useEffect, useRef } from "react";
 import { formatTimecode } from "../lib/format";
 import { useUiStore } from "../store/ui-store";
 
@@ -15,10 +16,12 @@ function Section({
   icon,
   title,
   children,
+  definitionList = true,
 }: {
   icon: React.ReactNode;
   title: string;
   children: React.ReactNode;
+  definitionList?: boolean;
 }) {
   return (
     <section className="border-b border-border px-3 py-3">
@@ -26,7 +29,7 @@ function Section({
         {icon}
         {title}
       </h3>
-      <dl>{children}</dl>
+      {definitionList ? <dl>{children}</dl> : children}
     </section>
   );
 }
@@ -40,8 +43,15 @@ export function MetricsSidebar() {
   const background = derived?.runtime;
   const activeJob = background?.activeJob;
   const activeDerived = metrics?.activeAssetId ? derived?.assets[metrics.activeAssetId] : undefined;
+  const decisionLogRef = useRef<HTMLOListElement>(null);
+  const latestDecisionAt = derived?.decisionLog.at(-1)?.at;
   const readyCount = (kind: "thumbnail" | "filmstrip" | "proxy") =>
     artifacts.filter((asset) => asset[kind].state === "ready").length;
+
+  useEffect(() => {
+    const log = decisionLogRef.current;
+    if (log) log.scrollTop = log.scrollHeight;
+  }, [latestDecisionAt]);
 
   return (
     <aside className="flex h-full min-h-0 flex-col bg-panel" aria-label="Metrics">
@@ -186,27 +196,28 @@ export function MetricsSidebar() {
           <MetricRow label="Evictions" value={derived?.storage.evictionCount ?? 0} />
         </Section>
 
-        <Section icon={<Sparkles size={13} />} title="Decision log">
-          {derived?.decisionLog.length ? (
-            <ol className="space-y-2">
-              {derived.decisionLog
-                .slice(-20)
-                .reverse()
-                .map((event) => (
-                  <li
-                    key={`${event.at}-${event.kind}`}
-                    className="rounded-md border border-border bg-panel-muted p-2"
-                  >
-                    <p className="text-ui-xs text-secondary">{event.detail}</p>
-                    <p className="mt-1 text-[10px] text-muted">{event.kind}</p>
-                  </li>
-                ))}
-            </ol>
-          ) : (
-            <div className="rounded-md border border-border bg-panel-muted px-2 py-3 text-center text-ui-xs text-muted">
-              Adaptive decisions will appear here as media is observed.
-            </div>
-          )}
+        <Section icon={<Sparkles size={13} />} title="Decision log" definitionList={false}>
+          <ol
+            ref={decisionLogRef}
+            role="log"
+            aria-label="Adaptive media decisions"
+            className="h-44 overflow-y-auto rounded-md border border-border bg-panel-muted p-2 text-[10px] leading-4 tabular-nums"
+          >
+            {derived?.decisionLog.length ? (
+              derived.decisionLog.slice(-100).map((event) => (
+                <li key={`${event.at}-${event.kind}`} className="flex items-start gap-2">
+                  <time dateTime={event.at} className="shrink-0 tabular-nums text-disabled">
+                    {formatLogTime(event.at)}
+                  </time>
+                  <p className="min-w-0 break-words text-secondary">
+                    <span className="text-muted">[{event.kind}]</span> {event.detail}
+                  </p>
+                </li>
+              ))
+            ) : (
+              <li className="text-muted">Waiting for adaptive media decisions…</li>
+            )}
+          </ol>
         </Section>
       </div>
     </aside>
@@ -228,4 +239,15 @@ function formatByteCount(value: number): string {
 function formatDuration(value: number): string {
   if (value < 1_000) return `${value.toFixed(1)} ms`;
   return `${(value / 1_000).toFixed(2)} s`;
+}
+
+function formatLogTime(value: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "--:--:--";
+  return date.toLocaleTimeString([], {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  });
 }
