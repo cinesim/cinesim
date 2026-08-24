@@ -6,7 +6,7 @@ import {
   Settings,
   Square,
 } from "lucide-react";
-import { cn, Menu, MenuContent, MenuItem, MenuLabel, MenuTrigger } from "@cinesim/ui";
+import { cn, Menu, MenuContent, MenuGroup, MenuItem, MenuLabel, MenuTrigger } from "@cinesim/ui";
 import type {
   AgentEffort,
   AgentSessionSnapshot,
@@ -144,22 +144,24 @@ function EffortMenu({
         <span>{effortLabel(effort)}</span>
       </MenuTrigger>
       <MenuContent side="top" className="w-40 border-border p-1 shadow-xl shadow-black/15">
-        <MenuLabel>Reasoning effort</MenuLabel>
-        {AGENT_EFFORTS.map((option) => (
-          <MenuItem
-            key={option}
-            className={cn(
-              "min-h-0 w-full rounded-md px-2 py-2 text-ui text-secondary hover:text-primary",
-              option === effort && "bg-surface text-primary",
-            )}
-            onClick={() => option !== effort && onSelect(option)}
-          >
-            <span className="grid size-4 place-items-center">
-              {option === effort && <Check size={12} />}
-            </span>
-            <span>{effortLabel(option)}</span>
-          </MenuItem>
-        ))}
+        <MenuGroup>
+          <MenuLabel>Reasoning effort</MenuLabel>
+          {AGENT_EFFORTS.map((option) => (
+            <MenuItem
+              key={option}
+              className={cn(
+                "min-h-0 w-full rounded-md px-2 py-2 text-ui text-secondary hover:text-primary",
+                option === effort && "bg-surface text-primary",
+              )}
+              onClick={() => option !== effort && onSelect(option)}
+            >
+              <span className="grid size-4 place-items-center">
+                {option === effort && <Check size={12} />}
+              </span>
+              <span>{effortLabel(option)}</span>
+            </MenuItem>
+          ))}
+        </MenuGroup>
       </MenuContent>
     </Menu>
   );
@@ -209,27 +211,29 @@ function ModelMenu({
         side="top"
         className="w-60 overflow-hidden border-border p-1 shadow-xl shadow-black/15"
       >
-        <MenuLabel className="flex items-center gap-2">
-          <ProviderIcon provider={session.provider} size={12} />
-          {providerLabel(session.provider)} models
-        </MenuLabel>
-        <div className="max-h-64 overflow-y-auto">
-          {models.map((model) => (
-            <MenuItem
-              key={model.value}
-              className={cn(
-                "min-h-0 w-full rounded-md px-2 py-2 text-ui",
-                model.value === session.model && "bg-surface",
-              )}
-              onClick={() => onSelect(model.value)}
-            >
-              <span className="grid size-4 place-items-center">
-                {model.value === session.model && <Check size={12} />}
-              </span>
-              <span className="min-w-0 flex-1 truncate">{model.label}</span>
-            </MenuItem>
-          ))}
-        </div>
+        <MenuGroup>
+          <MenuLabel className="flex items-center gap-2">
+            <ProviderIcon provider={session.provider} size={12} />
+            {providerLabel(session.provider)} models
+          </MenuLabel>
+          <div className="max-h-64 overflow-y-auto">
+            {models.map((model) => (
+              <MenuItem
+                key={model.value}
+                className={cn(
+                  "min-h-0 w-full rounded-md px-2 py-2 text-ui",
+                  model.value === session.model && "bg-surface",
+                )}
+                onClick={() => onSelect(model.value)}
+              >
+                <span className="grid size-4 place-items-center">
+                  {model.value === session.model && <Check size={12} />}
+                </span>
+                <span className="min-w-0 flex-1 truncate">{model.label}</span>
+              </MenuItem>
+            ))}
+          </div>
+        </MenuGroup>
         <MenuItem
           className="mt-1 flex w-full items-center gap-2 border-t border-border px-2 py-2 text-left text-ui-xs text-muted hover:text-primary"
           onClick={onConfigure}

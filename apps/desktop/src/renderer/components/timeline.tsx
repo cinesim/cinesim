@@ -25,6 +25,7 @@ import {
   cn,
   Menu,
   MenuContent,
+  MenuGroup,
   MenuItem,
   MenuLabel,
   MenuTrigger,
@@ -610,28 +611,30 @@ export function Timeline({ project, onCommand, onSeek }: TimelineProps) {
             <Plus size={14} />
           </MenuTrigger>
           <MenuContent align="start" className="w-48">
-            <MenuLabel>Add track</MenuLabel>
-            <MenuItem
-              onClick={() =>
-                void onCommand({ type: "track.add", sequenceId: sequence.id, kind: "video" })
-              }
-            >
-              <Video size={14} /> Video track
-            </MenuItem>
-            <MenuItem
-              onClick={() =>
-                void onCommand({ type: "track.add", sequenceId: sequence.id, kind: "audio" })
-              }
-            >
-              <AudioLines size={14} /> Audio track
-            </MenuItem>
-            <MenuItem
-              onClick={() =>
-                void onCommand({ type: "track.add", sequenceId: sequence.id, kind: "overlay" })
-              }
-            >
-              <Layers size={14} /> Overlay track
-            </MenuItem>
+            <MenuGroup>
+              <MenuLabel>Add track</MenuLabel>
+              <MenuItem
+                onClick={() =>
+                  void onCommand({ type: "track.add", sequenceId: sequence.id, kind: "video" })
+                }
+              >
+                <Video size={14} /> Video track
+              </MenuItem>
+              <MenuItem
+                onClick={() =>
+                  void onCommand({ type: "track.add", sequenceId: sequence.id, kind: "audio" })
+                }
+              >
+                <AudioLines size={14} /> Audio track
+              </MenuItem>
+              <MenuItem
+                onClick={() =>
+                  void onCommand({ type: "track.add", sequenceId: sequence.id, kind: "overlay" })
+                }
+              >
+                <Layers size={14} /> Overlay track
+              </MenuItem>
+            </MenuGroup>
           </MenuContent>
         </Menu>
         <Menu>
@@ -643,20 +646,22 @@ export function Timeline({ project, onCommand, onSeek }: TimelineProps) {
             <MenuIcon size={14} />
           </MenuTrigger>
           <MenuContent align="start" className="w-56 p-2">
-            <MenuLabel>Track appearance</MenuLabel>
-            <label className="grid gap-1 px-2 py-1 text-ui-xs text-muted">
-              Height
-              <input
-                aria-label="Timeline track height"
-                className="h-1 accent-accent"
-                type="range"
-                min={40}
-                max={112}
-                step={4}
-                value={trackHeight}
-                onChange={(event) => setTrackHeight(Number(event.target.value))}
-              />
-            </label>
+            <MenuGroup>
+              <MenuLabel>Track appearance</MenuLabel>
+              <label className="grid gap-1 px-2 py-1 text-ui-xs text-muted">
+                Height
+                <input
+                  aria-label="Timeline track height"
+                  className="h-1 accent-accent"
+                  type="range"
+                  min={40}
+                  max={112}
+                  step={4}
+                  value={trackHeight}
+                  onChange={(event) => setTrackHeight(Number(event.target.value))}
+                />
+              </label>
+            </MenuGroup>
           </MenuContent>
         </Menu>
         <Separator orientation="vertical" className="mx-1 h-4 self-auto" />

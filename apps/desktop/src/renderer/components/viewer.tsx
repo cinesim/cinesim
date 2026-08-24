@@ -18,6 +18,7 @@ import {
   EmptyTitle,
   Menu,
   MenuContent,
+  MenuGroup,
   MenuItem,
   MenuLabel,
   MenuTrigger,
@@ -527,53 +528,55 @@ function GuideMenu({
         <Grid3X3 size={14} />
       </MenuTrigger>
       <MenuContent align="end" className="w-56 p-2">
-        <MenuLabel>Composition guides</MenuLabel>
-        <GuideToggle active={guides.grid} label="Grid" onClick={() => toggle("grid")} />
-        <GuideToggle active={guides.center} label="Center" onClick={() => toggle("center")} />
-        <GuideToggle
-          active={guides.actionSafe}
-          label="Action safe"
-          onClick={() => toggle("actionSafe")}
-        />
-        <GuideToggle
-          active={guides.titleSafe}
-          label="Title safe"
-          onClick={() => toggle("titleSafe")}
-        />
-        <div className="mt-2 grid grid-cols-2 gap-2 border-t border-border pt-2">
-          <label className="grid gap-1 text-ui-xs text-muted">
-            Columns
-            <input
-              className="h-8 rounded-md border border-border bg-panel-muted px-2 text-primary outline-none focus-visible:ring-2 focus-visible:ring-focus"
-              type="number"
-              min={1}
-              max={12}
-              value={guides.columns}
-              onChange={(event) =>
-                onChange({
-                  ...guides,
-                  columns: Math.min(12, Math.max(1, Number(event.target.value) || 1)),
-                })
-              }
-            />
-          </label>
-          <label className="grid gap-1 text-ui-xs text-muted">
-            Rows
-            <input
-              className="h-8 rounded-md border border-border bg-panel-muted px-2 text-primary outline-none focus-visible:ring-2 focus-visible:ring-focus"
-              type="number"
-              min={1}
-              max={12}
-              value={guides.rows}
-              onChange={(event) =>
-                onChange({
-                  ...guides,
-                  rows: Math.min(12, Math.max(1, Number(event.target.value) || 1)),
-                })
-              }
-            />
-          </label>
-        </div>
+        <MenuGroup>
+          <MenuLabel>Composition guides</MenuLabel>
+          <GuideToggle active={guides.grid} label="Grid" onClick={() => toggle("grid")} />
+          <GuideToggle active={guides.center} label="Center" onClick={() => toggle("center")} />
+          <GuideToggle
+            active={guides.actionSafe}
+            label="Action safe"
+            onClick={() => toggle("actionSafe")}
+          />
+          <GuideToggle
+            active={guides.titleSafe}
+            label="Title safe"
+            onClick={() => toggle("titleSafe")}
+          />
+          <div className="mt-2 grid grid-cols-2 gap-2 border-t border-border pt-2">
+            <label className="grid gap-1 text-ui-xs text-muted">
+              Columns
+              <input
+                className="h-8 rounded-md border border-border bg-panel-muted px-2 text-primary outline-none focus-visible:ring-2 focus-visible:ring-focus"
+                type="number"
+                min={1}
+                max={12}
+                value={guides.columns}
+                onChange={(event) =>
+                  onChange({
+                    ...guides,
+                    columns: Math.min(12, Math.max(1, Number(event.target.value) || 1)),
+                  })
+                }
+              />
+            </label>
+            <label className="grid gap-1 text-ui-xs text-muted">
+              Rows
+              <input
+                className="h-8 rounded-md border border-border bg-panel-muted px-2 text-primary outline-none focus-visible:ring-2 focus-visible:ring-focus"
+                type="number"
+                min={1}
+                max={12}
+                value={guides.rows}
+                onChange={(event) =>
+                  onChange({
+                    ...guides,
+                    rows: Math.min(12, Math.max(1, Number(event.target.value) || 1)),
+                  })
+                }
+              />
+            </label>
+          </div>
+        </MenuGroup>
       </MenuContent>
     </Menu>
   );
