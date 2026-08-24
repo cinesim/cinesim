@@ -18,6 +18,12 @@ const rootDirectory = fileURLToPath(new URL(".", import.meta.url));
 export default defineConfig(({ mode }) => {
   if (mode === "main") {
     return {
+      // Electron main runs in Node. Do not let packages with a `browser` field
+      // (for example Pino) resolve to browser shims during bundling.
+      resolve: {
+        conditions: ["node"],
+        mainFields: ["module", "main"],
+      },
       build: {
         target: "node22",
         outDir: "dist/main",
@@ -34,6 +40,10 @@ export default defineConfig(({ mode }) => {
   }
   if (mode === "preload") {
     return {
+      resolve: {
+        conditions: ["node"],
+        mainFields: ["module", "main"],
+      },
       build: {
         target: "node22",
         outDir: "dist/preload",
