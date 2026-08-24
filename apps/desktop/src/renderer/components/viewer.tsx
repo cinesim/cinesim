@@ -1,6 +1,28 @@
 import { useEffect, useRef, useState } from "react";
-import { Maximize2, Pause, Play, SkipBack } from "lucide-react";
-import { Button, Empty, EmptyDescription, EmptyHeader, EmptyTitle, PaneHeader } from "@cinesim/ui";
+import {
+  Check,
+  Grid3X3,
+  Maximize2,
+  Pause,
+  Play,
+  SkipBack,
+  StepBack,
+  StepForward,
+} from "lucide-react";
+import {
+  Button,
+  cn,
+  Empty,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyTitle,
+  Menu,
+  MenuContent,
+  MenuLabel,
+  MenuTrigger,
+  PaneHeader,
+  Select,
+} from "@cinesim/ui";
 import { getSequence, sequenceDurationUs } from "@cinesim/core";
 import type { Project } from "@cinesim/core";
 import type { DerivedProjectScope } from "../../shared/api";
@@ -16,6 +38,62 @@ export interface ViewerController {
   exitAssetPreview(): Promise<void>;
 }
 
+type ViewerScale = "fit" | "0.5" | "1" | "2";
+
+interface ViewerGuides {
+  grid: boolean;
+  rows: number;
+  columns: number;
+  center: boolean;
+  actionSafe: boolean;
+  titleSafe: boolean;
+}
+
+const DEFAULT_GUIDES: ViewerGuides = {
+  grid: false,
+  rows: 3,
+  columns: 3,
+  center: false,
+  actionSafe: false,
+  titleSafe: false,
+};
+
+function isEditableTarget(target: EventTarget | null): boolean {
+  return (
+    target instanceof HTMLElement &&
+    (target.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName))
+  );
+}
+
+export function viewerDisplaySize(
+  source: { width: number; height: number },
+  stage: { width: number; height: number },
+  scale: ViewerScale,
+  padding = 40,
+): { width: number; height: number } {
+  const safeWidth = Math.max(1, source.width);
+  const safeHeight = Math.max(1, source.height);
+  const factor =
+    scale === "fit"
+      ? Math.min(
+          1,
+          Math.max(1, stage.width - padding) / safeWidth,
+          Math.max(1, stage.height - padding) / safeHeight,
+        )
+      : Number(scale);
+  return {
+    width: Math.max(1, Math.round(safeWidth * factor)),
+    height: Math.max(1, Math.round(safeHeight * factor)),
+  };
+}
+
+export function shouldShowTimelineEmptyState(
+  durationUs: number,
+  mode: { kind: "timeline" | "asset" } | null,
+): boolean {
+  return durationUs === 0 && mode?.kind !== "asset";
+}
+
 export function Viewer({
   project,
   projectDirectory,
@@ -29,11 +107,17 @@ export function Viewer({
   sequenceId: string;
   onController?: (controller: ViewerController | null) => void;
 }) {
+  const sectionRef = useRef<HTMLElement>(null);
+  const stageRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const { cacheKey: derivedCacheKey, epoch: derivedEpoch } = derivedScope;
   const runtimeRef = useRef<PlaybackRuntime | null>(null);
   const initialProjectRef = useRef(project);
+  const refreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [stageSize, setStageSize] = useState({ width: 0, height: 0 });
+  const [viewerScale, setViewerScale] = useState<ViewerScale>("fit");
+  const [guides, setGuides] = useState(DEFAULT_GUIDES);
   const store = useRendererStoreApi();
   const runtime = useRendererStore((state) =>
     state.playbackRuntime?.projectDirectory === projectDirectory &&
@@ -45,6 +129,15 @@ export function Viewer({
   const playheadUs = useRendererStore((state) => state.playheadUs);
   const sequence = getSequence(project);
   const durationUs = sequenceDurationUs(sequence);
+  const displaySize = viewerDisplaySize(sequence, stageSize, viewerScale);
+  const previewMode = runtime?.mode.kind === "asset" ? runtime.mode : null;
+  const previewAsset = previewMode
+    ? project.assets.find((asset) => asset.id === previewMode.assetId)
+    : null;
+  const displayTimeUs =
+    runtime?.mode.kind === "asset" ? runtime.mode.sourceTimeUs : Math.min(playheadUs, durationUs);
+  const displayFrameRate = previewAsset?.frameRate ?? sequence.frameRate;
+  const sourceLabel = previewAsset ? previewAsset.name : sequence.name;
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -109,6 +202,7 @@ export function Viewer({
         ),
       );
     return () => {
+      if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
       unsubscribe();
       playback.destroy();
       compositor.destroy();
@@ -128,21 +222,123 @@ export function Viewer({
 
   useEffect(() => runtimeRef.current?.setProject(project), [project]);
 
+  useEffect(() => {
+    const stage = stageRef.current;
+    if (!stage) return;
+    const resize = () => {
+      setStageSize({ width: stage.clientWidth, height: stage.clientHeight });
+      if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
+      refreshTimerRef.current = setTimeout(() => {
+        refreshTimerRef.current = null;
+        void runtimeRef.current?.refresh();
+      }, 100);
+    };
+    resize();
+    const observer = new ResizeObserver(resize);
+    observer.observe(stage);
+    return () => observer.disconnect();
+  }, []);
+
+  useEffect(() => {
+    function shortcut(event: KeyboardEvent): void {
+      if (
+        isEditableTarget(event.target) ||
+        event.metaKey ||
+        event.ctrlKey ||
+        event.altKey ||
+        event.repeat
+      )
+        return;
+      const playback = runtimeRef.current;
+      if (!playback) return;
+      const key = event.key.toLowerCase();
+      if (event.code === "Space") {
+        event.preventDefault();
+        if (runtime?.playing) playback.pause();
+        else playback.setPlaybackRate(1);
+      } else if (key === "j") {
+        event.preventDefault();
+        playback.shuttle(-1);
+      } else if (key === "k") {
+        event.preventDefault();
+        playback.shuttle(0);
+      } else if (key === "l") {
+        event.preventDefault();
+        playback.shuttle(1);
+      } else if (event.key === "ArrowLeft") {
+        event.preventDefault();
+        void playback.stepFrames(-1);
+      } else if (event.key === "ArrowRight") {
+        event.preventDefault();
+        void playback.stepFrames(1);
+      } else if (event.key === "Home") {
+        event.preventDefault();
+        void playback.seekTimeline(0);
+      }
+    }
+    window.addEventListener("keydown", shortcut);
+    return () => window.removeEventListener("keydown", shortcut);
+  }, [runtime?.playing]);
+
   async function seek(value: number) {
-    await runtimeRef.current?.seek(Math.round(value));
+    await runtimeRef.current?.seekTimeline(Math.round(value));
+  }
+
+  async function toggleFullscreen(): Promise<void> {
+    if (document.fullscreenElement) await document.exitFullscreen();
+    else await sectionRef.current?.requestFullscreen();
   }
 
   return (
-    <section className="relative flex min-h-0 flex-col bg-panel-muted">
-      <PaneHeader size="sm" className="justify-between px-3">
-        <span className="ml-auto rounded bg-surface px-2 py-1 text-ui-xs text-muted tabular-nums">
+    <section ref={sectionRef} className="relative flex min-h-0 flex-col bg-panel-muted">
+      <PaneHeader size="sm" className="gap-2 px-3">
+        <span className="min-w-0 flex-1 truncate text-ui-xs font-medium text-secondary">
+          {previewAsset ? "Source" : "Timeline"} · {sourceLabel}
+        </span>
+        {runtime?.playing && Math.abs(runtime.playbackRate) !== 1 && (
+          <span className="rounded bg-surface px-1.5 py-0.5 text-[10px] font-semibold text-secondary tabular-nums">
+            {runtime.playbackRate > 0 ? "+" : "−"}
+            {Math.abs(runtime.playbackRate)}×
+          </span>
+        )}
+        <Select
+          aria-label="Viewer zoom"
+          className="w-[76px]"
+          size="sm"
+          surface="muted"
+          value={viewerScale}
+          onChange={(event) => setViewerScale(event.target.value as ViewerScale)}
+        >
+          <option value="fit">Fit</option>
+          <option value="0.5">50%</option>
+          <option value="1">100%</option>
+          <option value="2">200%</option>
+        </Select>
+        <GuideMenu guides={guides} onChange={setGuides} />
+        <span className="rounded bg-surface px-2 py-1 text-ui-xs text-muted tabular-nums">
           {sequence.width} × {sequence.height} · {sequence.frameRate} fps
         </span>
       </PaneHeader>
-      <div className="relative grid min-h-0 flex-1 place-items-center overflow-hidden bg-canvas p-6">
-        <canvas ref={canvasRef} className="aspect-video max-h-full max-w-full bg-black" />
-        {durationUs === 0 && (
-          <Empty className="pointer-events-none absolute">
+      <div ref={stageRef} className="relative min-h-0 flex-1 overflow-auto bg-canvas">
+        <div
+          className="grid place-items-center p-5"
+          style={{
+            minWidth: "100%",
+            minHeight: "100%",
+            width: displaySize.width + 40,
+            height: displaySize.height + 40,
+          }}
+        >
+          <div
+            className="relative shrink-0 overflow-hidden bg-black shadow-xl shadow-black/15"
+            style={{ width: displaySize.width, height: displaySize.height }}
+          >
+            <canvas ref={canvasRef} className="block h-full w-full bg-black" />
+            <ViewerGuideOverlay guides={guides} />
+          </div>
+        </div>
+        {shouldShowTimelineEmptyState(durationUs, runtime?.mode ?? null) && (
+          <Empty className="pointer-events-none absolute inset-0">
             <EmptyHeader>
               <EmptyTitle>
                 {project.assets.length === 0 ? "The viewer is ready" : "This timeline is empty"}
@@ -150,37 +346,50 @@ export function Viewer({
               <EmptyDescription>
                 {project.assets.length === 0
                   ? "Import media and add it to the timeline"
-                  : "Add media from the Media Pool to start editing"}
+                  : "Drag media from the Media Pool onto a timeline track"}
               </EmptyDescription>
             </EmptyHeader>
           </Empty>
         )}
         {error && (
-          <div className="absolute bottom-3 max-w-md rounded-md border border-border-strong bg-panel/90 px-3 py-2 text-ui-xs text-primary">
+          <div className="absolute bottom-3 left-1/2 max-w-md -translate-x-1/2 rounded-md border border-border-strong bg-panel/90 px-3 py-2 text-ui-xs text-primary">
             {error}
           </div>
         )}
       </div>
       <div className="grid h-12 grid-cols-[1fr_auto_1fr] items-center border-t border-border px-3">
         <span className="text-ui-xs text-secondary tabular-nums">
-          {formatTimecode(playheadUs, sequence.frameRate)}
+          {formatTimecode(displayTimeUs, displayFrameRate)}
         </span>
-        <div className="flex items-center gap-1">
+        <div className="flex items-center gap-0.5">
           <Button
-            size="icon"
+            size="icon-sm"
             variant="ghost"
             aria-label="Go to beginning"
+            title="Go to beginning (Home)"
             onClick={() => void seek(0)}
           >
             <SkipBack size={14} />
           </Button>
           <Button
-            className="rounded-full"
+            size="icon-sm"
+            variant="ghost"
+            aria-label="Previous frame"
+            title="Previous frame (Left Arrow)"
+            onClick={() => void runtimeRef.current?.stepFrames(-1)}
+          >
+            <StepBack size={14} />
+          </Button>
+          <Button
+            className="mx-1 rounded-full"
             size="icon"
             variant="secondary"
             aria-label={runtime?.playing ? "Pause" : "Play"}
+            title="Play or pause (Space)"
             onClick={() =>
-              runtime?.playing ? runtimeRef.current?.pause() : runtimeRef.current?.play()
+              runtime?.playing
+                ? runtimeRef.current?.pause()
+                : runtimeRef.current?.setPlaybackRate(1)
             }
           >
             {runtime?.playing ? (
@@ -189,20 +398,171 @@ export function Viewer({
               <Play className="ml-0.5" size={15} fill="currentColor" />
             )}
           </Button>
+          <Button
+            size="icon-sm"
+            variant="ghost"
+            aria-label="Next frame"
+            title="Next frame (Right Arrow)"
+            onClick={() => void runtimeRef.current?.stepFrames(1)}
+          >
+            <StepForward size={14} />
+          </Button>
         </div>
-        <Button className="ml-auto" size="icon" variant="ghost" aria-label="Fullscreen viewer">
+        <Button
+          className="ml-auto"
+          size="icon"
+          variant="ghost"
+          aria-label="Fullscreen viewer"
+          title="Fullscreen viewer"
+          onClick={() => void toggleFullscreen()}
+        >
           <Maximize2 size={14} />
         </Button>
       </div>
-      <input
-        aria-label="Viewer playhead"
-        className="viewer-scrubber absolute bottom-11 left-0 right-0 z-10 h-1 w-full cursor-ew-resize appearance-none bg-transparent"
-        type="range"
-        min={0}
-        max={Math.max(1, durationUs)}
-        value={Math.min(playheadUs, durationUs)}
-        onChange={(event) => void seek(Number(event.target.value))}
-      />
+      {runtime?.mode.kind !== "asset" && (
+        <input
+          aria-label="Viewer playhead"
+          className="viewer-scrubber absolute bottom-11 left-0 right-0 z-10 h-1 w-full cursor-ew-resize appearance-none bg-transparent"
+          type="range"
+          min={0}
+          max={Math.max(1, durationUs)}
+          value={Math.min(playheadUs, durationUs)}
+          onChange={(event) => void seek(Number(event.target.value))}
+        />
+      )}
     </section>
+  );
+}
+
+function GuideMenu({
+  guides,
+  onChange,
+}: {
+  guides: ViewerGuides;
+  onChange: (guides: ViewerGuides) => void;
+}) {
+  function toggle(key: "grid" | "center" | "actionSafe" | "titleSafe"): void {
+    onChange({ ...guides, [key]: !guides[key] });
+  }
+
+  return (
+    <Menu>
+      <MenuTrigger
+        aria-label="Viewer guides"
+        title="Viewer guides"
+        className={cn(
+          "grid size-8 place-items-center rounded-md text-secondary hover:bg-surface hover:text-primary",
+          Object.values(guides).some((value) => value === true) && "bg-surface text-primary",
+        )}
+      >
+        <Grid3X3 size={14} />
+      </MenuTrigger>
+      <MenuContent align="end" className="w-56 p-2">
+        <MenuLabel>Composition guides</MenuLabel>
+        <GuideToggle active={guides.grid} label="Grid" onClick={() => toggle("grid")} />
+        <GuideToggle active={guides.center} label="Center" onClick={() => toggle("center")} />
+        <GuideToggle
+          active={guides.actionSafe}
+          label="Action safe"
+          onClick={() => toggle("actionSafe")}
+        />
+        <GuideToggle
+          active={guides.titleSafe}
+          label="Title safe"
+          onClick={() => toggle("titleSafe")}
+        />
+        <div className="mt-2 grid grid-cols-2 gap-2 border-t border-border pt-2">
+          <label className="grid gap-1 text-ui-xs text-muted">
+            Columns
+            <input
+              className="h-8 rounded-md border border-border bg-panel-muted px-2 text-primary outline-none focus-visible:ring-2 focus-visible:ring-focus"
+              type="number"
+              min={1}
+              max={12}
+              value={guides.columns}
+              onChange={(event) =>
+                onChange({
+                  ...guides,
+                  columns: Math.min(12, Math.max(1, Number(event.target.value) || 1)),
+                })
+              }
+            />
+          </label>
+          <label className="grid gap-1 text-ui-xs text-muted">
+            Rows
+            <input
+              className="h-8 rounded-md border border-border bg-panel-muted px-2 text-primary outline-none focus-visible:ring-2 focus-visible:ring-focus"
+              type="number"
+              min={1}
+              max={12}
+              value={guides.rows}
+              onChange={(event) =>
+                onChange({
+                  ...guides,
+                  rows: Math.min(12, Math.max(1, Number(event.target.value) || 1)),
+                })
+              }
+            />
+          </label>
+        </div>
+      </MenuContent>
+    </Menu>
+  );
+}
+
+function GuideToggle({
+  active,
+  label,
+  onClick,
+}: {
+  active: boolean;
+  label: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      className="flex h-8 w-full items-center gap-2 rounded-md px-2 text-left text-ui text-secondary hover:bg-surface hover:text-primary"
+      onClick={onClick}
+    >
+      <span className="grid size-4 place-items-center">{active && <Check size={13} />}</span>
+      {label}
+    </button>
+  );
+}
+
+function ViewerGuideOverlay({ guides }: { guides: ViewerGuides }) {
+  return (
+    <div
+      aria-hidden="true"
+      className="pointer-events-none absolute inset-0 text-white/55 [filter:drop-shadow(0_0_1px_rgb(0_0_0/0.9))]"
+    >
+      {guides.grid && (
+        <>
+          {Array.from({ length: Math.max(0, guides.columns - 1) }, (_, index) => (
+            <span
+              key={`column:${index}`}
+              className="absolute inset-y-0 w-px bg-current"
+              style={{ left: `${((index + 1) / guides.columns) * 100}%` }}
+            />
+          ))}
+          {Array.from({ length: Math.max(0, guides.rows - 1) }, (_, index) => (
+            <span
+              key={`row:${index}`}
+              className="absolute inset-x-0 h-px bg-current"
+              style={{ top: `${((index + 1) / guides.rows) * 100}%` }}
+            />
+          ))}
+        </>
+      )}
+      {guides.center && (
+        <>
+          <span className="absolute inset-y-0 left-1/2 w-px bg-current" />
+          <span className="absolute inset-x-0 top-1/2 h-px bg-current" />
+        </>
+      )}
+      {guides.actionSafe && <span className="absolute inset-[5%] border border-current" />}
+      {guides.titleSafe && <span className="absolute inset-[10%] border border-current" />}
+    </div>
   );
 }
