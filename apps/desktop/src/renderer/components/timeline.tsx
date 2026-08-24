@@ -48,6 +48,10 @@ import { TimelineWaveform } from "./timeline-waveform";
 
 const BASE_PIXELS_PER_SECOND = 86;
 
+function timelineContentDurationUs(sequenceDuration: number, zoom: number): number {
+  return Math.max(sequenceDuration + 5_000_000, 30_000_000 / zoom);
+}
+
 interface TimelineProps {
   project: Project;
   onCommand: (command: EditorCommand) => Promise<ActionResult<unknown>>;
@@ -496,7 +500,7 @@ export function Timeline({ project, onCommand, onSeek }: TimelineProps) {
   const derived = useRendererStore((state) => state.derivedMedia);
   const sequence = getSequence(project);
   const pixelsPerUs = (BASE_PIXELS_PER_SECOND * zoom) / 1_000_000;
-  const contentDurationUs = Math.max(sequenceDurationUs(sequence) + 5_000_000, 30_000_000 / zoom);
+  const contentDurationUs = timelineContentDurationUs(sequenceDurationUs(sequence), zoom);
   const contentWidth = Math.round(contentDurationUs * pixelsPerUs);
   const assets = useMemo(
     () => new Map(project.assets.map((asset) => [asset.id, asset])),
