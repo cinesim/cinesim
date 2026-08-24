@@ -5,6 +5,33 @@ import { decodeWaveformEnvelope, type WaveformEnvelope } from "../../shared/wave
 import { derivedArtifactUrl } from "../media/media-url";
 
 const INT16_MAX = 0x7fff;
+const MAX_CACHED_WAVEFORMS = 64;
+const waveformCache = new Map<string, Promise<WaveformEnvelope>>();
+
+function loadWaveformEnvelope(url: string): Promise<WaveformEnvelope> {
+  const cached = waveformCache.get(url);
+  if (cached) {
+    waveformCache.delete(url);
+    waveformCache.set(url, cached);
+    return cached;
+  }
+  const pending = fetch(url)
+    .then(async (response) => {
+      if (!response.ok) throw new Error(`Waveform request failed (${response.status})`);
+      return decodeWaveformEnvelope(await response.arrayBuffer());
+    })
+    .catch((error: unknown) => {
+      if (waveformCache.get(url) === pending) waveformCache.delete(url);
+      throw error;
+    });
+  waveformCache.set(url, pending);
+  while (waveformCache.size > MAX_CACHED_WAVEFORMS) {
+    const oldest = waveformCache.keys().next().value;
+    if (oldest === undefined) break;
+    waveformCache.delete(oldest);
+  }
+  return pending;
+}
 
 export function waveformEnvelopePath(
   envelope: WaveformEnvelope,
@@ -36,9 +63,16 @@ export function waveformEnvelopePath(
       minimum = Math.min(minimum, envelope.peaks[peak * 2] ?? 0);
       maximum = Math.max(maximum, envelope.peaks[peak * 2 + 1] ?? 0);
     }
-    const x = columns === 1 ? 500 : (column / (columns - 1)) * 1_000;
-    upper.push(`${x.toFixed(2)},${(50 - (maximum / INT16_MAX) * 46).toFixed(2)}`);
-    lower.push(`${x.toFixed(2)},${(50 - (minimum / INT16_MAX) * 46).toFixed(2)}`);
+    const upperY = (50 - (maximum / INT16_MAX) * 46).toFixed(2);
+    const lowerY = (50 - (minimum / INT16_MAX) * 46).toFixed(2);
+    if (columns === 1) {
+      upper.push(`0.00,${upperY}`, `1000.00,${upperY}`);
+      lower.push(`0.00,${lowerY}`, `1000.00,${lowerY}`);
+    } else {
+      const x = (column / (columns - 1)) * 1_000;
+      upper.push(`${x.toFixed(2)},${upperY}`);
+      lower.push(`${x.toFixed(2)},${lowerY}`);
+    }
   }
 
   return `M${upper.join(" L")} L${lower.reverse().join(" L")} Z`;
@@ -73,17 +107,19 @@ export function TimelineWaveform({
       setEnvelope(null);
       return;
     }
-    const abort = new AbortController();
-    void fetch(url, { signal: abort.signal })
-      .then(async (response) => {
-        if (!response.ok) throw new Error(`Waveform request failed (${response.status})`);
-        return decodeWaveformEnvelope(await response.arrayBuffer());
-      })
-      .then(setEnvelope)
-      .catch(() => {
-        if (!abort.signal.aborted) setEnvelope(null);
-      });
-    return () => abort.abort();
+    let active = true;
+    async function load(): Promise<void> {
+      try {
+        const next = await loadWaveformEnvelope(url!);
+        if (active) setEnvelope(next);
+      } catch {
+        if (active) setEnvelope(null);
+      }
+    }
+    void load();
+    return () => {
+      active = false;
+    };
   }, [url]);
 
   if (!envelope) return null;

@@ -298,6 +298,61 @@ describe("PlaybackRuntime source preview", () => {
     expect(reported).toEqual([expected]);
     runtime.destroy();
   });
+
+  it("publishes source mode before its first frame finishes decoding", async () => {
+    const project = applyCommand(createProject({ name: "Preview state" }), {
+      type: "asset.import",
+      asset,
+    }).project;
+    let finishDecode!: (frame: VideoFrame) => void;
+    let notifyDecodeStarted!: () => void;
+    const decodeStarted = new Promise<void>((resolve) => (notifyDecodeStarted = resolve));
+    const runtime = new PlaybackRuntime(
+      project,
+      {
+        initialize: async () => undefined,
+        render: (layers) => layers.forEach((layer) => layer.frame.close()),
+        metrics: {
+          gpuSubmitCpuMs: 0,
+          submittedFrames: 0,
+          activeFrames: 0,
+          deviceLostCount: 0,
+          outputWidth: 1920,
+          outputHeight: 1080,
+        },
+        destroy: () => undefined,
+      },
+      {
+        sourceFactory: () => ({
+          prepare: async () => ({
+            durationUs: asset.durationUs,
+            width: 1920,
+            height: 1080,
+            frameRate: 30,
+            hasAudio: false,
+          }),
+          seek: async () => undefined,
+          getFrame: async () => {
+            notifyDecodeStarted();
+            return new Promise<VideoFrame>((resolve) => (finishDecode = resolve));
+          },
+          destroy: () => undefined,
+        }),
+      },
+    );
+    await runtime.initialize();
+    const modes: string[] = [];
+    const unsubscribe = runtime.subscribe((snapshot) => modes.push(snapshot.mode.kind));
+
+    runtime.enterAssetPreview(asset.id, 1_000_000);
+
+    expect(modes.at(-1)).toBe("asset");
+    await decodeStarted;
+    finishDecode({ close: () => undefined } as VideoFrame);
+    await new Promise<void>((resolve) => queueMicrotask(resolve));
+    unsubscribe();
+    runtime.destroy();
+  });
 });
 
 describe("PlaybackRuntime transport", () => {

@@ -222,6 +222,34 @@ describe("DerivedMediaStore", () => {
     });
   });
 
+  it("rejects an exact-size waveform whose binary envelope is invalid", async () => {
+    const { directory, project } = await fixture("waveform-invalid");
+    const store = new DerivedMediaStore();
+    await store.setProject(directory, project);
+    const scope = store.scope();
+    const peakCount = 20;
+    const expectedBytes = 16 + peakCount * 4;
+    const { writerId } = await store.beginWrite(scope, {
+      assetId: "asset_fixture",
+      kind: "waveform",
+      expectedBytes,
+    });
+    await store.writeChunk(writerId, 0, new Uint8Array(expectedBytes));
+
+    await expect(
+      store.finalizeWrite(writerId, {
+        bytes: expectedBytes,
+        peakCount,
+        waveformFormatVersion: WAVEFORM_FORMAT_VERSION,
+      }),
+    ).rejects.toThrow("Unknown waveform artifact");
+    await store.cancelWrite(writerId, "invalid-waveform");
+    expect(store.snapshot().assets.asset_fixture?.waveform.state).toBe("failed");
+
+    await store.requestJobs(scope, ["asset_fixture"]);
+    expect(store.snapshot().assets.asset_fixture?.waveform.state).toBe("failed");
+  });
+
   it("rejects stale project work even when projects reuse the same IDs", async () => {
     const first = await fixture("scope-first");
     const second = await fixture("scope-second");

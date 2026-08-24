@@ -397,6 +397,10 @@ export class PlaybackRuntime {
     }
     const mode: PreviewMode = { kind: "asset", assetId, sourceTimeUs };
     this.#mode = mode;
+    // Preview mode is UI state as well as a render request. Publish it before
+    // decode so an empty-timeline overlay cannot cover source footage while a
+    // slow first frame is loading.
+    this.#emit();
     this.#runBackground(this.#request(mode, "asset-preview"));
   }
 

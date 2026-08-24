@@ -28,4 +28,15 @@ describe("timeline waveform geometry", () => {
     );
     expect(path.match(/ L/g)).toHaveLength(63);
   });
+
+  it("gives a single peak a visible horizontal area", () => {
+    const path = waveformEnvelopePath(
+      { version: 1, peakCount: 1, peaks: new Int16Array([-12_000, 12_000]) },
+      20_000,
+      0,
+      20_000,
+    );
+    expect(path).toContain("M0.00,");
+    expect(path).toContain("L1000.00,");
+  });
 });

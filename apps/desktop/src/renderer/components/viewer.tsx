@@ -254,7 +254,8 @@ export function Viewer({
       const key = event.key.toLowerCase();
       if (event.code === "Space") {
         event.preventDefault();
-        if (runtime?.playing) playback.pause();
+        const playing = store.getState().playbackRuntime?.snapshot.playing ?? false;
+        if (playing) playback.pause();
         else playback.setPlaybackRate(1);
       } else if (key === "j") {
         event.preventDefault();
@@ -278,7 +279,7 @@ export function Viewer({
     }
     window.addEventListener("keydown", shortcut);
     return () => window.removeEventListener("keydown", shortcut);
-  }, [runtime?.playing]);
+  }, [store]);
 
   async function seek(value: number) {
     await runtimeRef.current?.seekTimeline(Math.round(value));

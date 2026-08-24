@@ -32,6 +32,7 @@ import type {
   SourcePerformanceSnapshot,
 } from "../shared/api";
 import {
+  decodeWaveformEnvelope,
   WAVEFORM_FORMAT_VERSION,
   waveformByteLength,
   waveformPeakCount,
@@ -353,8 +354,7 @@ export class DerivedMediaStore {
         if (asset.kind === "audio" || asset.hasAudio === true) kinds.push("waveform");
         for (const kind of kinds) {
           const artifact = record[kind];
-          if (artifact.state === "missing" || artifact.state === "failed")
-            artifact.state = "queued";
+          if (artifact.state === "missing") artifact.state = "queued";
         }
       }
       if (projectOpenPersistenceSignature(this.#index) !== persistenceSignature)
@@ -452,6 +452,15 @@ export class DerivedMediaStore {
         throw new Error("Derived artifact does not match expected size");
       this.#validateFinalize(writer.kind, result, this.#requireAsset(writer.assetId));
       await writer.handle.sync();
+      if (writer.kind === "waveform") {
+        const bytes = await readFile(writer.tempPath);
+        const envelope = decodeWaveformEnvelope(Uint8Array.from(bytes).buffer);
+        if (
+          envelope.version !== result.waveformFormatVersion ||
+          envelope.peakCount !== result.peakCount
+        )
+          throw new Error("Waveform payload does not match its metadata");
+      }
       await writer.handle.close();
       await rename(writer.tempPath, writer.finalPath);
       this.#writers.delete(writer.id);
