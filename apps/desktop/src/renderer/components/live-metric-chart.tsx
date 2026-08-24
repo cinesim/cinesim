@@ -65,8 +65,8 @@ export function LiveMetricChart({
   const yAt = (value: number) => 100 - (value / maximum) * 100;
 
   return (
-    <figure className="rounded-md border border-border bg-panel-muted p-2">
-      <figcaption>
+    <figure className="rounded-md border border-border bg-panel-muted p-1.5">
+      <figcaption className="px-0.5 pt-0.5">
         <div className="flex items-center justify-between gap-2">
           <h3 className="text-ui-xs font-semibold text-primary">{title}</h3>
           <span className="text-[10px] uppercase tracking-wide text-muted">Live · 30 sec</span>
@@ -90,73 +90,72 @@ export function LiveMetricChart({
           ))}
         </div>
       </figcaption>
-      <div className="mt-2 grid h-44 grid-cols-[3rem_minmax(0,1fr)] grid-rows-[minmax(0,1fr)_1rem] gap-x-1">
-        <div className="flex flex-col items-end justify-between pb-px text-[10px] tabular-nums text-muted">
-          <span>
-            {formatAxisValue(maximum)} {unit}
-          </span>
-          <span>0</span>
-        </div>
-        <div className="relative min-h-0 min-w-0">
-          <svg
-            className="h-full w-full"
-            viewBox="0 0 100 100"
-            preserveAspectRatio="none"
-            aria-label={`${title}, live history over the last 30 seconds`}
-          >
-            <title>{`${title}, live history over the last 30 seconds`}</title>
-            {Array.from({ length: 5 }, (_, index) => {
-              const position = index * 25;
-              return (
-                <g key={index}>
-                  <line
-                    x1="0"
-                    x2="100"
-                    y1={position}
-                    y2={position}
-                    stroke="var(--ui-border)"
-                    vectorEffect="non-scaling-stroke"
-                  />
-                  <line
-                    x1={position}
-                    x2={position}
-                    y1="0"
-                    y2="100"
-                    stroke="var(--ui-border)"
-                    vectorEffect="non-scaling-stroke"
-                  />
-                </g>
-              );
-            })}
-            {series.map((item) => {
-              const points = samples
-                .map((sample, index) => `${xAt(index)},${yAt(sample[item.key])}`)
-                .join(" ");
-              return (
-                <polyline
-                  key={item.key}
-                  points={points}
-                  fill="none"
-                  stroke={item.color}
-                  strokeWidth="1.5"
-                  strokeDasharray={item.dashed ? "4 3" : undefined}
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
+      <div className="relative mt-1.5 h-44 min-w-0 overflow-hidden">
+        <svg
+          className="h-full w-full"
+          viewBox="0 0 100 100"
+          preserveAspectRatio="none"
+          aria-label={`${title}, live history over the last 30 seconds`}
+        >
+          <title>{`${title}, live history over the last 30 seconds`}</title>
+          {Array.from({ length: 5 }, (_, index) => {
+            const position = index * 25;
+            return (
+              <g key={index}>
+                <line
+                  x1="0"
+                  x2="100"
+                  y1={position}
+                  y2={position}
+                  stroke="var(--ui-border)"
                   vectorEffect="non-scaling-stroke"
                 />
-              );
-            })}
-          </svg>
-          {samples.length === 0 && (
-            <span className="absolute inset-0 grid place-items-center text-ui-xs text-muted">
-              Waiting for samples
-            </span>
-          )}
+                <line
+                  x1={position}
+                  x2={position}
+                  y1="0"
+                  y2="100"
+                  stroke="var(--ui-border)"
+                  vectorEffect="non-scaling-stroke"
+                />
+              </g>
+            );
+          })}
+          {series.map((item) => {
+            const points = samples
+              .map((sample, index) => `${xAt(index)},${yAt(sample[item.key])}`)
+              .join(" ");
+            return (
+              <polyline
+                key={item.key}
+                points={points}
+                fill="none"
+                stroke={item.color}
+                strokeWidth="1.5"
+                strokeDasharray={item.dashed ? "4 3" : undefined}
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                vectorEffect="non-scaling-stroke"
+              />
+            );
+          })}
+        </svg>
+        <div
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-0 text-[9px] tabular-nums text-disabled"
+        >
+          <span className="absolute left-1 top-0.5">
+            {formatAxisValue(maximum)} {unit}
+          </span>
+          <span className="absolute bottom-3.5 left-1">0</span>
+          <span className="absolute bottom-0.5 left-1">−30s</span>
+          <span className="absolute bottom-0.5 right-1">now</span>
         </div>
-        <div className="col-start-2 flex items-end justify-between text-[10px] tabular-nums text-muted">
-          <span>−30s</span>
-          <span>now</span>
-        </div>
+        {samples.length === 0 && (
+          <span className="absolute inset-0 grid place-items-center text-ui-xs text-muted">
+            Waiting for samples
+          </span>
+        )}
       </div>
     </figure>
   );
