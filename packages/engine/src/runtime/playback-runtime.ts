@@ -119,7 +119,13 @@ export class PlaybackRuntime {
       this.#compositor.render(frames, { width: sequence.width, height: sequence.height });
       this.#renderedSinceSnapshot += 1;
       this.#mode = request.mode;
-      if (request.mode.kind === "timeline") this.#clock.seek(request.mode.timeUs);
+      if (
+        request.mode.kind === "timeline" &&
+        (request.reason === "timeline-seek" ||
+          request.reason === "restore" ||
+          request.reason === "initial")
+      )
+        this.#clock.seek(request.mode.timeUs);
       if (request.reason === "timeline-seek" || request.reason === "asset-preview")
         this.#seekLatencyMs = this.#now() - started;
       this.#prewarm(request.mode);

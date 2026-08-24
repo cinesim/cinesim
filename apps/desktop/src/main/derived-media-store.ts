@@ -1,5 +1,15 @@
 import { createHash, randomUUID } from "node:crypto";
-import { mkdir, open, readFile, rename, rm, stat, statfs, writeFile } from "node:fs/promises";
+import {
+  mkdir,
+  open,
+  readFile,
+  readdir,
+  rename,
+  rm,
+  stat,
+  statfs,
+  writeFile,
+} from "node:fs/promises";
 import type { FileHandle } from "node:fs/promises";
 import { dirname, join, relative, resolve, sep } from "node:path";
 import type { Asset, Project } from "@cinesim/core";
@@ -134,6 +144,7 @@ export class DerivedMediaStore {
       this.#latencies.clear();
       this.#deadlines.clear();
       this.#index = await this.#readIndex(directory);
+      await this.#removeInterruptedTemps();
       let recovered = false;
       for (const record of Object.values(this.#index.assets)) {
         for (const artifact of [record.thumbnail, record.filmstrip, record.proxy]) {
@@ -530,6 +541,18 @@ export class DerivedMediaStore {
       filmstripBytes,
       proxyBytes,
     };
+  }
+
+  async #removeInterruptedTemps(): Promise<void> {
+    for (const folder of ["thumbnails", "filmstrips", "proxies"]) {
+      const directory = this.#containedPath(join(".video", folder));
+      const names = await readdir(directory).catch(() => []);
+      await Promise.all(
+        names
+          .filter((name) => name.endsWith(".tmp") && /^[a-zA-Z0-9_.-]+$/.test(name))
+          .map((name) => rm(join(directory, name), { force: true })),
+      );
+    }
   }
 
   async #evictIfNeeded(): Promise<void> {

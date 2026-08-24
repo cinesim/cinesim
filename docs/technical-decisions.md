@@ -22,7 +22,7 @@ React, CLI, and MCP submit the same Zod-validated protocol commands. Protocol di
 
 Mediabunny 1.55 is used, unmodified, as an MPL-2.0 runtime dependency. Main-process metadata inspection uses `FilePathSource`, which performs lazy random access. Renderer playback uses `UrlSource` against an asset-ID-only custom Electron protocol with byte-range responses; raw paths are never exposed by preload.
 
-`VideoSampleSink` supplies decoded samples backed by WebCodecs. The runtime maps monotonic clock time to timeline microseconds, resolves active clips, coalesces scrubs with latest-request-wins semantics, and closes replaced `VideoFrame` objects. It prewarms the next clip near cuts. React receives throttled snapshots, not frame objects.
+`VideoSampleSink` supplies decoded samples backed by WebCodecs. The runtime maps monotonic clock time to timeline microseconds, resolves active clips, and uses a latest-only executor with one in-flight operation plus one replaceable pending request. Side effects are generation-gated and obsolete `VideoFrame` objects close before composition. Temporary asset preview is separate from timeline transport, and React receives throttled snapshots and intents rather than frame objects.
 
 Audio uses Mediabunny's `AudioBufferSink` and Web Audio scheduling. V1 treats `AudioContext.currentTime` as the audio scheduling reference when audio is active, but transport time still comes from the replaceable clock abstraction. An AudioWorklet is intentionally deferred until profiling demonstrates that buffered main-thread scheduling is insufficient.
 
@@ -34,7 +34,9 @@ Canvas2D is limited to filmstrip/thumbnail generation, where a CPU-readable imag
 
 ## Workers and proxies
 
-The runtime interfaces keep perception generation separable from interactive playback. V1's sparse perception work can execute asynchronously without polluting React state. A dedicated decode worker and proxy encoder are deferred: they should be introduced only after measuring real renderer contention and codec behavior. No FFmpeg-backed Mediabunny codec extension is included.
+Decode-heavy derived work runs in one dedicated renderer worker. Sparse Mediabunny canvas sinks and OffscreenCanvas create bounded thumbnails and filmstrip contact sheets. The same worker uses Mediabunny conversion for video-only editing proxies, selecting a supported MP4 codec at runtime and streaming bounded chunks with renderer-to-main acknowledgements so encoder backpressure reaches the filesystem writer. Foreground playback, seeks, and hover preview pause proxy conversion; idle grace resumes it.
+
+Derived state is disposable and noncanonical under `.video/`. Main owns source fingerprints, validated contained paths, atomic writer sessions, artifact serving, storage budgets, recovery, and eviction. A pure closed-loop policy chooses the original or queues a proxy from observed warmed-seek latency, deadline misses, and request coalescing. Valid proxies have hysteresis and are selected automatically; failures fall back to the original. No FFmpeg-backed Mediabunny codec extension is included, so footage Chromium cannot decode cannot be proxied by this path.
 
 ## Security
 

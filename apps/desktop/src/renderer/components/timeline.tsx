@@ -157,6 +157,7 @@ export function Timeline({ project, onCommand, onSeek }: TimelineProps) {
     const timeUs = Math.max(0, Math.round(x / pixelsPerUs));
     setPlayheadUs(timeUs);
     onSeek?.(timeUs);
+    if (event.type === "pointerdown") event.currentTarget.setPointerCapture(event.pointerId);
   }
 
   const majorSecondStep = zoom < 0.6 ? 5 : zoom < 1.5 ? 2 : 1;
@@ -258,6 +259,9 @@ export function Timeline({ project, onCommand, onSeek }: TimelineProps) {
             <div
               className="sticky top-0 z-20 h-6 cursor-ew-resize border-b border-border bg-panel/95"
               onPointerDown={rulerSeek}
+              onPointerMove={(event) => {
+                if (event.buttons & 1) rulerSeek(event);
+              }}
             >
               {Array.from({ length: tickCount + 1 }, (_, index) => {
                 const seconds = index * majorSecondStep;
