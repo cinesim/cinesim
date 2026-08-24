@@ -91,6 +91,29 @@ describe("DerivedMediaStore", () => {
     );
   });
 
+  it("serializes persistence triggered by concurrent artifact reads", async () => {
+    const first = await fixture("concurrent-access");
+    const second = await fixture("concurrent-access-next");
+    const store = new DerivedMediaStore();
+    await store.setProject(first.directory, first.project);
+    const { writerId } = await store.beginWrite({
+      assetId: "asset_fixture",
+      kind: "thumbnail",
+      expectedBytes: 2,
+    });
+    await store.writeChunk(writerId, 0, new Uint8Array([1, 2]));
+    await store.finalizeWrite(writerId, { bytes: 2 });
+
+    await Promise.all(
+      Array.from({ length: 8 }, () => store.artifactFile("thumbnail", "asset_fixture")),
+    );
+    await store.setProject(second.directory, second.project);
+
+    await expect(
+      readFile(join(first.directory, ".video", "cache", "media-intelligence.json"), "utf8"),
+    ).resolves.toContain('"thumbnail"');
+  });
+
   it("recovers interrupted jobs as queued after project open", async () => {
     const first = await fixture("recover-first");
     const second = await fixture("recover-second");

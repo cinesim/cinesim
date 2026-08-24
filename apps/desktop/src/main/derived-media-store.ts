@@ -148,6 +148,7 @@ export class DerivedMediaStore {
   #writers = new Map<string, WriterSession>();
   #listeners = new Set<(snapshot: DerivedMediaSnapshot) => void>();
   #operationQueue: Promise<unknown> = Promise.resolve();
+  #persistQueue: Promise<void> = Promise.resolve();
   #latencies = new Map<string, number[]>();
   #deadlines = new Map<string, { total: number; missed: number }>();
   #runtime = emptyRuntime();
@@ -595,7 +596,12 @@ export class DerivedMediaStore {
     const path = this.#containedPath(artifact.relativePath);
     const info = await stat(path);
     artifact.lastAccessAt = new Date().toISOString();
-    void this.#persist();
+    void this.#persist().catch((error: unknown) =>
+      log.error(
+        { err: error, operation: "artifact-access", assetId, artifactKind: kind },
+        "derived artifact access time could not be persisted",
+      ),
+    );
     return { path, size: info.size, mimeType: mimeType(kind) };
   }
 
@@ -865,10 +871,16 @@ export class DerivedMediaStore {
 
   async #persist(): Promise<void> {
     const path = join(this.#requireDirectory(), INDEX_FILE);
-    const tempPath = `${path}.tmp`;
-    await mkdir(dirname(path), { recursive: true });
-    await writeFile(tempPath, `${JSON.stringify(this.#index, null, 2)}\n`, "utf8");
-    await rename(tempPath, path);
+    const contents = `${JSON.stringify(this.#index, null, 2)}\n`;
+    const operation = async () => {
+      const tempPath = `${path}.tmp`;
+      await mkdir(dirname(path), { recursive: true });
+      await writeFile(tempPath, contents, "utf8");
+      await rename(tempPath, path);
+    };
+    const result = this.#persistQueue.catch(() => undefined).then(operation);
+    this.#persistQueue = result;
+    return result;
   }
 
   #emit(): void {
