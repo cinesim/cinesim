@@ -1,4 +1,4 @@
-import { Bug, FolderOpen, Redo2, Save, Undo2 } from "lucide-react";
+import { Bug, FolderOpen, Redo2, Save, Sparkles, Undo2 } from "lucide-react";
 import { Button } from "@cinesim/ui";
 import type { DesktopProjectSession } from "../../shared/api";
 
@@ -7,9 +7,18 @@ interface TopBarProps {
   onSession: (session: DesktopProjectSession) => void;
   metricsOpen: boolean;
   onToggleMetrics: () => void;
+  agentsOpen: boolean;
+  onToggleAgents: () => void;
 }
 
-export function TopBar({ session, onSession, metricsOpen, onToggleMetrics }: TopBarProps) {
+export function TopBar({
+  session,
+  onSession,
+  metricsOpen,
+  onToggleMetrics,
+  agentsOpen,
+  onToggleAgents,
+}: TopBarProps) {
   return (
     <div className="flex items-center gap-0.5">
       <Button
@@ -46,6 +55,15 @@ export function TopBar({ session, onSession, metricsOpen, onToggleMetrics }: Top
         onClick={onToggleMetrics}
       >
         <Bug size={15} />
+      </Button>
+      <Button
+        size="icon"
+        variant={agentsOpen ? "secondary" : "ghost"}
+        aria-label={agentsOpen ? "Close Agents sidebar" : "Open Agents sidebar"}
+        aria-pressed={agentsOpen}
+        onClick={onToggleAgents}
+      >
+        <Sparkles size={15} />
       </Button>
       <Button
         size="icon"
