@@ -21,6 +21,8 @@ import type {
   BeginDerivedWrite,
   DerivedArtifactKind,
   DerivedPerformanceObservation,
+  DerivedWorkerActivity,
+  DerivedWorkerStage,
   FinalizeDerivedWrite,
 } from "../shared/api";
 import { AgentManager } from "./agent-manager";
@@ -31,6 +33,22 @@ import { DesktopProjectStore } from "./project-store";
 
 const store = new DesktopProjectStore();
 const log = createCinesimLogger({ service: "desktop" });
+const DERIVED_WORKER_STAGES = new Set<DerivedWorkerStage>([
+  "scheduled",
+  "input-opening",
+  "container-ready",
+  "track-ready",
+  "decoder-ready",
+  "thumbnail-sampling",
+  "thumbnail-encoding",
+  "thumbnail-ready",
+  "filmstrip-sampling",
+  "filmstrip-encoding",
+  "filmstrip-ready",
+  "proxy-converting",
+  "completed",
+  "failed",
+]);
 let appState: DesktopAppStateStore;
 let agentSettings: AgentSettingsStore;
 let agents: AgentManager;
@@ -49,6 +67,41 @@ function isAgentEffort(value: unknown): value is NonNullable<AgentSessionUpdate[
     value === "xhigh" ||
     value === "max"
   );
+}
+
+function parseDerivedWorkerActivity(value: unknown): DerivedWorkerActivity {
+  if (typeof value !== "object" || value === null || Array.isArray(value))
+    throw new Error("Invalid derived worker activity");
+  const input = value as Record<string, unknown>;
+  if (
+    typeof input.jobId !== "string" ||
+    !/^[a-f0-9-]{36}$/.test(input.jobId) ||
+    typeof input.assetId !== "string" ||
+    !/^asset_[a-zA-Z0-9][a-zA-Z0-9_-]*$/.test(input.assetId) ||
+    (input.jobKind !== "perception" && input.jobKind !== "proxy") ||
+    typeof input.stage !== "string" ||
+    !DERIVED_WORKER_STAGES.has(input.stage as DerivedWorkerStage) ||
+    typeof input.elapsedMs !== "number" ||
+    !Number.isFinite(input.elapsedMs) ||
+    input.elapsedMs < 0 ||
+    input.elapsedMs > 86_400_000
+  )
+    throw new Error("Invalid derived worker activity");
+  for (const sample of [input.completedSamples, input.totalSamples]) {
+    if (sample !== undefined && (!Number.isSafeInteger(sample) || (sample as number) < 0))
+      throw new Error("Invalid derived worker sample count");
+  }
+  if (
+    input.failureCode !== undefined &&
+    (typeof input.failureCode !== "string" || !/^[a-z0-9][a-z0-9-]{0,63}$/.test(input.failureCode))
+  )
+    throw new Error("Invalid derived worker failure code");
+  if (
+    input.detail !== undefined &&
+    (typeof input.detail !== "string" || input.detail.length > 2_000)
+  )
+    throw new Error("Invalid derived worker detail");
+  return input as unknown as DerivedWorkerActivity;
 }
 
 function quoteShellArgument(value: string): string {
@@ -200,6 +253,8 @@ function createWindow(): BrowserWindow {
 
 async function registerMediaProtocol(): Promise<void> {
   protocol.handle("cinesim-media", async (request) => {
+    const requestStarted = performance.now();
+    let diagnosticAssetId: string | undefined;
     try {
       const url = new URL(request.url);
       const derivedKind = (
@@ -210,6 +265,7 @@ async function registerMediaProtocol(): Promise<void> {
       const assetId = url.pathname.slice(1);
       if (!/^asset_[a-zA-Z0-9][a-zA-Z0-9_-]*$/.test(assetId))
         return new Response("Bad asset ID", { status: 400 });
+      diagnosticAssetId = assetId;
       const range = request.headers.get("range");
       if (derivedKind) {
         if (url.searchParams.get("v") !== "1")
@@ -252,6 +308,14 @@ async function registerMediaProtocol(): Promise<void> {
       const fileSize = (await import("node:fs/promises")).stat(path).then((value) => value.size);
       const size = await fileSize;
       if (request.method === "HEAD") {
+        store.derivedMedia.recordProtocolRead({
+          assetId,
+          start: 0,
+          requestedEnd: 0,
+          bytesRead: 0,
+          durationMs: performance.now() - requestStarted,
+          range: false,
+        });
         return new Response(null, {
           status: 200,
           headers: {
@@ -269,6 +333,14 @@ async function registerMediaProtocol(): Promise<void> {
         : Math.min(size, start + 16 * 1024 * 1024);
       const { data } = await store.readRange(assetId, start, requestedEnd);
       const end = start + data.byteLength;
+      store.derivedMedia.recordProtocolRead({
+        assetId,
+        start,
+        requestedEnd,
+        bytesRead: data.byteLength,
+        durationMs: performance.now() - requestStarted,
+        range: Boolean(range),
+      });
       return new Response(request.method === "HEAD" ? null : new Uint8Array(data), {
         status: range || data.byteLength < size ? 206 : 200,
         headers: {
@@ -283,6 +355,11 @@ async function registerMediaProtocol(): Promise<void> {
         },
       });
     } catch (error) {
+      store.derivedMedia.recordProtocolError(
+        diagnosticAssetId,
+        error instanceof Error ? error.message : "Media read failed",
+        performance.now() - requestStarted,
+      );
       return new Response(error instanceof Error ? error.message : "Media read failed", {
         status: 500,
       });
@@ -390,6 +467,9 @@ function registerIpc(): void {
       throw new Error("Invalid derived progress");
     return store.derivedMedia.updateProgress(writerId, progress);
   });
+  ipcMain.handle("derived:activity", (_event, activity: unknown) =>
+    store.derivedMedia.reportActivity(parseDerivedWorkerActivity(activity)),
+  );
   ipcMain.handle("derived:performance", (_event, observation: unknown) =>
     store.derivedMedia.reportPerformance(observation as DerivedPerformanceObservation),
   );

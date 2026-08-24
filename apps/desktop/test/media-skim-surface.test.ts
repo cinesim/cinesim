@@ -51,6 +51,15 @@ function snapshot(thumbnailState: DerivedArtifactState): DerivedMediaSnapshot {
       evictionCount: 0,
     },
     jobs: { queued: 0, running: 0, completed: 0, failed: 0 },
+    runtime: {
+      protocol: {
+        requests: 0,
+        rangeRequests: 0,
+        bytesRead: 0,
+        averageLatencyMs: 0,
+        errors: 0,
+      },
+    },
     decisionLog: [],
   };
 }

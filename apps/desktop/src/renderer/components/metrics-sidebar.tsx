@@ -37,6 +37,8 @@ export function MetricsSidebar() {
   const metrics = useUiStore((state) => state.runtime);
   const derived = useUiStore((state) => state.derivedMedia);
   const artifacts = derived ? Object.values(derived.assets) : [];
+  const background = derived?.runtime;
+  const activeJob = background?.activeJob;
   const activeDerived = metrics?.activeAssetId ? derived?.assets[metrics.activeAssetId] : undefined;
   const readyCount = (kind: "thumbnail" | "filmstrip" | "proxy") =>
     artifacts.filter((asset) => asset[kind].state === "ready").length;
@@ -114,6 +116,51 @@ export function MetricsSidebar() {
           <MetricRow label="GPU execution" value={unavailable} />
         </Section>
 
+        <Section icon={<Activity size={13} />} title="Background media">
+          <MetricRow label="Asset" value={activeJob?.assetId ?? "None"} />
+          <MetricRow label="Job kind" value={activeJob?.jobKind ?? unavailable} />
+          <MetricRow label="Stage" value={activeJob?.stage ?? "Idle"} />
+          <MetricRow
+            label="Progress"
+            value={activeJob ? `${Math.round(activeJob.progress * 100)}%` : unavailable}
+          />
+          <MetricRow
+            label="Samples"
+            value={
+              activeJob?.totalSamples === undefined
+                ? unavailable
+                : `${activeJob.completedSamples ?? 0}/${activeJob.totalSamples}`
+            }
+          />
+          <MetricRow
+            label="Worker elapsed"
+            value={activeJob ? formatDuration(activeJob.elapsedMs) : unavailable}
+          />
+          <MetricRow label="Last result" value={background?.lastJob?.stage ?? unavailable} />
+          <MetricRow
+            label="Last duration"
+            value={
+              background?.lastJob ? formatDuration(background.lastJob.durationMs) : unavailable
+            }
+          />
+          <MetricRow label="Protocol requests" value={background?.protocol.requests ?? 0} />
+          <MetricRow label="Range requests" value={background?.protocol.rangeRequests ?? 0} />
+          <MetricRow label="Protocol bytes" value={formatBytes(background?.protocol.bytesRead)} />
+          <MetricRow
+            label="Average read"
+            value={`${(background?.protocol.averageLatencyMs ?? 0).toFixed(2)} ms`}
+          />
+          <MetricRow
+            label="Last read"
+            value={
+              background?.protocol.lastLatencyMs === undefined
+                ? unavailable
+                : `${background.protocol.lastLatencyMs.toFixed(2)} ms · ${formatByteCount(background.protocol.lastBytesRead ?? 0)}`
+            }
+          />
+          <MetricRow label="Protocol errors" value={background?.protocol.errors ?? 0} />
+        </Section>
+
         <Section icon={<Image size={13} />} title="Derived artifacts">
           <MetricRow label="Thumbnails" value={`${readyCount("thumbnail")}/${artifacts.length}`} />
           <MetricRow label="Filmstrips" value={`${readyCount("filmstrip")}/${artifacts.length}`} />
@@ -168,8 +215,17 @@ export function MetricsSidebar() {
 
 function formatBytes(value: number | undefined): React.ReactNode {
   if (value === undefined) return unavailable;
+  return formatByteCount(value);
+}
+
+function formatByteCount(value: number): string {
   if (value < 1024) return `${value} B`;
   if (value < 1024 ** 2) return `${(value / 1024).toFixed(1)} KB`;
   if (value < 1024 ** 3) return `${(value / 1024 ** 2).toFixed(1)} MB`;
   return `${(value / 1024 ** 3).toFixed(1)} GB`;
+}
+
+function formatDuration(value: number): string {
+  if (value < 1_000) return `${value.toFixed(1)} ms`;
+  return `${(value / 1_000).toFixed(2)} s`;
 }

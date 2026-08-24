@@ -10,6 +10,7 @@ interface ActiveJob {
   jobId: string;
   assetId: string;
   kind: "perception" | "proxy";
+  startedAtMs: number;
   writers: Partial<Record<DerivedArtifactKind, string>>;
 }
 
@@ -153,13 +154,26 @@ export class MediaJobCoordinator {
       (kind) => record[kind].state === "queued",
     );
     const jobId = crypto.randomUUID();
-    const active: ActiveJob = { jobId, assetId: asset.id, kind: "perception", writers: {} };
+    const active: ActiveJob = {
+      jobId,
+      assetId: asset.id,
+      kind: "perception",
+      startedAtMs: performance.now(),
+      writers: {},
+    };
     this.#active = active;
     try {
       for (const kind of kinds) {
         const writer = await window.cinesim.beginDerivedWrite({ assetId: asset.id, kind });
         active.writers[kind] = writer.writerId;
       }
+      await window.cinesim.reportDerivedActivity({
+        jobId,
+        assetId: asset.id,
+        jobKind: "perception",
+        stage: "scheduled",
+        elapsedMs: 0,
+      });
       this.#worker.postMessage({
         type: "generate",
         jobId,
@@ -182,7 +196,13 @@ export class MediaJobCoordinator {
   async #startProxy(asset: Asset): Promise<void> {
     if (!this.#worker || this.#active) return;
     const jobId = crypto.randomUUID();
-    const active: ActiveJob = { jobId, assetId: asset.id, kind: "proxy", writers: {} };
+    const active: ActiveJob = {
+      jobId,
+      assetId: asset.id,
+      kind: "proxy",
+      startedAtMs: performance.now(),
+      writers: {},
+    };
     this.#active = active;
     try {
       const writer = await window.cinesim.beginDerivedWrite({
@@ -191,6 +211,13 @@ export class MediaJobCoordinator {
         profileId: "edit-1280",
       });
       active.writers.proxy = writer.writerId;
+      await window.cinesim.reportDerivedActivity({
+        jobId,
+        assetId: asset.id,
+        jobKind: "proxy",
+        stage: "scheduled",
+        elapsedMs: 0,
+      });
       this.#worker.postMessage({
         type: "proxy",
         jobId,
@@ -211,6 +238,20 @@ export class MediaJobCoordinator {
     if (!active || message.jobId !== active.jobId || this.#destroyed) return;
     if (active.kind !== "proxy" || this.#foregroundPressure === "idle")
       this.#armWorkerInactivityTimer(active.jobId);
+    if (message.type === "activity") {
+      await window.cinesim.reportDerivedActivity({
+        jobId: active.jobId,
+        assetId: active.assetId,
+        jobKind: active.kind,
+        stage: message.stage,
+        elapsedMs: message.elapsedMs,
+        ...(message.completedSamples !== undefined
+          ? { completedSamples: message.completedSamples }
+          : {}),
+        ...(message.totalSamples !== undefined ? { totalSamples: message.totalSamples } : {}),
+      });
+      return;
+    }
     if (message.type === "progress") {
       const writerId = active.writers[message.stage];
       if (writerId) await window.cinesim.updateDerivedProgress(writerId, message.progress);
@@ -337,6 +378,17 @@ export class MediaJobCoordinator {
     this.#clearWorkerInactivityTimer();
     this.#active = null;
     if (!active) return;
+    await window.cinesim
+      .reportDerivedActivity({
+        jobId: active.jobId,
+        assetId: active.assetId,
+        jobKind: active.kind,
+        stage: "failed",
+        elapsedMs: performance.now() - active.startedAtMs,
+        failureCode,
+        ...(detail ? { detail } : {}),
+      })
+      .catch(() => undefined);
     await Promise.all(
       Object.values(active.writers).map((writerId) =>
         window.cinesim.cancelDerivedWrite(writerId, failureCode, detail).catch(() => undefined),

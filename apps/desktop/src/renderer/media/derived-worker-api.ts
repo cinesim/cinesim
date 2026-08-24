@@ -41,6 +41,14 @@ export type DerivedWorkerRequest =
   | SetProxyPausedRequest;
 
 export type DerivedWorkerResponse =
+  | {
+      type: "activity";
+      jobId: string;
+      stage: DerivedWorkerStage;
+      elapsedMs: number;
+      completedSamples?: number;
+      totalSamples?: number;
+    }
   | { type: "progress"; jobId: string; progress: number; stage: "thumbnail" | "filmstrip" }
   | {
       type: "thumbnail-complete";
@@ -69,3 +77,4 @@ export type DerivedWorkerResponse =
     }
   | { type: "proxy-progress"; jobId: string; progress: number }
   | { type: "proxy-complete"; jobId: string; bytes: number };
+import type { DerivedWorkerStage } from "../../shared/api";

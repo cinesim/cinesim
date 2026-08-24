@@ -46,12 +46,28 @@ function progress(jobId: string, stage: "thumbnail" | "filmstrip", value: number
   post({ type: "progress", jobId, stage, progress: Math.min(1, Math.max(0, value)) });
 }
 
+function activity(
+  jobId: string,
+  stage: Extract<DerivedWorkerResponse, { type: "activity" }>["stage"],
+  started: number,
+  samples?: { completedSamples: number; totalSamples: number },
+): void {
+  post({
+    type: "activity",
+    jobId,
+    stage,
+    elapsedMs: performance.now() - started,
+    ...samples,
+  });
+}
+
 function assertActive(jobId: string): void {
   if (canceled.has(jobId)) throw new DOMException("Derived job canceled", "AbortError");
 }
 
 async function generate(request: Extract<DerivedWorkerRequest, { type: "generate" }>) {
   const started = performance.now();
+  activity(request.jobId, "input-opening", started);
   const input = new Input({
     source: new UrlSource(`cinesim-media://asset/${request.assetId}`, {
       maxCacheSize: 32 * 1024 * 1024,
@@ -61,12 +77,20 @@ async function generate(request: Extract<DerivedWorkerRequest, { type: "generate
   });
   try {
     if (!(await input.canRead())) throw new Error("unsupported-container");
+    activity(request.jobId, "container-ready", started);
     const track = await input.getPrimaryVideoTrack();
-    if (!track || !(await track.canDecode())) throw new Error("source-undecodable");
+    if (!track) throw new Error("source-undecodable");
+    activity(request.jobId, "track-ready", started);
+    if (!(await track.canDecode())) throw new Error("source-undecodable");
+    activity(request.jobId, "decoder-ready", started);
 
     let sourceTimeUs = request.thumbnailSourceTimeUs ?? 0;
     if (request.kinds.includes("thumbnail")) {
       const candidateTimesUs = thumbnailCandidateTimes(request.durationUs);
+      activity(request.jobId, "thumbnail-sampling", started, {
+        completedSamples: 0,
+        totalSamples: candidateTimesUs.length,
+      });
       const candidateSink = new CanvasSink(track, {
         width: THUMBNAIL_WIDTH,
         height: THUMBNAIL_HEIGHT,
@@ -103,6 +127,10 @@ async function generate(request: Extract<DerivedWorkerRequest, { type: "generate
         progress(request.jobId, "thumbnail", candidateIndex / Math.max(1, candidateTimesUs.length));
       }
       assertActive(request.jobId);
+      activity(request.jobId, "thumbnail-encoding", started, {
+        completedSamples: candidateIndex,
+        totalSamples: candidateTimesUs.length,
+      });
       const thumbnailBlob = await thumbnail.convertToBlob({ type: "image/jpeg", quality: 0.84 });
       const thumbnailBytes = await thumbnailBlob.arrayBuffer();
       post(
@@ -114,9 +142,14 @@ async function generate(request: Extract<DerivedWorkerRequest, { type: "generate
         },
         [thumbnailBytes],
       );
+      activity(request.jobId, "thumbnail-ready", started, {
+        completedSamples: candidateIndex,
+        totalSamples: candidateTimesUs.length,
+      });
     }
 
     if (!request.kinds.includes("filmstrip")) {
+      activity(request.jobId, "completed", started);
       post({
         type: "perception-complete",
         jobId: request.jobId,
@@ -127,6 +160,10 @@ async function generate(request: Extract<DerivedWorkerRequest, { type: "generate
 
     const tileTimesUs = filmstripSampleTimes(request.durationUs);
     if (tileTimesUs.length === 0) throw new Error("no-video-frames");
+    activity(request.jobId, "filmstrip-sampling", started, {
+      completedSamples: 0,
+      totalSamples: tileTimesUs.length,
+    });
     const nearest = nearestSampleIndex(tileTimesUs, sourceTimeUs);
     const spacing = request.durationUs / Math.max(1, tileTimesUs.length);
     if (Math.abs(tileTimesUs[nearest]! - sourceTimeUs) > spacing / 2) {
@@ -165,6 +202,10 @@ async function generate(request: Extract<DerivedWorkerRequest, { type: "generate
       progress(request.jobId, "filmstrip", tileIndex / tileTimesUs.length);
     }
     assertActive(request.jobId);
+    activity(request.jobId, "filmstrip-encoding", started, {
+      completedSamples: tileIndex,
+      totalSamples: tileTimesUs.length,
+    });
     const filmstripBlob = await contactSheet.convertToBlob({ type: "image/jpeg", quality: 0.78 });
     const filmstripBytes = await filmstripBlob.arrayBuffer();
     post(
@@ -180,6 +221,11 @@ async function generate(request: Extract<DerivedWorkerRequest, { type: "generate
       },
       [filmstripBytes],
     );
+    activity(request.jobId, "filmstrip-ready", started, {
+      completedSamples: tileIndex,
+      totalSamples: tileTimesUs.length,
+    });
+    activity(request.jobId, "completed", started);
     post({
       type: "perception-complete",
       jobId: request.jobId,
@@ -204,6 +250,8 @@ async function waitUntilResumed(jobId: string): Promise<void> {
 }
 
 async function generateProxy(request: Extract<DerivedWorkerRequest, { type: "proxy" }>) {
+  const started = performance.now();
+  activity(request.jobId, "input-opening", started);
   const input = new Input({
     source: new UrlSource(`cinesim-media://asset/${request.assetId}`, {
       maxCacheSize: 32 * 1024 * 1024,
@@ -221,8 +269,12 @@ async function generateProxy(request: Extract<DerivedWorkerRequest, { type: "pro
   };
   try {
     if (!(await input.canRead())) throw new Error("unsupported-container");
+    activity(request.jobId, "container-ready", started);
     const track = await input.getPrimaryVideoTrack();
-    if (!track || !(await track.canDecode())) throw new Error("source-undecodable");
+    if (!track) throw new Error("source-undecodable");
+    activity(request.jobId, "track-ready", started);
+    if (!(await track.canDecode())) throw new Error("source-undecodable");
+    activity(request.jobId, "decoder-ready", started);
     const scale = Math.min(1, 1280 / Math.max(request.width, request.height));
     const width = even(request.width * scale);
     const height = even(request.height * scale);
@@ -277,6 +329,7 @@ async function generateProxy(request: Extract<DerivedWorkerRequest, { type: "pro
       showWarnings: false,
     });
     if (!conversion.isValid) throw new Error("proxy-conversion-invalid");
+    activity(request.jobId, "proxy-converting", started);
     activeProxy.conversion = conversion;
     conversion.onProgress = (value) =>
       post({ type: "proxy-progress", jobId: request.jobId, progress: value });
@@ -292,6 +345,7 @@ async function generateProxy(request: Extract<DerivedWorkerRequest, { type: "pro
         if (!activeProxy?.paused) throw error;
       }
     }
+    activity(request.jobId, "completed", started);
     post({ type: "proxy-complete", jobId: request.jobId, bytes: maxEnd });
   } finally {
     input.dispose();

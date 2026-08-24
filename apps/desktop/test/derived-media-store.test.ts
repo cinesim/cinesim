@@ -127,4 +127,43 @@ describe("DerivedMediaStore", () => {
       },
     });
   });
+
+  it("reports bounded worker and protocol runtime metrics", async () => {
+    const { directory, project } = await fixture("runtime-metrics");
+    const store = new DerivedMediaStore();
+    await store.setProject(directory, project);
+    store.reportActivity({
+      jobId: "00000000-0000-4000-8000-000000000001",
+      assetId: "asset_fixture",
+      jobKind: "perception",
+      stage: "thumbnail-sampling",
+      elapsedMs: 25,
+      completedSamples: 2,
+      totalSamples: 8,
+    });
+    store.recordProtocolRead({
+      assetId: "asset_fixture",
+      start: 0,
+      requestedEnd: 1024,
+      bytesRead: 1024,
+      durationMs: 4,
+      range: true,
+    });
+
+    expect(store.snapshot().runtime).toMatchObject({
+      activeJob: {
+        stage: "thumbnail-sampling",
+        progress: 0.25,
+        completedSamples: 2,
+        totalSamples: 8,
+      },
+      protocol: {
+        requests: 1,
+        rangeRequests: 1,
+        bytesRead: 1024,
+        averageLatencyMs: 4,
+        errors: 0,
+      },
+    });
+  });
 });

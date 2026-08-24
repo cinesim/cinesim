@@ -66,6 +66,67 @@ export interface DerivedMediaEvent {
   detail: string;
 }
 
+export type DerivedWorkerStage =
+  | "scheduled"
+  | "input-opening"
+  | "container-ready"
+  | "track-ready"
+  | "decoder-ready"
+  | "thumbnail-sampling"
+  | "thumbnail-encoding"
+  | "thumbnail-ready"
+  | "filmstrip-sampling"
+  | "filmstrip-encoding"
+  | "filmstrip-ready"
+  | "proxy-converting"
+  | "completed"
+  | "failed";
+
+export interface DerivedWorkerActivity {
+  jobId: string;
+  assetId: string;
+  jobKind: "perception" | "proxy";
+  stage: DerivedWorkerStage;
+  elapsedMs: number;
+  completedSamples?: number;
+  totalSamples?: number;
+  failureCode?: string;
+  detail?: string;
+}
+
+export interface DerivedRuntimeSnapshot {
+  activeJob?: {
+    jobId: string;
+    assetId: string;
+    jobKind: "perception" | "proxy";
+    stage: DerivedWorkerStage;
+    progress: number;
+    elapsedMs: number;
+    startedAt: string;
+    lastActivityAt: string;
+    completedSamples?: number;
+    totalSamples?: number;
+  };
+  lastJob?: {
+    assetId: string;
+    jobKind: "perception" | "proxy";
+    stage: "completed" | "failed";
+    durationMs: number;
+    finishedAt: string;
+    failureCode?: string;
+  };
+  protocol: {
+    requests: number;
+    rangeRequests: number;
+    bytesRead: number;
+    averageLatencyMs: number;
+    lastLatencyMs?: number;
+    lastBytesRead?: number;
+    lastAssetId?: string;
+    errors: number;
+  };
+}
+
 export interface DerivedMediaSnapshot {
   version: 1;
   generatorVersion: string;
@@ -86,6 +147,7 @@ export interface DerivedMediaSnapshot {
     completed: number;
     failed: number;
   };
+  runtime: DerivedRuntimeSnapshot;
   decisionLog: DerivedMediaEvent[];
 }
 
@@ -300,6 +362,7 @@ export interface DesktopApi {
   finalizeDerivedWrite(writerId: string, result: FinalizeDerivedWrite): Promise<void>;
   cancelDerivedWrite(writerId: string, failureCode?: string, detail?: string): Promise<void>;
   updateDerivedProgress(writerId: string, progress: number): Promise<void>;
+  reportDerivedActivity(activity: DerivedWorkerActivity): Promise<void>;
   reportDerivedPerformance(observation: DerivedPerformanceObservation): Promise<void>;
   execute(
     command: EditorCommand,

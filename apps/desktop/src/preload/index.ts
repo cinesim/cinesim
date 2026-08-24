@@ -18,6 +18,7 @@ const api: DesktopApi = {
     ipcRenderer.invoke("derived:write:cancel", writerId, failureCode, detail),
   updateDerivedProgress: (writerId, progress) =>
     ipcRenderer.invoke("derived:write:progress", writerId, progress),
+  reportDerivedActivity: (activity) => ipcRenderer.invoke("derived:activity", activity),
   reportDerivedPerformance: (observation) => ipcRenderer.invoke("derived:performance", observation),
   execute: (command: EditorCommand) => ipcRenderer.invoke("command:execute", command),
   undo: () => ipcRenderer.invoke("project:undo"),

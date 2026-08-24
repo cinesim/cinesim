@@ -21,8 +21,10 @@ import type {
   DerivedArtifactSnapshot,
   DerivedAssetSnapshot,
   DerivedMediaEvent,
+  DerivedRuntimeSnapshot,
   DerivedMediaSnapshot,
   DerivedPerformanceObservation,
+  DerivedWorkerActivity,
   FinalizeDerivedWrite,
   SourceFingerprint,
   SourcePerformanceSnapshot,
@@ -81,6 +83,18 @@ function emptyPerformance(): SourcePerformanceSnapshot {
   };
 }
 
+function emptyRuntime(): DerivedRuntimeSnapshot {
+  return {
+    protocol: {
+      requests: 0,
+      rangeRequests: 0,
+      bytesRead: 0,
+      averageLatencyMs: 0,
+      errors: 0,
+    },
+  };
+}
+
 function emptyStorage(): DerivedMediaSnapshot["storage"] {
   return {
     totalBytes: 0,
@@ -136,6 +150,9 @@ export class DerivedMediaStore {
   #operationQueue: Promise<unknown> = Promise.resolve();
   #latencies = new Map<string, number[]>();
   #deadlines = new Map<string, { total: number; missed: number }>();
+  #runtime = emptyRuntime();
+  #progressLogBuckets = new Map<string, number>();
+  #runtimeEmitTimer: ReturnType<typeof setTimeout> | null = null;
   #diskHeadroomAvailable = false;
 
   async setProject(directory: string, project: Project): Promise<void> {
@@ -145,6 +162,10 @@ export class DerivedMediaStore {
       this.#project = project;
       this.#latencies.clear();
       this.#deadlines.clear();
+      this.#runtime = emptyRuntime();
+      this.#progressLogBuckets.clear();
+      if (this.#runtimeEmitTimer) clearTimeout(this.#runtimeEmitTimer);
+      this.#runtimeEmitTimer = null;
       this.#index = await this.#readIndex(directory);
       await this.#removeInterruptedTemps();
       let recovered = false;
@@ -213,6 +234,7 @@ export class DerivedMediaStore {
         completed: artifacts.filter((artifact) => artifact.state === "ready").length,
         failed: artifacts.filter((artifact) => artifact.state === "failed").length,
       },
+      runtime: structuredClone(this.#runtime),
       decisionLog: structuredClone(this.#index.decisionLog),
     };
   }
@@ -360,8 +382,133 @@ export class DerivedMediaStore {
         throw new Error("Invalid derived progress");
       const writer = this.#requireWriter(writerId);
       this.#index.assets[writer.assetId]![writer.kind].progress = progress;
+      const active = this.#runtime.activeJob;
+      if (active?.assetId === writer.assetId) {
+        active.progress = progress;
+        active.lastActivityAt = new Date().toISOString();
+      }
+      const bucket = Math.min(4, Math.floor(progress * 4));
+      if (this.#progressLogBuckets.get(writerId) !== bucket) {
+        this.#progressLogBuckets.set(writerId, bucket);
+        log.info(
+          {
+            operation: "worker-progress",
+            assetId: writer.assetId,
+            artifactKind: writer.kind,
+            progress,
+          },
+          "derived worker progressed",
+        );
+      }
       this.#emit();
     });
+  }
+
+  reportActivity(activity: DerivedWorkerActivity): void {
+    const now = new Date().toISOString();
+    if (activity.stage === "scheduled" || this.#runtime.activeJob?.jobId !== activity.jobId) {
+      this.#runtime.activeJob = {
+        jobId: activity.jobId,
+        assetId: activity.assetId,
+        jobKind: activity.jobKind,
+        stage: activity.stage,
+        progress:
+          activity.completedSamples !== undefined && activity.totalSamples
+            ? activity.completedSamples / activity.totalSamples
+            : 0,
+        elapsedMs: activity.elapsedMs,
+        startedAt: now,
+        lastActivityAt: now,
+        ...(activity.completedSamples !== undefined
+          ? { completedSamples: activity.completedSamples }
+          : {}),
+        ...(activity.totalSamples !== undefined ? { totalSamples: activity.totalSamples } : {}),
+      };
+    } else {
+      const active = this.#runtime.activeJob;
+      active.stage = activity.stage;
+      active.elapsedMs = activity.elapsedMs;
+      active.lastActivityAt = now;
+      if (activity.completedSamples !== undefined)
+        active.completedSamples = activity.completedSamples;
+      if (activity.totalSamples !== undefined) active.totalSamples = activity.totalSamples;
+      if (activity.completedSamples !== undefined && activity.totalSamples)
+        active.progress = activity.completedSamples / activity.totalSamples;
+    }
+    log.info(
+      {
+        operation: "worker-activity",
+        jobId: activity.jobId,
+        assetId: activity.assetId,
+        jobKind: activity.jobKind,
+        stage: activity.stage,
+        elapsedMs: activity.elapsedMs,
+        ...(activity.completedSamples !== undefined
+          ? { completedSamples: activity.completedSamples }
+          : {}),
+        ...(activity.totalSamples !== undefined ? { totalSamples: activity.totalSamples } : {}),
+        ...(activity.failureCode ? { failureCode: activity.failureCode } : {}),
+        ...(activity.detail ? { detail: activity.detail } : {}),
+      },
+      "derived worker activity",
+    );
+    if (activity.stage === "completed" || activity.stage === "failed") {
+      this.#runtime.lastJob = {
+        assetId: activity.assetId,
+        jobKind: activity.jobKind,
+        stage: activity.stage,
+        durationMs: activity.elapsedMs,
+        finishedAt: now,
+        ...(activity.failureCode ? { failureCode: activity.failureCode } : {}),
+      };
+      delete this.#runtime.activeJob;
+    }
+    this.#emit();
+  }
+
+  recordProtocolRead(input: {
+    assetId: string;
+    start: number;
+    requestedEnd: number;
+    bytesRead: number;
+    durationMs: number;
+    range: boolean;
+  }): void {
+    const protocol = this.#runtime.protocol;
+    protocol.requests += 1;
+    protocol.rangeRequests += Number(input.range);
+    protocol.bytesRead += input.bytesRead;
+    protocol.averageLatencyMs += (input.durationMs - protocol.averageLatencyMs) / protocol.requests;
+    protocol.lastLatencyMs = input.durationMs;
+    protocol.lastBytesRead = input.bytesRead;
+    protocol.lastAssetId = input.assetId;
+    log.info(
+      {
+        operation: "protocol-read",
+        assetId: input.assetId,
+        start: input.start,
+        requestedEnd: input.requestedEnd,
+        bytesRead: input.bytesRead,
+        durationMs: input.durationMs,
+        range: input.range,
+      },
+      "media protocol range served",
+    );
+    this.#scheduleRuntimeEmit();
+  }
+
+  recordProtocolError(assetId: string | undefined, detail: string, durationMs: number): void {
+    this.#runtime.protocol.errors += 1;
+    log.error(
+      {
+        operation: "protocol-error",
+        ...(assetId ? { assetId } : {}),
+        detail,
+        durationMs,
+      },
+      "media protocol request failed",
+    );
+    this.#scheduleRuntimeEmit();
   }
 
   async cancelWrite(writerId: string, failureCode?: string, detail?: string): Promise<void> {
@@ -742,6 +889,14 @@ export class DerivedMediaStore {
     if (!this.#directory) return;
     const snapshot = this.snapshot();
     for (const listener of this.#listeners) listener(snapshot);
+  }
+
+  #scheduleRuntimeEmit(): void {
+    if (this.#runtimeEmitTimer) return;
+    this.#runtimeEmitTimer = setTimeout(() => {
+      this.#runtimeEmitTimer = null;
+      this.#emit();
+    }, 250);
   }
 
   async #closeWriters(): Promise<void> {

@@ -86,6 +86,15 @@ function snapshot(
       evictionCount: 0,
     },
     jobs: { queued: 2, running: 0, completed: 0, failed: 0 },
+    runtime: {
+      protocol: {
+        requests: 0,
+        rangeRequests: 0,
+        bytesRead: 0,
+        averageLatencyMs: 0,
+        errors: 0,
+      },
+    },
     decisionLog: [],
   };
 }
@@ -119,6 +128,7 @@ function setup(initial: DerivedMediaSnapshot) {
         : { state: "queued" };
     }),
     updateDerivedProgress: vi.fn(async () => undefined),
+    reportDerivedActivity: vi.fn(async () => undefined),
     reportDerivedPerformance: vi.fn(async () => undefined),
   } as unknown as DesktopApi;
   vi.stubGlobal("window", { cinesim: api });

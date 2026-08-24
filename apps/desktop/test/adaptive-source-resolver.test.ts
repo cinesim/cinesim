@@ -41,6 +41,15 @@ function snapshot(proxyState: "ready" | "failed"): DerivedMediaSnapshot {
       evictionCount: 0,
     },
     jobs: { queued: 0, running: 0, completed: 1, failed: 0 },
+    runtime: {
+      protocol: {
+        requests: 0,
+        rangeRequests: 0,
+        bytesRead: 0,
+        averageLatencyMs: 0,
+        errors: 0,
+      },
+    },
     decisionLog: [],
   };
 }

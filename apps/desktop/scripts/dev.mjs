@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import { fileURLToPath } from "node:url";
 
 const port = Number(
   process.env.CONDUCTOR_PORT ||
@@ -6,6 +7,7 @@ const port = Number(
     5173,
 );
 const url = `http://127.0.0.1:${port}`;
+const logDirectory = fileURLToPath(new URL("../../../.context/logs/", import.meta.url));
 const children = [];
 
 function run(command, args, options = {}) {
@@ -59,5 +61,5 @@ while (true) {
 }
 
 run("vp", ["exec", "--filter", "@cinesim/desktop", "--", "electron", "."], {
-  env: { ...process.env, CINESIM_DEV_SERVER_URL: url },
+  env: { ...process.env, CINESIM_DEV_SERVER_URL: url, CINESIM_LOG_DIR: logDirectory },
 });
