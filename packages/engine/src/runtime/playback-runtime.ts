@@ -272,12 +272,6 @@ export class PlaybackRuntime {
     const key = `${descriptor.assetId}:${descriptor.kind}:${descriptor.url}`;
     let source = this.#sources.get(key);
     if (!source) {
-      for (const [otherKey, other] of this.#sources) {
-        if (otherKey.startsWith(`${descriptor.assetId}:`)) {
-          other.destroy();
-          this.#sources.delete(otherKey);
-        }
-      }
       source = this.#sourceFactory(descriptor);
       this.#sources.set(key, source);
       this.#sourceDescriptors.set(descriptor.assetId, descriptor);
@@ -318,7 +312,11 @@ export class PlaybackRuntime {
           const timelineFromUs = Math.max(fromUs, clip.timelineStartUs);
           const timelineToUs = Math.min(toUs, clipEndUs(clip));
           const sourceFromUs = clip.sourceStartUs + timelineFromUs - clip.timelineStartUs;
-          const source = this.#source(this.#sourceResolver.resolve(asset.id));
+          const source = this.#source({
+            assetId: asset.id,
+            kind: "original",
+            url: `cinesim-media://asset/${asset.id}`,
+          });
           if (!source.buffers) continue;
           work.push(
             this.#audioScheduler.schedule(

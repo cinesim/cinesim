@@ -6,11 +6,32 @@ import {
   scoreThumbnailRgba,
   thumbnailCandidateTimes,
 } from "@cinesim/engine";
-import { ALL_FORMATS, CanvasSink, Input, UrlSource } from "mediabunny";
+import {
+  ALL_FORMATS,
+  CanvasSink,
+  Conversion,
+  Input,
+  Mp4OutputFormat,
+  Output,
+  QUALITY_MEDIUM,
+  StreamTarget,
+  UrlSource,
+  getFirstEncodableVideoCodec,
+} from "mediabunny";
+import type { StreamTargetChunk } from "mediabunny";
 import type { DerivedWorkerRequest, DerivedWorkerResponse } from "../media/derived-worker-api";
 
 const scope = self as DedicatedWorkerGlobalScope;
 const canceled = new Set<string>();
+const chunkAcks = new Map<number, { resolve: () => void; reject: (error: Error) => void }>();
+let activeProxy: {
+  jobId: string;
+  conversion: Conversion | null;
+  pauseController: AbortController | null;
+  paused: boolean;
+  resume: (() => void) | null;
+} | null = null;
+let nextChunkId = 1;
 const THUMBNAIL_WIDTH = 480;
 const THUMBNAIL_HEIGHT = 270;
 const TILE_WIDTH = 160;
@@ -150,13 +171,151 @@ async function generate(request: Extract<DerivedWorkerRequest, { type: "generate
   }
 }
 
+function even(value: number): number {
+  return Math.max(2, Math.round(value / 2) * 2);
+}
+
+async function waitUntilResumed(jobId: string): Promise<void> {
+  if (!activeProxy || activeProxy.jobId !== jobId || !activeProxy.paused) return;
+  await new Promise<void>((resolve) => {
+    if (activeProxy?.jobId === jobId) activeProxy.resume = resolve;
+    else resolve();
+  });
+}
+
+async function generateProxy(request: Extract<DerivedWorkerRequest, { type: "proxy" }>) {
+  const input = new Input({
+    source: new UrlSource(`cinesim-media://asset/${request.assetId}`, {
+      maxCacheSize: 32 * 1024 * 1024,
+      parallelism: 1,
+    }),
+    formats: ALL_FORMATS,
+  });
+  let maxEnd = 0;
+  activeProxy = {
+    jobId: request.jobId,
+    conversion: null,
+    pauseController: null,
+    paused: false,
+    resume: null,
+  };
+  try {
+    if (!(await input.canRead())) throw new Error("unsupported-container");
+    const track = await input.getPrimaryVideoTrack();
+    if (!track || !(await track.canDecode())) throw new Error("source-undecodable");
+    const scale = Math.min(1, 1280 / Math.max(request.width, request.height));
+    const width = even(request.width * scale);
+    const height = even(request.height * scale);
+    const codec = await getFirstEncodableVideoCodec(["avc", "hevc"], {
+      width,
+      height,
+      quality: QUALITY_MEDIUM,
+    });
+    if (!codec) throw new Error("proxy-encoder-unavailable");
+    const writable = new WritableStream<StreamTargetChunk>({
+      write: async (chunk) => {
+        assertActive(request.jobId);
+        const chunkId = nextChunkId++;
+        const copy = chunk.data.slice().buffer;
+        maxEnd = Math.max(maxEnd, chunk.position + copy.byteLength);
+        await new Promise<void>((resolve, reject) => {
+          chunkAcks.set(chunkId, { resolve, reject });
+          post(
+            {
+              type: "proxy-chunk",
+              jobId: request.jobId,
+              chunkId,
+              offset: chunk.position,
+              data: copy,
+            },
+            [copy],
+          );
+        });
+      },
+    });
+    const output = new Output({
+      format: new Mp4OutputFormat({ fastStart: "fragmented", minimumFragmentDuration: 1 }),
+      target: new StreamTarget(writable, { chunked: true, chunkSize: 1024 * 1024 }),
+    });
+    const conversion = await Conversion.init({
+      input,
+      output,
+      tracks: "primary",
+      video: {
+        width,
+        height,
+        fit: "contain",
+        frameRate: Math.min(60, Math.max(1, request.frameRate ?? 30)),
+        codec,
+        quality: QUALITY_MEDIUM,
+        keyFrameInterval: 0.75,
+        hardwareAcceleration: "prefer-hardware",
+        forceTranscode: true,
+      },
+      audio: { discard: true },
+      tags: {},
+      showWarnings: false,
+    });
+    if (!conversion.isValid) throw new Error("proxy-conversion-invalid");
+    activeProxy.conversion = conversion;
+    conversion.onProgress = (value) =>
+      post({ type: "proxy-progress", jobId: request.jobId, progress: value });
+    while (conversion.state !== "done") {
+      assertActive(request.jobId);
+      await waitUntilResumed(request.jobId);
+      assertActive(request.jobId);
+      const pauseController = new AbortController();
+      if (activeProxy?.jobId === request.jobId) activeProxy.pauseController = pauseController;
+      try {
+        await conversion.execute({ pauseSignal: pauseController.signal });
+      } catch (error) {
+        if (!activeProxy?.paused) throw error;
+      }
+    }
+    post({ type: "proxy-complete", jobId: request.jobId, bytes: maxEnd });
+  } finally {
+    input.dispose();
+    activeProxy = null;
+    canceled.delete(request.jobId);
+  }
+}
+
 scope.onmessage = (event: MessageEvent<DerivedWorkerRequest>) => {
   const request = event.data;
   if (request.type === "cancel") {
     canceled.add(request.jobId);
+    if (activeProxy?.jobId === request.jobId) {
+      activeProxy.resume?.();
+      void activeProxy.conversion?.cancel();
+    }
     return;
   }
-  void generate(request).catch((error: unknown) => {
+  if (request.type === "proxy-chunk-ack") {
+    const ack = chunkAcks.get(request.chunkId);
+    if (!ack) return;
+    chunkAcks.delete(request.chunkId);
+    if (request.error) ack.reject(new Error(request.error));
+    else ack.resolve();
+    return;
+  }
+  if (request.type === "proxy-pause") {
+    if (activeProxy?.jobId === request.jobId) {
+      activeProxy.paused = true;
+      activeProxy.pauseController?.abort();
+    }
+    return;
+  }
+  if (request.type === "proxy-resume") {
+    if (activeProxy?.jobId === request.jobId) {
+      activeProxy.paused = false;
+      activeProxy.resume?.();
+      activeProxy.resume = null;
+    }
+    return;
+  }
+  if (request.type !== "proxy" && request.type !== "generate") return;
+  const operation = request.type === "proxy" ? generateProxy(request) : generate(request);
+  void operation.catch((error: unknown) => {
     const detail = error instanceof Error ? error.message : "Derived media generation failed";
     const failureCode =
       detail === "source-undecodable" || detail === "unsupported-container"

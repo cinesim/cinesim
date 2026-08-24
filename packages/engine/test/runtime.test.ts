@@ -9,6 +9,7 @@ import {
   nearestSampleIndex,
   pointerSourceTimeUs,
   PlaybackRuntime,
+  evaluateAdaptivePolicy,
   resolveScene,
   scoreThumbnailRgba,
   sparseSampleTimes,
@@ -213,5 +214,58 @@ describe("PlaybackRuntime source preview", () => {
     await runtime.exitAssetPreview();
     expect(renderedTimes).toEqual([0, 1_000_000, 4_000_000, 1_000_000]);
     runtime.destroy();
+  });
+});
+
+describe("adaptive media policy", () => {
+  const healthy = {
+    observations: 5,
+    warmSeekP95Ms: 80,
+    deadlineMissRate: 0.01,
+    requestsReceived: 10,
+    requestsCoalesced: 0,
+    proxyState: "missing" as const,
+    diskHeadroomAvailable: true,
+  };
+
+  it("waits for meaningful observations and leaves healthy originals alone", () => {
+    expect(evaluateAdaptivePolicy({ ...healthy, observations: 4 }).decision).toBe("observing");
+    expect(evaluateAdaptivePolicy(healthy)).toEqual({
+      decision: "original-sufficient",
+      reasons: ["original-sufficient"],
+      queueProxy: false,
+    });
+  });
+
+  it("queues unhealthy sources with explicit reasons and applies hysteresis", () => {
+    expect(
+      evaluateAdaptivePolicy({
+        ...healthy,
+        warmSeekP95Ms: 180,
+        deadlineMissRate: 0.08,
+        requestsCoalesced: 3,
+      }),
+    ).toMatchObject({
+      decision: "proxy-queued",
+      queueProxy: true,
+      reasons: [
+        "warm-seek-p95-over-budget",
+        "playback-deadline-miss-rate",
+        "request-backlog-sustained",
+      ],
+    });
+    expect(evaluateAdaptivePolicy({ ...healthy, proxyState: "ready" }).decision).toBe(
+      "proxy-ready",
+    );
+  });
+
+  it("does not queue a proxy without disk headroom", () => {
+    expect(
+      evaluateAdaptivePolicy({ ...healthy, warmSeekP95Ms: 200, diskHeadroomAvailable: false }),
+    ).toMatchObject({
+      decision: "observing",
+      queueProxy: false,
+      reasons: ["warm-seek-p95-over-budget", "insufficient-disk-headroom"],
+    });
   });
 });

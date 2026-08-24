@@ -9,7 +9,8 @@ import type { DerivedWorkerRequest, DerivedWorkerResponse } from "./derived-work
 interface ActiveJob {
   jobId: string;
   assetId: string;
-  writers: Partial<Record<"thumbnail" | "filmstrip", string>>;
+  kind: "perception" | "proxy";
+  writers: Partial<Record<DerivedArtifactKind, string>>;
 }
 
 export class MediaJobCoordinator {
@@ -19,6 +20,8 @@ export class MediaJobCoordinator {
   #active: ActiveJob | null = null;
   #unsubscribe: (() => void) | null = null;
   #destroyed = false;
+  #resumeTimer: ReturnType<typeof setTimeout> | null = null;
+  #foregroundPressure: "idle" | "hover-skimming" | "seeking" | "playing" = "idle";
   readonly #onSnapshot: (snapshot: DerivedMediaSnapshot) => void;
 
   constructor(project: Project, onSnapshot: (snapshot: DerivedMediaSnapshot) => void) {
@@ -57,6 +60,7 @@ export class MediaJobCoordinator {
   async destroy(): Promise<void> {
     if (this.#destroyed) return;
     this.#destroyed = true;
+    if (this.#resumeTimer) clearTimeout(this.#resumeTimer);
     this.#unsubscribe?.();
     this.#unsubscribe = null;
     if (this.#active) {
@@ -75,6 +79,31 @@ export class MediaJobCoordinator {
     this.#worker = null;
   }
 
+  setForegroundPressure(pressure: "idle" | "hover-skimming" | "seeking" | "playing"): void {
+    this.#foregroundPressure = pressure;
+    const active = this.#active;
+    if (!active || active.kind !== "proxy" || !this.#worker) return;
+    if (this.#resumeTimer) {
+      clearTimeout(this.#resumeTimer);
+      this.#resumeTimer = null;
+    }
+    if (pressure !== "idle") {
+      this.#worker.postMessage({
+        type: "proxy-pause",
+        jobId: active.jobId,
+      } satisfies DerivedWorkerRequest);
+      return;
+    }
+    this.#resumeTimer = setTimeout(() => {
+      if (this.#active?.jobId === active.jobId)
+        this.#worker?.postMessage({
+          type: "proxy-resume",
+          jobId: active.jobId,
+        } satisfies DerivedWorkerRequest);
+      this.#resumeTimer = null;
+    }, 750);
+  }
+
   #acceptSnapshot(snapshot: DerivedMediaSnapshot): void {
     if (this.#destroyed) return;
     this.#snapshot = snapshot;
@@ -89,13 +118,21 @@ export class MediaJobCoordinator {
       const derived = this.#snapshot!.assets[candidate.id];
       return derived?.thumbnail.state === "queued" || derived?.filmstrip.state === "queued";
     });
-    if (!asset) return;
+    if (!asset) {
+      const proxyAsset = this.#project.assets.find(
+        (candidate) =>
+          candidate.kind === "video" &&
+          this.#snapshot!.assets[candidate.id]?.proxy.state === "queued",
+      );
+      if (proxyAsset) await this.#startProxy(proxyAsset);
+      return;
+    }
     const record = this.#snapshot.assets[asset.id]!;
     const kinds = (["thumbnail", "filmstrip"] as const).filter(
       (kind) => record[kind].state === "queued",
     );
     const jobId = crypto.randomUUID();
-    const active: ActiveJob = { jobId, assetId: asset.id, writers: {} };
+    const active: ActiveJob = { jobId, assetId: asset.id, kind: "perception", writers: {} };
     this.#active = active;
     try {
       for (const kind of kinds) {
@@ -113,12 +150,80 @@ export class MediaJobCoordinator {
     }
   }
 
+  async #startProxy(asset: Asset): Promise<void> {
+    if (!this.#worker || this.#active) return;
+    const jobId = crypto.randomUUID();
+    const active: ActiveJob = { jobId, assetId: asset.id, kind: "proxy", writers: {} };
+    this.#active = active;
+    try {
+      const writer = await window.cinesim.beginDerivedWrite({
+        assetId: asset.id,
+        kind: "proxy",
+        profileId: "edit-1280",
+      });
+      active.writers.proxy = writer.writerId;
+      this.#worker.postMessage({
+        type: "proxy",
+        jobId,
+        assetId: asset.id,
+        width: asset.width ?? 1280,
+        height: asset.height ?? 720,
+        ...(asset.frameRate ? { frameRate: asset.frameRate } : {}),
+      } satisfies DerivedWorkerRequest);
+      this.setForegroundPressure(this.#foregroundPressure);
+    } catch {
+      await this.#failActive("proxy-start-failed");
+    }
+  }
+
   async #handleWorkerMessage(message: DerivedWorkerResponse): Promise<void> {
     const active = this.#active;
     if (!active || message.jobId !== active.jobId || this.#destroyed) return;
     if (message.type === "progress") {
       const writerId = active.writers[message.stage];
       if (writerId) await window.cinesim.updateDerivedProgress(writerId, message.progress);
+      return;
+    }
+    if (message.type === "proxy-progress") {
+      const writerId = active.writers.proxy;
+      if (writerId) await window.cinesim.updateDerivedProgress(writerId, message.progress);
+      return;
+    }
+    if (message.type === "proxy-chunk") {
+      const writerId = active.writers.proxy;
+      if (!writerId) return;
+      try {
+        await window.cinesim.writeDerivedChunk(
+          writerId,
+          message.offset,
+          new Uint8Array(message.data),
+        );
+        this.#worker?.postMessage({
+          type: "proxy-chunk-ack",
+          jobId: active.jobId,
+          chunkId: message.chunkId,
+        } satisfies DerivedWorkerRequest);
+      } catch (error) {
+        this.#worker?.postMessage({
+          type: "proxy-chunk-ack",
+          jobId: active.jobId,
+          chunkId: message.chunkId,
+          error: error instanceof Error ? error.message : "Proxy write failed",
+        } satisfies DerivedWorkerRequest);
+      }
+      return;
+    }
+    if (message.type === "proxy-complete") {
+      const writerId = active.writers.proxy;
+      if (!writerId) return;
+      try {
+        await window.cinesim.finalizeDerivedWrite(writerId, { bytes: message.bytes });
+        delete active.writers.proxy;
+        this.#active = null;
+        await this.#schedule();
+      } catch {
+        await this.#failActive("proxy-finalize-failed");
+      }
       return;
     }
     if (message.type === "failed") {

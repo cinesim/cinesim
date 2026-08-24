@@ -45,6 +45,7 @@ export function App() {
   const latestProjectRef = useRef(session?.project);
   const projectDirectory = session?.directory;
   const setDerivedMedia = useUiStore((state) => state.setDerivedMedia);
+  const foregroundPressure = useUiStore((state) => state.runtime?.foregroundPressure ?? "idle");
 
   useEffect(() => {
     localStorage.setItem("cinesim.agentsSidebarOpen", String(auxiliaryMode === "agents"));
@@ -97,6 +98,10 @@ export function App() {
   useEffect(() => {
     if (session) void mediaJobsRef.current?.updateProject(session.project);
   }, [session]);
+
+  useEffect(() => {
+    mediaJobsRef.current?.setForegroundPressure(foregroundPressure);
+  }, [foregroundPressure]);
 
   async function showProject(nextSession: DesktopProjectSession): Promise<void> {
     const nextAppState = await window.cinesim.getAppState();

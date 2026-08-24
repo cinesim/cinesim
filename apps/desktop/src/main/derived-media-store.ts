@@ -3,6 +3,7 @@ import { mkdir, open, readFile, rename, rm, stat, statfs, writeFile } from "node
 import type { FileHandle } from "node:fs/promises";
 import { dirname, join, relative, resolve, sep } from "node:path";
 import type { Asset, Project } from "@cinesim/core";
+import { evaluateAdaptivePolicy } from "@cinesim/engine";
 import type {
   BeginDerivedWrite,
   DerivedArtifactKind,
@@ -122,6 +123,8 @@ export class DerivedMediaStore {
   #listeners = new Set<(snapshot: DerivedMediaSnapshot) => void>();
   #operationQueue: Promise<unknown> = Promise.resolve();
   #latencies = new Map<string, number[]>();
+  #deadlines = new Map<string, { total: number; missed: number }>();
+  #diskHeadroomAvailable = false;
 
   async setProject(directory: string, project: Project): Promise<void> {
     await this.#serialize(async () => {
@@ -129,6 +132,7 @@ export class DerivedMediaStore {
       this.#directory = directory;
       this.#project = project;
       this.#latencies.clear();
+      this.#deadlines.clear();
       this.#index = await this.#readIndex(directory);
       let recovered = false;
       for (const record of Object.values(this.#index.assets)) {
@@ -142,6 +146,7 @@ export class DerivedMediaStore {
       }
       for (const asset of project.assets) await this.#ensureAsset(asset);
       await this.#refreshStorage();
+      for (const asset of project.assets) this.#applyAdaptiveDecision(asset.id);
       if (recovered)
         this.#log({ kind: "jobs-recovered", detail: "Interrupted jobs returned to the queue" });
       await this.#persist();
@@ -217,6 +222,8 @@ export class DerivedMediaStore {
   async beginWrite(input: BeginDerivedWrite): Promise<{ writerId: string }> {
     return this.#serialize(async () => {
       this.#validateWriteInput(input);
+      if (input.kind === "proxy" && !this.#diskHeadroomAvailable)
+        throw new Error("Insufficient disk headroom for a proxy");
       if (this.#writers.size >= MAX_WRITERS) throw new Error("Too many derived writers");
       const directory = this.#requireDirectory();
       const asset = this.#requireAsset(input.assetId);
@@ -309,6 +316,7 @@ export class DerivedMediaStore {
         detail: `${writer.kind} generated (${result.bytes} bytes)`,
       });
       await this.#refreshStorage();
+      this.#applyAdaptiveDecision(writer.assetId);
       await this.#evictIfNeeded();
       await this.#persist();
       this.#emit();
@@ -337,6 +345,7 @@ export class DerivedMediaStore {
       if (failureCode) artifact.failureCode = failureCode;
       else delete artifact.failureCode;
       artifact.updatedAt = new Date().toISOString();
+      this.#applyAdaptiveDecision(writer.assetId);
       await this.#persist();
       this.#emit();
     });
@@ -355,7 +364,7 @@ export class DerivedMediaStore {
       summary.requestsCoalesced += observation.requestsCoalesced ?? 0;
       summary.framesPresented += observation.framesPresented ?? 0;
       summary.framesObsolete += observation.framesObsolete ?? 0;
-      if (observation.latencyMs !== undefined) {
+      if (observation.latencyMs !== undefined && observation.operation === "hover-seek") {
         if (!Number.isFinite(observation.latencyMs) || observation.latencyMs < 0)
           throw new Error("Invalid media latency");
         const key = `${observation.assetId}:${observation.sourceKind}`;
@@ -366,6 +375,19 @@ export class DerivedMediaStore {
         summary.warmSeekP50Ms = percentile(values, 0.5)!;
         summary.warmSeekP95Ms = percentile(values, 0.95)!;
       }
+      if (observation.deadlineMiss !== undefined) {
+        const key = `${observation.assetId}:${observation.sourceKind}`;
+        const deadlines = this.#deadlines.get(key) ?? { total: 0, missed: 0 };
+        deadlines.total += 1;
+        deadlines.missed += Number(observation.deadlineMiss);
+        if (deadlines.total > 100) {
+          deadlines.total = Math.ceil(deadlines.total / 2);
+          deadlines.missed = Math.ceil(deadlines.missed / 2);
+        }
+        this.#deadlines.set(key, deadlines);
+        summary.deadlineMissRate = deadlines.missed / deadlines.total;
+      }
+      this.#applyAdaptiveDecision(observation.assetId);
       await this.#persist();
       this.#emit();
     });
@@ -486,6 +508,7 @@ export class DerivedMediaStore {
     const capacity = fileSystem.blocks * fileSystem.bsize;
     const available = fileSystem.bavail * fileSystem.bsize;
     const safetyReserveBytes = Math.max(2 * 1024 ** 3, Math.floor(capacity * 0.05));
+    this.#diskHeadroomAvailable = available > safetyReserveBytes + 512 * 1024 ** 2;
     const budgetBytes = Math.max(
       256 * 1024 ** 2,
       Math.min(20 * 1024 ** 3, Math.floor(Math.max(0, available - safetyReserveBytes) * 0.25)),
@@ -544,6 +567,32 @@ export class DerivedMediaStore {
       });
     }
     await this.#refreshStorage();
+  }
+
+  #applyAdaptiveDecision(assetId: string): void {
+    const record = this.#index.assets[assetId];
+    if (!record) return;
+    const result = evaluateAdaptivePolicy({
+      ...record.performance.original,
+      proxyState: record.proxy.state,
+      diskHeadroomAvailable:
+        this.#diskHeadroomAvailable &&
+        this.#index.storage.totalBytes < this.#index.storage.budgetBytes * 0.9,
+    });
+    const previousDecision = record.performance.decision;
+    const previousReasons = record.performance.reasons.join(",");
+    record.performance.decision = result.decision;
+    record.performance.reasons = result.reasons;
+    if (result.queueProxy && record.proxy.state === "missing") record.proxy.state = "queued";
+    if (
+      previousDecision !== record.performance.decision ||
+      previousReasons !== record.performance.reasons.join(",")
+    )
+      this.#log({
+        assetId,
+        kind: "adaptive-decision",
+        detail: `${record.performance.decision}: ${record.performance.reasons.join(", ")}`,
+      });
   }
 
   #validateWriteInput(input: BeginDerivedWrite): void {

@@ -105,4 +105,26 @@ describe("DerivedMediaStore", () => {
     expect(reopened.snapshot().assets.asset_fixture?.filmstrip.state).toBe("queued");
     expect(reopened.snapshot().decisionLog.at(-1)?.kind).toBe("jobs-recovered");
   });
+
+  it("queues a proxy only after repeated unhealthy warmed seeks", async () => {
+    const { directory, project } = await fixture("adaptive");
+    const store = new DerivedMediaStore();
+    await store.setProject(directory, project);
+    for (let index = 0; index < 5; index += 1) {
+      await store.reportPerformance({
+        assetId: "asset_fixture",
+        sourceKind: "original",
+        operation: "hover-seek",
+        latencyMs: 180 + index,
+        requestsReceived: 1,
+      });
+    }
+    expect(store.snapshot().assets.asset_fixture).toMatchObject({
+      proxy: { state: "queued" },
+      performance: {
+        decision: "proxy-queued",
+        reasons: ["warm-seek-p95-over-budget"],
+      },
+    });
+  });
 });

@@ -37,6 +37,7 @@ export function MetricsSidebar() {
   const metrics = useUiStore((state) => state.runtime);
   const derived = useUiStore((state) => state.derivedMedia);
   const artifacts = derived ? Object.values(derived.assets) : [];
+  const activeDerived = metrics?.activeAssetId ? derived?.assets[metrics.activeAssetId] : undefined;
   const readyCount = (kind: "thumbnail" | "filmstrip" | "proxy") =>
     artifacts.filter((asset) => asset[kind].state === "ready").length;
 
@@ -59,11 +60,11 @@ export function MetricsSidebar() {
           <MetricRow label="Source" value={metrics?.activeSourceKind ?? unavailable} />
           <MetricRow
             label="Adaptive decision"
-            value={
-              metrics?.activeAssetId
-                ? (derived?.assets[metrics.activeAssetId]?.performance.decision ?? unavailable)
-                : unavailable
-            }
+            value={activeDerived?.performance.decision ?? unavailable}
+          />
+          <MetricRow
+            label="Decision reason"
+            value={activeDerived?.performance.reasons.join(", ") || unavailable}
           />
           <MetricRow label="Background job" value={derived?.jobs.running ? "Running" : "None"} />
         </Section>
@@ -74,6 +75,22 @@ export function MetricsSidebar() {
           <MetricRow
             label="Seek latency"
             value={`${(metrics?.seekLatencyMs ?? 0).toFixed(1)} ms`}
+          />
+          <MetricRow
+            label="Original seek p95"
+            value={
+              activeDerived?.performance.original.warmSeekP95Ms === undefined
+                ? unavailable
+                : `${activeDerived.performance.original.warmSeekP95Ms.toFixed(1)} ms`
+            }
+          />
+          <MetricRow
+            label="Proxy seek p95"
+            value={
+              activeDerived?.performance.proxy?.warmSeekP95Ms === undefined
+                ? unavailable
+                : `${activeDerived.performance.proxy.warmSeekP95Ms.toFixed(1)} ms`
+            }
           />
           <MetricRow label="Dropped frames" value={metrics?.droppedFrames ?? 0} />
           <MetricRow label="Requests" value={metrics?.requestsReceived ?? 0} />
