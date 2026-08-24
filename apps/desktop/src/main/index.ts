@@ -1,6 +1,7 @@
 import { join } from "node:path";
 import { execFile } from "node:child_process";
 import { createReadStream } from "node:fs";
+import { monitorEventLoopDelay } from "node:perf_hooks";
 import { Readable } from "node:stream";
 import {
   app,
@@ -31,10 +32,12 @@ import { AgentManager } from "./agent-manager";
 import { detectProvider } from "./agent-provider-detection";
 import { AgentSettingsStore } from "./agent-settings-store";
 import { DesktopAppStateStore, parseEditorLayoutState } from "./app-state-store";
+import { electronHealthSnapshot } from "./electron-health";
 import { DesktopProjectStore } from "./project-store";
 
 const store = new DesktopProjectStore();
 const log = createCinesimLogger({ service: "desktop" });
+const mainEventLoopDelay = monitorEventLoopDelay({ resolution: 20 });
 const DERIVED_WORKER_STAGES = new Set<DerivedWorkerStage>([
   "scheduled",
   "input-opening",
@@ -545,6 +548,11 @@ function registerIpc(): void {
   );
   ipcMain.handle("command:execute", (_event, command: EditorCommand) => store.execute(command));
   ipcMain.handle("app-state:get", () => appState.snapshot());
+  ipcMain.handle("app:health", () => {
+    const eventLoopLagMs = mainEventLoopDelay.percentile(95) / 1_000_000;
+    mainEventLoopDelay.reset();
+    return electronHealthSnapshot(app.getAppMetrics(), eventLoopLagMs);
+  });
   ipcMain.handle("app-state:set-media-pool-open", async (_event, open: unknown) => {
     if (!store.directory || typeof open !== "boolean")
       throw new Error("Open a project before changing the Media Pool");
@@ -668,6 +676,7 @@ function registerIpc(): void {
 
 async function startApplication(): Promise<void> {
   await app.whenReady();
+  mainEventLoopDelay.enable();
   appState = new DesktopAppStateStore(join(app.getPath("userData"), "ui-state.json"));
   agentSettings = new AgentSettingsStore(join(app.getPath("userData"), "agent-settings.json"));
   await appState.load();

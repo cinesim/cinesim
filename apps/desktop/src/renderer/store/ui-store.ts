@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import type { ClipId, TimeUs } from "@cinesim/core";
 import type { RuntimeSnapshot } from "@cinesim/engine";
-import type { DerivedMediaSnapshot } from "../../shared/api";
+import type { DerivedMediaSnapshot, ElectronHealthSnapshot } from "../../shared/api";
 
 export type EditTool = "select" | "blade";
 
@@ -12,12 +12,14 @@ interface UiState {
   playheadUs: TimeUs;
   runtime: RuntimeSnapshot | null;
   derivedMedia: DerivedMediaSnapshot | null;
+  electronHealth: ElectronHealthSnapshot | null;
   selectClip: (id: ClipId | null) => void;
   setTimelineZoom: (zoom: number) => void;
   setTool: (tool: EditTool) => void;
   setPlayheadUs: (timeUs: TimeUs) => void;
   setRuntime: (runtime: RuntimeSnapshot) => void;
   setDerivedMedia: (snapshot: DerivedMediaSnapshot | null) => void;
+  setElectronHealth: (snapshot: ElectronHealthSnapshot | null) => void;
 }
 
 export const useUiStore = create<UiState>((set) => ({
@@ -27,6 +29,7 @@ export const useUiStore = create<UiState>((set) => ({
   playheadUs: 0,
   runtime: null,
   derivedMedia: null,
+  electronHealth: null,
   selectClip: (selectedClipId) => set({ selectedClipId }),
   setTimelineZoom: (timelineZoom) =>
     set({ timelineZoom: Math.min(4, Math.max(0.25, timelineZoom)) }),
@@ -34,4 +37,5 @@ export const useUiStore = create<UiState>((set) => ({
   setPlayheadUs: (playheadUs) => set({ playheadUs }),
   setRuntime: (runtime) => set({ runtime, playheadUs: runtime.timeUs }),
   setDerivedMedia: (derivedMedia) => set({ derivedMedia }),
+  setElectronHealth: (electronHealth) => set({ electronHealth }),
 }));

@@ -350,6 +350,24 @@ export interface DesktopAppState {
   editorLayoutsByProject: Record<string, EditorLayoutState>;
 }
 
+export type ElectronProcessGroupKind = "main" | "renderer" | "gpu" | "utility" | "other";
+
+export interface ElectronProcessGroupMetric {
+  cpuPercent: number;
+  memoryBytes: number;
+  processCount: number;
+}
+
+export interface ElectronHealthSnapshot {
+  sampledAt: string;
+  totalCpuPercent: number;
+  totalMemoryBytes: number;
+  processCount: number;
+  mainEventLoopLagMs: number;
+  rendererEventLoopLagMs: number | null;
+  processes: Record<ElectronProcessGroupKind, ElectronProcessGroupMetric>;
+}
+
 export interface DesktopApi {
   createProject(name: string): Promise<DesktopProjectSession | null>;
   openProject(): Promise<DesktopProjectSession | null>;
@@ -373,6 +391,7 @@ export interface DesktopApi {
   revealProject(): Promise<void>;
   getSession(): Promise<DesktopProjectSession | null>;
   getAppState(): Promise<DesktopAppState>;
+  getElectronHealthSnapshot(): Promise<ElectronHealthSnapshot>;
   setProjectMediaPoolOpen(open: boolean): Promise<DesktopAppState>;
   setProjectInspectorOpen(open: boolean): Promise<DesktopAppState>;
   setProjectNotesOpen(open: boolean): Promise<DesktopAppState>;

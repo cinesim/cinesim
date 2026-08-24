@@ -45,6 +45,7 @@ export function App() {
   const latestProjectRef = useRef(session?.project);
   const projectDirectory = session?.directory;
   const setDerivedMedia = useUiStore((state) => state.setDerivedMedia);
+  const setElectronHealth = useUiStore((state) => state.setElectronHealth);
   const foregroundPressure = useUiStore((state) => state.runtime?.foregroundPressure ?? "idle");
 
   useEffect(() => {
@@ -79,6 +80,39 @@ export function App() {
   }, []);
 
   useEffect(() => window.cinesim.onProjectChanged(setSession), []);
+
+  useEffect(() => {
+    let expectedProbeAt = performance.now() + 100;
+    let maximumRendererLagMs = 0;
+    let requestInFlight = false;
+    let destroyed = false;
+    const probe = window.setInterval(() => {
+      const now = performance.now();
+      maximumRendererLagMs = Math.max(maximumRendererLagMs, now - expectedProbeAt);
+      expectedProbeAt = now + 100;
+    }, 100);
+    const sample = async () => {
+      if (requestInFlight) return;
+      requestInFlight = true;
+      const rendererEventLoopLagMs = maximumRendererLagMs;
+      maximumRendererLagMs = 0;
+      try {
+        const snapshot = await window.cinesim.getElectronHealthSnapshot();
+        if (!destroyed) setElectronHealth({ ...snapshot, rendererEventLoopLagMs });
+      } catch {
+        if (!destroyed) setElectronHealth(null);
+      } finally {
+        requestInFlight = false;
+      }
+    };
+    void sample();
+    const sampler = window.setInterval(() => void sample(), 1_000);
+    return () => {
+      destroyed = true;
+      window.clearInterval(probe);
+      window.clearInterval(sampler);
+    };
+  }, [setElectronHealth]);
 
   useEffect(() => {
     const project = latestProjectRef.current;
