@@ -104,6 +104,9 @@ function ClipBlock({
   const previewClip = trimPreviewClip(trimGesture) ?? clip;
   const name = asset?.name ?? clip.assetId;
   const preparationLabel = derivedAsset ? prepStatus(derivedAsset, derived) : null;
+  const isAudioComponent = clip.mediaKind === "audio" || track.kind === "audio";
+  const carriesLegacyEmbeddedAudio =
+    clip.mediaKind === undefined && track.kind !== "audio" && asset?.hasAudio === true;
   const left = (previewRange?.timelineStartUs ?? clip.timelineStartUs) * pixelsPerUs;
   const width = Math.max(
     18,
@@ -202,7 +205,7 @@ function ClipBlock({
         height: Math.max(32, trackHeight - 8),
       }}
     >
-      {asset?.kind === "video" && derived && derivedAsset && (
+      {asset?.kind === "video" && !isAudioComponent && derived && derivedAsset && (
         <TimelineFilmstrip
           asset={asset}
           clip={previewClip}
@@ -215,7 +218,7 @@ function ClipBlock({
       {asset &&
         derived &&
         derivedAsset?.waveform.state === "ready" &&
-        (asset.kind === "audio" || asset.hasAudio === true) && (
+        (isAudioComponent || carriesLegacyEmbeddedAudio || asset.kind === "audio") && (
           <TimelineWaveform
             asset={asset}
             clip={previewClip}
@@ -234,7 +237,7 @@ function ClipBlock({
         <span
           className={cn(
             "clip-texture pointer-events-none absolute inset-0",
-            asset?.kind === "video" ? "opacity-15" : "opacity-40",
+            asset?.kind === "video" && !isAudioComponent ? "opacity-15" : "opacity-40",
           )}
         />
         <span className="relative ml-1.5 mt-1 block w-fit max-w-[75%] truncate rounded-sm bg-black/35 px-1.5 py-0.5 text-ui-xs font-medium text-white shadow-sm">
@@ -342,7 +345,9 @@ function TimelineTrackRow({
     id: `track:${track.id}`,
     data: { kind: "timeline-track", trackId: track.id },
   });
-  const trackProposal = proposal?.trackId === track.id ? proposal : null;
+  const trackProposal =
+    proposal?.trackId === track.id || proposal?.audioTrackId === track.id ? proposal : null;
+  const isAudioProposal = trackProposal?.audioTrackId === track.id;
   const proposalAsset = trackProposal ? assets.get(trackProposal.assetId) : undefined;
   const proposalWidth = trackProposal
     ? Math.max(18, (trackProposal.timelineEndUs - trackProposal.timelineStartUs) * pixelsPerUs)
@@ -372,7 +377,7 @@ function TimelineTrackRow({
           derived={derived}
           derivedAsset={derived?.assets[clip.assetId]}
           pixelsPerUs={pixelsPerUs}
-          selected={selectedClipId === clip.id}
+          selected={selectedClipId === clip.id || selectedClipId === clip.linkedClipId}
           onCommand={onCommand}
           trackHeight={trackHeight}
           frameRate={frameRate}
@@ -394,16 +399,28 @@ function TimelineTrackRow({
             height: Math.max(32, trackHeight - 8),
           }}
         >
-          {proposalAsset?.kind === "video" && derived?.assets[proposalAsset.id] && (
-            <TimelineFilmstrip
-              asset={proposalAsset}
-              clip={{ sourceStartUs: 0, sourceEndUs: proposalAsset.durationUs }}
-              record={derived.assets[proposalAsset.id]!}
-              derived={derived}
-              width={proposalWidth}
-              height={Math.max(32, trackHeight - 8)}
-            />
-          )}
+          {proposalAsset?.kind === "video" &&
+            !isAudioProposal &&
+            derived?.assets[proposalAsset.id] && (
+              <TimelineFilmstrip
+                asset={proposalAsset}
+                clip={{ sourceStartUs: 0, sourceEndUs: proposalAsset.durationUs }}
+                record={derived.assets[proposalAsset.id]!}
+                derived={derived}
+                width={proposalWidth}
+                height={Math.max(32, trackHeight - 8)}
+              />
+            )}
+          {proposalAsset &&
+            isAudioProposal &&
+            derived?.assets[proposalAsset.id]?.waveform.state === "ready" && (
+              <TimelineWaveform
+                asset={proposalAsset}
+                clip={{ sourceStartUs: 0, sourceEndUs: proposalAsset.durationUs }}
+                artifact={derived.assets[proposalAsset.id]!.waveform}
+                derived={derived}
+              />
+            )}
           <span className="relative block w-fit max-w-[80%] truncate rounded-sm bg-black/35 px-1 text-ui-xs font-medium text-white">
             {proposalAsset?.name ?? trackProposal.assetId}
           </span>

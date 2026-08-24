@@ -126,6 +126,70 @@ describe("editing commands", () => {
     expect(nextId("clip", ["clip_000002"])).toBe("clip_000003");
   });
 
+  it("keeps linked video and audio components synchronized through edits", () => {
+    let project = seededProject();
+    const add = applyCommand(project, {
+      type: "clip.add",
+      trackId: "track_000001",
+      audioTrackId: "track_000002",
+      assetId: asset.id,
+      timelineStartUs: 0,
+    });
+    project = add.project;
+    expect(add.createdIds).toEqual(["clip_000001", "clip_000002"]);
+    expect(findClip(project, "clip_000001").clip).toMatchObject({
+      mediaKind: "video",
+      linkedClipId: "clip_000002",
+    });
+    expect(findClip(project, "clip_000002").clip).toMatchObject({
+      mediaKind: "audio",
+      linkedClipId: "clip_000001",
+    });
+
+    project = applyCommand(project, {
+      type: "clip.move",
+      clipId: "clip_000002",
+      timelineStartUs: 1_000_000,
+    }).project;
+    expect(findClip(project, "clip_000001").clip.timelineStartUs).toBe(1_000_000);
+    expect(findClip(project, "clip_000002").clip.timelineStartUs).toBe(1_000_000);
+
+    project = applyCommand(project, {
+      type: "clip.trimStart",
+      clipId: "clip_000001",
+      atUs: 2_000_000,
+    }).project;
+    expect(findClip(project, "clip_000001").clip.sourceStartUs).toBe(1_000_000);
+    expect(findClip(project, "clip_000002").clip.sourceStartUs).toBe(1_000_000);
+
+    project = applyCommand(project, {
+      type: "clip.split",
+      clipId: "clip_000001",
+      atUs: 5_000_000,
+    }).project;
+    expect(findClip(project, "clip_000003").clip.linkedClipId).toBe("clip_000004");
+    expect(findClip(project, "clip_000004").clip.linkedClipId).toBe("clip_000003");
+
+    project = applyCommand(project, { type: "clip.remove", clipId: "clip_000004" }).project;
+    expect(() => findClip(project, "clip_000003")).toThrow(/not found/);
+    expect(() => findClip(project, "clip_000004")).toThrow(/not found/);
+  });
+
+  it("adds linked components as one undoable command", () => {
+    const project = seededProject();
+    const history = new ProjectHistory(project);
+    history.commit({
+      type: "clip.add",
+      trackId: "track_000001",
+      audioTrackId: "track_000002",
+      assetId: asset.id,
+      timelineStartUs: 0,
+    });
+    expect(history.project.sequences[0]!.tracks.flatMap((track) => track.clips)).toHaveLength(2);
+    expect(history.undo().sequences[0]!.tracks.flatMap((track) => track.clips)).toHaveLength(0);
+    expect(history.redo().sequences[0]!.tracks.flatMap((track) => track.clips)).toHaveLength(2);
+  });
+
   it("moves and trims clips in integer microseconds", () => {
     let project = withClip();
     project = applyCommand(project, {

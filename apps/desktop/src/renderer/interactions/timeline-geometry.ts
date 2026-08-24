@@ -4,6 +4,7 @@ import {
   findClip,
   getSequence,
   isAssetCompatibleWithTrack,
+  isAssetMediaCompatibleWithTrack,
 } from "@cinesim/core";
 import type { Asset, ClipId, EditorCommand, Project, TimeUs, TrackId } from "@cinesim/core";
 
@@ -14,10 +15,11 @@ export interface TimelineDropProposal {
   assetId: Asset["id"];
   clipId?: ClipId;
   trackId: TrackId;
+  audioTrackId?: TrackId;
   timelineStartUs: TimeUs;
   timelineEndUs: TimeUs;
   valid: boolean;
-  reason?: "incompatible-track" | "locked-track" | "overlap";
+  reason?: "incompatible-track" | "locked-track" | "overlap" | "audio-track-unavailable";
   snapped: boolean;
 }
 
@@ -61,11 +63,15 @@ export function snapTimelineTime(
 
 export function timelineSnapCandidates(project: Project, ignoredClipId?: ClipId): TimeUs[] {
   const sequence = getSequence(project);
+  const linkedClipId = ignoredClipId
+    ? sequence.tracks.flatMap((track) => track.clips).find((clip) => clip.id === ignoredClipId)
+        ?.linkedClipId
+    : undefined;
   return [
     0,
     ...sequence.tracks.flatMap((track) =>
       track.clips
-        .filter((clip) => clip.id !== ignoredClipId)
+        .filter((clip) => clip.id !== ignoredClipId && clip.id !== linkedClipId)
         .flatMap((clip) => [clip.timelineStartUs, clipEndUs(clip)]),
     ),
   ].toSorted((left, right) => left - right);
@@ -78,10 +84,15 @@ function validation(
   startUs: TimeUs,
   endUs: TimeUs,
   ignoredClipId?: ClipId,
+  mediaKind?: "video" | "audio",
 ): Pick<TimelineDropProposal, "valid" | "reason"> {
   const track = getSequence(project).tracks.find((candidate) => candidate.id === trackId);
-  if (!track || !isAssetCompatibleWithTrack(asset.kind, track.kind))
-    return { valid: false, reason: "incompatible-track" };
+  const compatible =
+    track &&
+    (mediaKind
+      ? isAssetMediaCompatibleWithTrack(asset, mediaKind, track.kind)
+      : isAssetCompatibleWithTrack(asset.kind, track.kind));
+  if (!track || !compatible) return { valid: false, reason: "incompatible-track" };
   if (track.locked) return { valid: false, reason: "locked-track" };
   if (
     track.clips.some(
@@ -119,6 +130,7 @@ export function commandForTimelineDrop(
       trackId: proposal.trackId,
       assetId: input.assetId,
       timelineStartUs: proposal.timelineStartUs,
+      ...(proposal.audioTrackId ? { audioTrackId: proposal.audioTrackId } : {}),
     };
   }
   if (input.clipId !== proposal.clipId || isNoopClipMove(project, proposal)) return null;
@@ -147,13 +159,30 @@ export function proposeAssetDrop(
     options.snapToleranceUs ?? 0,
   );
   const timelineEndUs = snapped.timeUs + asset.durationUs;
+  const primaryValidation = validation(project, trackId, asset, snapped.timeUs, timelineEndUs);
+  const audioTrack =
+    asset.kind === "video" && asset.hasAudio === true
+      ? sequence.tracks.find(
+          (track) =>
+            track.kind === "audio" &&
+            !track.locked &&
+            !track.clips.some(
+              (clip) => snapped.timeUs < clipEndUs(clip) && timelineEndUs > clip.timelineStartUs,
+            ),
+        )
+      : null;
+  const requiresAudioTrack = asset.kind === "video" && asset.hasAudio === true;
   return {
     kind: "asset",
     assetId,
     trackId,
     timelineStartUs: snapped.timeUs,
     timelineEndUs,
-    ...validation(project, trackId, asset, snapped.timeUs, timelineEndUs),
+    ...primaryValidation,
+    ...(audioTrack ? { audioTrackId: audioTrack.id } : {}),
+    ...(primaryValidation.valid && requiresAudioTrack && !audioTrack
+      ? { valid: false, reason: "audio-track-unavailable" as const }
+      : {}),
     snapped: snapped.snapped,
   };
 }
@@ -181,6 +210,28 @@ export function proposeClipMove(
     options.snapToleranceUs ?? 0,
   );
   const timelineEndUs = snapped.timeUs + clipDurationUs(location.clip);
+  const primaryValidation = validation(
+    project,
+    trackId,
+    asset,
+    snapped.timeUs,
+    timelineEndUs,
+    clipId,
+    location.clip.mediaKind,
+  );
+  const linked = location.clip.linkedClipId ? findClip(project, location.clip.linkedClipId) : null;
+  const deltaUs = snapped.timeUs - location.clip.timelineStartUs;
+  const linkedValidation = linked
+    ? validation(
+        project,
+        linked.track.id,
+        asset,
+        linked.clip.timelineStartUs + deltaUs,
+        clipEndUs(linked.clip) + deltaUs,
+        linked.clip.id,
+        linked.clip.mediaKind,
+      )
+    : null;
   return {
     kind: "clip",
     assetId: asset.id,
@@ -188,7 +239,7 @@ export function proposeClipMove(
     trackId,
     timelineStartUs: snapped.timeUs,
     timelineEndUs,
-    ...validation(project, trackId, asset, snapped.timeUs, timelineEndUs, clipId),
+    ...(primaryValidation.valid && linkedValidation ? linkedValidation : primaryValidation),
     snapped: snapped.snapped,
   };
 }

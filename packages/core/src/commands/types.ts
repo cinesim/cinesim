@@ -26,6 +26,8 @@ export type EditorCommand =
       sourceStartUs?: TimeUs;
       sourceEndUs?: TimeUs;
       transform?: Partial<Transform>;
+      /** Adds the embedded audio as a reciprocal linked clip in one command. */
+      audioTrackId?: TrackId;
     }
   | { type: "clip.remove"; clipId: ClipId }
   | { type: "clip.move"; clipId: ClipId; timelineStartUs: TimeUs; trackId?: TrackId }

@@ -330,6 +330,10 @@ export class AgentMcpServer {
         description: "Add an asset to a timeline track through a canonical command.",
         inputSchema: {
           trackId: z.string().regex(/^track_/),
+          audioTrackId: z
+            .string()
+            .regex(/^track_/)
+            .optional(),
           assetId: z.string().regex(/^asset_/),
           timelineStartUs: z.number().int().nonnegative(),
           sourceStartUs: z.number().int().nonnegative().optional(),
@@ -345,6 +349,9 @@ export class AgentMcpServer {
             execute({
               type: "clip.add",
               trackId: input.trackId as TrackId,
+              ...(input.audioTrackId === undefined
+                ? {}
+                : { audioTrackId: input.audioTrackId as TrackId }),
               assetId: input.assetId as AssetId,
               timelineStartUs: input.timelineStartUs,
               ...(input.sourceStartUs === undefined ? {} : { sourceStartUs: input.sourceStartUs }),

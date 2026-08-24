@@ -665,14 +665,28 @@ describe("PlaybackRuntime transport", () => {
   it("opens the resolver's canonical original source for playback audio", async () => {
     const audibleAsset: Asset = { ...asset, hasAudio: true };
     const openedUrls: string[] = [];
+    let scheduleCalls = 0;
     const audioScheduler: PlaybackAudioScheduler = {
       startTransport: () => undefined,
-      schedule: async () => undefined,
+      schedule: async () => {
+        scheduleCalls += 1;
+      },
       resume: async () => undefined,
       stop: () => undefined,
       destroy: async () => undefined,
     };
-    const runtime = new PlaybackRuntime(timelineProject(audibleAsset), compositor([]), {
+    const pairedProject = applyCommand(createProject({ name: "Paired transport", frameRate: 30 }), {
+      type: "asset.import",
+      asset: audibleAsset,
+    }).project;
+    const project = applyCommand(pairedProject, {
+      type: "clip.add",
+      trackId: pairedProject.sequences[0]!.tracks[0]!.id,
+      audioTrackId: pairedProject.sequences[0]!.tracks[1]!.id,
+      assetId: audibleAsset.id,
+      timelineStartUs: 0,
+    }).project;
+    const runtime = new PlaybackRuntime(project, compositor([]), {
       now: () => 0,
       scheduleFrame: () => 1,
       cancelFrame: () => undefined,
@@ -716,6 +730,7 @@ describe("PlaybackRuntime transport", () => {
     expect(openedUrls).toContain("cinesim-media://proxy/scoped/asset_000001");
     expect(openedUrls).toContain("cinesim-media://asset/scoped/asset_000001?epoch=current");
     expect(openedUrls).not.toContain("cinesim-media://asset/asset_000001");
+    expect(scheduleCalls).toBe(1);
     runtime.destroy();
   });
 

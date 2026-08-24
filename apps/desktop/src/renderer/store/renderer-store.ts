@@ -381,11 +381,21 @@ export function createRendererStore({ api, storage }: RendererStoreDependencies)
           set({ operationError: error });
           return { ok: false, error };
         }
+        const audioTrack =
+          asset.kind === "video" && asset.hasAudio === true
+            ? sequence.tracks.find((candidate) => candidate.kind === "audio" && !candidate.locked)
+            : null;
+        if (asset.kind === "video" && asset.hasAudio === true && !audioTrack) {
+          const error = "The timeline has no unlocked audio track for the linked audio clip";
+          set({ operationError: error });
+          return { ok: false, error };
+        }
         return get().execute({
           type: "clip.add",
           trackId: track.id,
           assetId: asset.id,
           timelineStartUs: sequenceDurationUs(sequence),
+          ...(audioTrack ? { audioTrackId: audioTrack.id } : {}),
         });
       },
 

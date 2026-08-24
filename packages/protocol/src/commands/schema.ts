@@ -42,6 +42,7 @@ export const editorCommandSchema = z.discriminatedUnion("type", [
     sourceStartUs: timeUs.optional(),
     sourceEndUs: timeUs.optional(),
     transform: transformSchema.partial().optional(),
+    audioTrackId: trackId.optional(),
   }),
   z.object({ type: z.literal("clip.remove"), clipId }),
   z.object({

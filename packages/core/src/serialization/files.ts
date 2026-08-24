@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { isAssetCompatibleWithTrack } from "../project/types";
+import { isAssetCompatibleWithTrack, isAssetMediaCompatibleWithTrack } from "../project/types";
 import type { Asset, Project, ProjectSettings, Sequence } from "../project/types";
 import { assetSchema, sequenceSchema, settingsSchema } from "./schema";
 
@@ -87,7 +87,10 @@ export function joinProjectFiles(
       for (const clip of track.clips) {
         const asset = assetsById.get(clip.assetId);
         if (!asset) throw new Error(`Clip ${clip.id} references missing asset ${clip.assetId}`);
-        if (!isAssetCompatibleWithTrack(asset.kind, track.kind)) {
+        const compatible = clip.mediaKind
+          ? isAssetMediaCompatibleWithTrack(asset as Asset, clip.mediaKind, track.kind)
+          : isAssetCompatibleWithTrack(asset.kind, track.kind);
+        if (!compatible) {
           throw new Error(
             `Clip ${clip.id} has incompatible ${asset.kind} media on ${track.kind} track ${track.id}`,
           );
@@ -96,6 +99,25 @@ export function joinProjectFiles(
           throw new Error(`Clip ${clip.id} has an invalid source range`);
       }
     }
+  }
+  const clipsById = new Map(
+    timeline.sequences.flatMap((sequence) =>
+      sequence.tracks.flatMap((track) => track.clips.map((clip) => [clip.id, clip] as const)),
+    ),
+  );
+  for (const clip of clipsById.values()) {
+    if (!clip.linkedClipId) continue;
+    const linked = clipsById.get(clip.linkedClipId);
+    if (!linked || linked.linkedClipId !== clip.id)
+      throw new Error(`Clip ${clip.id} has a missing or non-reciprocal link`);
+    if (
+      linked.assetId !== clip.assetId ||
+      linked.timelineStartUs !== clip.timelineStartUs ||
+      linked.sourceStartUs !== clip.sourceStartUs ||
+      linked.sourceEndUs !== clip.sourceEndUs ||
+      linked.mediaKind === clip.mediaKind
+    )
+      throw new Error(`Clip ${clip.id} has an invalid linked component`);
   }
   return canonicalizeProject({
     version: 1,

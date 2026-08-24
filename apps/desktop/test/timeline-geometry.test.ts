@@ -52,6 +52,23 @@ describe("timeline interaction geometry", () => {
     });
   });
 
+  it("proposes one atomic linked A/V add across video and audio tracks", () => {
+    const project = fixture();
+    const videoTrack = project.sequences[0]!.tracks[0]!;
+    const audioTrack = project.sequences[0]!.tracks[1]!;
+    const proposal = proposeAssetDrop(project, video.id, videoTrack.id, 0)!;
+    expect(proposal).toMatchObject({ valid: true, audioTrackId: audioTrack.id });
+    expect(commandForTimelineDrop(project, { kind: "asset", assetId: video.id }, proposal)).toEqual(
+      {
+        type: "clip.add",
+        trackId: videoTrack.id,
+        audioTrackId: audioTrack.id,
+        assetId: video.id,
+        timelineStartUs: 0,
+      },
+    );
+  });
+
   it("reports collisions while preserving the full proposed duration", () => {
     let project = fixture();
     const videoTrack = project.sequences[0]!.tracks[0]!;

@@ -85,7 +85,7 @@ export function TimelineWaveform({
   derived,
 }: {
   asset: Asset;
-  clip: Clip;
+  clip: Pick<Clip, "sourceStartUs" | "sourceEndUs">;
   artifact: DerivedArtifactSnapshot;
   derived: DerivedMediaSnapshot;
 }) {

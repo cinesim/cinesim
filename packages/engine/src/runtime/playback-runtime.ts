@@ -1,4 +1,10 @@
-import { DEFAULT_TRANSFORM, clipEndUs, getSequence, sequenceDurationUs } from "@cinesim/core";
+import {
+  DEFAULT_TRANSFORM,
+  clipCarriesAudio,
+  clipEndUs,
+  getSequence,
+  sequenceDurationUs,
+} from "@cinesim/core";
 import type { AssetId, Project, TimeUs } from "@cinesim/core";
 import type { PreviewCompositor } from "../compositor/webgpu-compositor";
 import { MediabunnyWebCodecsSource } from "../media/mediabunny-source";
@@ -671,7 +677,13 @@ export class PlaybackRuntime {
   }
 
   #hasAudibleContent(): boolean {
-    return this.#project.assets.some((asset) => asset.hasAudio);
+    const assets = new Map(this.#project.assets.map((asset) => [asset.id, asset]));
+    return getSequence(this.#project).tracks.some((track) =>
+      track.clips.some((clip) => {
+        const asset = assets.get(clip.assetId);
+        return asset ? clipCarriesAudio(asset, clip, track) : false;
+      }),
+    );
   }
 
   #restartAudio(timeUs: TimeUs): void {
@@ -716,7 +728,12 @@ export class PlaybackRuntime {
         if (track.muted) continue;
         for (const clip of track.clips) {
           const asset = assets.get(clip.assetId);
-          if (!asset?.hasAudio || clipEndUs(clip) <= fromUs || clip.timelineStartUs >= toUs)
+          if (
+            !asset ||
+            !clipCarriesAudio(asset, clip, track) ||
+            clipEndUs(clip) <= fromUs ||
+            clip.timelineStartUs >= toUs
+          )
             continue;
           const timelineFromUs = Math.max(fromUs, clip.timelineStartUs);
           const timelineToUs = Math.min(toUs, clipEndUs(clip));
