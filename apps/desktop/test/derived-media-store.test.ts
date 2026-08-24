@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -58,10 +58,13 @@ describe("DerivedMediaStore", () => {
     });
     expect(JSON.stringify(snapshot)).not.toContain(directory);
     expect(JSON.stringify(snapshot)).not.toContain("relativePath");
+    const indexPath = join(directory, ".video", "cache", "media-intelligence.json");
+    const indexBeforeRead = await stat(indexPath);
     const artifactFile = await store.artifactFile("thumbnail", "asset_fixture");
     expect(artifactFile).toMatchObject({ size: 4, mimeType: "image/jpeg" });
     expect(artifactFile.path.startsWith(join(directory, ".video"))).toBe(true);
     expect([...(await readFile(artifactFile.path))]).toEqual([10, 20, 30, 40]);
+    expect((await stat(indexPath)).ino).toBe(indexBeforeRead.ino);
   });
 
   it("validates writer bounds, ownership, and final sizes", async () => {
@@ -112,6 +115,22 @@ describe("DerivedMediaStore", () => {
     await expect(
       readFile(join(first.directory, ".video", "cache", "media-intelligence.json"), "utf8"),
     ).resolves.toContain('"thumbnail"');
+  });
+
+  it("reuses a prepared index without rewriting unchanged project state", async () => {
+    const { directory, project } = await fixture("prepared-open");
+    const original = new DerivedMediaStore();
+    await original.setProject(directory, project);
+    const indexPath = join(directory, ".video", "cache", "media-intelligence.json");
+    const before = await stat(indexPath);
+
+    const store = new DerivedMediaStore();
+    const prepared = await store.prepareProject(directory);
+    await store.setProject(directory, project, prepared);
+    await store.requestJobs([]);
+
+    const after = await stat(indexPath);
+    expect(after.ino).toBe(before.ino);
   });
 
   it("recovers interrupted jobs as queued after project open", async () => {

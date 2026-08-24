@@ -96,20 +96,64 @@ export class DesktopProjectStore {
   }
 
   async open(directory: string): Promise<DesktopProjectSession> {
+    const requestedAt = performance.now();
     return this.#serialize(async () => {
-      const manifest = await readJson(join(directory, PROJECT_FILES.manifest));
-      const assets = await readJson(join(directory, PROJECT_FILES.assets));
-      const timeline = await readJson(join(directory, PROJECT_FILES.timeline));
-      const settings = settingsFromToml(
-        await readFile(join(directory, PROJECT_FILES.settings), "utf8"),
+      const startedAt = performance.now();
+      const operationId = crypto.randomUUID();
+      log.info(
+        { operationId, operation: "project-open", queueWaitMs: startedAt - requestedAt },
+        "project open started",
       );
-      this.#directory = directory;
-      this.#history = new ProjectHistory(joinProjectFiles(manifest, assets, timeline));
-      this.#settings = settings;
-      this.#revision += 1;
-      await this.#ensureLayout();
-      await this.derivedMedia.setProject(directory, this.#history.project);
-      return this.session();
+      try {
+        const readsStartedAt = performance.now();
+        const [manifest, assets, timeline, settingsSource, preparedDerived] = await Promise.all([
+          readJson(join(directory, PROJECT_FILES.manifest)),
+          readJson(join(directory, PROJECT_FILES.assets)),
+          readJson(join(directory, PROJECT_FILES.timeline)),
+          readFile(join(directory, PROJECT_FILES.settings), "utf8"),
+          this.derivedMedia.prepareProject(directory),
+        ]);
+        const readDurationMs = performance.now() - readsStartedAt;
+        const settings = settingsFromToml(settingsSource);
+        this.#directory = directory;
+        this.#history = new ProjectHistory(joinProjectFiles(manifest, assets, timeline));
+        this.#settings = settings;
+        this.#revision += 1;
+        const layoutStartedAt = performance.now();
+        await this.#ensureLayout();
+        const layoutDurationMs = performance.now() - layoutStartedAt;
+        const derivedStartedAt = performance.now();
+        await this.derivedMedia.setProject(directory, this.#history.project, preparedDerived);
+        const derivedDurationMs = performance.now() - derivedStartedAt;
+        const session = this.session();
+        log.info(
+          {
+            operationId,
+            operation: "project-open",
+            projectId: session.project.id,
+            projectRevision: session.revision,
+            queueWaitMs: startedAt - requestedAt,
+            readDurationMs,
+            layoutDurationMs,
+            derivedDurationMs,
+            durationMs: performance.now() - startedAt,
+          },
+          "project open completed",
+        );
+        return session;
+      } catch (error) {
+        log.error(
+          {
+            err: error,
+            operationId,
+            operation: "project-open",
+            queueWaitMs: startedAt - requestedAt,
+            durationMs: performance.now() - startedAt,
+          },
+          "project open failed",
+        );
+        throw error;
+      }
     });
   }
 
