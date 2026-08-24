@@ -51,6 +51,7 @@ export function MetricsSidebar() {
   const [activeTab, setActiveTab] = useState<MetricsTab>("overview");
   const metrics = useUiStore((state) => state.runtime);
   const derived = useUiStore((state) => state.derivedMedia);
+  const electronHealth = useUiStore((state) => state.electronHealth);
   const artifacts = derived ? Object.values(derived.assets) : [];
   const background = derived?.runtime;
   const activeJob = background?.activeJob;
@@ -60,15 +61,27 @@ export function MetricsSidebar() {
   const readyCount = (kind: "thumbnail" | "filmstrip" | "proxy") =>
     artifacts.filter((asset) => asset[kind].state === "ready").length;
   const liveSample = useMemo<LiveMetricValues | null>(() => {
-    if (!metrics && !background) return null;
+    if (!metrics && !background && !electronHealth) return null;
+    const healthProcesses = electronHealth?.processes;
     return {
       renderFps: metrics?.renderFps ?? 0,
       targetFps: metrics?.targetFps ?? 0,
       seekLatencyMs: metrics?.seekLatencyMs ?? 0,
       gpuSubmitCpuMs: metrics?.gpuSubmitCpuMs ?? 0,
       protocolLatencyMs: background?.protocol.lastLatencyMs ?? 0,
+      mainCpuPercent: healthProcesses?.main.cpuPercent ?? 0,
+      rendererCpuPercent: healthProcesses?.renderer.cpuPercent ?? 0,
+      gpuCpuPercent: healthProcesses?.gpu.cpuPercent ?? 0,
+      utilityCpuPercent: healthProcesses?.utility.cpuPercent ?? 0,
+      mainMemoryMb: (healthProcesses?.main.memoryBytes ?? 0) / 1024 ** 2,
+      rendererMemoryMb: (healthProcesses?.renderer.memoryBytes ?? 0) / 1024 ** 2,
+      gpuMemoryMb: (healthProcesses?.gpu.memoryBytes ?? 0) / 1024 ** 2,
+      utilityMemoryMb: (healthProcesses?.utility.memoryBytes ?? 0) / 1024 ** 2,
+      mainEventLoopLagMs: electronHealth?.mainEventLoopLagMs ?? 0,
+      rendererEventLoopLagMs: electronHealth?.rendererEventLoopLagMs ?? 0,
+      eventLoopBudgetMs: 16.7,
     };
-  }, [background, metrics]);
+  }, [background, electronHealth, metrics]);
   const liveHistory = useLiveMetricHistory(liveSample);
 
   useEffect(() => {
@@ -141,6 +154,26 @@ export function MetricsSidebar() {
             </Section>
             <Section icon={<Image size={13} />} title="At a glance">
               <MetricRow
+                label="App CPU"
+                value={
+                  electronHealth ? `${electronHealth.totalCpuPercent.toFixed(1)}%` : unavailable
+                }
+              />
+              <MetricRow
+                label="App memory"
+                value={
+                  electronHealth ? formatByteCount(electronHealth.totalMemoryBytes) : unavailable
+                }
+              />
+              <MetricRow
+                label="UI delay"
+                value={
+                  electronHealth?.rendererEventLoopLagMs === null || !electronHealth
+                    ? unavailable
+                    : `${electronHealth.rendererEventLoopLagMs.toFixed(1)} ms`
+                }
+              />
+              <MetricRow
                 label="Thumbnails"
                 value={`${readyCount("thumbnail")}/${artifacts.length}`}
               />
@@ -166,11 +199,11 @@ export function MetricsSidebar() {
                 minimumMaximum={60}
                 samples={liveHistory}
                 series={[
-                  { key: "renderFps", label: "Render", color: "var(--ui-text)" },
+                  { key: "renderFps", label: "Render", color: "var(--metric-blue)" },
                   {
                     key: "targetFps",
                     label: "Target",
-                    color: "var(--ui-text-muted)",
+                    color: "var(--metric-amber)",
                     dashed: true,
                   },
                 ]}
@@ -332,7 +365,97 @@ export function MetricsSidebar() {
 
         {activeTab === "system" && (
           <>
+            <Section icon={<Activity size={13} />} title="App performance">
+              <MetricRow
+                label="Total CPU"
+                value={
+                  electronHealth ? `${electronHealth.totalCpuPercent.toFixed(1)}%` : unavailable
+                }
+              />
+              <MetricRow
+                label="Working-set memory"
+                value={
+                  electronHealth ? formatByteCount(electronHealth.totalMemoryBytes) : unavailable
+                }
+              />
+              <MetricRow label="Processes" value={electronHealth?.processCount ?? unavailable} />
+              <MetricRow
+                label="Renderer loop p95"
+                value={
+                  electronHealth?.rendererEventLoopLagMs === null || !electronHealth
+                    ? unavailable
+                    : `${electronHealth.rendererEventLoopLagMs.toFixed(1)} ms`
+                }
+              />
+              <MetricRow
+                label="Main loop p95"
+                value={
+                  electronHealth
+                    ? `${electronHealth.mainEventLoopLagMs.toFixed(1)} ms`
+                    : unavailable
+                }
+              />
+            </Section>
             <ChartSection>
+              <LiveMetricChart
+                title="Event-loop delay"
+                description="Scheduling delay in Electron main and renderer. Lower is better."
+                unit="ms"
+                minimumMaximum={50}
+                samples={liveHistory}
+                series={[
+                  {
+                    key: "rendererEventLoopLagMs",
+                    label: "Renderer",
+                    color: "var(--metric-blue)",
+                  },
+                  {
+                    key: "mainEventLoopLagMs",
+                    label: "Main",
+                    color: "var(--metric-amber)",
+                  },
+                  {
+                    key: "eventLoopBudgetMs",
+                    label: "Frame budget",
+                    color: "var(--ui-text-muted)",
+                    dashed: true,
+                  },
+                ]}
+              />
+              <LiveMetricChart
+                title="CPU by process"
+                description="Combined Electron process CPU; totals may exceed 100% on multicore systems."
+                unit="%"
+                minimumMaximum={100}
+                samples={liveHistory}
+                series={[
+                  { key: "rendererCpuPercent", label: "Renderer", color: "var(--metric-blue)" },
+                  { key: "mainCpuPercent", label: "Main", color: "var(--metric-amber)" },
+                  { key: "gpuCpuPercent", label: "GPU", color: "var(--metric-violet)" },
+                  { key: "utilityCpuPercent", label: "Utility", color: "var(--metric-green)" },
+                ]}
+              />
+              <LiveMetricChart
+                title="Memory by process"
+                description="Physical working-set memory held by each Electron process group."
+                unit="MB"
+                minimumMaximum={512}
+                samples={liveHistory}
+                series={[
+                  {
+                    key: "rendererMemoryMb",
+                    label: "Renderer",
+                    color: "var(--metric-blue)",
+                  },
+                  { key: "mainMemoryMb", label: "Main", color: "var(--metric-amber)" },
+                  { key: "gpuMemoryMb", label: "GPU", color: "var(--metric-violet)" },
+                  {
+                    key: "utilityMemoryMb",
+                    label: "Utility",
+                    color: "var(--metric-green)",
+                  },
+                ]}
+              />
               <LiveMetricChart
                 title="GPU submission"
                 description="CPU time spent submitting composed frames to WebGPU. Lower is better."

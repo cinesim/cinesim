@@ -6,6 +6,17 @@ export interface LiveMetricValues {
   seekLatencyMs: number;
   gpuSubmitCpuMs: number;
   protocolLatencyMs: number;
+  mainCpuPercent: number;
+  rendererCpuPercent: number;
+  gpuCpuPercent: number;
+  utilityCpuPercent: number;
+  mainMemoryMb: number;
+  rendererMemoryMb: number;
+  gpuMemoryMb: number;
+  utilityMemoryMb: number;
+  mainEventLoopLagMs: number;
+  rendererEventLoopLagMs: number;
+  eventLoopBudgetMs: number;
 }
 
 interface LiveMetricSample extends LiveMetricValues {

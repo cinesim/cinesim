@@ -45,6 +45,10 @@
   --ui-clip-text: var(--gray-12);
   --ui-clip-text-muted: var(--gray-11);
   --ui-playhead: var(--gray-12);
+  --metric-blue: #2563eb;
+  --metric-amber: #d97706;
+  --metric-violet: #9333ea;
+  --metric-green: #059669;
   --ui-font-size-compact: 11px;
   --ui-font-size-body: 13px;
   --ui-font-size-heading: 20px;
@@ -78,6 +82,10 @@
     --ui-clip-video: var(--gray-7);
     --ui-clip-audio: var(--gray-5);
     --ui-clip-border: var(--gray-10);
+    --metric-blue: #60a5fa;
+    --metric-amber: #fbbf24;
+    --metric-violet: #c084fc;
+    --metric-green: #34d399;
   }
 }
 

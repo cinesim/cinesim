@@ -1,7 +1,6 @@
 import { join } from "node:path";
 import { execFile } from "node:child_process";
 import { createReadStream } from "node:fs";
-import { monitorEventLoopDelay } from "node:perf_hooks";
 import { Readable } from "node:stream";
 import {
   app,
@@ -37,7 +36,6 @@ import { DesktopProjectStore } from "./project-store";
 
 const store = new DesktopProjectStore();
 const log = createCinesimLogger({ service: "desktop" });
-const mainEventLoopDelay = monitorEventLoopDelay({ resolution: 20 });
 const DERIVED_WORKER_STAGES = new Set<DerivedWorkerStage>([
   "scheduled",
   "input-opening",
@@ -59,6 +57,27 @@ let agentSettings: AgentSettingsStore;
 let agents: AgentManager;
 let quitReady = false;
 let shutdown: Promise<void> | null = null;
+let mainEventLoopProbe: NodeJS.Timeout | null = null;
+let mainEventLoopExpectedAt = 0;
+let mainEventLoopLagSamples: number[] = [];
+let healthSamplingLogged = false;
+
+function startMainEventLoopProbe(): void {
+  mainEventLoopExpectedAt = performance.now() + 100;
+  mainEventLoopProbe = setInterval(() => {
+    const now = performance.now();
+    mainEventLoopLagSamples.push(Math.max(0, now - mainEventLoopExpectedAt));
+    if (mainEventLoopLagSamples.length > 20) mainEventLoopLagSamples.shift();
+    mainEventLoopExpectedAt = now + 100;
+  }, 100);
+  mainEventLoopProbe.unref();
+}
+
+function takeMainEventLoopP95(): number {
+  const sorted = mainEventLoopLagSamples.toSorted((left, right) => left - right);
+  mainEventLoopLagSamples = [];
+  return sorted[Math.max(0, Math.ceil(sorted.length * 0.95) - 1)] ?? 0;
+}
 
 function isProvider(value: unknown): value is AgentProviderKind {
   return value === "claude" || value === "codex";
@@ -549,9 +568,21 @@ function registerIpc(): void {
   ipcMain.handle("command:execute", (_event, command: EditorCommand) => store.execute(command));
   ipcMain.handle("app-state:get", () => appState.snapshot());
   ipcMain.handle("app:health", () => {
-    const eventLoopLagMs = mainEventLoopDelay.percentile(95) / 1_000_000;
-    mainEventLoopDelay.reset();
-    return electronHealthSnapshot(app.getAppMetrics(), eventLoopLagMs);
+    const snapshot = electronHealthSnapshot(app.getAppMetrics(), takeMainEventLoopP95());
+    if (!healthSamplingLogged) {
+      healthSamplingLogged = true;
+      log.info(
+        {
+          operation: "electron-health-sampling",
+          processCount: snapshot.processCount,
+          processGroups: Object.fromEntries(
+            Object.entries(snapshot.processes).map(([kind, group]) => [kind, group.processCount]),
+          ),
+        },
+        "Electron health sampling started",
+      );
+    }
+    return snapshot;
   });
   ipcMain.handle("app-state:set-media-pool-open", async (_event, open: unknown) => {
     if (!store.directory || typeof open !== "boolean")
@@ -676,7 +707,7 @@ function registerIpc(): void {
 
 async function startApplication(): Promise<void> {
   await app.whenReady();
-  mainEventLoopDelay.enable();
+  startMainEventLoopProbe();
   appState = new DesktopAppStateStore(join(app.getPath("userData"), "ui-state.json"));
   agentSettings = new AgentSettingsStore(join(app.getPath("userData"), "agent-settings.json"));
   await appState.load();
@@ -734,6 +765,10 @@ app.on("window-all-closed", () => {
 });
 
 app.on("before-quit", (event) => {
+  if (mainEventLoopProbe) {
+    clearInterval(mainEventLoopProbe);
+    mainEventLoopProbe = null;
+  }
   if (quitReady || !agents) return;
   event.preventDefault();
   shutdown ??= agents

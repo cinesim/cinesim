@@ -83,27 +83,29 @@ export function App() {
 
   useEffect(() => {
     let expectedProbeAt = performance.now() + 100;
-    let maximumRendererLagMs = 0;
+    let rendererLagSamples: number[] = [];
     let requestInFlight = false;
     let destroyed = false;
     const probe = window.setInterval(() => {
       const now = performance.now();
-      maximumRendererLagMs = Math.max(maximumRendererLagMs, now - expectedProbeAt);
+      rendererLagSamples.push(Math.max(0, now - expectedProbeAt));
+      if (rendererLagSamples.length > 20) rendererLagSamples.shift();
       expectedProbeAt = now + 100;
     }, 100);
     const sample = async () => {
       if (requestInFlight) return;
       requestInFlight = true;
-      const rendererEventLoopLagMs = maximumRendererLagMs;
-      maximumRendererLagMs = 0;
+      const sortedLagSamples = rendererLagSamples.toSorted((left, right) => left - right);
+      const rendererEventLoopLagMs =
+        sortedLagSamples[Math.max(0, Math.ceil(sortedLagSamples.length * 0.95) - 1)] ?? 0;
+      rendererLagSamples = [];
       try {
         const snapshot = await window.cinesim.getElectronHealthSnapshot();
         if (!destroyed) setElectronHealth({ ...snapshot, rendererEventLoopLagMs });
       } catch {
         if (!destroyed) setElectronHealth(null);
-      } finally {
-        requestInFlight = false;
       }
+      requestInFlight = false;
     };
     void sample();
     const sampler = window.setInterval(() => void sample(), 1_000);
