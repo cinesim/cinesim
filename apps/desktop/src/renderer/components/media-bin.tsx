@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Clock3, Film, Search } from "lucide-react";
-import { Button } from "@cinesim/ui";
+import { Clock3, Film } from "lucide-react";
+import { Button, Kbd, PaneHeader, PreviewCard, SearchField } from "@cinesim/ui";
 import { sequenceDurationUs } from "@cinesim/core";
 import type { Asset, Project } from "@cinesim/core";
 import { formatDuration } from "../lib/format";
 import { useRendererStore } from "../store/renderer-store-context";
-import { LibraryCard, LibraryGrid } from "./library-card";
+import { LibraryGrid } from "./library-card";
 import { MediaSkimSurface } from "./media-skim-surface";
 
 interface MediaBinProps {
@@ -54,31 +54,26 @@ export function MediaBin({ project, onOpenTimeline }: MediaBinProps) {
 
   return (
     <section className="flex h-full min-h-0 flex-col bg-canvas">
-      <div className="flex h-14 shrink-0 items-center gap-3 border-b border-border px-5">
-        <div className="flex h-8 min-w-52 max-w-sm flex-1 items-center gap-2 rounded-md border border-border bg-panel px-2.5 text-muted">
-          <Search size={13} />
-          <input
-            className="min-w-0 flex-1 bg-transparent text-ui text-secondary outline-none placeholder:text-muted"
-            placeholder="Search media and timelines"
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-          />
-        </div>
+      <PaneHeader size="lg" className="gap-3">
+        <SearchField
+          className="min-w-52 max-w-sm flex-1"
+          placeholder="Search media and timelines"
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+        />
         <span className="ml-auto text-ui-xs text-muted">
           {project.sequences.length + project.assets.length} items
         </span>
         <Button onClick={() => void importMedia()}>
           Import media
-          <kbd className="ml-1 rounded border border-border-strong bg-panel-muted px-1 py-0.5 text-[10px] font-medium text-muted">
-            {modifier}I
-          </kbd>
+          <Kbd className="ml-1 px-1">{modifier}I</Kbd>
         </Button>
-      </div>
+      </PaneHeader>
 
       <div className="min-h-0 flex-1 overflow-y-auto px-5 py-6">
         <LibraryGrid>
           {sequences.map((sequence) => (
-            <LibraryCard
+            <PreviewCard
               key={sequence.id}
               badge="Timeline"
               ariaLabel={`Open ${sequence.name}`}
@@ -96,11 +91,11 @@ export function MediaBin({ project, onOpenTimeline }: MediaBinProps) {
               <p className="mt-1 flex items-center gap-1 text-ui-xs text-muted">
                 <Clock3 size={11} /> {sequence.frameRate} fps · {sequence.width} × {sequence.height}
               </p>
-            </LibraryCard>
+            </PreviewCard>
           ))}
 
           {assets.map((asset) => (
-            <LibraryCard
+            <PreviewCard
               key={asset.id}
               badge={asset.kind}
               ariaLabel={`Add ${asset.name} to the active timeline`}
@@ -118,7 +113,7 @@ export function MediaBin({ project, onOpenTimeline }: MediaBinProps) {
                 {asset.name}
               </p>
               <p className="mt-1 truncate text-ui-xs text-muted tabular-nums">{asset.id}</p>
-            </LibraryCard>
+            </PreviewCard>
           ))}
 
           {normalizedQuery && sequences.length === 0 && assets.length === 0 && (

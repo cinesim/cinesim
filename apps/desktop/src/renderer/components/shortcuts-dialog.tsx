@@ -1,4 +1,5 @@
 import { X } from "lucide-react";
+import { Dialog, DialogClose, DialogContent, DialogHeader, DialogTitle, Kbd } from "@cinesim/ui";
 
 interface ShortcutsDialogProps {
   open: boolean;
@@ -12,13 +13,7 @@ interface ShortcutRow {
   scope?: string;
 }
 
-export function ShortcutHint({ children }: { children: React.ReactNode }) {
-  return (
-    <kbd className="rounded border border-border-strong bg-panel-muted px-1.5 py-0.5 text-[10px] font-medium text-muted shadow-sm">
-      {children}
-    </kbd>
-  );
-}
+export const ShortcutHint = Kbd;
 
 export function ShortcutsDialog({ open, isMac, onClose }: ShortcutsDialogProps) {
   if (!open) return null;
@@ -55,31 +50,14 @@ export function ShortcutsDialog({ open, isMac, onClose }: ShortcutsDialogProps) 
   ];
 
   return (
-    <div className="fixed inset-0 z-[100] grid place-items-center p-6">
-      <button
-        className="absolute inset-0 bg-black/55 backdrop-blur-[2px]"
-        aria-label="Close keyboard shortcuts"
-        onClick={onClose}
-      />
-      <dialog
-        open
-        className="relative m-0 w-full max-w-lg overflow-hidden rounded-xl border border-border-strong bg-panel p-0 text-primary shadow-2xl shadow-black/40"
-        aria-modal="true"
-        aria-labelledby="shortcuts-title"
-      >
-        <header className="flex h-12 items-center border-b border-border px-4">
-          <h2 id="shortcuts-title" className="text-ui font-semibold text-primary">
-            Keyboard shortcuts
-          </h2>
-          <button
-            className="ml-auto grid size-8 place-items-center rounded-md text-muted hover:bg-surface hover:text-primary"
-            aria-label="Close keyboard shortcuts"
-            autoFocus
-            onClick={onClose}
-          >
+    <Dialog open={open} onOpenChange={(nextOpen) => !nextOpen && onClose()}>
+      <DialogContent className="max-w-lg">
+        <DialogHeader>
+          <DialogTitle>Keyboard shortcuts</DialogTitle>
+          <DialogClose className="ml-auto" aria-label="Close keyboard shortcuts">
             <X size={15} />
-          </button>
-        </header>
+          </DialogClose>
+        </DialogHeader>
         <div className="grid gap-5 p-4">
           {groups.map((group) => (
             <section key={group.title}>
@@ -102,7 +80,7 @@ export function ShortcutsDialog({ open, isMac, onClose }: ShortcutsDialogProps) 
             </section>
           ))}
         </div>
-      </dialog>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }

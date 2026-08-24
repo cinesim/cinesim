@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef } from "react";
 import { DndContext, PointerSensor, useDraggable, useSensor, useSensors } from "@dnd-kit/core";
 import type { DragEndEvent } from "@dnd-kit/core";
 import { Scissors, MousePointer2, Trash2, ZoomIn, ZoomOut, Lock, VolumeX } from "lucide-react";
-import { Button, cn } from "@cinesim/ui";
+import { Button, cn, PaneHeader, Separator } from "@cinesim/ui";
 import { clipDurationUs, findClip, getSequence, sequenceDurationUs } from "@cinesim/core";
 import type { Clip, EditorCommand, Project, Track } from "@cinesim/core";
 import {
@@ -196,7 +196,7 @@ export function Timeline({ project, onCommand, onSeek }: TimelineProps) {
 
   return (
     <section className="flex min-h-0 flex-col bg-panel-muted">
-      <div className="flex h-10 shrink-0 items-center gap-1 border-b border-border px-2">
+      <PaneHeader size="sm" className="gap-1">
         <Button
           size="icon"
           variant={tool === "select" ? "secondary" : "ghost"}
@@ -213,7 +213,7 @@ export function Timeline({ project, onCommand, onSeek }: TimelineProps) {
         >
           <Scissors size={14} />
         </Button>
-        <span className="mx-1 h-4 w-px bg-border" />
+        <Separator orientation="vertical" className="mx-1 h-4 self-auto" />
         <Button
           size="icon"
           variant="ghost"
@@ -269,7 +269,7 @@ export function Timeline({ project, onCommand, onSeek }: TimelineProps) {
         >
           <ZoomIn size={13} />
         </Button>
-      </div>
+      </PaneHeader>
       <div className="grid min-h-0 flex-1 grid-cols-[84px_1fr] overflow-hidden">
         <div className="z-20 border-r border-border bg-panel pt-6">
           {sequence.tracks.map((track) => (

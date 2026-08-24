@@ -1,4 +1,12 @@
 import { SlidersHorizontal } from "lucide-react";
+import {
+  Empty,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyIcon,
+  EmptyTitle,
+  SectionHeading,
+} from "@cinesim/ui";
 import { findClip } from "@cinesim/core";
 import type { Project } from "@cinesim/core";
 import { formatDuration } from "../lib/format";
@@ -71,15 +79,15 @@ export function Inspector({ project }: { project: Project }) {
             </InspectorGroup>
           </div>
         ) : (
-          <div className="grid h-44 place-items-center text-center">
-            <span>
-              <SlidersHorizontal className="mx-auto mb-2 text-disabled" size={21} />
-              <span className="block text-ui text-muted">Select a clip</span>
-              <span className="mt-1 block text-ui-xs text-muted">
-                Its timing and transform will appear here
-              </span>
-            </span>
-          </div>
+          <Empty className="h-44">
+            <EmptyHeader>
+              <EmptyIcon className="mb-2">
+                <SlidersHorizontal size={21} />
+              </EmptyIcon>
+              <EmptyTitle>Select a clip</EmptyTitle>
+              <EmptyDescription>Its timing and transform will appear here</EmptyDescription>
+            </EmptyHeader>
+          </Empty>
         )}
       </div>
     </aside>
@@ -89,9 +97,7 @@ export function Inspector({ project }: { project: Project }) {
 function InspectorGroup({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <section>
-      <h3 className="mb-2 border-b border-border pb-2 text-ui-xs font-semibold uppercase tracking-[0.12em] text-muted">
-        {title}
-      </h3>
+      <SectionHeading className="mb-2 border-b border-border pb-2">{title}</SectionHeading>
       <div className="space-y-1.5">{children}</div>
     </section>
   );

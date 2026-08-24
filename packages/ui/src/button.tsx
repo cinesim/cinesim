@@ -16,7 +16,9 @@ const buttonVariants = cva(
       size: {
         sm: "h-7 px-2 text-ui-xs",
         md: "h-8 px-2.5",
+        "icon-sm": "size-7 p-0",
         icon: "size-8 p-0",
+        "icon-lg": "size-9 p-0",
       },
     },
     defaultVariants: { variant: "secondary", size: "md" },
@@ -26,9 +28,15 @@ const buttonVariants = cva(
 export interface ButtonProps extends Omit<ComponentProps<typeof BaseButton>, "className"> {
   className?: string;
   variant?: "primary" | "secondary" | "ghost" | "danger";
-  size?: "sm" | "md" | "icon";
+  size?: "sm" | "md" | "icon-sm" | "icon" | "icon-lg";
 }
 
 export function Button({ className, variant, size, ...props }: ButtonProps) {
-  return <BaseButton className={cn(buttonVariants({ variant, size }), className)} {...props} />;
+  return (
+    <BaseButton
+      data-slot="button"
+      className={cn(buttonVariants({ variant, size }), className)}
+      {...props}
+    />
+  );
 }

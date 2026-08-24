@@ -10,7 +10,7 @@ import {
   SlidersHorizontal,
   Settings as SettingsIcon,
 } from "lucide-react";
-import { cn } from "@cinesim/ui";
+import { Button, cn, Separator, Tooltip, TooltipContent, TooltipTrigger } from "@cinesim/ui";
 import type { DesktopAppState, DesktopProjectSession } from "../../shared/api";
 import { usePersistentSidebarWidth } from "../hooks/use-persistent-sidebar-width";
 import { ProjectBreadcrumb } from "./project-breadcrumb";
@@ -216,7 +216,7 @@ export function AppShell({
                   <ShortcutHint>{isMac ? "⌘⇧H" : "Ctrl+⇧H"}</ShortcutHint>
                 </span>
               </SidebarButton>
-              <div className="my-2 h-px bg-border" />
+              <Separator className="my-2" />
               <p className="px-2.5 pb-2 pt-1 text-ui-xs font-semibold uppercase tracking-[0.12em] text-muted">
                 Settings
               </p>
@@ -278,14 +278,22 @@ export function AppShell({
               <SettingsIcon size={15} /> Settings
             </SidebarButton>
           </div>
-          <button
-            className="grid size-9 shrink-0 place-items-center rounded-md text-muted transition-colors hover:bg-surface hover:text-primary"
-            aria-label="Keyboard shortcuts"
-            title={isMac ? "Keyboard shortcuts (⌘/)" : "Keyboard shortcuts (Ctrl+/)"}
-            onClick={() => setShortcutsOpen(true)}
-          >
-            <Keyboard size={15} />
-          </button>
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <Button
+                  className="shrink-0"
+                  size="icon-lg"
+                  variant="ghost"
+                  aria-label="Keyboard shortcuts"
+                  onClick={() => setShortcutsOpen(true)}
+                />
+              }
+            >
+              <Keyboard size={15} />
+            </TooltipTrigger>
+            <TooltipContent>Keyboard shortcuts ({isMac ? "⌘/" : "Ctrl+/"})</TooltipContent>
+          </Tooltip>
         </div>
 
         <div
@@ -296,17 +304,19 @@ export function AppShell({
 
       <div className="relative flex min-w-0 flex-1 flex-col">
         <header className="app-drag relative flex h-12 shrink-0 items-center justify-center border-b border-border bg-panel px-3">
-          <button
+          <Button
             className={cn(
-              "no-drag absolute top-2 grid size-8 place-items-center rounded-md text-muted hover:bg-surface hover:text-primary",
+              "no-drag absolute top-2",
               sidebarOpen ? "left-2" : isMac ? "left-[76px]" : "left-2",
             )}
+            size="icon"
+            variant="ghost"
             aria-label={sidebarOpen ? "Collapse sidebar" : "Open sidebar"}
             title={`${sidebarOpen ? "Collapse" : "Open"} sidebar (${isMac ? "⌘B" : "Ctrl+B"})`}
             onClick={() => setSidebarOpen((open) => !open)}
           >
             {sidebarOpen ? <ChevronLeft size={17} /> : <ChevronRight size={17} />}
-          </button>
+          </Button>
           {leadingToolbar && (
             <div
               className={cn(

@@ -8,7 +8,23 @@ import {
   Settings,
   Trash2,
 } from "lucide-react";
-import { cn } from "@cinesim/ui";
+import {
+  cn,
+  Empty,
+  EmptyActions,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyIcon,
+  EmptyTitle,
+  Menu,
+  MenuContent,
+  MenuItem,
+  MenuSeparator,
+  MenuTrigger,
+  Notice,
+  PaneHeader,
+  Skeleton,
+} from "@cinesim/ui";
 import type {
   AgentProviderKind,
   AgentProviderStatus,
@@ -59,26 +75,23 @@ export function AgentsSidebar({ session, onConfigure }: AgentsSidebarProps) {
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="relative flex h-12 shrink-0 items-center gap-2 border-b border-border px-2.5">
+      <PaneHeader className="relative gap-2 px-2.5">
         {activeSession ? (
-          <details className="sidebar-project-menu min-w-0 flex-1">
-            <summary className="flex h-8 list-none items-center gap-2 rounded-md px-2 text-ui hover:bg-surface">
+          <Menu>
+            <MenuTrigger className="flex h-8 min-w-0 flex-1 items-center gap-2 rounded-md px-2 text-left text-ui hover:bg-surface">
               <StatusDot status={activeSession.status} />
               <span className="min-w-0 flex-1 truncate font-medium">{activeSession.title}</span>
               <ChevronDown size={13} className="text-muted" />
-            </summary>
-            <div className="absolute left-2 right-12 top-12 z-30 max-h-64 overflow-y-auto rounded-lg border border-border bg-panel p-1 shadow-xl shadow-black/15">
+            </MenuTrigger>
+            <MenuContent className="max-h-64 w-64 max-w-[calc(100vw-1rem)]" sideOffset={8}>
               {snapshot.sessions.map((agent) => (
-                <button
+                <MenuItem
                   key={agent.id}
                   className={cn(
-                    "flex w-full items-center gap-2 rounded-md px-2 py-2 text-left text-ui hover:bg-surface",
+                    "min-h-0 px-2 py-2 text-ui",
                     agent.id === activeSession.id && "bg-surface",
                   )}
-                  onClick={(event) => {
-                    event.currentTarget.closest("details")?.removeAttribute("open");
-                    void selectAgent(agent.id);
-                  }}
+                  onClick={() => void selectAgent(agent.id)}
                 >
                   <StatusDot status={agent.status} />
                   <span className="min-w-0 flex-1">
@@ -87,10 +100,10 @@ export function AgentsSidebar({ session, onConfigure }: AgentsSidebarProps) {
                       {providerLabel(agent.provider)} · {agent.model}
                     </span>
                   </span>
-                </button>
+                </MenuItem>
               ))}
-            </div>
-          </details>
+            </MenuContent>
+          </Menu>
         ) : (
           <span className="min-w-0 flex-1 px-2 text-ui text-muted">No agent selected</span>
         )}
@@ -107,22 +120,21 @@ export function AgentsSidebar({ session, onConfigure }: AgentsSidebarProps) {
             <Trash2 size={13} />
           </button>
         )}
-        <button
-          className="grid size-8 place-items-center rounded-md text-muted hover:bg-surface hover:text-primary"
-          aria-label="New agent"
-          title="New agent"
-          onClick={() => setCreating((open) => !open)}
-        >
-          <Plus size={15} />
-        </button>
-        {creating && (
-          <div className="absolute right-2 top-12 z-40 w-52 rounded-lg border border-border bg-panel p-1 shadow-xl shadow-black/15">
+        <Menu open={creating} onOpenChange={setCreating}>
+          <MenuTrigger
+            className="grid size-8 place-items-center rounded-md text-muted hover:bg-surface hover:text-primary"
+            aria-label="New agent"
+            title="New agent"
+          >
+            <Plus size={15} />
+          </MenuTrigger>
+          <MenuContent className="w-52" align="end" sideOffset={8}>
             {AGENT_PROVIDER_KINDS.map((provider) => {
               const status = providers.find((candidate) => candidate.provider === provider);
               return (
-                <button
+                <MenuItem
                   key={provider}
-                  className="flex w-full items-center gap-2 rounded-md px-2 py-2 text-left text-ui hover:bg-surface disabled:opacity-50"
+                  className="py-2 text-ui"
                   disabled={status?.state !== "connected" || busy}
                   onClick={() => void create(provider)}
                 >
@@ -133,20 +145,23 @@ export function AgentsSidebar({ session, onConfigure }: AgentsSidebarProps) {
                   ) : (
                     <CircleAlert size={13} className="text-muted" />
                   )}
-                </button>
+                </MenuItem>
               );
             })}
             {availableProviders.length === 0 && (
-              <button
-                className="mt-1 flex w-full items-center gap-2 border-t border-border px-2 py-2 text-left text-ui text-secondary hover:text-primary"
-                onClick={onConfigure}
-              >
-                <Settings size={14} /> Configure agents…
-              </button>
+              <>
+                <MenuSeparator />
+                <MenuItem
+                  className="py-2 text-ui text-secondary hover:text-primary"
+                  onClick={onConfigure}
+                >
+                  <Settings size={14} /> Configure agents…
+                </MenuItem>
+              </>
             )}
-          </div>
-        )}
-      </div>
+          </MenuContent>
+        </Menu>
+      </PaneHeader>
 
       {!activeSession ? (
         <EmptyAgentState
@@ -166,11 +181,7 @@ export function AgentsSidebar({ session, onConfigure }: AgentsSidebarProps) {
             }
             onRevert={(turnId) => void revertTurn(activeSession.id, turnId)}
           />
-          {error && (
-            <p className="mx-3 mb-2 rounded-md border border-border bg-panel-muted px-2.5 py-2 text-ui-xs text-secondary">
-              {error}
-            </p>
-          )}
+          {error && <Notice className="mx-3 mb-2">{error}</Notice>}
           <AgentComposer
             session={activeSession}
             value={composer}
@@ -197,13 +208,13 @@ export function AgentsSidebar({ session, onConfigure }: AgentsSidebarProps) {
 function AgentsLoadingState({ error }: { error: string | null }) {
   return (
     <div className="flex h-full min-h-0 flex-col" aria-busy={!error}>
-      <div className="flex h-12 shrink-0 items-center gap-2 border-b border-border px-4">
-        <span className="size-2 animate-pulse rounded-full bg-surface-active" />
-        <span className="h-3 w-28 animate-pulse rounded bg-surface-active" />
+      <PaneHeader className="gap-2 px-4">
+        <Skeleton className="size-2 rounded-full" tone="active" />
+        <Skeleton className="h-3 w-28" tone="active" />
         <span className="min-w-0 flex-1" />
-        <span className="size-7 animate-pulse rounded-md bg-surface" />
-        <span className="size-7 animate-pulse rounded-md bg-surface" />
-      </div>
+        <Skeleton className="size-7 rounded-md" />
+        <Skeleton className="size-7 rounded-md" />
+      </PaneHeader>
 
       <div className="grid min-h-0 flex-1 place-items-center px-6 text-center">
         {error ? (
@@ -233,11 +244,11 @@ function AgentsLoadingState({ error }: { error: string | null }) {
           />
           <div className="mt-2 flex items-center justify-between gap-2">
             <div className="flex items-center gap-2">
-              <span className="h-2.5 w-16 animate-pulse rounded bg-surface-active" />
-              <span className="h-2.5 w-10 animate-pulse rounded bg-surface" />
+              <Skeleton className="h-2.5 w-16" tone="active" />
+              <Skeleton className="h-2.5 w-10" />
             </div>
             <div className="flex items-center gap-2">
-              <span className="size-4 animate-pulse rounded-full border border-border-strong" />
+              <Skeleton className="size-4 rounded-full border border-border-strong bg-transparent" />
               <button
                 className="grid size-7 place-items-center rounded-md bg-surface text-disabled"
                 aria-label="Send message"
@@ -275,42 +286,40 @@ function EmptyAgentState({
   const preferred =
     connected.find((provider) => provider.provider === defaultProvider) ?? connected[0];
   return (
-    <div className="grid min-h-0 flex-1 place-items-center p-5 text-center">
-      <div className="max-w-56">
-        <span className="mx-auto grid size-10 place-items-center rounded-xl border border-border bg-panel-muted text-muted">
+    <Empty className="min-h-0 p-5">
+      <EmptyHeader className="max-w-56">
+        <EmptyIcon className="size-10 rounded-xl border border-border bg-panel-muted text-muted">
           {preferred ? <ProviderIcon provider={preferred.provider} size={18} /> : <Bot size={18} />}
-        </span>
-        <p className="mt-3 text-ui font-medium text-primary">
+        </EmptyIcon>
+        <EmptyTitle className="mt-3 font-medium text-primary">
           {preferred ? "Start a project agent" : "Configure an agent provider"}
-        </p>
-        <p className="mt-1 text-ui-xs leading-4 text-muted">
+        </EmptyTitle>
+        <EmptyDescription className="leading-4">
           {preferred
             ? `${providerLabel(preferred.provider)} will work with the open Cinesim project through validated tools.`
             : "Cinesim could not find a connected Claude Code or Codex installation."}
-        </p>
-        {error && (
-          <p className="mt-3 rounded-md border border-border bg-panel-muted px-2.5 py-2 text-ui-xs leading-4 text-secondary">
-            {error}
-          </p>
-        )}
-        {preferred ? (
-          <button
-            className="mt-4 h-8 rounded-md bg-accent px-3 text-ui font-medium text-on-accent hover:bg-accent-hover disabled:opacity-50"
-            disabled={busy}
-            onClick={() => onCreate(preferred.provider)}
-          >
-            New {providerLabel(preferred.provider)} agent
-          </button>
-        ) : (
-          <button
-            className="mt-4 inline-flex h-8 items-center gap-2 rounded-md border border-border bg-panel px-3 text-ui text-primary hover:bg-surface"
-            onClick={onConfigure}
-          >
-            <Settings size={14} /> Open agent settings
-          </button>
-        )}
-      </div>
-    </div>
+        </EmptyDescription>
+        {error && <Notice className="mt-3">{error}</Notice>}
+        <EmptyActions className="mt-0">
+          {preferred ? (
+            <button
+              className="mt-4 h-8 rounded-md bg-accent px-3 text-ui font-medium text-on-accent hover:bg-accent-hover disabled:opacity-50"
+              disabled={busy}
+              onClick={() => onCreate(preferred.provider)}
+            >
+              New {providerLabel(preferred.provider)} agent
+            </button>
+          ) : (
+            <button
+              className="mt-4 inline-flex h-8 items-center gap-2 rounded-md border border-border bg-panel px-3 text-ui text-primary hover:bg-surface"
+              onClick={onConfigure}
+            >
+              <Settings size={14} /> Open agent settings
+            </button>
+          )}
+        </EmptyActions>
+      </EmptyHeader>
+    </Empty>
   );
 }
 
