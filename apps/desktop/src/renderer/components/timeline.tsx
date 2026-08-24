@@ -538,6 +538,7 @@ export function Timeline({ project, onCommand, onSeek }: TimelineProps) {
   const toggleSnapping = useRendererStore((state) => state.toggleSnapping);
   const derived = useRendererStore((state) => state.derivedMedia);
   const headerScrollRef = useRef<HTMLDivElement>(null);
+  const timelineScrollRef = useRef<HTMLDivElement>(null);
   const sequence = getSequence(project);
   const pixelsPerUs = (BASE_PIXELS_PER_SECOND * zoom) / 1_000_000;
   const contentDurationUs = timelineContentDurationUs(sequenceDurationUs(sequence), zoom);
@@ -731,6 +732,9 @@ export function Timeline({ project, onCommand, onSeek }: TimelineProps) {
         <div
           ref={headerScrollRef}
           className="relative z-20 overflow-hidden border-r border-border bg-panel"
+          onWheel={(event) => {
+            if (timelineScrollRef.current) timelineScrollRef.current.scrollTop += event.deltaY;
+          }}
         >
           <div className="sticky top-0 z-20 h-6 border-b border-border bg-panel" />
           {sequence.tracks.map((track, index) => (
@@ -745,6 +749,7 @@ export function Timeline({ project, onCommand, onSeek }: TimelineProps) {
           ))}
         </div>
         <div
+          ref={timelineScrollRef}
           className="timeline-scroll relative min-h-0 overflow-auto"
           onScroll={(event) => {
             if (headerScrollRef.current)

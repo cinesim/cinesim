@@ -155,7 +155,6 @@ export function Viewer({
   const { cacheKey: derivedCacheKey, epoch: derivedEpoch } = derivedScope;
   const runtimeRef = useRef<PlaybackRuntime | null>(null);
   const projectRef = useRef(project);
-  projectRef.current = project;
   const refreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [stageSize, setStageSize] = useState({ width: 0, height: 0 });
@@ -181,6 +180,10 @@ export function Viewer({
     runtime?.mode.kind === "asset" ? runtime.mode.sourceTimeUs : Math.min(playheadUs, durationUs);
   const displayFrameRate = previewAsset?.frameRate ?? sequence.frameRate;
   const sourceLabel = previewAsset ? previewAsset.name : sequence.name;
+
+  useEffect(() => {
+    projectRef.current = project;
+  }, [project]);
 
   useEffect(() => {
     const canvas = canvasRef.current;

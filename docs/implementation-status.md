@@ -88,7 +88,7 @@ The MCP stdio server exposes project/asset/timeline inspection, canonical track 
 
 - TypeScript whole-repository check: passed
 - Vite+ format and lint check: passed with no warnings
-- All 115 semantic tests in 25 files, including frame-cadenced playback, source-preview restoration, waveform bounds/serving/render geometry, adaptive policy, derived storage/writers, canonical track operations, timeline interaction geometry, source resolution, agent integration, and shortcuts: passed
+- All 126 semantic tests in 26 files, including frame-cadenced playback, overlapping seek/audio isolation, source-preview restoration, waveform bounds/serving/render geometry, adaptive policy, derived storage/writers, canonical track operations/layering, timeline interaction geometry, source resolution, agent integration, and shortcuts: passed
 - Vite production builds for main, preload, and renderer: passed
 - CLI help smoke check: passed
 - Electron application launch: intentionally not run
