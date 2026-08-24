@@ -4,10 +4,12 @@ import type { Asset } from "@cinesim/core";
 import {
   LatestRequestController,
   LatestOnlyExecutor,
+  LAYER_UNIFORM_BYTE_SIZE,
   MonotonicPlaybackClock,
   filmstripSampleTimes,
   nearestSampleIndex,
   pointerSourceTimeUs,
+  packLayerUniform,
   PlaybackRuntime,
   evaluateAdaptivePolicy,
   resolveScene,
@@ -72,6 +74,26 @@ describe("timeline runtime primitives", () => {
     expect(sparseSampleTimes(12_000_000, 5_000_000)).toEqual([
       0, 5_000_000, 10_000_000, 11_999_999,
     ]);
+  });
+});
+
+describe("WebGPU compositor uniforms", () => {
+  it("packs two aligned vec4 values into the declared 32-byte binding", () => {
+    const uniform = packLayerUniform(
+      {
+        x: 0.25,
+        y: -0.5,
+        scaleX: 1.5,
+        scaleY: 0.75,
+        opacity: 0.5,
+        fit: "contain",
+      },
+      0.5,
+      0.5,
+    );
+
+    expect(uniform.byteLength).toBe(LAYER_UNIFORM_BYTE_SIZE);
+    expect([...uniform]).toEqual([0.25, 0.5, 0.75, 0.375, 0.5, 0, 0, 0]);
   });
 });
 
@@ -213,6 +235,52 @@ describe("PlaybackRuntime source preview", () => {
     unsubscribe();
     await runtime.exitAssetPreview();
     expect(renderedTimes).toEqual([0, 1_000_000, 4_000_000, 1_000_000]);
+    runtime.destroy();
+  });
+
+  it("reports rejected background preview work through the runtime error hook", async () => {
+    const project = applyCommand(createProject({ name: "Preview errors" }), {
+      type: "asset.import",
+      asset,
+    }).project;
+    const compositor: PreviewCompositor = {
+      initialize: async () => undefined,
+      render: (layers) => layers.forEach((layer) => layer.frame.close()),
+      metrics: {
+        gpuSubmitCpuMs: 0,
+        submittedFrames: 0,
+        activeFrames: 0,
+        deviceLostCount: 0,
+        outputWidth: 1920,
+        outputHeight: 1080,
+      },
+      destroy: () => undefined,
+    };
+    const expected = new Error("preview decode failed");
+    const reported: Error[] = [];
+    const runtime = new PlaybackRuntime(project, compositor, {
+      sourceFactory: () => ({
+        prepare: async () => ({
+          durationUs: asset.durationUs,
+          width: 1920,
+          height: 1080,
+          frameRate: 30,
+          hasAudio: false,
+        }),
+        seek: async () => undefined,
+        getFrame: async () => {
+          throw expected;
+        },
+        destroy: () => undefined,
+      }),
+      onError: (error) => reported.push(error),
+    });
+
+    await runtime.initialize();
+    runtime.enterAssetPreview(asset.id, 0);
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+
+    expect(reported).toEqual([expected]);
     runtime.destroy();
   });
 });

@@ -3,6 +3,7 @@ import { Film, Plus, Search } from "lucide-react";
 import { Button } from "@cinesim/ui";
 import type { Asset, Project } from "@cinesim/core";
 import { formatDuration } from "../lib/format";
+import { LibraryCard } from "./library-card";
 import { MediaSkimSurface } from "./media-skim-surface";
 
 interface EditMediaPoolProps {
@@ -43,46 +44,46 @@ export function EditMediaPool({
 
       <div className="min-h-0 flex-1 overflow-y-auto p-2">
         {assets.length > 0 ? (
-          <div className="space-y-1">
+          <div className="grid grid-cols-[repeat(auto-fit,minmax(104px,1fr))] gap-2">
             {assets.map((asset) => (
-              <div
+              <LibraryCard
                 key={asset.id}
-                className="group flex min-w-0 items-center gap-1 rounded-md border border-transparent p-1 hover:border-border hover:bg-surface"
+                badge={asset.kind}
+                ariaLabel={`Add ${asset.name} to the active timeline`}
+                title="Double-click to add to the active timeline"
+                size="compact"
+                previewClassName="media-thumbnail"
+                preview={
+                  <MediaSkimSurface
+                    asset={asset}
+                    onPreviewTime={(sourceTimeUs) => onPreviewAsset(asset, sourceTimeUs)}
+                    onPreviewEnd={onPreviewEnd}
+                  />
+                }
+                bottomCorner={
+                  <span className="rounded bg-panel/90 px-1 py-0.5 text-[10px] tabular-nums text-secondary">
+                    {formatDuration(asset.durationUs)}
+                  </span>
+                }
+                action={
+                  <Button
+                    className="opacity-80 transition-opacity hover:opacity-100"
+                    size="icon"
+                    variant="ghost"
+                    aria-label={`Add ${asset.name} to the active timeline`}
+                    title="Add to active timeline"
+                    onClick={() => void onAddAsset(asset)}
+                  >
+                    <Plus size={13} />
+                  </Button>
+                }
+                onDoubleClick={() => void onAddAsset(asset)}
               >
-                <button
-                  type="button"
-                  className="flex min-w-0 flex-1 items-center gap-2 rounded text-left outline-none focus-visible:ring-2 focus-visible:ring-focus"
-                  aria-label={`Add ${asset.name} to the active timeline`}
-                  title="Double-click to add to the active timeline"
-                  onDoubleClick={() => void onAddAsset(asset)}
-                >
-                  <span className="media-thumbnail grid size-10 shrink-0 place-items-center overflow-hidden rounded border border-border text-muted">
-                    <MediaSkimSurface
-                      asset={asset}
-                      onPreviewTime={(sourceTimeUs) => onPreviewAsset(asset, sourceTimeUs)}
-                      onPreviewEnd={onPreviewEnd}
-                    />
-                  </span>
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate text-ui-xs font-medium text-primary">
-                      {asset.name}
-                    </span>
-                    <span className="mt-0.5 block text-[10px] capitalize text-muted tabular-nums">
-                      {asset.kind} · {formatDuration(asset.durationUs)}
-                    </span>
-                  </span>
-                </button>
-                <Button
-                  className="shrink-0 opacity-60 group-hover:opacity-100"
-                  size="icon"
-                  variant="ghost"
-                  aria-label={`Add ${asset.name} to the active timeline`}
-                  title="Add to active timeline"
-                  onClick={() => void onAddAsset(asset)}
-                >
-                  <Plus size={13} />
-                </Button>
-              </div>
+                <p className="truncate text-ui-xs font-medium text-primary" title={asset.name}>
+                  {asset.name}
+                </p>
+                <p className="mt-0.5 truncate text-[10px] text-muted tabular-nums">{asset.id}</p>
+              </LibraryCard>
             ))}
           </div>
         ) : normalizedQuery ? (

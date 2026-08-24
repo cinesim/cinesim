@@ -6,8 +6,10 @@ interface LibraryCardProps {
   badge?: string;
   corner?: React.ReactNode;
   bottomCorner?: React.ReactNode;
+  action?: React.ReactNode;
   previewClassName?: string;
   previewStyle?: React.CSSProperties;
+  size?: "default" | "compact";
   ariaLabel?: string;
   title?: string;
   disabled?: boolean;
@@ -21,8 +23,10 @@ export function LibraryCard({
   badge,
   corner,
   bottomCorner,
+  action,
   previewClassName,
   previewStyle,
+  size = "default",
   ariaLabel,
   title,
   disabled,
@@ -53,7 +57,9 @@ export function LibraryCard({
         )}
         {preview}
       </div>
-      <div className="relative min-h-[68px] p-3">{children}</div>
+      <div className={cn("relative", size === "compact" ? "min-h-14 p-2" : "min-h-[68px] p-3")}>
+        {children}
+      </div>
     </>
   );
 
@@ -80,6 +86,7 @@ export function LibraryCard({
       ) : (
         contents
       )}
+      {action && <div className="absolute right-1.5 top-1.5 z-30">{action}</div>}
     </article>
   );
 }

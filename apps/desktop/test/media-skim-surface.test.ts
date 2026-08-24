@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 import type { Asset } from "@cinesim/core";
 import type { DerivedArtifactState, DerivedMediaSnapshot } from "../src/shared/api";
-import { thumbnailPresentation } from "../src/renderer/components/media-skim-surface";
+import {
+  skimPositionPercent,
+  thumbnailPresentation,
+} from "../src/renderer/components/media-skim-surface";
 import { derivedArtifactUrl } from "../src/renderer/media/media-job-coordinator";
 
 const asset: Asset = {
@@ -83,5 +86,13 @@ describe("MediaSkimSurface", () => {
 
   it("surfaces thumbnail generation failure", () => {
     expect(presentation("failed")).toBe("failed");
+  });
+
+  it("maps the skim time to a bounded position marker", () => {
+    expect(skimPositionPercent(null, asset.durationUs)).toBeNull();
+    expect(skimPositionPercent(0, asset.durationUs)).toBe(0);
+    expect(skimPositionPercent(1_000_000, asset.durationUs)).toBe(50);
+    expect(skimPositionPercent(3_000_000, asset.durationUs)).toBe(100);
+    expect(skimPositionPercent(1, 0)).toBeNull();
   });
 });

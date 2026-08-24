@@ -53,6 +53,7 @@ export interface PlaybackRuntimeOptions {
   sourceFactory?: VideoSourceFactory;
   sourceResolver?: MediaSourceResolver;
   now?: () => number;
+  onError?: (error: Error) => void;
 }
 
 interface RenderRequest {
@@ -78,6 +79,7 @@ export class PlaybackRuntime {
   readonly #now: () => number;
   readonly #sourceFactory: VideoSourceFactory;
   readonly #sourceResolver: MediaSourceResolver;
+  readonly #onError: (error: Error) => void;
   readonly #sources = new Map<string, VideoSource & Partial<AudioSource>>();
   readonly #sourceDescriptors = new Map<AssetId, MediaSourceDescriptor>();
   readonly #listeners = new Set<(snapshot: RuntimeSnapshot) => void>();
@@ -95,7 +97,10 @@ export class PlaybackRuntime {
   #sourcePreviewSuppressions = 0;
   #audioScheduler: WebAudioScheduler | null = null;
   #audioScheduledUntilUs: TimeUs = 0;
-  #audioScheduling = false;
+  #audioGeneration = 0;
+  #audioStartingGeneration: number | null = null;
+  #audioTransportGeneration: number | null = null;
+  #audioSchedulingGeneration: number | null = null;
 
   constructor(
     project: Project,
@@ -108,6 +113,7 @@ export class PlaybackRuntime {
     this.#clock = new MonotonicPlaybackClock(this.#now);
     this.#sourceFactory = options.sourceFactory ?? defaultSourceFactory;
     this.#sourceResolver = options.sourceResolver ?? defaultResolver;
+    this.#onError = options.onError ?? (() => undefined);
     this.#executor = new LatestOnlyExecutor(async (request, context) => {
       const started = this.#now();
       const frames = await this.#decode(request.mode);
@@ -145,8 +151,8 @@ export class PlaybackRuntime {
   setProject(project: Project): void {
     this.#project = project;
     if (this.#initialized)
-      void this.#request({ kind: "timeline", timeUs: this.#clock.now() }, "project").catch(
-        () => undefined,
+      this.#runBackground(
+        this.#request({ kind: "timeline", timeUs: this.#clock.now() }, "project"),
       );
   }
 
@@ -158,9 +164,9 @@ export class PlaybackRuntime {
 
   play(): void {
     if (this.#clock.playing || this.#destroyed) return;
-    if (this.#mode.kind === "asset") void this.exitAssetPreview();
+    if (this.#mode.kind === "asset") this.#runBackground(this.exitAssetPreview());
     this.#clock.play();
-    void this.#startAudio(this.#clock.now());
+    this.#restartAudio(this.#clock.now());
     this.#tick();
   }
 
@@ -170,6 +176,10 @@ export class PlaybackRuntime {
 
   pause(): void {
     this.#clock.pause();
+    this.#audioGeneration += 1;
+    this.#audioStartingGeneration = null;
+    this.#audioTransportGeneration = null;
+    this.#audioSchedulingGeneration = null;
     this.#audioScheduler?.stop();
     if (typeof cancelAnimationFrame === "function") cancelAnimationFrame(this.#animationFrame);
     this.#emit();
@@ -188,7 +198,7 @@ export class PlaybackRuntime {
     const safeTimeUs = Math.max(0, Math.min(Math.round(timeUs), durationUs));
     this.#mode = { kind: "timeline", timeUs: safeTimeUs };
     await this.#request(this.#mode, "timeline-seek");
-    if (this.#clock.playing) void this.#startAudio(safeTimeUs);
+    if (this.#clock.playing) this.#restartAudio(safeTimeUs);
     this.#emit();
   }
 
@@ -200,7 +210,7 @@ export class PlaybackRuntime {
     }
     const mode: PreviewMode = { kind: "asset", assetId, sourceTimeUs };
     this.#mode = mode;
-    void this.#request(mode, "asset-preview").catch(() => undefined);
+    this.#runBackground(this.#request(mode, "asset-preview"));
   }
 
   updateAssetPreview(sourceTimeUs: TimeUs): void {
@@ -238,9 +248,20 @@ export class PlaybackRuntime {
     }
     const metrics = this.#executor.metrics;
     if (metrics.inFlight) this.#droppedFrames += 1;
-    void this.#request({ kind: "timeline", timeUs }, "playback").catch(() => undefined);
-    if (this.#audioScheduledUntilUs - timeUs < 700_000 && !this.#audioScheduling)
-      void this.#scheduleAudioWindow(this.#audioScheduledUntilUs, timeUs + 1_800_000);
+    this.#runBackground(this.#request({ kind: "timeline", timeUs }, "playback"));
+    if (
+      this.#audioScheduledUntilUs - timeUs < 700_000 &&
+      this.#audioTransportGeneration === this.#audioGeneration &&
+      this.#audioStartingGeneration !== this.#audioGeneration &&
+      this.#audioSchedulingGeneration !== this.#audioGeneration
+    )
+      this.#runBackground(
+        this.#scheduleAudioWindow(
+          this.#audioScheduledUntilUs,
+          timeUs + 1_800_000,
+          this.#audioGeneration,
+        ),
+      );
     if (this.#now() - this.#lastSnapshotAt > 100) this.#emit();
     this.#animationFrame = requestAnimationFrame(this.#tick);
   };
@@ -289,21 +310,43 @@ export class PlaybackRuntime {
     if (mode.kind !== "timeline") return;
     for (const upcoming of findUpcomingLayers(this.#project, mode.timeUs)) {
       const descriptor = this.#sourceResolver.resolve(upcoming.asset.id);
-      void this.#source(descriptor).prepare();
+      this.#runBackground(this.#source(descriptor).prepare());
     }
   }
 
-  async #startAudio(timeUs: TimeUs): Promise<void> {
-    this.#audioScheduler ??= new WebAudioScheduler();
-    await this.#audioScheduler.resume();
-    this.#audioScheduler.startTransport(timeUs);
-    this.#audioScheduledUntilUs = timeUs;
-    await this.#scheduleAudioWindow(timeUs, timeUs + 1_800_000);
+  #restartAudio(timeUs: TimeUs): void {
+    const generation = ++this.#audioGeneration;
+    this.#audioStartingGeneration = generation;
+    this.#audioTransportGeneration = null;
+    this.#audioScheduler?.stop();
+    this.#runBackground(this.#startAudio(timeUs, generation));
   }
 
-  async #scheduleAudioWindow(fromUs: TimeUs, toUs: TimeUs): Promise<void> {
-    if (!this.#audioScheduler || toUs <= fromUs) return;
-    this.#audioScheduling = true;
+  async #startAudio(timeUs: TimeUs, generation: number): Promise<void> {
+    this.#audioScheduler ??= new WebAudioScheduler();
+    try {
+      await this.#audioScheduler.resume();
+      if (this.#destroyed || generation !== this.#audioGeneration || !this.#clock.playing) return;
+      this.#audioScheduler.startTransport(timeUs);
+      this.#audioTransportGeneration = generation;
+      this.#audioScheduledUntilUs = timeUs;
+      this.#audioStartingGeneration = null;
+      await this.#scheduleAudioWindow(timeUs, timeUs + 1_800_000, generation);
+    } finally {
+      if (this.#audioStartingGeneration === generation) this.#audioStartingGeneration = null;
+    }
+  }
+
+  async #scheduleAudioWindow(fromUs: TimeUs, toUs: TimeUs, generation: number): Promise<void> {
+    if (
+      !this.#audioScheduler ||
+      toUs <= fromUs ||
+      generation !== this.#audioGeneration ||
+      this.#audioTransportGeneration !== generation ||
+      !this.#clock.playing
+    )
+      return;
+    this.#audioSchedulingGeneration = generation;
     this.#audioScheduledUntilUs = toUs;
     try {
       const sequence = getSequence(this.#project);
@@ -335,8 +378,25 @@ export class PlaybackRuntime {
         }
       }
       await Promise.all(work);
+    } catch (error) {
+      if (this.#audioTransportGeneration === generation) this.#audioTransportGeneration = null;
+      throw error;
     } finally {
-      this.#audioScheduling = false;
+      if (this.#audioSchedulingGeneration === generation) this.#audioSchedulingGeneration = null;
+    }
+  }
+
+  #runBackground<T>(promise: Promise<T>): void {
+    void promise.catch((error: unknown) => {
+      if (!this.#destroyed) this.#reportError(error);
+    });
+  }
+
+  #reportError(error: unknown): void {
+    try {
+      this.#onError(error instanceof Error ? error : new Error(String(error)));
+    } catch {
+      // Error observers must not create a second unhandled rejection.
     }
   }
 
@@ -398,7 +458,8 @@ export class PlaybackRuntime {
     for (const source of this.#sources.values()) source.destroy();
     this.#sources.clear();
     this.#listeners.clear();
-    if (this.#audioScheduler) void this.#audioScheduler.destroy();
+    if (this.#audioScheduler)
+      void this.#audioScheduler.destroy().catch((error: unknown) => this.#reportError(error));
     this.#audioScheduler = null;
   }
 }

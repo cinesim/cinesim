@@ -29,6 +29,11 @@ export function thumbnailPresentation(
   return "placeholder";
 }
 
+export function skimPositionPercent(skimTimeUs: number | null, durationUs: number): number | null {
+  if (skimTimeUs === null || durationUs <= 0) return null;
+  return Math.min(100, Math.max(0, (skimTimeUs / durationUs) * 100));
+}
+
 export function MediaSkimSurface({
   asset,
   className,
@@ -49,6 +54,7 @@ export function MediaSkimSurface({
   const rows = Math.max(1, filmstrip?.rows ?? 1);
   const column = tileIndex === null ? 0 : tileIndex % columns;
   const row = tileIndex === null ? 0 : Math.floor(tileIndex / columns);
+  const skimPosition = skimPositionPercent(skimTimeUs, asset.durationUs);
 
   function move(event: React.PointerEvent<HTMLDivElement>): void {
     if (asset.kind !== "video") return;
@@ -96,6 +102,13 @@ export function MediaSkimSurface({
         <AlertTriangle aria-label="Thumbnail generation failed" size={18} />
       ) : (
         <Placeholder asset={asset} />
+      )}
+      {skimPosition !== null && (
+        <span
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-y-0 z-20 w-px -translate-x-1/2 bg-white/45 shadow-[0_0_2px_rgba(0,0,0,0.6)]"
+          style={{ left: `${skimPosition}%` }}
+        />
       )}
     </div>
   );

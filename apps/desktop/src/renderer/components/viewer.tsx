@@ -35,9 +35,11 @@ export function Viewer({
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
-    const compositor = new WebGpuCompositor(canvas);
+    const reportPlaybackError = (caught: Error) => setError(caught.message);
+    const compositor = new WebGpuCompositor(canvas, { onError: reportPlaybackError });
     const playback = new PlaybackRuntime(initialProjectRef.current, compositor, {
       sourceResolver: new AdaptiveSourceResolver(),
+      onError: reportPlaybackError,
     });
     runtimeRef.current = playback;
     onController?.(playback);
@@ -82,7 +84,9 @@ export function Viewer({
     void playback
       .initialize()
       .catch((caught) =>
-        setError(caught instanceof Error ? caught.message : "WebGPU initialization failed"),
+        reportPlaybackError(
+          caught instanceof Error ? caught : new Error("WebGPU initialization failed"),
+        ),
       );
     return () => {
       unsubscribe();
