@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Film, Image as ImageIcon, Music2 } from "lucide-react";
+import { AlertTriangle, Film, Image as ImageIcon, LoaderCircle, Music2 } from "lucide-react";
 import { nearestSampleIndex, pointerSourceTimeUs } from "@cinesim/engine";
 import type { Asset } from "@cinesim/core";
 import { useUiStore } from "../store/ui-store";
@@ -28,6 +28,9 @@ export function MediaSkimSurface({
   const derived = useUiStore((state) => state.derivedMedia);
   const record = derived?.assets[asset.id];
   const thumbnailReady = record?.thumbnail.state === "ready";
+  const thumbnailPending =
+    record?.thumbnail.state === "queued" || record?.thumbnail.state === "running";
+  const thumbnailFailed = record?.thumbnail.state === "failed";
   const filmstrip = record?.filmstrip;
   const filmstripReady = filmstrip?.state === "ready" && filmstrip.tileTimesUs?.length;
   const tileIndex =
@@ -79,6 +82,10 @@ export function MediaSkimSurface({
           draggable={false}
           className="absolute inset-0 h-full w-full object-cover"
         />
+      ) : thumbnailPending ? (
+        <LoaderCircle aria-label="Generating thumbnail" className="animate-spin" size={18} />
+      ) : thumbnailFailed ? (
+        <AlertTriangle aria-label="Thumbnail generation failed" size={18} />
       ) : (
         <Placeholder asset={asset} />
       )}

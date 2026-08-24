@@ -64,41 +64,65 @@ async function generate(request: Extract<DerivedWorkerRequest, { type: "generate
     const track = await input.getPrimaryVideoTrack();
     if (!track || !(await track.canDecode())) throw new Error("source-undecodable");
 
-    const candidateTimesUs = thumbnailCandidateTimes(request.durationUs);
-    const candidateSink = new CanvasSink(track, {
-      width: THUMBNAIL_WIDTH,
-      height: THUMBNAIL_HEIGHT,
-      fit: "contain",
-      poolSize: 2,
-      decoderOptions: { hardwareAcceleration: "prefer-hardware", optimizeForLatency: true },
-    });
-    const analysis = new OffscreenCanvas(64, 36);
-    const analysisContext = analysis.getContext("2d", { willReadFrequently: true });
-    const thumbnail = new OffscreenCanvas(THUMBNAIL_WIDTH, THUMBNAIL_HEIGHT);
-    const thumbnailContext = thumbnail.getContext("2d");
-    if (!analysisContext || !thumbnailContext) throw new Error("canvas-unavailable");
-    let bestScore = Number.NEGATIVE_INFINITY;
-    let sourceTimeUs = candidateTimesUs[0] ?? 0;
-    let candidateIndex = 0;
-    for await (const wrapped of candidateSink.canvasesAtTimestamps(
-      candidateTimesUs.map((timeUs) => timeUs / 1_000_000),
-      { verifyKeyPackets: false },
-    )) {
-      assertActive(request.jobId);
-      const requestedTimeUs = candidateTimesUs[candidateIndex] ?? 0;
-      candidateIndex += 1;
-      if (!wrapped) continue;
-      analysisContext.clearRect(0, 0, 64, 36);
-      analysisContext.drawImage(wrapped.canvas, 0, 0, 64, 36);
-      const pixels = analysisContext.getImageData(0, 0, 64, 36).data;
-      const scored = scoreThumbnailRgba(pixels, 64, 36, requestedTimeUs, request.durationUs);
-      if (scored.score > bestScore) {
-        bestScore = scored.score;
-        sourceTimeUs = requestedTimeUs;
-        thumbnailContext.clearRect(0, 0, THUMBNAIL_WIDTH, THUMBNAIL_HEIGHT);
-        thumbnailContext.drawImage(wrapped.canvas, 0, 0, THUMBNAIL_WIDTH, THUMBNAIL_HEIGHT);
+    let sourceTimeUs = request.thumbnailSourceTimeUs ?? 0;
+    if (request.kinds.includes("thumbnail")) {
+      const candidateTimesUs = thumbnailCandidateTimes(request.durationUs);
+      const candidateSink = new CanvasSink(track, {
+        width: THUMBNAIL_WIDTH,
+        height: THUMBNAIL_HEIGHT,
+        fit: "contain",
+        poolSize: 2,
+        decoderOptions: { hardwareAcceleration: "prefer-hardware", optimizeForLatency: true },
+      });
+      const analysis = new OffscreenCanvas(64, 36);
+      const analysisContext = analysis.getContext("2d", { willReadFrequently: true });
+      const thumbnail = new OffscreenCanvas(THUMBNAIL_WIDTH, THUMBNAIL_HEIGHT);
+      const thumbnailContext = thumbnail.getContext("2d");
+      if (!analysisContext || !thumbnailContext) throw new Error("canvas-unavailable");
+      let bestScore = Number.NEGATIVE_INFINITY;
+      sourceTimeUs = candidateTimesUs[0] ?? 0;
+      let candidateIndex = 0;
+      for await (const wrapped of candidateSink.canvasesAtTimestamps(
+        candidateTimesUs.map((timeUs) => timeUs / 1_000_000),
+        { verifyKeyPackets: false },
+      )) {
+        assertActive(request.jobId);
+        const requestedTimeUs = candidateTimesUs[candidateIndex] ?? 0;
+        candidateIndex += 1;
+        if (!wrapped) continue;
+        analysisContext.clearRect(0, 0, 64, 36);
+        analysisContext.drawImage(wrapped.canvas, 0, 0, 64, 36);
+        const pixels = analysisContext.getImageData(0, 0, 64, 36).data;
+        const scored = scoreThumbnailRgba(pixels, 64, 36, requestedTimeUs, request.durationUs);
+        if (scored.score > bestScore) {
+          bestScore = scored.score;
+          sourceTimeUs = requestedTimeUs;
+          thumbnailContext.clearRect(0, 0, THUMBNAIL_WIDTH, THUMBNAIL_HEIGHT);
+          thumbnailContext.drawImage(wrapped.canvas, 0, 0, THUMBNAIL_WIDTH, THUMBNAIL_HEIGHT);
+        }
+        progress(request.jobId, "thumbnail", candidateIndex / Math.max(1, candidateTimesUs.length));
       }
-      progress(request.jobId, "thumbnail", candidateIndex / Math.max(1, candidateTimesUs.length));
+      assertActive(request.jobId);
+      const thumbnailBlob = await thumbnail.convertToBlob({ type: "image/jpeg", quality: 0.84 });
+      const thumbnailBytes = await thumbnailBlob.arrayBuffer();
+      post(
+        {
+          type: "thumbnail-complete",
+          jobId: request.jobId,
+          thumbnail: thumbnailBytes,
+          sourceTimeUs,
+        },
+        [thumbnailBytes],
+      );
+    }
+
+    if (!request.kinds.includes("filmstrip")) {
+      post({
+        type: "perception-complete",
+        jobId: request.jobId,
+        samplingLatencyMs: performance.now() - started,
+      });
+      return;
     }
 
     const tileTimesUs = filmstripSampleTimes(request.durationUs);
@@ -141,30 +165,26 @@ async function generate(request: Extract<DerivedWorkerRequest, { type: "generate
       progress(request.jobId, "filmstrip", tileIndex / tileTimesUs.length);
     }
     assertActive(request.jobId);
-    const [thumbnailBlob, filmstripBlob] = await Promise.all([
-      thumbnail.convertToBlob({ type: "image/jpeg", quality: 0.84 }),
-      contactSheet.convertToBlob({ type: "image/jpeg", quality: 0.78 }),
-    ]);
-    const [thumbnailBytes, filmstripBytes] = await Promise.all([
-      thumbnailBlob.arrayBuffer(),
-      filmstripBlob.arrayBuffer(),
-    ]);
+    const filmstripBlob = await contactSheet.convertToBlob({ type: "image/jpeg", quality: 0.78 });
+    const filmstripBytes = await filmstripBlob.arrayBuffer();
     post(
       {
-        type: "complete",
+        type: "filmstrip-complete",
         jobId: request.jobId,
-        thumbnail: thumbnailBytes,
         filmstrip: filmstripBytes,
-        sourceTimeUs,
         tileTimesUs,
         columns: COLUMNS,
         rows,
         tileWidth: TILE_WIDTH,
         tileHeight: TILE_HEIGHT,
-        samplingLatencyMs: performance.now() - started,
       },
-      [thumbnailBytes, filmstripBytes],
+      [filmstripBytes],
     );
+    post({
+      type: "perception-complete",
+      jobId: request.jobId,
+      samplingLatencyMs: performance.now() - started,
+    });
   } finally {
     input.dispose();
     canceled.delete(request.jobId);

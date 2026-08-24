@@ -14,8 +14,8 @@ const api: DesktopApi = {
     ipcRenderer.invoke("derived:write:chunk", writerId, offset, data),
   finalizeDerivedWrite: (writerId, result) =>
     ipcRenderer.invoke("derived:write:finalize", writerId, result),
-  cancelDerivedWrite: (writerId, failureCode) =>
-    ipcRenderer.invoke("derived:write:cancel", writerId, failureCode),
+  cancelDerivedWrite: (writerId, failureCode, detail) =>
+    ipcRenderer.invoke("derived:write:cancel", writerId, failureCode, detail),
   updateDerivedProgress: (writerId, progress) =>
     ipcRenderer.invoke("derived:write:progress", writerId, progress),
   reportDerivedPerformance: (observation) => ipcRenderer.invoke("derived:performance", observation),

@@ -14,6 +14,7 @@ import type { FileHandle } from "node:fs/promises";
 import { dirname, join, relative, resolve, sep } from "node:path";
 import type { Asset, Project } from "@cinesim/core";
 import { evaluateAdaptivePolicy } from "@cinesim/engine";
+import { createCinesimLogger } from "@cinesim/logging";
 import type {
   BeginDerivedWrite,
   DerivedArtifactKind,
@@ -34,6 +35,7 @@ const MAX_CHUNK_BYTES = 4 * 1024 * 1024;
 const MAX_ARTIFACT_BYTES = 2 * 1024 * 1024 * 1024;
 const EDGE_BYTES = 64 * 1024;
 const MAX_DECISION_EVENTS = 100;
+const log = createCinesimLogger({ service: "derived-media" });
 
 interface PersistedArtifact extends DerivedArtifactSnapshot {
   relativePath?: string;
@@ -160,6 +162,11 @@ export class DerivedMediaStore {
       for (const asset of project.assets) this.#applyAdaptiveDecision(asset.id);
       if (recovered)
         this.#log({ kind: "jobs-recovered", detail: "Interrupted jobs returned to the queue" });
+      if (recovered)
+        log.warn(
+          { operation: "project-open", projectId: project.id },
+          "interrupted derived jobs returned to the queue",
+        );
       await this.#persist();
       this.#emit();
     });
@@ -264,6 +271,10 @@ export class DerivedMediaStore {
       artifact.updatedAt = new Date().toISOString();
       await this.#persist();
       this.#emit();
+      log.info(
+        { operation: "write-begin", assetId: input.assetId, artifactKind: input.kind },
+        "derived artifact write started",
+      );
       return { writerId: id };
     });
   }
@@ -331,6 +342,15 @@ export class DerivedMediaStore {
       await this.#evictIfNeeded();
       await this.#persist();
       this.#emit();
+      log.info(
+        {
+          operation: "write-finalize",
+          assetId: writer.assetId,
+          artifactKind: writer.kind,
+          bytes: result.bytes,
+        },
+        "derived artifact write completed",
+      );
     });
   }
 
@@ -344,7 +364,7 @@ export class DerivedMediaStore {
     });
   }
 
-  async cancelWrite(writerId: string, failureCode?: string): Promise<void> {
+  async cancelWrite(writerId: string, failureCode?: string, detail?: string): Promise<void> {
     await this.#serialize(async () => {
       const writer = this.#requireWriter(writerId);
       await writer.handle.close().catch(() => undefined);
@@ -359,6 +379,15 @@ export class DerivedMediaStore {
       this.#applyAdaptiveDecision(writer.assetId);
       await this.#persist();
       this.#emit();
+      const context = {
+        operation: "write-cancel",
+        assetId: writer.assetId,
+        artifactKind: writer.kind,
+        ...(failureCode ? { failureCode } : {}),
+        ...(detail ? { detail } : {}),
+      };
+      if (failureCode) log.error(context, "derived artifact generation failed");
+      else log.info(context, "derived artifact write returned to the queue");
     });
   }
 

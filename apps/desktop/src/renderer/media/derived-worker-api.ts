@@ -3,6 +3,8 @@ export interface GenerateDerivedRequest {
   jobId: string;
   assetId: string;
   durationUs: number;
+  kinds: ("thumbnail" | "filmstrip")[];
+  thumbnailSourceTimeUs?: number;
 }
 
 export interface CancelDerivedRequest {
@@ -41,18 +43,22 @@ export type DerivedWorkerRequest =
 export type DerivedWorkerResponse =
   | { type: "progress"; jobId: string; progress: number; stage: "thumbnail" | "filmstrip" }
   | {
-      type: "complete";
+      type: "thumbnail-complete";
       jobId: string;
       thumbnail: ArrayBuffer;
-      filmstrip: ArrayBuffer;
       sourceTimeUs: number;
+    }
+  | {
+      type: "filmstrip-complete";
+      jobId: string;
+      filmstrip: ArrayBuffer;
       tileTimesUs: number[];
       columns: number;
       rows: number;
       tileWidth: number;
       tileHeight: number;
-      samplingLatencyMs: number;
     }
+  | { type: "perception-complete"; jobId: string; samplingLatencyMs: number }
   | { type: "failed"; jobId: string; failureCode: string; detail: string }
   | {
       type: "proxy-chunk";

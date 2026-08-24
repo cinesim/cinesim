@@ -21,6 +21,7 @@ export class MediaJobCoordinator {
   #unsubscribe: (() => void) | null = null;
   #destroyed = false;
   #resumeTimer: ReturnType<typeof setTimeout> | null = null;
+  #messageQueue: Promise<void> = Promise.resolve();
   #foregroundPressure: "idle" | "hover-skimming" | "seeking" | "playing" = "idle";
   readonly #onSnapshot: (snapshot: DerivedMediaSnapshot) => void;
 
@@ -36,10 +37,17 @@ export class MediaJobCoordinator {
       name: "cinesim-derived-media",
     });
     this.#worker.onmessage = (event: MessageEvent<DerivedWorkerResponse>) => {
-      void this.#handleWorkerMessage(event.data);
+      this.#messageQueue = this.#messageQueue
+        .then(() => this.#handleWorkerMessage(event.data))
+        .catch((error: unknown) =>
+          this.#failActive(
+            "coordinator-message-failed",
+            error instanceof Error ? error.message : "Worker message handling failed",
+          ),
+        );
     };
-    this.#worker.onerror = () => {
-      if (this.#active) void this.#failActive("worker-crashed");
+    this.#worker.onerror = (event) => {
+      if (this.#active) void this.#failActive("worker-crashed", event.message);
     };
     this.#unsubscribe = window.cinesim.onDerivedMediaChanged((snapshot) => {
       this.#acceptSnapshot(snapshot);
@@ -144,9 +152,16 @@ export class MediaJobCoordinator {
         jobId,
         assetId: asset.id,
         durationUs: asset.durationUs,
+        kinds,
+        ...(record.thumbnail.sourceTimeUs !== undefined
+          ? { thumbnailSourceTimeUs: record.thumbnail.sourceTimeUs }
+          : {}),
       } satisfies DerivedWorkerRequest);
-    } catch {
-      await this.#failActive("job-start-failed");
+    } catch (error) {
+      await this.#failActive(
+        "job-start-failed",
+        error instanceof Error ? error.message : "Derived job could not start",
+      );
     }
   }
 
@@ -227,20 +242,40 @@ export class MediaJobCoordinator {
       return;
     }
     if (message.type === "failed") {
-      await this.#failActive(message.failureCode);
+      await this.#failActive(message.failureCode, message.detail);
+      return;
+    }
+    if (message.type === "thumbnail-complete") {
+      try {
+        await this.#publish("thumbnail", message.thumbnail, active, {
+          sourceTimeUs: message.sourceTimeUs,
+        });
+      } catch (error) {
+        await this.#failActive(
+          "thumbnail-write-failed",
+          error instanceof Error ? error.message : "Thumbnail could not be published",
+        );
+      }
+      return;
+    }
+    if (message.type === "filmstrip-complete") {
+      try {
+        await this.#publish("filmstrip", message.filmstrip, active, {
+          tileTimesUs: message.tileTimesUs,
+          columns: message.columns,
+          rows: message.rows,
+          tileWidth: message.tileWidth,
+          tileHeight: message.tileHeight,
+        });
+      } catch (error) {
+        await this.#failActive(
+          "filmstrip-write-failed",
+          error instanceof Error ? error.message : "Filmstrip could not be published",
+        );
+      }
       return;
     }
     try {
-      await this.#publish("thumbnail", message.thumbnail, active, {
-        sourceTimeUs: message.sourceTimeUs,
-      });
-      await this.#publish("filmstrip", message.filmstrip, active, {
-        tileTimesUs: message.tileTimesUs,
-        columns: message.columns,
-        rows: message.rows,
-        tileWidth: message.tileWidth,
-        tileHeight: message.tileHeight,
-      });
       await window.cinesim.reportDerivedPerformance({
         assetId: active.assetId,
         sourceKind: "original",
@@ -249,8 +284,11 @@ export class MediaJobCoordinator {
       });
       this.#active = null;
       await this.#schedule();
-    } catch {
-      await this.#failActive("artifact-write-failed");
+    } catch (error) {
+      await this.#failActive(
+        "artifact-write-failed",
+        error instanceof Error ? error.message : "Derived artifact could not be published",
+      );
     }
   }
 
@@ -275,13 +313,13 @@ export class MediaJobCoordinator {
     delete active.writers[kind];
   }
 
-  async #failActive(failureCode: string): Promise<void> {
+  async #failActive(failureCode: string, detail?: string): Promise<void> {
     const active = this.#active;
     this.#active = null;
     if (!active) return;
     await Promise.all(
       Object.values(active.writers).map((writerId) =>
-        window.cinesim.cancelDerivedWrite(writerId, failureCode).catch(() => undefined),
+        window.cinesim.cancelDerivedWrite(writerId, failureCode, detail).catch(() => undefined),
       ),
     );
     if (!this.#destroyed) await this.#schedule();
