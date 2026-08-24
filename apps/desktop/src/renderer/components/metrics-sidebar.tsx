@@ -1,8 +1,9 @@
-import { Activity, Cpu, Database, Gauge, Image, Sparkles } from "lucide-react";
+import { Activity, Cpu, Gauge, Image, Sparkles } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { formatTimecode } from "../lib/format";
 import { useUiStore } from "../store/ui-store";
 import { LiveMetricChart, type LiveMetricValues, useLiveMetricHistory } from "./live-metric-chart";
+import { StorageUsage } from "./storage-usage";
 
 type MetricsTab = "overview" | "playback" | "media" | "system";
 
@@ -360,15 +361,7 @@ export function MetricsSidebar() {
               />
               <MetricRow label="GPU execution" value={unavailable} />
             </Section>
-            <Section icon={<Database size={13} />} title="Storage">
-              <MetricRow label="Derived bytes" value={formatBytes(derived?.storage.totalBytes)} />
-              <MetricRow label="Budget" value={formatBytes(derived?.storage.budgetBytes)} />
-              <MetricRow
-                label="Safety reserve"
-                value={formatBytes(derived?.storage.safetyReserveBytes)}
-              />
-              <MetricRow label="Evictions" value={derived?.storage.evictionCount ?? 0} />
-            </Section>
+            <StorageUsage storage={derived?.storage} />
           </>
         )}
       </div>
