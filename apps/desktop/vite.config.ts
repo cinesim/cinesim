@@ -10,6 +10,9 @@ const externals = [
   // Keep Mediabunny external so Electron's Node runtime selects its `node`
   // conditional export, which includes the filesystem-backed FilePathSource.
   "mediabunny",
+  // Pino's Node build is CommonJS and performs runtime built-in requires.
+  // Keep it external so Node executes it instead of inlining it into ESM.
+  "pino",
   ...builtinModules,
   ...builtinModules.map((module) => `node:${module}`),
 ];

@@ -83,6 +83,9 @@ importers:
       mediabunny:
         specifier: 1.55.2
         version: 1.55.2
+      pino:
+        specifier: 10.3.1
+        version: 10.3.1
       react:
         specifier: 19.2.8
         version: 19.2.8
