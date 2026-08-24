@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useState } from "react";
 import { ArrowRight, Clapperboard, Plus } from "lucide-react";
-import { Button } from "@cinesim/ui";
+import { Button, Input, Kbd, Notice, PreviewCard, Skeleton } from "@cinesim/ui";
 import type { DesktopAppState, DesktopProjectSession } from "../../shared/api";
 import type { ActionResult } from "../store/renderer-store";
-import { LibraryCard, LibraryGrid } from "./library-card";
+import { LibraryGrid } from "./library-card";
 
 interface WelcomeProps {
   appState: DesktopAppState;
@@ -28,15 +28,13 @@ function projectGradient(key: string): React.CSSProperties {
 
 function Shortcut({ children, dark = false }: { children: React.ReactNode; dark?: boolean }) {
   return (
-    <kbd
+    <Kbd
       className={
-        dark
-          ? "rounded border border-white/20 bg-black/20 px-1.5 py-0.5 text-[10px] font-medium text-white/80 backdrop-blur-sm"
-          : "rounded border border-border bg-panel-muted px-1.5 py-0.5 text-[10px] font-medium text-muted shadow-sm"
+        dark ? "border-white/20 bg-black/20 text-white/80 shadow-none backdrop-blur-sm" : undefined
       }
     >
       {children}
-    </kbd>
+    </Kbd>
   );
 }
 
@@ -101,15 +99,13 @@ export function Welcome({
             <span className="text-ui-xs text-muted">{appState.recentProjects.length} saved</span>
             <Button data-open-project onClick={() => void open()}>
               Open project
-              <kbd className="ml-1 rounded border border-border-strong bg-panel-muted px-1 py-0.5 text-[10px] font-medium text-muted">
-                {modifier}O
-              </kbd>
+              <Kbd className="ml-1">{modifier}O</Kbd>
             </Button>
           </div>
         </div>
 
         <LibraryGrid>
-          <LibraryCard
+          <PreviewCard
             badge="New project"
             previewClassName="media-thumbnail text-secondary"
             preview={
@@ -119,10 +115,13 @@ export function Welcome({
             }
           >
             <div className="flex min-h-11 items-center gap-2">
-              <label className="min-w-0 flex-1">
+              <label className="min-w-0 flex-1" htmlFor="new-project-name">
                 <span className="sr-only">Project name</span>
-                <input
-                  className="h-8 w-full min-w-0 rounded-md border border-border bg-panel-muted px-2.5 text-ui outline-none transition-colors placeholder:text-muted focus:border-border-strong focus:ring-2 focus:ring-focus"
+                <Input
+                  id="new-project-name"
+                  className="w-full"
+                  size="sm"
+                  surface="muted"
                   value={name}
                   placeholder="Name your project"
                   maxLength={120}
@@ -139,10 +138,10 @@ export function Welcome({
                 Start <ArrowRight size={14} />
               </Button>
             </div>
-          </LibraryCard>
+          </PreviewCard>
 
           {appState.recentProjects.map((project, index) => (
-            <LibraryCard
+            <PreviewCard
               key={project.directory}
               ariaLabel={`Open ${project.name}`}
               title={project.directory}
@@ -161,14 +160,17 @@ export function Welcome({
             >
               <p className="truncate text-ui font-medium text-primary">{project.name}</p>
               <p className="mt-1 truncate text-ui-xs text-muted">{project.directory}</p>
-            </LibraryCard>
+            </PreviewCard>
           ))}
         </LibraryGrid>
 
         {error && (
-          <p className="mt-4 rounded-lg border border-border-strong bg-panel px-4 py-3 text-ui text-primary">
+          <Notice
+            className="mt-4 rounded-lg border-border-strong bg-panel px-4 py-3 text-primary"
+            size="default"
+          >
             {error}
-          </p>
+          </Notice>
         )}
       </div>
     </section>
@@ -184,42 +186,35 @@ function WelcomeLoadingState() {
     >
       <div>
         <div className="mb-4 flex items-center justify-between">
-          <span className="h-4 w-20 animate-pulse rounded bg-surface-active" aria-hidden="true" />
+          <Skeleton className="h-4 w-20" tone="active" />
           <div className="flex items-center gap-3" aria-hidden="true">
-            <span className="h-3 w-12 animate-pulse rounded bg-surface" />
-            <span className="h-8 w-28 animate-pulse rounded-md bg-surface-active" />
+            <Skeleton className="h-3 w-12" />
+            <Skeleton className="h-8 w-28 rounded-md" tone="active" />
           </div>
         </div>
 
         <LibraryGrid>
-          <LibraryCard
+          <PreviewCard
             previewClassName="media-thumbnail"
-            preview={
-              <span
-                className="size-12 animate-pulse rounded-xl bg-surface-active"
-                aria-hidden="true"
-              />
-            }
+            preview={<Skeleton className="size-12 rounded-xl" tone="active" />}
           >
             <div className="flex min-h-11 items-center gap-2" aria-hidden="true">
-              <span className="h-8 min-w-0 flex-1 animate-pulse rounded-md bg-surface" />
-              <span className="h-8 w-14 animate-pulse rounded-md bg-surface-active" />
+              <Skeleton className="h-8 min-w-0 flex-1 rounded-md" />
+              <Skeleton className="h-8 w-14 rounded-md" tone="active" />
             </div>
-          </LibraryCard>
+          </PreviewCard>
 
           {Array.from({ length: 4 }, (_, index) => (
-            <LibraryCard
+            <PreviewCard
               key={`project-loading-${index}`}
               previewClassName="media-thumbnail"
-              preview={
-                <span className="absolute inset-0 animate-pulse bg-surface" aria-hidden="true" />
-              }
+              preview={<Skeleton className="absolute inset-0 rounded-none" />}
             >
               <div className="space-y-2" aria-hidden="true">
-                <span className="block h-3.5 w-3/5 animate-pulse rounded bg-surface-active" />
-                <span className="block h-3 w-4/5 animate-pulse rounded bg-surface" />
+                <Skeleton className="block h-3.5 w-3/5" tone="active" />
+                <Skeleton className="block h-3 w-4/5" />
               </div>
-            </LibraryCard>
+            </PreviewCard>
           ))}
         </LibraryGrid>
       </div>

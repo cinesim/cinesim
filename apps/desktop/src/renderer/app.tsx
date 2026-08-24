@@ -1,5 +1,5 @@
 import { Library, SlidersHorizontal, StickyNote } from "lucide-react";
-import { Button } from "@cinesim/ui";
+import { Button, TooltipProvider } from "@cinesim/ui";
 import { AgentsSidebar } from "./components/agents-sidebar";
 import { AppShell, toggleAuxiliaryMode } from "./components/app-shell";
 import { MetricsSidebar } from "./components/metrics-sidebar";
@@ -45,109 +45,113 @@ export function App() {
         : "Home";
 
   return (
-    <AppShell
-      session={session}
-      appState={appState}
-      destination={destination}
-      projectSection={projectSection}
-      activeSequenceId={activeSequenceId}
-      settingsSection={settingsSection}
-      title={title}
-      leadingToolbar={
-        destination === "project" && session && projectSection === "edit" ? (
-          <div className="flex items-center gap-1">
-            <Button
-              size="icon"
-              variant={mediaPoolOpen ? "secondary" : "ghost"}
-              aria-label={mediaPoolOpen ? "Hide Media Pool" : "Show Media Pool"}
-              aria-pressed={mediaPoolOpen}
-              title={mediaPoolOpen ? "Hide Media Pool" : "Show Media Pool"}
-              onClick={() => void togglePanel("mediaPool")}
-            >
-              <Library size={14} />
-            </Button>
-            <Button
-              size="icon"
-              variant={inspectorOpen ? "secondary" : "ghost"}
-              aria-label={inspectorOpen ? "Hide Inspector" : "Show Inspector"}
-              aria-pressed={inspectorOpen}
-              title={inspectorOpen ? "Hide Inspector" : "Show Inspector"}
-              onClick={() => void togglePanel("inspector")}
-            >
-              <SlidersHorizontal size={14} />
-            </Button>
-            <Button
-              size="icon"
-              variant={notesOpen ? "secondary" : "ghost"}
-              aria-label={notesOpen ? "Hide Notes" : "Show Notes"}
-              aria-pressed={notesOpen}
-              title={notesOpen ? "Hide Notes" : "Show Notes"}
-              onClick={() => void togglePanel("notes")}
-            >
-              <StickyNote size={14} />
-            </Button>
-          </div>
-        ) : undefined
-      }
-      toolbar={
-        destination === "project" && session ? (
-          <TopBar
-            metricsOpen={auxiliaryMode === "metrics"}
-            onToggleMetrics={() => setAuxiliaryMode(toggleAuxiliaryMode(auxiliaryMode, "metrics"))}
-            agentsOpen={auxiliaryMode === "agents"}
-            onToggleAgents={() => setAuxiliaryMode(toggleAuxiliaryMode(auxiliaryMode, "agents"))}
-          />
-        ) : null
-      }
-      onHome={() => navigate("home")}
-      onProjectSection={showProjectSection}
-      onTimeline={showTimeline}
-      onSettings={() => navigate("settings")}
-      onSettingsSection={setSettingsSection}
-      onOpenRecent={(directory) => void openRecentProject(directory)}
-      onOpenProject={() => void openProject()}
-      agentsSidebar={
-        destination === "project" && session ? (
-          <AgentsSidebar
+    <TooltipProvider>
+      <AppShell
+        session={session}
+        appState={appState}
+        destination={destination}
+        projectSection={projectSection}
+        activeSequenceId={activeSequenceId}
+        settingsSection={settingsSection}
+        title={title}
+        leadingToolbar={
+          destination === "project" && session && projectSection === "edit" ? (
+            <div className="flex items-center gap-1">
+              <Button
+                size="icon"
+                variant={mediaPoolOpen ? "secondary" : "ghost"}
+                aria-label={mediaPoolOpen ? "Hide Media Pool" : "Show Media Pool"}
+                aria-pressed={mediaPoolOpen}
+                title={mediaPoolOpen ? "Hide Media Pool" : "Show Media Pool"}
+                onClick={() => void togglePanel("mediaPool")}
+              >
+                <Library size={14} />
+              </Button>
+              <Button
+                size="icon"
+                variant={inspectorOpen ? "secondary" : "ghost"}
+                aria-label={inspectorOpen ? "Hide Inspector" : "Show Inspector"}
+                aria-pressed={inspectorOpen}
+                title={inspectorOpen ? "Hide Inspector" : "Show Inspector"}
+                onClick={() => void togglePanel("inspector")}
+              >
+                <SlidersHorizontal size={14} />
+              </Button>
+              <Button
+                size="icon"
+                variant={notesOpen ? "secondary" : "ghost"}
+                aria-label={notesOpen ? "Hide Notes" : "Show Notes"}
+                aria-pressed={notesOpen}
+                title={notesOpen ? "Hide Notes" : "Show Notes"}
+                onClick={() => void togglePanel("notes")}
+              >
+                <StickyNote size={14} />
+              </Button>
+            </div>
+          ) : undefined
+        }
+        toolbar={
+          destination === "project" && session ? (
+            <TopBar
+              metricsOpen={auxiliaryMode === "metrics"}
+              onToggleMetrics={() =>
+                setAuxiliaryMode(toggleAuxiliaryMode(auxiliaryMode, "metrics"))
+              }
+              agentsOpen={auxiliaryMode === "agents"}
+              onToggleAgents={() => setAuxiliaryMode(toggleAuxiliaryMode(auxiliaryMode, "agents"))}
+            />
+          ) : null
+        }
+        onHome={() => navigate("home")}
+        onProjectSection={showProjectSection}
+        onTimeline={showTimeline}
+        onSettings={() => navigate("settings")}
+        onSettingsSection={setSettingsSection}
+        onOpenRecent={(directory) => void openRecentProject(directory)}
+        onOpenProject={() => void openProject()}
+        agentsSidebar={
+          destination === "project" && session ? (
+            <AgentsSidebar
+              session={session}
+              onConfigure={() => {
+                setSettingsSection("agents");
+                navigate("settings");
+              }}
+            />
+          ) : undefined
+        }
+        metricsSidebar={destination === "project" && session ? <MetricsSidebar /> : undefined}
+        auxiliaryMode={destination === "project" ? auxiliaryMode : null}
+        onAuxiliaryMode={setAuxiliaryMode}
+      >
+        {openingProject ? (
+          <ProjectLoadingState />
+        ) : destination === "settings" ? (
+          <Settings section={settingsSection} />
+        ) : destination === "project" && session ? (
+          <Workspace
+            key={session.directory}
             session={session}
-            onConfigure={() => {
-              setSettingsSection("agents");
-              navigate("settings");
-            }}
+            section={projectSection}
+            activeSequenceId={activeSequenceId ?? session.project.activeSequenceId}
+            mediaPoolOpen={mediaPoolOpen}
+            inspectorOpen={inspectorOpen}
+            notesOpen={notesOpen}
+            editorLayout={editorLayout}
+            onOpenTimeline={showTimeline}
           />
-        ) : undefined
-      }
-      metricsSidebar={destination === "project" && session ? <MetricsSidebar /> : undefined}
-      auxiliaryMode={destination === "project" ? auxiliaryMode : null}
-      onAuxiliaryMode={setAuxiliaryMode}
-    >
-      {openingProject ? (
-        <ProjectLoadingState />
-      ) : destination === "settings" ? (
-        <Settings section={settingsSection} />
-      ) : destination === "project" && session ? (
-        <Workspace
-          key={session.directory}
-          session={session}
-          section={projectSection}
-          activeSequenceId={activeSequenceId ?? session.project.activeSequenceId}
-          mediaPoolOpen={mediaPoolOpen}
-          inspectorOpen={inspectorOpen}
-          notesOpen={notesOpen}
-          editorLayout={editorLayout}
-          onOpenTimeline={showTimeline}
-        />
-      ) : (
-        <Welcome
-          appState={appState}
-          error={error}
-          loading={loading}
-          opening={openingProject}
-          onCreate={createProject}
-          onOpen={openProject}
-          onOpenRecent={openRecentProject}
-        />
-      )}
-    </AppShell>
+        ) : (
+          <Welcome
+            appState={appState}
+            error={error}
+            loading={loading}
+            opening={openingProject}
+            onCreate={createProject}
+            onOpen={openProject}
+            onOpenRecent={openRecentProject}
+          />
+        )}
+      </AppShell>
+    </TooltipProvider>
   );
 }

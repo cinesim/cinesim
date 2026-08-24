@@ -20,7 +20,7 @@ import {
   Wrench,
 } from "lucide-react";
 import ReactMarkdown from "react-markdown";
-import { cn } from "@cinesim/ui";
+import { cn, Notice } from "@cinesim/ui";
 import type { AgentEvent, AgentSessionSnapshot } from "../../shared/api";
 
 export function AgentEventView({
@@ -161,17 +161,10 @@ export function AgentEventView({
     );
   }
   return (
-    <div
-      className={cn(
-        "rounded-md px-2.5 py-2 text-ui-xs leading-4",
-        event.kind === "error"
-          ? "border border-border bg-panel-muted text-secondary"
-          : "text-muted",
-      )}
-    >
+    <Notice className={cn(event.kind !== "error" && "border-0 bg-transparent text-muted")}>
       {event.title && <p className="font-medium text-secondary">{event.title}</p>}
       {event.detail && <p className="break-words">{event.detail}</p>}
-    </div>
+    </Notice>
   );
 }
 

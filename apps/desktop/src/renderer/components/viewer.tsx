@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Maximize2, Pause, Play, SkipBack } from "lucide-react";
-import { Button } from "@cinesim/ui";
+import { Button, Empty, EmptyDescription, EmptyHeader, EmptyTitle, PaneHeader } from "@cinesim/ui";
 import { getSequence, sequenceDurationUs } from "@cinesim/core";
 import type { Project } from "@cinesim/core";
 import type { DerivedProjectScope } from "../../shared/api";
@@ -134,24 +134,26 @@ export function Viewer({
 
   return (
     <section className="relative flex min-h-0 flex-col bg-panel-muted">
-      <div className="flex h-10 items-center justify-between border-b border-border px-3">
+      <PaneHeader size="sm" className="justify-between px-3">
         <span className="ml-auto rounded bg-surface px-2 py-1 text-ui-xs text-muted tabular-nums">
           {sequence.width} × {sequence.height} · {sequence.frameRate} fps
         </span>
-      </div>
+      </PaneHeader>
       <div className="relative grid min-h-0 flex-1 place-items-center overflow-hidden bg-canvas p-6">
         <canvas ref={canvasRef} className="aspect-video max-h-full max-w-full bg-black" />
         {durationUs === 0 && (
-          <div className="pointer-events-none absolute text-center">
-            <p className="text-ui text-muted">
-              {project.assets.length === 0 ? "The viewer is ready" : "This timeline is empty"}
-            </p>
-            <p className="mt-1 text-ui-xs text-muted">
-              {project.assets.length === 0
-                ? "Import media and add it to the timeline"
-                : "Add media from the Media Pool to start editing"}
-            </p>
-          </div>
+          <Empty className="pointer-events-none absolute">
+            <EmptyHeader>
+              <EmptyTitle>
+                {project.assets.length === 0 ? "The viewer is ready" : "This timeline is empty"}
+              </EmptyTitle>
+              <EmptyDescription>
+                {project.assets.length === 0
+                  ? "Import media and add it to the timeline"
+                  : "Add media from the Media Pool to start editing"}
+              </EmptyDescription>
+            </EmptyHeader>
+          </Empty>
         )}
         {error && (
           <div className="absolute bottom-3 max-w-md rounded-md border border-border-strong bg-panel/90 px-3 py-2 text-ui-xs text-primary">

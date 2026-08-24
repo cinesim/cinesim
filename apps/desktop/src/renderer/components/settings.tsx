@@ -8,7 +8,21 @@ import {
   Settings as SettingsIcon,
   Terminal,
 } from "lucide-react";
-import { cn } from "@cinesim/ui";
+import {
+  cn,
+  Field,
+  FieldContent,
+  FieldDescription,
+  FieldLabel,
+  Input,
+  Notice,
+  Select,
+  Skeleton,
+  Tabs,
+  TabsContent,
+  TabsList,
+  TabsTrigger,
+} from "@cinesim/ui";
 import type {
   AgentEffort,
   AgentPermissionMode,
@@ -125,155 +139,153 @@ function AgentSettings() {
         </button>
       </div>
 
-      <div className="mb-6 flex border-b border-border" role="tablist" aria-label="Agent provider">
-        {AGENT_PROVIDER_KINDS.map((candidate) => {
-          const candidateStatus = statuses.find((entry) => entry.provider === candidate);
-          return (
+      <Tabs value={provider} onValueChange={(value) => setProvider(value as AgentProviderKind)}>
+        <TabsList className="mb-6" aria-label="Agent provider">
+          {AGENT_PROVIDER_KINDS.map((candidate) => {
+            const candidateStatus = statuses.find((entry) => entry.provider === candidate);
+            return (
+              <TabsTrigger key={candidate} value={candidate}>
+                <span
+                  className={cn(
+                    "size-1.5 rounded-full",
+                    candidateStatus?.state === "connected" ? "bg-emerald-500" : "bg-disabled",
+                  )}
+                />
+                {providerLabel(candidate)}
+              </TabsTrigger>
+            );
+          })}
+        </TabsList>
+
+        <TabsContent value={provider}>
+          <ProviderStatus status={status} />
+
+          {(status?.state === "login-required" || status?.state === "error") && (
             <button
-              key={candidate}
-              role="tab"
-              aria-selected={provider === candidate}
-              className={cn(
-                "relative flex h-10 items-center gap-2 px-3 text-ui text-secondary hover:text-primary",
-                provider === candidate &&
-                  "text-primary after:absolute after:inset-x-2 after:bottom-[-1px] after:h-px after:bg-primary",
-              )}
-              onClick={() => setProvider(candidate)}
-            >
-              <span
-                className={cn(
-                  "size-1.5 rounded-full",
-                  candidateStatus?.state === "connected" ? "bg-emerald-500" : "bg-disabled",
-                )}
-              />
-              {providerLabel(candidate)}
-            </button>
-          );
-        })}
-      </div>
-
-      <ProviderStatus status={status} />
-
-      {(status?.state === "login-required" || status?.state === "error") && (
-        <button
-          className="mt-3 flex h-8 items-center gap-2 rounded-md border border-border bg-panel px-3 text-ui text-primary hover:bg-surface"
-          onClick={() =>
-            void window.cinesim.openAgentLogin(provider).then((message) => setNotice(message))
-          }
-        >
-          <Terminal size={14} /> Configure login in Terminal
-        </button>
-      )}
-
-      <div className="mt-7 divide-y divide-border rounded-xl border border-border bg-panel">
-        <SettingRow
-          title="Executable path"
-          detail={`Leave empty to detect the system ${providerLabel(provider)} executable.`}
-        >
-          <div className="flex min-w-0 gap-2">
-            <input
-              className="h-9 min-w-0 flex-1 rounded-md border border-border bg-canvas px-3 text-ui text-primary outline-none placeholder:text-disabled focus:border-border-strong"
-              value={configured.executablePath}
-              placeholder={status?.executablePath ?? "Not detected"}
-              onChange={(event) =>
-                setSettings({
-                  ...settings,
-                  providers: {
-                    ...settings.providers,
-                    [provider]: { ...configured, executablePath: event.target.value },
-                  },
-                })
+              className="mt-3 flex h-8 items-center gap-2 rounded-md border border-border bg-panel px-3 text-ui text-primary hover:bg-surface"
+              onClick={() =>
+                void window.cinesim.openAgentLogin(provider).then((message) => setNotice(message))
               }
-              onBlur={(event) => void updateProvider({ executablePath: event.target.value })}
-            />
-            <button
-              className="grid size-9 place-items-center rounded-md border border-border text-muted hover:bg-surface hover:text-primary"
-              aria-label="Choose executable"
-              onClick={() => void chooseExecutable()}
             >
-              <FolderOpen size={14} />
+              <Terminal size={14} /> Configure login in Terminal
             </button>
-          </div>
-        </SettingRow>
-        <SettingRow title="Default model" detail="Used when a new project agent is created.">
-          <input
-            className="h-9 w-full rounded-md border border-border bg-canvas px-3 text-ui text-primary outline-none focus:border-border-strong"
-            value={configured.model}
-            onChange={(event) =>
-              setSettings({
-                ...settings,
-                providers: {
-                  ...settings.providers,
-                  [provider]: { ...configured, model: event.target.value },
-                },
-              })
-            }
-            onBlur={(event) => void updateProvider({ model: event.target.value })}
-          />
-        </SettingRow>
-        <SettingRow
-          title="Reasoning effort"
-          detail="Default thinking depth for new sessions with this provider."
-        >
-          <select
-            className="h-9 w-full rounded-md border border-border bg-canvas px-3 text-ui text-primary outline-none focus:border-border-strong"
-            value={configured.effort}
-            onChange={(event) => void updateProvider({ effort: event.target.value as AgentEffort })}
-          >
-            {AGENT_EFFORTS.map((effort) => (
-              <option key={effort} value={effort}>
-                {effortLabel(effort)}
-              </option>
-            ))}
-          </select>
-        </SettingRow>
-        <SettingRow
-          title="Editing approvals"
-          detail="Supervised mode asks before every canonical timeline change."
-        >
-          <select
-            className="h-9 w-full rounded-md border border-border bg-canvas px-3 text-ui text-primary outline-none focus:border-border-strong"
-            value={configured.permissionMode}
-            onChange={(event) =>
-              void updateProvider({ permissionMode: event.target.value as AgentPermissionMode })
-            }
-          >
-            <option value="supervised">Supervised</option>
-            <option value="auto-edit">Auto-accept Cinesim edits</option>
-          </select>
-        </SettingRow>
-        <SettingRow title="New agent default" detail="Provider selected when starting a new chat.">
-          <button
-            className={cn(
-              "flex h-9 w-full items-center justify-between rounded-md border px-3 text-ui",
-              settings.defaultProvider === provider
-                ? "border-border-strong bg-surface text-primary"
-                : "border-border bg-canvas text-secondary hover:bg-surface",
-            )}
-            onClick={() =>
-              void window.cinesim
-                .updateAgentSettings({ defaultProvider: provider })
-                .then(setSettings)
-            }
-          >
-            {settings.defaultProvider === provider ? "Current default" : "Make default"}
-            {settings.defaultProvider === provider && <Check size={14} />}
-          </button>
-        </SettingRow>
-      </div>
+          )}
 
-      {notice && (
-        <p className="mt-4 rounded-lg border border-border bg-panel px-3 py-2 text-ui text-secondary">
-          {notice}
-        </p>
-      )}
+          <div className="mt-7 divide-y divide-border rounded-xl border border-border bg-panel">
+            <SettingRow
+              title="Executable path"
+              detail={`Leave empty to detect the system ${providerLabel(provider)} executable.`}
+            >
+              <div className="flex min-w-0 gap-2">
+                <Input
+                  className="flex-1"
+                  value={configured.executablePath}
+                  placeholder={status?.executablePath ?? "Not detected"}
+                  onChange={(event) =>
+                    setSettings({
+                      ...settings,
+                      providers: {
+                        ...settings.providers,
+                        [provider]: { ...configured, executablePath: event.target.value },
+                      },
+                    })
+                  }
+                  onBlur={(event) => void updateProvider({ executablePath: event.target.value })}
+                />
+                <button
+                  className="grid size-9 place-items-center rounded-md border border-border text-muted hover:bg-surface hover:text-primary"
+                  aria-label="Choose executable"
+                  onClick={() => void chooseExecutable()}
+                >
+                  <FolderOpen size={14} />
+                </button>
+              </div>
+            </SettingRow>
+            <SettingRow title="Default model" detail="Used when a new project agent is created.">
+              <Input
+                className="w-full"
+                value={configured.model}
+                onChange={(event) =>
+                  setSettings({
+                    ...settings,
+                    providers: {
+                      ...settings.providers,
+                      [provider]: { ...configured, model: event.target.value },
+                    },
+                  })
+                }
+                onBlur={(event) => void updateProvider({ model: event.target.value })}
+              />
+            </SettingRow>
+            <SettingRow
+              title="Reasoning effort"
+              detail="Default thinking depth for new sessions with this provider."
+            >
+              <Select
+                className="w-full"
+                value={configured.effort}
+                onChange={(event) =>
+                  void updateProvider({ effort: event.target.value as AgentEffort })
+                }
+              >
+                {AGENT_EFFORTS.map((effort) => (
+                  <option key={effort} value={effort}>
+                    {effortLabel(effort)}
+                  </option>
+                ))}
+              </Select>
+            </SettingRow>
+            <SettingRow
+              title="Editing approvals"
+              detail="Supervised mode asks before every canonical timeline change."
+            >
+              <Select
+                className="w-full"
+                value={configured.permissionMode}
+                onChange={(event) =>
+                  void updateProvider({ permissionMode: event.target.value as AgentPermissionMode })
+                }
+              >
+                <option value="supervised">Supervised</option>
+                <option value="auto-edit">Auto-accept Cinesim edits</option>
+              </Select>
+            </SettingRow>
+            <SettingRow
+              title="New agent default"
+              detail="Provider selected when starting a new chat."
+            >
+              <button
+                className={cn(
+                  "flex h-9 w-full items-center justify-between rounded-md border px-3 text-ui",
+                  settings.defaultProvider === provider
+                    ? "border-border-strong bg-surface text-primary"
+                    : "border-border bg-canvas text-secondary hover:bg-surface",
+                )}
+                onClick={() =>
+                  void window.cinesim
+                    .updateAgentSettings({ defaultProvider: provider })
+                    .then(setSettings)
+                }
+              >
+                {settings.defaultProvider === provider ? "Current default" : "Make default"}
+                {settings.defaultProvider === provider && <Check size={14} />}
+              </button>
+            </SettingRow>
+          </div>
+
+          {notice && (
+            <Notice className="mt-4 rounded-lg bg-panel" size="default">
+              {notice}
+            </Notice>
+          )}
+        </TabsContent>
+      </Tabs>
     </>
   );
 }
 
 function ProviderStatus({ status }: { status: AgentProviderStatus | undefined }) {
-  if (!status)
-    return <div className="h-20 animate-pulse rounded-xl border border-border bg-panel" />;
+  if (!status) return <Skeleton className="h-20 rounded-xl border border-border bg-panel" />;
   const connected = status.state === "connected";
   return (
     <div className="rounded-xl border border-border bg-panel px-4 py-3.5">
@@ -342,12 +354,12 @@ function SettingRow({
   children: React.ReactNode;
 }) {
   return (
-    <div className="grid gap-4 p-4 sm:grid-cols-[minmax(0,1fr)_minmax(230px,0.9fr)] sm:items-center">
-      <div>
-        <p className="text-ui font-medium text-primary">{title}</p>
-        <p className="mt-0.5 text-ui-xs leading-4 text-muted">{detail}</p>
-      </div>
+    <Field className="p-4 sm:grid-cols-[minmax(0,1fr)_minmax(230px,0.9fr)] sm:items-center">
+      <FieldContent>
+        <FieldLabel>{title}</FieldLabel>
+        <FieldDescription>{detail}</FieldDescription>
+      </FieldContent>
       <div className="min-w-0">{children}</div>
-    </div>
+    </Field>
   );
 }

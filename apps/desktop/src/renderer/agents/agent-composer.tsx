@@ -6,7 +6,7 @@ import {
   Settings,
   Square,
 } from "lucide-react";
-import { cn } from "@cinesim/ui";
+import { cn, Menu, MenuContent, MenuItem, MenuLabel, MenuTrigger } from "@cinesim/ui";
 import type {
   AgentEffort,
   AgentSessionSnapshot,
@@ -132,40 +132,36 @@ function EffortMenu({
   onSelect: (effort: AgentEffort) => void;
 }) {
   return (
-    <details className="group relative">
-      <summary
+    <Menu disabled={disabled}>
+      <MenuTrigger
         className={cn(
-          "flex h-7 list-none items-center gap-1 rounded-md px-1.5 text-ui-xs text-muted hover:bg-surface hover:text-primary",
-          disabled && "pointer-events-none opacity-50",
+          "flex h-7 items-center gap-1 rounded-md px-1.5 text-ui-xs text-muted hover:bg-surface hover:text-primary data-[disabled]:opacity-50",
         )}
         aria-label="Change agent reasoning effort"
         title="Reasoning effort"
       >
         <ChartNoAxesColumnIncreasing size={13} className="shrink-0" />
         <span>{effortLabel(effort)}</span>
-      </summary>
-      <div className="absolute bottom-9 left-0 z-50 w-40 rounded-lg border border-border bg-panel p-1 shadow-xl shadow-black/15">
-        <p className="px-2 py-1.5 text-ui-xs font-medium text-muted">Reasoning effort</p>
+      </MenuTrigger>
+      <MenuContent side="top" className="w-40 border-border p-1 shadow-xl shadow-black/15">
+        <MenuLabel>Reasoning effort</MenuLabel>
         {AGENT_EFFORTS.map((option) => (
-          <button
+          <MenuItem
             key={option}
             className={cn(
-              "flex w-full items-center gap-2 rounded-md px-2 py-2 text-left text-ui text-secondary hover:bg-surface hover:text-primary",
+              "min-h-0 w-full rounded-md px-2 py-2 text-ui text-secondary hover:text-primary",
               option === effort && "bg-surface text-primary",
             )}
-            onClick={(event) => {
-              event.currentTarget.closest("details")?.removeAttribute("open");
-              if (option !== effort) onSelect(option);
-            }}
+            onClick={() => option !== effort && onSelect(option)}
           >
             <span className="grid size-4 place-items-center">
               {option === effort && <Check size={12} />}
             </span>
             <span>{effortLabel(option)}</span>
-          </button>
+          </MenuItem>
         ))}
-      </div>
-    </details>
+      </MenuContent>
+    </Menu>
   );
 }
 
@@ -195,54 +191,53 @@ function ModelMenu({
   ];
   const selected = models.find((model) => model.value === session.model)?.label ?? session.model;
   return (
-    <details className="group relative">
-      <summary
+    <Menu disabled={disabled}>
+      <MenuTrigger
         className={cn(
-          "flex h-7 max-w-24 list-none items-center gap-1 rounded-md px-1.5 text-ui-xs text-secondary hover:bg-surface hover:text-primary",
-          disabled && "pointer-events-none opacity-50",
+          "group flex h-7 max-w-24 items-center gap-1 rounded-md px-1.5 text-ui-xs text-secondary hover:bg-surface hover:text-primary data-[disabled]:opacity-50",
         )}
         title={`${providerLabel(session.provider)} model`}
       >
         <ProviderIcon provider={session.provider} size={12} className="shrink-0" />
         <span className="truncate">{selected}</span>
-        <ChevronDown size={11} className="shrink-0 transition-transform group-open:rotate-180" />
-      </summary>
-      <div className="absolute bottom-9 left-0 z-50 w-60 overflow-hidden rounded-lg border border-border bg-panel p-1 shadow-xl shadow-black/15">
-        <p className="flex items-center gap-2 px-2 py-1.5 text-ui-xs font-medium text-muted">
+        <ChevronDown
+          size={11}
+          className="shrink-0 transition-transform group-data-[popup-open]:rotate-180"
+        />
+      </MenuTrigger>
+      <MenuContent
+        side="top"
+        className="w-60 overflow-hidden border-border p-1 shadow-xl shadow-black/15"
+      >
+        <MenuLabel className="flex items-center gap-2">
           <ProviderIcon provider={session.provider} size={12} />
           {providerLabel(session.provider)} models
-        </p>
+        </MenuLabel>
         <div className="max-h-64 overflow-y-auto">
           {models.map((model) => (
-            <button
+            <MenuItem
               key={model.value}
               className={cn(
-                "flex w-full items-center gap-2 rounded-md px-2 py-2 text-left text-ui hover:bg-surface",
+                "min-h-0 w-full rounded-md px-2 py-2 text-ui",
                 model.value === session.model && "bg-surface",
               )}
-              onClick={(event) => {
-                event.currentTarget.closest("details")?.removeAttribute("open");
-                onSelect(model.value);
-              }}
+              onClick={() => onSelect(model.value)}
             >
               <span className="grid size-4 place-items-center">
                 {model.value === session.model && <Check size={12} />}
               </span>
               <span className="min-w-0 flex-1 truncate">{model.label}</span>
-            </button>
+            </MenuItem>
           ))}
         </div>
-        <button
+        <MenuItem
           className="mt-1 flex w-full items-center gap-2 border-t border-border px-2 py-2 text-left text-ui-xs text-muted hover:text-primary"
-          onClick={(event) => {
-            event.currentTarget.closest("details")?.removeAttribute("open");
-            onConfigure();
-          }}
+          onClick={onConfigure}
         >
           <Settings size={12} /> Custom model in Settings…
-        </button>
-      </div>
-    </details>
+        </MenuItem>
+      </MenuContent>
+    </Menu>
   );
 }
 

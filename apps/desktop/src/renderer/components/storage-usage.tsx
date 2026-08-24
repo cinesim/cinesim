@@ -1,4 +1,5 @@
 import { Database } from "lucide-react";
+import { DefinitionRow, SectionHeading } from "@cinesim/ui";
 import type { DerivedMediaSnapshot } from "../../shared/api";
 import { formatByteCount } from "../lib/format";
 
@@ -23,10 +24,9 @@ export function StorageUsage({ storage }: { storage: StorageSnapshot | undefined
 
   return (
     <section className="border-b border-border px-3 py-3">
-      <h3 className="mb-2 flex items-center gap-2 text-ui-xs font-semibold uppercase tracking-[0.12em] text-muted">
-        <Database size={13} />
+      <SectionHeading className="mb-2" icon={<Database size={13} />}>
         Storage
-      </h3>
+      </SectionHeading>
       <div className="rounded-lg border border-border bg-panel-muted p-3">
         <div className="flex items-baseline justify-between gap-3">
           <h4 className="text-ui font-medium text-primary">Project cache</h4>
@@ -97,12 +97,7 @@ export function StorageUsage({ storage }: { storage: StorageSnapshot | undefined
 }
 
 function StorageRow({ label, value }: { label: string; value: React.ReactNode }) {
-  return (
-    <div className="flex min-w-0 items-baseline justify-between gap-4 py-1 text-ui-xs">
-      <dt className="truncate text-muted">{label}</dt>
-      <dd className="shrink-0 text-right text-secondary tabular-nums">{value}</dd>
-    </div>
-  );
+  return <DefinitionRow label={label} value={value} />;
 }
 
 function formatPercentage(value: number): string {
