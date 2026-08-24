@@ -385,11 +385,6 @@ export function createRendererStore({ api, storage }: RendererStoreDependencies)
           asset.kind === "video" && asset.hasAudio === true
             ? sequence.tracks.find((candidate) => candidate.kind === "audio" && !candidate.locked)
             : null;
-        if (asset.kind === "video" && asset.hasAudio === true && !audioTrack) {
-          const error = "The timeline has no unlocked audio track for the linked audio clip";
-          set({ operationError: error });
-          return { ok: false, error };
-        }
         return get().execute({
           type: "clip.add",
           trackId: track.id,

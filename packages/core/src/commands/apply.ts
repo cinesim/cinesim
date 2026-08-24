@@ -4,7 +4,6 @@ import {
   canSplitClipAt,
   clipEndUs,
   DEFAULT_TRANSFORM,
-  isAssetCompatibleWithTrack,
   isAssetMediaCompatibleWithTrack,
 } from "../project/types";
 import type { Asset, Clip, Project, Sequence, Track } from "../project/types";
@@ -99,18 +98,13 @@ function defaultTrackName(sequence: Sequence, kind: Track["kind"]): string {
 function assertAssetTrackCompatibility(
   asset: Asset,
   track: Track,
-  mediaKind?: Clip["mediaKind"],
+  mediaKind: Clip["mediaKind"],
 ): void {
-  if (
-    mediaKind
-      ? isAssetMediaCompatibleWithTrack(asset, mediaKind, track.kind)
-      : isAssetCompatibleWithTrack(asset.kind, track.kind)
-  )
-    return;
-  const compatibleTracks = asset.kind === "audio" ? "audio" : "video or overlay";
+  if (isAssetMediaCompatibleWithTrack(asset, mediaKind, track.kind)) return;
+  const compatibleTracks = mediaKind === "audio" ? "audio" : "video or overlay";
   throw new CommandError(
     "INCOMPATIBLE_TRACK",
-    `${asset.kind} asset ${asset.id} can only be placed on ${compatibleTracks} tracks`,
+    `${mediaKind} component from ${asset.id} can only be placed on ${compatibleTracks} tracks`,
   );
 }
 
@@ -225,7 +219,8 @@ export function applyCommand(inputProject: Project, command: EditorCommand): Com
       if (track.locked) throw new CommandError("TRACK_LOCKED", `Track is locked: ${track.id}`);
       const asset = project.assets.find((candidate) => candidate.id === command.assetId);
       if (!asset) throw new CommandError("ASSET_NOT_FOUND", `Asset not found: ${command.assetId}`);
-      assertAssetTrackCompatibility(asset, track);
+      const primaryMediaKind = asset.kind === "audio" ? "audio" : "video";
+      assertAssetTrackCompatibility(asset, track, primaryMediaKind);
       const sourceStartUs = command.sourceStartUs ?? 0;
       const sourceEndUs = command.sourceEndUs ?? asset.durationUs;
       assertTime(sourceStartUs, "sourceStartUs");
@@ -236,13 +231,39 @@ export function applyCommand(inputProject: Project, command: EditorCommand): Com
           "Clip source range must be positive and inside the asset",
         );
       }
-      const audioTrack = command.audioTrackId ? getTrack(project, command.audioTrackId) : null;
-      if (audioTrack) {
+      let createdAudioTrack = false;
+      let audioTrack: Track | null = null;
+      if (command.audioTrackId || (asset.kind === "video" && asset.hasAudio === true)) {
         if (asset.kind !== "video" || asset.hasAudio !== true) {
           throw new CommandError(
             "ASSET_HAS_NO_AUDIO",
             `Asset ${asset.id} cannot create a linked audio component`,
           );
+        }
+        const sequence = findTrack(project, track.id).sequence;
+        audioTrack = command.audioTrackId
+          ? getTrack(project, command.audioTrackId)
+          : (sequence.tracks.find(
+              (candidate) =>
+                candidate.kind === "audio" &&
+                !candidate.locked &&
+                !candidate.clips.some(
+                  (clip) =>
+                    command.timelineStartUs < clipEndUs(clip) &&
+                    command.timelineStartUs + (sourceEndUs - sourceStartUs) > clip.timelineStartUs,
+                ),
+            ) ?? null);
+        if (!audioTrack) {
+          audioTrack = {
+            id: nextId("track", allTrackIds(project)),
+            name: defaultTrackName(sequence, "audio"),
+            kind: "audio",
+            muted: false,
+            locked: false,
+            clips: [],
+          };
+          sequence.tracks.push(audioTrack);
+          createdAudioTrack = true;
         }
         if (audioTrack.locked)
           throw new CommandError("TRACK_LOCKED", `Track is locked: ${audioTrack.id}`);
@@ -259,7 +280,8 @@ export function applyCommand(inputProject: Project, command: EditorCommand): Com
       const clip: Clip = {
         id: clipId,
         assetId: asset.id,
-        ...(audioClipId ? { mediaKind: "video" as const, linkedClipId: audioClipId } : {}),
+        mediaKind: primaryMediaKind,
+        ...(audioClipId ? { linkedClipId: audioClipId } : {}),
         timelineStartUs: command.timelineStartUs,
         sourceStartUs,
         sourceEndUs,
@@ -290,7 +312,7 @@ export function applyCommand(inputProject: Project, command: EditorCommand): Com
           command,
           `Added linked clips ${clip.id} and ${audioClip.id}`,
           [track.id, audioTrack.id, clip.id, audioClip.id],
-          [clip.id, audioClip.id],
+          [...(createdAudioTrack ? [audioTrack.id] : []), clip.id, audioClip.id],
         );
       }
       return result(project, command, `Added ${clip.id}`, [track.id, clip.id], [clip.id]);

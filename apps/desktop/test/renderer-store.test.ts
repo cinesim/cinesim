@@ -111,6 +111,7 @@ describe("renderer project controller", () => {
     const clip: Clip = {
       id: "clip_selected",
       assetId: asset.id,
+      mediaKind: "video",
       timelineStartUs: 0,
       sourceStartUs: 0,
       sourceEndUs: 4_000_000,

@@ -24,7 +24,7 @@
 
 Sequence track order is authored canonical state, not an incidental JSON order. It is preserved across save/load and matches the timeline UI: index `0` is the uppermost track. Upper visual tracks composite over lower video and overlay tracks. Track reordering uses a zero-based destination index within the track's existing sequence.
 
-Audio-only assets may be placed only on audio tracks. Video and image assets may be placed on video or overlay tracks. A video asset retains its embedded audio while its clip lives on a visual track. Loading a project or applying a clip command rejects incompatible placements.
+Every canonical clip declares a `mediaKind` of `video` or `audio`; playback and presentation never infer embedded audio from a visual clip. Audio-only assets may be placed only on audio tracks, while video and image components may be placed on video or overlay tracks. Adding a video asset with audio atomically creates reciprocal linked video and audio clips. The command chooses an available audio track or creates one when necessary, and linked move, trim, split, and remove edits remain one command and one undo step. Pre-component project files are deterministically upgraded to this representation during load. Loading a project or applying a clip command rejects incompatible placements and malformed links.
 
 Tracks are changed through the shared command pathway:
 

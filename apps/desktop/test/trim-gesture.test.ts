@@ -10,6 +10,7 @@ import {
 const clip: Clip = {
   id: "clip_fixture",
   assetId: "asset_fixture",
+  mediaKind: "video",
   timelineStartUs: 2_000_000,
   sourceStartUs: 1_000_000,
   sourceEndUs: 5_000_000,

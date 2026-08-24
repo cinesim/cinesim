@@ -104,9 +104,7 @@ function ClipBlock({
   const previewClip = trimPreviewClip(trimGesture) ?? clip;
   const name = asset?.name ?? clip.assetId;
   const preparationLabel = derivedAsset ? prepStatus(derivedAsset, derived) : null;
-  const isAudioComponent = clip.mediaKind === "audio" || track.kind === "audio";
-  const carriesLegacyEmbeddedAudio =
-    clip.mediaKind === undefined && track.kind !== "audio" && asset?.hasAudio === true;
+  const isAudioComponent = clip.mediaKind === "audio";
   const left = (previewRange?.timelineStartUs ?? clip.timelineStartUs) * pixelsPerUs;
   const width = Math.max(
     18,
@@ -218,7 +216,8 @@ function ClipBlock({
       {asset &&
         derived &&
         derivedAsset?.waveform.state === "ready" &&
-        (isAudioComponent || carriesLegacyEmbeddedAudio || asset.kind === "audio") && (
+        isAudioComponent &&
+        (asset.kind === "audio" || asset.hasAudio === true) && (
           <TimelineWaveform
             asset={asset}
             clip={previewClip}

@@ -10,8 +10,10 @@ const asset: Asset = {
   durationUs: 10_000_000,
   width: 1920,
   height: 1080,
-  hasAudio: true,
+  hasAudio: false,
 };
+
+const avAsset: Asset = { ...asset, hasAudio: true };
 
 const audioAsset: Asset = {
   id: "asset_000002",
@@ -127,12 +129,14 @@ describe("editing commands", () => {
   });
 
   it("keeps linked video and audio components synchronized through edits", () => {
-    let project = seededProject();
+    let project = applyCommand(createProject({ name: "Linked" }), {
+      type: "asset.import",
+      asset: avAsset,
+    }).project;
     const add = applyCommand(project, {
       type: "clip.add",
       trackId: "track_000001",
-      audioTrackId: "track_000002",
-      assetId: asset.id,
+      assetId: avAsset.id,
       timelineStartUs: 0,
     });
     project = add.project;
@@ -176,18 +180,45 @@ describe("editing commands", () => {
   });
 
   it("adds linked components as one undoable command", () => {
-    const project = seededProject();
+    const project = applyCommand(createProject({ name: "Linked history" }), {
+      type: "asset.import",
+      asset: avAsset,
+    }).project;
     const history = new ProjectHistory(project);
     history.commit({
       type: "clip.add",
       trackId: "track_000001",
       audioTrackId: "track_000002",
-      assetId: asset.id,
+      assetId: avAsset.id,
       timelineStartUs: 0,
     });
     expect(history.project.sequences[0]!.tracks.flatMap((track) => track.clips)).toHaveLength(2);
     expect(history.undo().sequences[0]!.tracks.flatMap((track) => track.clips)).toHaveLength(0);
     expect(history.redo().sequences[0]!.tracks.flatMap((track) => track.clips)).toHaveLength(2);
+  });
+
+  it("creates an audio track atomically when no unlocked destination is available", () => {
+    let project = applyCommand(createProject({ name: "Automatic audio track" }), {
+      type: "asset.import",
+      asset: avAsset,
+    }).project;
+    project = applyCommand(project, {
+      type: "track.update",
+      trackId: "track_000002",
+      locked: true,
+    }).project;
+    const added = applyCommand(project, {
+      type: "clip.add",
+      trackId: "track_000001",
+      assetId: avAsset.id,
+      timelineStartUs: 0,
+    });
+    expect(added.createdIds).toEqual(["track_000003", "clip_000001", "clip_000002"]);
+    expect(added.project.sequences[0]!.tracks[2]).toMatchObject({
+      id: "track_000003",
+      name: "Audio 2",
+      kind: "audio",
+    });
   });
 
   it("moves and trims clips in integer microseconds", () => {

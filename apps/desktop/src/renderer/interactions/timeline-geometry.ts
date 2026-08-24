@@ -19,7 +19,7 @@ export interface TimelineDropProposal {
   timelineStartUs: TimeUs;
   timelineEndUs: TimeUs;
   valid: boolean;
-  reason?: "incompatible-track" | "locked-track" | "overlap" | "audio-track-unavailable";
+  reason?: "incompatible-track" | "locked-track" | "overlap";
   snapped: boolean;
 }
 
@@ -171,7 +171,6 @@ export function proposeAssetDrop(
             ),
         )
       : null;
-  const requiresAudioTrack = asset.kind === "video" && asset.hasAudio === true;
   return {
     kind: "asset",
     assetId,
@@ -180,9 +179,6 @@ export function proposeAssetDrop(
     timelineEndUs,
     ...primaryValidation,
     ...(audioTrack ? { audioTrackId: audioTrack.id } : {}),
-    ...(primaryValidation.valid && requiresAudioTrack && !audioTrack
-      ? { valid: false, reason: "audio-track-unavailable" as const }
-      : {}),
     snapped: snapped.snapped,
   };
 }

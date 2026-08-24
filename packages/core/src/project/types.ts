@@ -31,11 +31,8 @@ export interface Asset {
 export interface Clip {
   id: ClipId;
   assetId: AssetId;
-  /**
-   * Identifies the source component represented by this clip. Absent means a
-   * legacy clip whose component is inferred from its asset and track.
-   */
-  mediaKind?: "video" | "audio";
+  /** Identifies the source component represented by this canonical clip. */
+  mediaKind: "video" | "audio";
   /** Reciprocal link to the other component of an imported A/V clip. */
   linkedClipId?: ClipId;
   timelineStartUs: TimeUs;
@@ -54,9 +51,7 @@ export interface Track {
 }
 
 /**
- * Returns whether an asset can be represented by a track without changing its
- * media semantics. Video assets retain their embedded audio while living on a
- * visual track; audio-only assets live on audio tracks.
+ * Returns whether an asset's primary component can be represented by a track.
  */
 export function isAssetCompatibleWithTrack(
   assetKind: Asset["kind"],
@@ -76,11 +71,11 @@ export function isAssetMediaCompatibleWithTrack(
 }
 
 export function clipCarriesAudio(asset: Asset, clip: Clip, track: Track): boolean {
-  if (clip.mediaKind === "audio") return asset.kind === "audio" || asset.hasAudio === true;
-  if (clip.mediaKind === "video") return false;
-  return track.kind === "audio"
-    ? asset.kind === "audio" || asset.hasAudio === true
-    : asset.hasAudio === true;
+  return (
+    track.kind === "audio" &&
+    clip.mediaKind === "audio" &&
+    (asset.kind === "audio" || asset.hasAudio === true)
+  );
 }
 
 export interface Sequence {

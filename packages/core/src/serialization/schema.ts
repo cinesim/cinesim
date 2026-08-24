@@ -28,7 +28,7 @@ export const assetSchema = z.object({
 export const clipSchema = z.object({
   id: persistentId("clip"),
   assetId: persistentId("asset"),
-  mediaKind: z.enum(["video", "audio"]).optional(),
+  mediaKind: z.enum(["video", "audio"]),
   linkedClipId: persistentId("clip").optional(),
   timelineStartUs: timeUs,
   sourceStartUs: timeUs,
