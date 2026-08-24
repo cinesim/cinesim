@@ -1,5 +1,7 @@
 import { join } from "node:path";
 import { execFile } from "node:child_process";
+import { createReadStream } from "node:fs";
+import { Readable } from "node:stream";
 import {
   app,
   BrowserWindow,
@@ -220,7 +222,13 @@ function parseAgentSessionUpdate(value: unknown): AgentSessionUpdate {
 protocol.registerSchemesAsPrivileged([
   {
     scheme: "cinesim-media",
-    privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true },
+    privileges: {
+      standard: true,
+      secure: true,
+      supportFetchAPI: true,
+      stream: true,
+      corsEnabled: true,
+    },
   },
 ]);
 
@@ -251,6 +259,78 @@ function createWindow(): BrowserWindow {
   return window;
 }
 
+function streamedMediaResponse(input: {
+  path: string;
+  size: number;
+  mimeType: string;
+  assetId: string;
+  start: number;
+  endExclusive: number;
+  range: boolean;
+  cacheControl: string;
+  requestStarted: number;
+}): Response {
+  const start = Math.max(0, Math.min(input.start, input.size));
+  const endExclusive = Math.max(start, Math.min(input.endExclusive, input.size));
+  const length = endExclusive - start;
+  const headers = {
+    "Accept-Ranges": "bytes",
+    "Access-Control-Allow-Origin": "*",
+    "Content-Length": String(length),
+    ...(input.range
+      ? { "Content-Range": `bytes ${start}-${Math.max(start, endExclusive - 1)}/${input.size}` }
+      : {}),
+    "Content-Type": input.mimeType,
+    "Cache-Control": input.cacheControl,
+  };
+  if (length === 0) {
+    store.derivedMedia.recordProtocolRead({
+      assetId: input.assetId,
+      start,
+      requestedEnd: endExclusive,
+      bytesRead: 0,
+      durationMs: performance.now() - input.requestStarted,
+      range: input.range,
+    });
+    return new Response(null, { status: input.range ? 206 : 200, headers });
+  }
+  const stream = createReadStream(input.path, {
+    start,
+    end: endExclusive - 1,
+    highWaterMark: 64 * 1024,
+  });
+  let settled = false;
+  const recordRead = () => {
+    if (settled) return;
+    settled = true;
+    store.derivedMedia.recordProtocolRead({
+      assetId: input.assetId,
+      start,
+      requestedEnd: endExclusive,
+      bytesRead: stream.bytesRead,
+      durationMs: performance.now() - input.requestStarted,
+      range: input.range,
+    });
+  };
+  stream.once("error", (error) => {
+    if (error.name === "AbortError") {
+      recordRead();
+      return;
+    }
+    settled = true;
+    store.derivedMedia.recordProtocolError(
+      input.assetId,
+      error.message,
+      performance.now() - input.requestStarted,
+    );
+  });
+  stream.once("close", recordRead);
+  return new Response(Readable.toWeb(stream) as ReadableStream<Uint8Array>, {
+    status: input.range ? 206 : 200,
+    headers,
+  });
+}
+
 async function registerMediaProtocol(): Promise<void> {
   protocol.handle("cinesim-media", async (request) => {
     const requestStarted = performance.now();
@@ -276,31 +356,35 @@ async function registerMediaProtocol(): Promise<void> {
           (profileId !== undefined && !/^[a-z0-9][a-z0-9_-]{0,63}$/.test(profileId))
         )
           return new Response("Bad proxy profile", { status: 400 });
-        const match = range?.match(/^bytes=(\d+)-(\d*)$/);
-        const start = match ? Number(match[1]) : 0;
-        const requestedEnd = match?.[2] ? Number(match[2]) + 1 : start + 16 * 1024 * 1024;
-        const result = await store.derivedMedia.readArtifactRange(
+        const result = await store.derivedMedia.artifactFile(
           derivedKind as DerivedArtifactKind,
           assetId,
-          start,
-          request.method === "HEAD" ? start : requestedEnd,
           profileId,
         );
-        const end = start + result.data.byteLength;
-        return new Response(request.method === "HEAD" ? null : new Uint8Array(result.data), {
-          status: range && request.method !== "HEAD" ? 206 : 200,
-          headers: {
-            "Accept-Ranges": "bytes",
-            "Access-Control-Allow-Origin": "*",
-            "Content-Length": String(
-              request.method === "HEAD" ? result.size : result.data.byteLength,
-            ),
-            ...(range && request.method !== "HEAD"
-              ? { "Content-Range": `bytes ${start}-${Math.max(start, end - 1)}/${result.size}` }
-              : {}),
-            "Content-Type": result.mimeType,
-            "Cache-Control": "private, max-age=31536000, immutable",
-          },
+        if (request.method === "HEAD")
+          return new Response(null, {
+            status: 200,
+            headers: {
+              "Accept-Ranges": "bytes",
+              "Access-Control-Allow-Origin": "*",
+              "Content-Length": String(result.size),
+              "Content-Type": result.mimeType,
+              "Cache-Control": "private, max-age=31536000, immutable",
+            },
+          });
+        const match = range?.match(/^bytes=(\d+)-(\d*)$/);
+        const start = match ? Number(match[1]) : 0;
+        const requestedEnd = match?.[2] ? Number(match[2]) + 1 : result.size;
+        return streamedMediaResponse({
+          path: result.path,
+          size: result.size,
+          mimeType: result.mimeType,
+          assetId,
+          start,
+          endExclusive: requestedEnd,
+          range: Boolean(range),
+          cacheControl: "private, max-age=31536000, immutable",
+          requestStarted,
         });
       }
       const path = store.assetPath(assetId);
@@ -328,31 +412,17 @@ async function registerMediaProtocol(): Promise<void> {
       }
       const match = range?.match(/^bytes=(\d+)-(\d*)$/);
       const start = match ? Number(match[1]) : 0;
-      const requestedEnd = match?.[2]
-        ? Number(match[2]) + 1
-        : Math.min(size, start + 16 * 1024 * 1024);
-      const { data } = await store.readRange(assetId, start, requestedEnd);
-      const end = start + data.byteLength;
-      store.derivedMedia.recordProtocolRead({
+      const requestedEnd = match?.[2] ? Number(match[2]) + 1 : size;
+      return streamedMediaResponse({
+        path,
+        size,
+        mimeType: "application/octet-stream",
         assetId,
         start,
-        requestedEnd,
-        bytesRead: data.byteLength,
-        durationMs: performance.now() - requestStarted,
+        endExclusive: requestedEnd,
         range: Boolean(range),
-      });
-      return new Response(request.method === "HEAD" ? null : new Uint8Array(data), {
-        status: range || data.byteLength < size ? 206 : 200,
-        headers: {
-          "Accept-Ranges": "bytes",
-          "Access-Control-Allow-Origin": "*",
-          "Content-Length": String(data.byteLength),
-          ...(range || data.byteLength < size
-            ? { "Content-Range": `bytes ${start}-${Math.max(start, end - 1)}/${size}` }
-            : {}),
-          "Content-Type": "application/octet-stream",
-          "Cache-Control": "no-store",
-        },
+        cacheControl: "no-store",
+        requestStarted,
       });
     } catch (error) {
       store.derivedMedia.recordProtocolError(
@@ -602,6 +672,18 @@ async function startApplication(): Promise<void> {
   agentSettings = new AgentSettingsStore(join(app.getPath("userData"), "agent-settings.json"));
   await appState.load();
   await agentSettings.load();
+  const diagnosticProject = process.env.CINESIM_DIAGNOSTIC_PROJECT;
+  if (
+    process.env.CINESIM_DEV_SERVER_URL &&
+    diagnosticProject &&
+    diagnosticProject.length <= 4_096
+  ) {
+    await store.open(diagnosticProject);
+    log.info(
+      { operation: "diagnostic-project-open", projectId: store.project?.id },
+      "opened development diagnostic project",
+    );
+  }
   await registerMediaProtocol();
   store.derivedMedia.subscribe((snapshot) => {
     for (const target of BrowserWindow.getAllWindows())

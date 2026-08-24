@@ -1,4 +1,4 @@
-import { mkdir, open, readFile, rename, stat, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, stat, writeFile } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
 import {
   createProject,
@@ -250,29 +250,6 @@ export class DesktopProjectStore {
       canUndo: this.#history!.canUndo,
       canRedo: this.#history!.canRedo,
     };
-  }
-
-  async readRange(
-    assetId: string,
-    start: number,
-    endExclusive: number,
-  ): Promise<{ data: Buffer; size: number }> {
-    const path = this.assetPath(assetId);
-    if (!path) throw new Error("Unknown asset");
-    const info = await stat(path);
-    const safeStart = Math.max(0, Math.min(start, info.size));
-    const safeEnd = Math.max(
-      safeStart,
-      Math.min(endExclusive, info.size, safeStart + 16 * 1024 * 1024),
-    );
-    const handle = await open(path, "r");
-    try {
-      const data = Buffer.alloc(safeEnd - safeStart);
-      await handle.read(data, 0, data.byteLength, safeStart);
-      return { data, size: info.size };
-    } finally {
-      await handle.close();
-    }
   }
 
   #requireDirectory(): string {

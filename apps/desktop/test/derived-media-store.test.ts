@@ -1,4 +1,4 @@
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -58,10 +58,10 @@ describe("DerivedMediaStore", () => {
     });
     expect(JSON.stringify(snapshot)).not.toContain(directory);
     expect(JSON.stringify(snapshot)).not.toContain("relativePath");
-    const artifact = await store.readArtifactRange("thumbnail", "asset_fixture", 1, 3);
-    expect([...artifact.data]).toEqual([20, 30]);
-    expect(artifact.size).toBe(4);
-    expect(artifact.mimeType).toBe("image/jpeg");
+    const artifactFile = await store.artifactFile("thumbnail", "asset_fixture");
+    expect(artifactFile).toMatchObject({ size: 4, mimeType: "image/jpeg" });
+    expect(artifactFile.path.startsWith(join(directory, ".video"))).toBe(true);
+    expect([...(await readFile(artifactFile.path))]).toEqual([10, 20, 30, 40]);
   });
 
   it("validates writer bounds, ownership, and final sizes", async () => {

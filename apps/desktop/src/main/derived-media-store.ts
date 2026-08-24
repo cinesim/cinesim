@@ -580,13 +580,11 @@ export class DerivedMediaStore {
     });
   }
 
-  async readArtifactRange(
+  async artifactFile(
     kind: DerivedArtifactKind,
     assetId: string,
-    start: number,
-    endExclusive: number,
     profileId?: string,
-  ): Promise<{ data: Buffer; size: number; mimeType: string }> {
+  ): Promise<{ path: string; size: number; mimeType: string }> {
     const asset = this.#requireAsset(assetId);
     const record = await this.#ensureAsset(asset);
     const artifact = record[kind];
@@ -596,21 +594,9 @@ export class DerivedMediaStore {
       throw new Error("Unknown proxy profile");
     const path = this.#containedPath(artifact.relativePath);
     const info = await stat(path);
-    const safeStart = Math.max(0, Math.min(start, info.size));
-    const safeEnd = Math.max(
-      safeStart,
-      Math.min(endExclusive, info.size, safeStart + 16 * 1024 * 1024),
-    );
-    const handle = await open(path, "r");
-    try {
-      const data = Buffer.alloc(safeEnd - safeStart);
-      await handle.read(data, 0, data.byteLength, safeStart);
-      artifact.lastAccessAt = new Date().toISOString();
-      void this.#persist();
-      return { data, size: info.size, mimeType: mimeType(kind) };
-    } finally {
-      await handle.close();
-    }
+    artifact.lastAccessAt = new Date().toISOString();
+    void this.#persist();
+    return { path, size: info.size, mimeType: mimeType(kind) };
   }
 
   async #ensureAsset(asset: Asset): Promise<PersistedAsset> {
