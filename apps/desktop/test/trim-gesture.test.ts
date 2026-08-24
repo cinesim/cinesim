@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { DEFAULT_TRANSFORM, type Clip } from "@cinesim/core";
 import {
   IDLE_TRIM_GESTURE,
+  trimPreviewRange,
   transitionTrimGesture,
 } from "../src/renderer/interactions/trim-gesture";
 
@@ -37,6 +38,27 @@ describe("timeline trim gesture", () => {
       type: "clip.trimEnd",
       clipId: clip.id,
       atUs: 5_800_000,
+    });
+  });
+
+  it("tracks transient geometry without producing canonical commands", () => {
+    const started = transitionTrimGesture(IDLE_TRIM_GESTURE, {
+      type: "start",
+      pointerId: 8,
+      edge: "start",
+      clientX: 100,
+      pixelsPerUs: 0.0001,
+      clip,
+    });
+    const moved = transitionTrimGesture(started.state, {
+      type: "move",
+      pointerId: 8,
+      clientX: 150,
+    });
+    expect(moved.command).toBeUndefined();
+    expect(trimPreviewRange(moved.state)).toEqual({
+      timelineStartUs: 2_500_000,
+      timelineEndUs: 6_000_000,
     });
   });
 

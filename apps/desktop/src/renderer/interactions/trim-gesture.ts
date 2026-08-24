@@ -10,6 +10,7 @@ export type TrimGestureState =
       originX: number;
       pixelsPerUs: number;
       clip: Clip;
+      previewAtUs: number;
     };
 
 export type TrimGestureEvent =
@@ -21,6 +22,7 @@ export type TrimGestureEvent =
       pixelsPerUs: number;
       clip: Clip;
     }
+  | { type: "move"; pointerId: number; clientX: number }
   | { type: "finish"; pointerId: number; clientX: number }
   | { type: "cancel"; pointerId: number };
 
@@ -45,6 +47,7 @@ export function transitionTrimGesture(
         originX: event.clientX,
         pixelsPerUs: event.pixelsPerUs,
         clip: event.clip,
+        previewAtUs: event.edge === "start" ? event.clip.timelineStartUs : clipEndUs(event.clip),
       },
     };
   }
@@ -57,6 +60,7 @@ export function transitionTrimGesture(
     state.edge === "start"
       ? Math.min(clipEnd - 1, Math.max(clipStartUs, clipStartUs + deltaUs))
       : Math.max(clipStartUs + 1, Math.min(clipEnd, clipEnd + deltaUs));
+  if (event.type === "move") return { state: { ...state, previewAtUs: atUs } };
   const unchanged = state.edge === "start" ? atUs === clipStartUs : atUs === clipEnd;
   if (unchanged) return { state: IDLE_TRIM_GESTURE };
   return {
@@ -67,4 +71,13 @@ export function transitionTrimGesture(
       atUs,
     },
   };
+}
+
+export function trimPreviewRange(
+  state: TrimGestureState,
+): { timelineStartUs: number; timelineEndUs: number } | null {
+  if (state.status !== "trimming") return null;
+  return state.edge === "start"
+    ? { timelineStartUs: state.previewAtUs, timelineEndUs: clipEndUs(state.clip) }
+    : { timelineStartUs: state.clip.timelineStartUs, timelineEndUs: state.previewAtUs };
 }
