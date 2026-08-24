@@ -9,9 +9,17 @@ interface EditMediaPoolProps {
   project: Project;
   onAddAsset: (asset: Asset) => Promise<void>;
   onImport: () => Promise<void>;
+  onPreviewAsset: (asset: Asset, sourceTimeUs: number) => void;
+  onPreviewEnd: () => void;
 }
 
-export function EditMediaPool({ project, onAddAsset, onImport }: EditMediaPoolProps) {
+export function EditMediaPool({
+  project,
+  onAddAsset,
+  onImport,
+  onPreviewAsset,
+  onPreviewEnd,
+}: EditMediaPoolProps) {
   const [query, setQuery] = useState("");
   const normalizedQuery = query.trim().toLowerCase();
   const assets = useMemo(
@@ -49,7 +57,11 @@ export function EditMediaPool({ project, onAddAsset, onImport }: EditMediaPoolPr
                   onDoubleClick={() => void onAddAsset(asset)}
                 >
                   <span className="media-thumbnail grid size-10 shrink-0 place-items-center overflow-hidden rounded border border-border text-muted">
-                    <MediaSkimSurface asset={asset} />
+                    <MediaSkimSurface
+                      asset={asset}
+                      onPreviewTime={(sourceTimeUs) => onPreviewAsset(asset, sourceTimeUs)}
+                      onPreviewEnd={onPreviewEnd}
+                    />
                   </span>
                   <span className="min-w-0 flex-1">
                     <span className="block truncate text-ui-xs font-medium text-primary">

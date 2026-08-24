@@ -123,6 +123,7 @@ export class PlaybackRuntime {
       if (request.reason === "timeline-seek" || request.reason === "asset-preview")
         this.#seekLatencyMs = this.#now() - started;
       this.#prewarm(request.mode);
+      if (this.#now() - this.#lastSnapshotAt >= 100) this.#emit();
     });
   }
 
@@ -164,7 +165,7 @@ export class PlaybackRuntime {
   pause(): void {
     this.#clock.pause();
     this.#audioScheduler?.stop();
-    cancelAnimationFrame(this.#animationFrame);
+    if (typeof cancelAnimationFrame === "function") cancelAnimationFrame(this.#animationFrame);
     this.#emit();
   }
 

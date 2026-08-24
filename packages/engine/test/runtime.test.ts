@@ -8,11 +8,13 @@ import {
   filmstripSampleTimes,
   nearestSampleIndex,
   pointerSourceTimeUs,
+  PlaybackRuntime,
   resolveScene,
   scoreThumbnailRgba,
   sparseSampleTimes,
   thumbnailCandidateTimes,
 } from "../src";
+import type { CompositorLayer, PreviewCompositor, VideoSourceFactory } from "../src";
 
 const asset: Asset = {
   id: "asset_000001",
@@ -146,5 +148,70 @@ describe("derived perception primitives", () => {
     expect(scoreThumbnailRgba(detailed, 4, 4, 500, 1_000).score).toBeGreaterThan(0);
     expect(thumbnailCandidateTimes(60_000_000)).toHaveLength(12);
     expect(thumbnailCandidateTimes(60_000_000)).toEqual(thumbnailCandidateTimes(60_000_000));
+  });
+});
+
+describe("PlaybackRuntime source preview", () => {
+  it("keeps timeline time unchanged and restores its frame after asset preview", async () => {
+    let project = applyCommand(createProject({ name: "Preview" }), {
+      type: "asset.import",
+      asset,
+    }).project;
+    project = applyCommand(project, {
+      type: "clip.add",
+      trackId: project.sequences[0]!.tracks[0]!.id,
+      assetId: asset.id,
+      timelineStartUs: 0,
+    }).project;
+    const renderedTimes: number[] = [];
+    const compositor: PreviewCompositor = {
+      initialize: async () => undefined,
+      render: (layers: CompositorLayer[]) => {
+        for (const layer of layers) {
+          renderedTimes.push((layer.frame as VideoFrame & { sourceTimeUs: number }).sourceTimeUs);
+          layer.frame.close();
+        }
+      },
+      metrics: {
+        gpuSubmitCpuMs: 0,
+        submittedFrames: 0,
+        activeFrames: 0,
+        deviceLostCount: 0,
+        outputWidth: 1920,
+        outputHeight: 1080,
+      },
+      destroy: () => undefined,
+    };
+    const sourceFactory: VideoSourceFactory = () => ({
+      prepare: async () => ({
+        durationUs: asset.durationUs,
+        width: 1920,
+        height: 1080,
+        frameRate: 30,
+        hasAudio: false,
+      }),
+      seek: async () => undefined,
+      getFrame: async (sourceTimeUs) =>
+        ({
+          sourceTimeUs,
+          displayWidth: 1920,
+          displayHeight: 1080,
+          close: () => undefined,
+        }) as unknown as VideoFrame,
+      destroy: () => undefined,
+    });
+    const runtime = new PlaybackRuntime(project, compositor, { sourceFactory, now: () => 0 });
+    await runtime.initialize();
+    await runtime.seekTimeline(1_000_000);
+    runtime.enterAssetPreview(asset.id, 4_000_000);
+    await new Promise<void>((resolve) => queueMicrotask(() => resolve()));
+    const unsubscribe = runtime.subscribe((value) => {
+      expect(value.timeUs).toBe(1_000_000);
+      expect(value.mode.kind).toBe("asset");
+    });
+    unsubscribe();
+    await runtime.exitAssetPreview();
+    expect(renderedTimes).toEqual([0, 1_000_000, 4_000_000, 1_000_000]);
+    runtime.destroy();
   });
 });

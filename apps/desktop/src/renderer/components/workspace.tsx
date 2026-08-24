@@ -325,6 +325,10 @@ export function Workspace({
                   project={editorProject}
                   onAddAsset={addAsset}
                   onImport={importMedia}
+                  onPreviewAsset={(asset, sourceTimeUs) =>
+                    viewerControllerRef.current?.enterAssetPreview(asset.id, sourceTimeUs)
+                  }
+                  onPreviewEnd={() => void viewerControllerRef.current?.exitAssetPreview()}
                 />
                 <PanelResizeHandle
                   orientation="vertical"
