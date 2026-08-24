@@ -386,28 +386,7 @@ export function AppShell({
               {title}
             </span>
           )}
-          {toolbar && (
-            <div
-              className={cn(
-                "no-drag absolute transition-[right] duration-200 ease-in-out",
-                agentsSidebar ? "right-12" : "right-3",
-              )}
-            >
-              {toolbar}
-            </div>
-          )}
-          {agentsSidebar && (
-            <button
-              className="no-drag absolute right-2 top-2 grid size-8 place-items-center rounded-md text-muted hover:bg-surface hover:text-primary"
-              aria-label={
-                auxiliaryMode === "agents" ? "Collapse agents sidebar" : "Open agents sidebar"
-              }
-              title={`${auxiliaryMode === "agents" ? "Collapse" : "Open"} agents sidebar (⌥⌘B)`}
-              onClick={() => onAuxiliaryMode(toggleAuxiliaryMode(auxiliaryMode, "agents"))}
-            >
-              {auxiliaryMode === "agents" ? <ChevronRight size={17} /> : <ChevronLeft size={17} />}
-            </button>
-          )}
+          {toolbar && <div className="no-drag absolute right-3">{toolbar}</div>}
         </header>
         <div className="min-h-0 flex-1">{children}</div>
       </div>

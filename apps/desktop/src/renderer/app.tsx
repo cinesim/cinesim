@@ -279,6 +279,10 @@ export function App() {
             onToggleMetrics={() =>
               setAuxiliaryMode((current) => toggleAuxiliaryMode(current, "metrics"))
             }
+            agentsOpen={auxiliaryMode === "agents"}
+            onToggleAgents={() =>
+              setAuxiliaryMode((current) => toggleAuxiliaryMode(current, "agents"))
+            }
           />
         ) : null
       }
