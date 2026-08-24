@@ -109,6 +109,10 @@ export function clipEndUs(clip: Clip): TimeUs {
   return clip.timelineStartUs + clipDurationUs(clip);
 }
 
+export function canSplitClipAt(clip: Clip, atUs: TimeUs): boolean {
+  return Number.isSafeInteger(atUs) && atUs > clip.timelineStartUs && atUs < clipEndUs(clip);
+}
+
 export function sequenceDurationUs(sequence: Sequence): TimeUs {
   return sequence.tracks.reduce(
     (maximum, track) =>

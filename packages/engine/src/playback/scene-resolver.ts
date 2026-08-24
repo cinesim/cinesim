@@ -12,7 +12,10 @@ export function resolveScene(project: Project, timelineTimeUs: TimeUs): Resolved
   const sequence = getSequence(project);
   const assets = new Map(project.assets.map((asset) => [asset.id, asset]));
   const layers: ResolvedLayer[] = [];
-  for (const track of sequence.tracks) {
+  // Canonical track order matches the timeline UI: index 0 is the uppermost
+  // track. The compositor blends later draws over earlier ones, so resolve
+  // visual tracks from bottom to top.
+  for (const track of sequence.tracks.toReversed()) {
     if (track.muted || track.kind === "audio") continue;
     const clip = track.clips.find(
       (candidate) =>

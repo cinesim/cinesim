@@ -1,5 +1,5 @@
 import { createStore } from "zustand/vanilla";
-import { sequenceDurationUs } from "@cinesim/core";
+import { isAssetCompatibleWithTrack, sequenceDurationUs } from "@cinesim/core";
 import type { ClipId, EditorCommand, Sequence, TimeUs } from "@cinesim/core";
 import type { RuntimeSnapshot } from "@cinesim/engine";
 import { DEFAULT_EDITOR_LAYOUT } from "../../shared/api";
@@ -372,10 +372,12 @@ export function createRendererStore({ api, storage }: RendererStoreDependencies)
           set({ operationError: error });
           return { ok: false, error };
         }
-        const kind = asset.kind === "audio" ? "audio" : "video";
-        const track = sequence.tracks.find((candidate) => candidate.kind === kind);
+        const track = sequence.tracks.find(
+          (candidate) =>
+            !candidate.locked && isAssetCompatibleWithTrack(asset.kind, candidate.kind),
+        );
         if (!track) {
-          const error = `The timeline has no ${kind} track`;
+          const error = `The timeline has no unlocked track compatible with ${asset.kind} media`;
           set({ operationError: error });
           return { ok: false, error };
         }

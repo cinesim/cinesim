@@ -1,5 +1,6 @@
 import type { Clip, EditorCommand } from "@cinesim/core";
 import { clipEndUs } from "@cinesim/core";
+import { snapTimelineTime } from "./timeline-geometry";
 
 export type TrimGestureState =
   | { status: "idle" }
@@ -9,6 +10,9 @@ export type TrimGestureState =
       edge: "start" | "end";
       originX: number;
       pixelsPerUs: number;
+      frameRate?: number;
+      snapCandidatesUs: readonly number[];
+      snapToleranceUs: number;
       clip: Clip;
       previewAtUs: number;
     };
@@ -20,6 +24,9 @@ export type TrimGestureEvent =
       edge: "start" | "end";
       clientX: number;
       pixelsPerUs: number;
+      frameRate?: number;
+      snapCandidatesUs?: readonly number[];
+      snapToleranceUs?: number;
       clip: Clip;
     }
   | { type: "move"; pointerId: number; clientX: number }
@@ -46,6 +53,9 @@ export function transitionTrimGesture(
         edge: event.edge,
         originX: event.clientX,
         pixelsPerUs: event.pixelsPerUs,
+        ...(event.frameRate === undefined ? {} : { frameRate: event.frameRate }),
+        snapCandidatesUs: event.snapCandidatesUs ?? [],
+        snapToleranceUs: event.snapToleranceUs ?? 0,
         clip: event.clip,
         previewAtUs: event.edge === "start" ? event.clip.timelineStartUs : clipEndUs(event.clip),
       },
@@ -56,10 +66,15 @@ export function transitionTrimGesture(
   const deltaUs = Math.round((event.clientX - state.originX) / state.pixelsPerUs);
   const clipStartUs = state.clip.timelineStartUs;
   const clipEnd = clipEndUs(state.clip);
+  const rawAtUs = state.edge === "start" ? clipStartUs + deltaUs : clipEnd + deltaUs;
+  const proposedAtUs = state.frameRate
+    ? snapTimelineTime(rawAtUs, state.frameRate, state.snapCandidatesUs, state.snapToleranceUs)
+        .timeUs
+    : rawAtUs;
   const atUs =
     state.edge === "start"
-      ? Math.min(clipEnd - 1, Math.max(clipStartUs, clipStartUs + deltaUs))
-      : Math.max(clipStartUs + 1, Math.min(clipEnd, clipEnd + deltaUs));
+      ? Math.min(clipEnd - 1, Math.max(clipStartUs, proposedAtUs))
+      : Math.max(clipStartUs + 1, Math.min(clipEnd, proposedAtUs));
   if (event.type === "move") return { state: { ...state, previewAtUs: atUs } };
   const unchanged = state.edge === "start" ? atUs === clipStartUs : atUs === clipEnd;
   if (unchanged) return { state: IDLE_TRIM_GESTURE };
@@ -80,4 +95,19 @@ export function trimPreviewRange(
   return state.edge === "start"
     ? { timelineStartUs: state.previewAtUs, timelineEndUs: clipEndUs(state.clip) }
     : { timelineStartUs: state.clip.timelineStartUs, timelineEndUs: state.previewAtUs };
+}
+
+export function trimPreviewClip(state: TrimGestureState): Clip | null {
+  if (state.status !== "trimming") return null;
+  if (state.edge === "start") {
+    return {
+      ...state.clip,
+      timelineStartUs: state.previewAtUs,
+      sourceStartUs: state.clip.sourceStartUs + state.previewAtUs - state.clip.timelineStartUs,
+    };
+  }
+  return {
+    ...state.clip,
+    sourceEndUs: state.clip.sourceStartUs + state.previewAtUs - state.clip.timelineStartUs,
+  };
 }

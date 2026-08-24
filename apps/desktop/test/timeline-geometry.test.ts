@@ -2,11 +2,12 @@ import { describe, expect, it } from "vitest";
 import { applyCommand, createProject } from "@cinesim/core";
 import type { Asset, Project } from "@cinesim/core";
 import {
+  commandForTimelineDrop,
+  isNoopClipMove,
   proposeAssetDrop,
   proposeClipMove,
   quantizeToFrame,
   snapTimelineTime,
-  trackAcceptsAsset,
 } from "../src/renderer/interactions/timeline-geometry";
 
 const video: Asset = {
@@ -44,9 +45,7 @@ describe("timeline interaction geometry", () => {
 
   it("enforces track compatibility before a canonical command is submitted", () => {
     const project = fixture();
-    const [videoTrack, audioTrack] = project.sequences[0]!.tracks;
-    expect(trackAcceptsAsset(videoTrack!, video)).toBe(true);
-    expect(trackAcceptsAsset(audioTrack!, video)).toBe(false);
+    const audioTrack = project.sequences[0]!.tracks[1];
     expect(proposeAssetDrop(project, video.id, audioTrack!.id, 0)).toMatchObject({
       valid: false,
       reason: "incompatible-track",
@@ -86,5 +85,22 @@ describe("timeline interaction geometry", () => {
       timelineStartUs: 1_000_000,
       timelineEndUs: 3_000_000,
     });
+    const unchanged = proposeClipMove(project, clip.id, firstTrack.id, clip.timelineStartUs)!;
+    expect(isNoopClipMove(project, unchanged)).toBe(true);
+    expect(isNoopClipMove(project, { ...unchanged, timelineStartUs: 1_000_000 })).toBe(false);
+    expect(
+      commandForTimelineDrop(
+        project,
+        { kind: "clip", clipId: clip.id, trackId: firstTrack.id },
+        unchanged,
+      ),
+    ).toBeNull();
+    expect(
+      commandForTimelineDrop(
+        project,
+        { kind: "clip", clipId: clip.id, trackId: firstTrack.id },
+        null,
+      ),
+    ).toBeNull();
   });
 });

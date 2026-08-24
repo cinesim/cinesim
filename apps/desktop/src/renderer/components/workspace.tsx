@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { cn } from "@cinesim/ui";
+import { canSplitClipAt, findClip } from "@cinesim/core";
 import type { Asset, EditorCommand, SequenceId } from "@cinesim/core";
 import { EDITOR_LAYOUT_LIMITS } from "../../shared/api";
 import type { DesktopProjectSession, EditorLayoutState } from "../../shared/api";
@@ -217,12 +218,27 @@ export function Workspace({
           if (result.ok) selectClip(null);
         });
       } else if (action === "split-selection" && selectedClipId) {
-        void execute({ type: "clip.split", clipId: selectedClipId, atUs: playheadUs });
+        try {
+          const { clip } = findClip(editorProject, selectedClipId);
+          if (canSplitClipAt(clip, playheadUs))
+            void execute({ type: "clip.split", clipId: selectedClipId, atUs: playheadUs });
+        } catch {
+          // Selection reconciliation will clear a clip that no longer exists.
+        }
       }
     }
     window.addEventListener("keydown", shortcut);
     return () => window.removeEventListener("keydown", shortcut);
-  }, [execute, playheadUs, section, selectClip, selectedClipId, setTool, toggleSnapping]);
+  }, [
+    editorProject,
+    execute,
+    playheadUs,
+    section,
+    selectClip,
+    selectedClipId,
+    setTool,
+    toggleSnapping,
+  ]);
 
   function applyTransientLayout(next: EditorLayoutState): void {
     const fitted = fitLayout(next, layoutBounds, mediaPoolOpen, inspectorOpen, notesOpen);

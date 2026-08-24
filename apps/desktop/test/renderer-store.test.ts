@@ -223,4 +223,44 @@ describe("renderer project controller", () => {
       timelineStartUs: 0,
     });
   });
+
+  it("appends to the first unlocked compatible track", async () => {
+    const session = sessionFixture();
+    const asset: Asset = {
+      id: "asset_fixture",
+      kind: "video",
+      name: "Fixture.mov",
+      source: { kind: "local", path: "/media/fixture.mov" },
+      durationUs: 5_000_000,
+    };
+    const sequence = session.project.sequences[0]!;
+    sequence.tracks[0]!.locked = true;
+    sequence.tracks.push({
+      id: "track_overlay",
+      name: "Overlay 1",
+      kind: "overlay",
+      muted: false,
+      locked: false,
+      clips: [],
+    });
+    session.project.assets = [asset];
+    const execute = vi.fn(async (command: EditorCommand) => ({
+      session,
+      result: { command, changedIds: [], createdIds: [], summary: "Added clip" },
+    }));
+    const store = createRendererStore({
+      api: apiFixture({ getSession: async () => session, execute }),
+    });
+    await store.getState().initialize();
+
+    const result = await store.getState().appendAsset(asset.id, sequence.id);
+
+    expect(result.ok).toBe(true);
+    expect(execute).toHaveBeenCalledWith({
+      type: "clip.add",
+      trackId: "track_overlay",
+      assetId: asset.id,
+      timelineStartUs: 0,
+    });
+  });
 });

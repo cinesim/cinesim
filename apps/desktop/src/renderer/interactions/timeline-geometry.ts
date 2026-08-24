@@ -1,5 +1,11 @@
-import { clipDurationUs, clipEndUs, findClip, getSequence } from "@cinesim/core";
-import type { Asset, ClipId, Project, TimeUs, Track, TrackId } from "@cinesim/core";
+import {
+  clipDurationUs,
+  clipEndUs,
+  findClip,
+  getSequence,
+  isAssetCompatibleWithTrack,
+} from "@cinesim/core";
+import type { Asset, ClipId, EditorCommand, Project, TimeUs, TrackId } from "@cinesim/core";
 
 export type TimelineDropKind = "asset" | "clip";
 
@@ -15,14 +21,13 @@ export interface TimelineDropProposal {
   snapped: boolean;
 }
 
+export type TimelineDragInput =
+  | { kind: "asset"; assetId: Asset["id"] }
+  | { kind: "clip"; clipId: ClipId; trackId: TrackId };
+
 interface ProposalOptions {
   snapCandidatesUs?: readonly TimeUs[];
   snapToleranceUs?: TimeUs;
-}
-
-export function trackAcceptsAsset(track: Pick<Track, "kind">, asset: Pick<Asset, "kind">): boolean {
-  if (asset.kind === "audio") return track.kind === "audio";
-  return track.kind === "video" || track.kind === "overlay";
 }
 
 export function quantizeToFrame(timeUs: TimeUs, frameRate: number): TimeUs {
@@ -75,7 +80,7 @@ function validation(
   ignoredClipId?: ClipId,
 ): Pick<TimelineDropProposal, "valid" | "reason"> {
   const track = getSequence(project).tracks.find((candidate) => candidate.id === trackId);
-  if (!track || !trackAcceptsAsset(track, asset))
+  if (!track || !isAssetCompatibleWithTrack(asset.kind, track.kind))
     return { valid: false, reason: "incompatible-track" };
   if (track.locked) return { valid: false, reason: "locked-track" };
   if (
@@ -86,6 +91,43 @@ function validation(
   )
     return { valid: false, reason: "overlap" };
   return { valid: true };
+}
+
+export function isNoopClipMove(project: Project, proposal: TimelineDropProposal): boolean {
+  if (proposal.kind !== "clip" || !proposal.clipId) return false;
+  try {
+    const location = findClip(project, proposal.clipId);
+    return (
+      location.track.id === proposal.trackId &&
+      location.clip.timelineStartUs === proposal.timelineStartUs
+    );
+  } catch {
+    return false;
+  }
+}
+
+export function commandForTimelineDrop(
+  project: Project,
+  input: TimelineDragInput | null,
+  proposal: TimelineDropProposal | null,
+): EditorCommand | null {
+  if (!input || !proposal?.valid || input.kind !== proposal.kind) return null;
+  if (input.kind === "asset") {
+    if (input.assetId !== proposal.assetId) return null;
+    return {
+      type: "clip.add",
+      trackId: proposal.trackId,
+      assetId: input.assetId,
+      timelineStartUs: proposal.timelineStartUs,
+    };
+  }
+  if (input.clipId !== proposal.clipId || isNoopClipMove(project, proposal)) return null;
+  return {
+    type: "clip.move",
+    clipId: input.clipId,
+    trackId: proposal.trackId,
+    timelineStartUs: proposal.timelineStartUs,
+  };
 }
 
 export function proposeAssetDrop(

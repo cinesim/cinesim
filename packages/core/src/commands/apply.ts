@@ -1,6 +1,11 @@
 import { nextId } from "../ids";
 import type { ClipId, SequenceId, TrackId } from "../ids";
-import { clipEndUs, DEFAULT_TRANSFORM, isAssetCompatibleWithTrack } from "../project/types";
+import {
+  canSplitClipAt,
+  clipEndUs,
+  DEFAULT_TRANSFORM,
+  isAssetCompatibleWithTrack,
+} from "../project/types";
 import type { Asset, Clip, Project, Sequence, Track } from "../project/types";
 import {
   findClip,
@@ -305,7 +310,7 @@ export function applyCommand(inputProject: Project, command: EditorCommand): Com
       assertTime(command.atUs, "atUs");
       const { clip, track } = findClip(project, command.clipId);
       if (track.locked) throw new CommandError("TRACK_LOCKED", `Track is locked: ${track.id}`);
-      if (command.atUs <= clip.timelineStartUs || command.atUs >= clipEndUs(clip)) {
+      if (!canSplitClipAt(clip, command.atUs)) {
         throw new CommandError("INVALID_SPLIT", "Split point must be strictly inside the clip");
       }
       const rightId = nextId("clip", allClipIds(project));

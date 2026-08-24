@@ -31,11 +31,12 @@ import {
   PaneHeader,
   Separator,
 } from "@cinesim/ui";
-import { clipDurationUs, getSequence, sequenceDurationUs } from "@cinesim/core";
+import { canSplitClipAt, clipDurationUs, getSequence, sequenceDurationUs } from "@cinesim/core";
 import type { Asset, Clip, EditorCommand, Project, Track } from "@cinesim/core";
 import type { DerivedAssetSnapshot, DerivedMediaSnapshot } from "../../shared/api";
 import {
   IDLE_TRIM_GESTURE,
+  trimPreviewClip,
   trimPreviewRange,
   transitionTrimGesture,
   type TrimGestureState,
@@ -44,6 +45,7 @@ import { formatTimecode } from "../lib/format";
 import type { ActionResult } from "../store/renderer-store";
 import { useRendererStore } from "../store/renderer-store-context";
 import { useEditorDnd } from "../interactions/editor-dnd-context";
+import { quantizeToFrame, timelineSnapCandidates } from "../interactions/timeline-geometry";
 import { TimelineWaveform } from "./timeline-waveform";
 
 const BASE_PIXELS_PER_SECOND = 86;
@@ -68,6 +70,9 @@ interface ClipBlockProps {
   selected: boolean;
   onCommand: (command: EditorCommand) => Promise<ActionResult<unknown>>;
   trackHeight: number;
+  frameRate: number;
+  snappingEnabled: boolean;
+  snapCandidatesUs: readonly number[];
 }
 
 function ClipBlock({
@@ -80,19 +85,23 @@ function ClipBlock({
   selected,
   onCommand,
   trackHeight,
+  frameRate,
+  snappingEnabled,
+  snapCandidatesUs,
 }: ClipBlockProps) {
   const tool = useRendererStore((state) => state.tool);
   const selectClip = useRendererStore((state) => state.selectClip);
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
     id: clip.id,
     data: { kind: "clip", clipId: clip.id, trackId: track.id },
-    disabled: track.locked,
+    disabled: track.locked || tool !== "select",
   });
   const [trimGesture, setTrimGesture] = useState<TrimGestureState>(IDLE_TRIM_GESTURE);
   const trimGestureRef = useRef<TrimGestureState>(IDLE_TRIM_GESTURE);
   const previewRange = trimPreviewRange(trimGesture);
+  const previewClip = trimPreviewClip(trimGesture) ?? clip;
   const name = asset?.name ?? clip.assetId;
-  const preparationLabel = derivedAsset ? prepStatus(derivedAsset) : null;
+  const preparationLabel = derivedAsset ? prepStatus(derivedAsset, derived) : null;
   const left = (previewRange?.timelineStartUs ?? clip.timelineStartUs) * pixelsPerUs;
   const width = Math.max(
     18,
@@ -116,6 +125,9 @@ function ClipBlock({
       edge: which,
       clientX: event.clientX,
       pixelsPerUs,
+      frameRate,
+      snapCandidatesUs: snappingEnabled ? snapCandidatesUs : [],
+      snapToleranceUs: snappingEnabled ? Math.round(8 / pixelsPerUs) : 0,
       clip,
     });
     trimGestureRef.current = transition.state;
@@ -159,11 +171,14 @@ function ClipBlock({
 
   function activate(event: React.MouseEvent<HTMLButtonElement>) {
     selectClip(clip.id);
-    if (tool !== "blade") return;
+    if (tool !== "blade" || track.locked) return;
     const bounds = event.currentTarget.getBoundingClientRect();
     const ratio = Math.min(1, Math.max(0, (event.clientX - bounds.left) / bounds.width));
-    const atUs = clip.timelineStartUs + Math.round(clipDurationUs(clip) * ratio);
-    void onCommand({ type: "clip.split", clipId: clip.id, atUs });
+    const atUs = quantizeToFrame(
+      clip.timelineStartUs + Math.round(clipDurationUs(clip) * ratio),
+      frameRate,
+    );
+    if (canSplitClipAt(clip, atUs)) void onCommand({ type: "clip.split", clipId: clip.id, atUs });
   }
 
   return (
@@ -177,7 +192,7 @@ function ClipBlock({
         selected && "border-primary ring-1 ring-primary",
         isDragging && "z-30 opacity-35",
         trimGesture.status === "trimming" && "z-30 ring-1 ring-primary",
-        tool === "blade" && "cursor-crosshair",
+        tool === "blade" && !track.locked && "cursor-crosshair",
       )}
       style={{
         left,
@@ -191,7 +206,7 @@ function ClipBlock({
         (asset.kind === "audio" || asset.hasAudio === true) && (
           <TimelineWaveform
             asset={asset}
-            clip={clip}
+            clip={previewClip}
             artifact={derivedAsset.waveform}
             derived={derived}
           />
@@ -217,31 +232,43 @@ function ClipBlock({
           </span>
         )}
       </button>
-      <button
-        type="button"
-        aria-label="Trim clip start"
-        className="absolute inset-y-0 left-0 w-1.5 cursor-ew-resize hover:bg-primary"
-        onPointerDown={(event) => trim("start", event)}
-        onPointerMove={moveTrim}
-        onPointerUp={finishTrim}
-        onPointerCancel={cancelTrim}
-        onLostPointerCapture={cancelTrim}
-      />
-      <button
-        type="button"
-        aria-label="Trim clip end"
-        className="absolute inset-y-0 right-0 w-1.5 cursor-ew-resize hover:bg-primary"
-        onPointerDown={(event) => trim("end", event)}
-        onPointerMove={moveTrim}
-        onPointerUp={finishTrim}
-        onPointerCancel={cancelTrim}
-        onLostPointerCapture={cancelTrim}
-      />
+      {tool === "trim" && !track.locked && (
+        <>
+          <button
+            type="button"
+            aria-label="Trim clip start"
+            className="absolute inset-y-0 left-0 w-1.5 cursor-ew-resize hover:bg-primary"
+            onPointerDown={(event) => trim("start", event)}
+            onPointerMove={moveTrim}
+            onPointerUp={finishTrim}
+            onPointerCancel={cancelTrim}
+            onLostPointerCapture={cancelTrim}
+          />
+          <button
+            type="button"
+            aria-label="Trim clip end"
+            className="absolute inset-y-0 right-0 w-1.5 cursor-ew-resize hover:bg-primary"
+            onPointerDown={(event) => trim("end", event)}
+            onPointerMove={moveTrim}
+            onPointerUp={finishTrim}
+            onPointerCancel={cancelTrim}
+            onLostPointerCapture={cancelTrim}
+          />
+        </>
+      )}
     </div>
   );
 }
 
-function prepStatus(asset: DerivedAssetSnapshot): string | null {
+function prepStatus(
+  asset: DerivedAssetSnapshot,
+  derived: DerivedMediaSnapshot | null,
+): string | null {
+  const activeJob = derived?.runtime.activeJob;
+  if (activeJob?.assetId === asset.assetId) {
+    const stage = activeJob.stage.replaceAll("-", " ");
+    return `${stage.charAt(0).toUpperCase()}${stage.slice(1)} ${Math.round(activeJob.progress * 100)}%`;
+  }
   if (asset.proxy.state === "running" || asset.proxy.state === "queued")
     return artifactStatus("Proxy", asset.proxy);
   const perception = [asset.waveform, asset.filmstrip, asset.thumbnail].find(
@@ -251,6 +278,7 @@ function prepStatus(asset: DerivedAssetSnapshot): string | null {
   if (asset.proxy.state === "ready") return "Proxy ready";
   if (
     asset.proxy.state === "failed" ||
+    asset.thumbnail.state === "failed" ||
     asset.waveform.state === "failed" ||
     asset.filmstrip.state === "failed"
   )
@@ -273,6 +301,10 @@ function TimelineTrackRow({
   selectedClipId,
   onCommand,
   onBackgroundPointerDown,
+  project,
+  frameRate,
+  snappingEnabled,
+  playheadUs,
 }: {
   track: Track;
   assets: Map<string, Asset>;
@@ -282,6 +314,10 @@ function TimelineTrackRow({
   selectedClipId: Clip["id"] | null;
   onCommand: (command: EditorCommand) => Promise<ActionResult<unknown>>;
   onBackgroundPointerDown: (event: React.PointerEvent<HTMLButtonElement>) => void;
+  project: Project;
+  frameRate: number;
+  snappingEnabled: boolean;
+  playheadUs: number;
 }) {
   const selectClip = useRendererStore((state) => state.selectClip);
   const { proposal } = useEditorDnd();
@@ -318,6 +354,9 @@ function TimelineTrackRow({
           selected={selectedClipId === clip.id}
           onCommand={onCommand}
           trackHeight={trackHeight}
+          frameRate={frameRate}
+          snappingEnabled={snappingEnabled}
+          snapCandidatesUs={[...timelineSnapCandidates(project, clip.id), playheadUs]}
         />
       ))}
       {trackProposal && (
@@ -498,6 +537,7 @@ export function Timeline({ project, onCommand, onSeek }: TimelineProps) {
   const snappingEnabled = useRendererStore((state) => state.snappingEnabled);
   const toggleSnapping = useRendererStore((state) => state.toggleSnapping);
   const derived = useRendererStore((state) => state.derivedMedia);
+  const headerScrollRef = useRef<HTMLDivElement>(null);
   const sequence = getSequence(project);
   const pixelsPerUs = (BASE_PIXELS_PER_SECOND * zoom) / 1_000_000;
   const contentDurationUs = timelineContentDurationUs(sequenceDurationUs(sequence), zoom);
@@ -506,6 +546,10 @@ export function Timeline({ project, onCommand, onSeek }: TimelineProps) {
     () => new Map(project.assets.map((asset) => [asset.id, asset])),
     [project.assets],
   );
+  const selectedClip = selectedClipId
+    ? sequence.tracks.flatMap((track) => track.clips).find((clip) => clip.id === selectedClipId)
+    : undefined;
+  const canSplitSelection = Boolean(selectedClip && canSplitClipAt(selectedClip, playheadUs));
 
   function rulerSeek(event: React.PointerEvent<HTMLDivElement>) {
     const bounds = event.currentTarget.getBoundingClientRect();
@@ -630,9 +674,10 @@ export function Timeline({ project, onCommand, onSeek }: TimelineProps) {
           size="icon"
           variant="ghost"
           aria-label="Split selected clip"
-          disabled={!selectedClipId}
+          disabled={!canSplitSelection}
           onClick={() =>
             selectedClipId &&
+            canSplitSelection &&
             void onCommand({ type: "clip.split", clipId: selectedClipId, atUs: playheadUs })
           }
         >
@@ -683,7 +728,11 @@ export function Timeline({ project, onCommand, onSeek }: TimelineProps) {
         </Button>
       </PaneHeader>
       <div className="grid min-h-0 flex-1 grid-cols-[168px_1fr] overflow-hidden">
-        <div className="z-20 border-r border-border bg-panel pt-6">
+        <div
+          ref={headerScrollRef}
+          className="relative z-20 overflow-hidden border-r border-border bg-panel"
+        >
+          <div className="sticky top-0 z-20 h-6 border-b border-border bg-panel" />
           {sequence.tracks.map((track, index) => (
             <TrackHeader
               key={track.id}
@@ -695,7 +744,13 @@ export function Timeline({ project, onCommand, onSeek }: TimelineProps) {
             />
           ))}
         </div>
-        <div className="timeline-scroll relative min-h-0 overflow-auto">
+        <div
+          className="timeline-scroll relative min-h-0 overflow-auto"
+          onScroll={(event) => {
+            if (headerScrollRef.current)
+              headerScrollRef.current.scrollTop = event.currentTarget.scrollTop;
+          }}
+        >
           <div className="relative min-h-full" style={{ width: contentWidth }}>
             <div
               className="sticky top-0 z-20 h-6 cursor-ew-resize border-b border-border bg-panel/95"
@@ -730,6 +785,10 @@ export function Timeline({ project, onCommand, onSeek }: TimelineProps) {
                 selectedClipId={selectedClipId}
                 onCommand={onCommand}
                 onBackgroundPointerDown={trackSeek}
+                project={project}
+                frameRate={sequence.frameRate}
+                snappingEnabled={snappingEnabled}
+                playheadUs={playheadUs}
               />
             ))}
             <div

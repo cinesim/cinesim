@@ -15,21 +15,21 @@ import type {
   DragStartEvent,
 } from "@dnd-kit/core";
 import { getSequence } from "@cinesim/core";
-import type { AssetId, ClipId, EditorCommand, Project, TrackId } from "@cinesim/core";
+import type { EditorCommand, Project, TrackId } from "@cinesim/core";
 import { cn } from "@cinesim/ui";
 import { formatDuration } from "../lib/format";
 import { useRendererStore } from "../store/renderer-store-context";
 import type { ActionResult } from "../store/renderer-store";
 import {
+  commandForTimelineDrop,
   proposeAssetDrop,
   proposeClipMove,
   timelineSnapCandidates,
   type TimelineDropProposal,
+  type TimelineDragInput,
 } from "./timeline-geometry";
 
-export type EditorDragData =
-  | { kind: "asset"; assetId: AssetId }
-  | { kind: "clip"; clipId: ClipId; trackId: TrackId };
+export type EditorDragData = TimelineDragInput;
 
 export interface TimelineTrackDropData {
   kind: "timeline-track";
@@ -89,18 +89,20 @@ export function EditorDndProvider({
     if (!input || target?.kind !== "timeline-track" || pointerX === null || !event.over)
       return null;
     const rawPointerTimeUs = Math.max(0, (pointerX - event.over.rect.left) / pixelsPerUs);
-    const snapCandidatesUs = [...timelineSnapCandidates(project), playheadUs];
     const snapToleranceUs = snapping ? Math.round(8 / pixelsPerUs) : 0;
-    if (input.kind === "asset")
+    if (input.kind === "asset") {
+      const snapCandidatesUs = [...timelineSnapCandidates(project), playheadUs];
       return proposeAssetDrop(project, input.assetId, target.trackId, rawPointerTimeUs, {
         snapCandidatesUs,
         snapToleranceUs,
       });
+    }
     const sequence = getSequence(project);
     const source = sequence.tracks
       .flatMap((track) => track.clips)
       .find((clip) => clip.id === input.clipId);
     if (!source) return null;
+    const snapCandidatesUs = [...timelineSnapCandidates(project, input.clipId), playheadUs];
     return proposeClipMove(
       project,
       input.clipId,
@@ -136,24 +138,12 @@ export function EditorDndProvider({
 
   async function finish(event: DragEndEvent): Promise<void> {
     const input = dragData(event) ?? active;
-    const finalProposal = proposalFor(event) ?? proposal;
+    // A release outside a current droppable target is a cancellation. Never
+    // fall back to a proposal retained from an earlier hover position.
+    const finalProposal = proposalFor(event);
+    const command = commandForTimelineDrop(project, input, finalProposal);
     reset(input);
-    if (!input || !finalProposal?.valid) return;
-    if (input.kind === "asset") {
-      await onCommand({
-        type: "clip.add",
-        trackId: finalProposal.trackId,
-        assetId: input.assetId,
-        timelineStartUs: finalProposal.timelineStartUs,
-      });
-      return;
-    }
-    await onCommand({
-      type: "clip.move",
-      clipId: input.clipId,
-      trackId: finalProposal.trackId,
-      timelineStartUs: finalProposal.timelineStartUs,
-    });
+    if (command) await onCommand(command);
   }
 
   const value = useMemo(

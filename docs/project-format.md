@@ -22,7 +22,7 @@
 
 ## Timeline ordering and compatibility
 
-Sequence track order is authored canonical state, not an incidental JSON order. It is preserved across save/load and determines visual layer order for video and overlay tracks. Track reordering uses a zero-based destination index within the track's existing sequence.
+Sequence track order is authored canonical state, not an incidental JSON order. It is preserved across save/load and matches the timeline UI: index `0` is the uppermost track. Upper visual tracks composite over lower video and overlay tracks. Track reordering uses a zero-based destination index within the track's existing sequence.
 
 Audio-only assets may be placed only on audio tracks. Video and image assets may be placed on video or overlay tracks. A video asset retains its embedded audio while its clip lives on a visual track. Loading a project or applying a clip command rejects incompatible placements.
 
