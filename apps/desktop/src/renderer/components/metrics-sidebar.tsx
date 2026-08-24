@@ -162,6 +162,7 @@ export function MetricsSidebar() {
                 title="Frame rate"
                 description="Frames presented per second compared with the project target."
                 unit="fps"
+                minimumMaximum={60}
                 samples={liveHistory}
                 series={[
                   { key: "renderFps", label: "Render", color: "var(--ui-text)" },
@@ -177,6 +178,7 @@ export function MetricsSidebar() {
                 title="Seek response"
                 description="Time from a requested frame to presentation. Lower is better."
                 unit="ms"
+                minimumMaximum={150}
                 samples={liveHistory}
                 series={[{ key: "seekLatencyMs", label: "Latency", color: "var(--ui-text)" }]}
               />
@@ -224,6 +226,7 @@ export function MetricsSidebar() {
                 title="Media read latency"
                 description="Time to serve recent original or proxy byte-range requests. Lower is better."
                 unit="ms"
+                minimumMaximum={50}
                 samples={liveHistory}
                 series={[
                   {
@@ -333,6 +336,7 @@ export function MetricsSidebar() {
                 title="GPU submission"
                 description="CPU time spent submitting composed frames to WebGPU. Lower is better."
                 unit="ms"
+                minimumMaximum={16.7}
                 samples={liveHistory}
                 series={[
                   {
