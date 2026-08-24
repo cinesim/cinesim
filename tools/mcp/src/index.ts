@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
-import type { AssetId, ClipId, TrackId } from "@cinesim/core";
+import type { AssetId, ClipId, SequenceId, TrackId } from "@cinesim/core";
 import { createCinesimLogger } from "@cinesim/logging";
 import { inspectAsset, inspectProject, inspectTimeline, listAssets } from "@cinesim/protocol";
 import { DiskProjectStore } from "@cinesim/cli/project-store";
@@ -95,6 +95,121 @@ server.registerTool(
     try {
       const store = await loaded();
       return textResult(inspectTimeline(store.project));
+    } catch (error) {
+      return failure(error);
+    }
+  },
+);
+
+server.registerTool(
+  "track_add",
+  {
+    title: "Add a timeline track",
+    description: "Append a track through the canonical command handler.",
+    inputSchema: z.object({
+      sequenceId: z
+        .string()
+        .regex(/^sequence_/)
+        .optional(),
+      kind: z.enum(["video", "audio", "overlay"]),
+      name: z.string().trim().min(1).optional(),
+    }),
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
+  },
+  async (input) => {
+    try {
+      const store = await loaded();
+      const result = await store.execute({
+        type: "track.add",
+        sequenceId: (input.sequenceId ?? store.project.activeSequenceId) as SequenceId,
+        kind: input.kind,
+        ...(input.name === undefined ? {} : { name: input.name }),
+      });
+      return textResult({ summary: result.summary, createdIds: result.createdIds });
+    } catch (error) {
+      return failure(error);
+    }
+  },
+);
+
+server.registerTool(
+  "track_update",
+  {
+    title: "Update a timeline track",
+    description: "Rename, mute, or lock a track through one canonical command.",
+    inputSchema: z
+      .object({
+        trackId: z.string().regex(/^track_/),
+        name: z.string().trim().min(1).optional(),
+        muted: z.boolean().optional(),
+        locked: z.boolean().optional(),
+      })
+      .refine(
+        (input) =>
+          input.name !== undefined || input.muted !== undefined || input.locked !== undefined,
+        { message: "Provide at least one track field to update" },
+      ),
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
+  },
+  async (input) => {
+    try {
+      const store = await loaded();
+      const result = await store.execute({
+        type: "track.update",
+        trackId: input.trackId as TrackId,
+        ...(input.name === undefined ? {} : { name: input.name }),
+        ...(input.muted === undefined ? {} : { muted: input.muted }),
+        ...(input.locked === undefined ? {} : { locked: input.locked }),
+      });
+      return textResult({ summary: result.summary, changedIds: result.changedIds });
+    } catch (error) {
+      return failure(error);
+    }
+  },
+);
+
+server.registerTool(
+  "track_reorder",
+  {
+    title: "Reorder a timeline track",
+    description: "Move a track to a zero-based index in its current sequence.",
+    inputSchema: z.object({
+      trackId: z.string().regex(/^track_/),
+      index: z.number().int().nonnegative(),
+    }),
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
+  },
+  async ({ trackId, index }) => {
+    try {
+      const store = await loaded();
+      const result = await store.execute({
+        type: "track.reorder",
+        trackId: trackId as TrackId,
+        index,
+      });
+      return textResult({ summary: result.summary, changedIds: result.changedIds });
+    } catch (error) {
+      return failure(error);
+    }
+  },
+);
+
+server.registerTool(
+  "track_delete",
+  {
+    title: "Delete an empty timeline track",
+    description: "Remove an unlocked, empty track through the canonical command handler.",
+    inputSchema: z.object({ trackId: z.string().regex(/^track_/) }),
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true },
+  },
+  async ({ trackId }) => {
+    try {
+      const store = await loaded();
+      const result = await store.execute({
+        type: "track.remove",
+        trackId: trackId as TrackId,
+      });
+      return textResult({ summary: result.summary, changedIds: result.changedIds });
     } catch (error) {
       return failure(error);
     }

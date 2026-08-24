@@ -8,9 +8,20 @@ export function getSequence(project: Project, sequenceId = project.activeSequenc
 }
 
 export function getTrack(project: Project, trackId: TrackId): Track {
+  return findTrack(project, trackId).track;
+}
+
+export interface TrackLocation {
+  sequence: Sequence;
+  track: Track;
+  trackIndex: number;
+}
+
+export function findTrack(project: Project, trackId: TrackId): TrackLocation {
   for (const sequence of project.sequences) {
-    const track = sequence.tracks.find((candidate) => candidate.id === trackId);
-    if (track) return track;
+    const trackIndex = sequence.tracks.findIndex((candidate) => candidate.id === trackId);
+    const track = sequence.tracks[trackIndex];
+    if (track) return { sequence, track, trackIndex };
   }
   throw new Error(`Track not found: ${trackId}`);
 }
@@ -34,9 +45,5 @@ export function findClip(project: Project, clipId: ClipId): ClipLocation {
 }
 
 export function findSequenceForTrack(project: Project, trackId: TrackId): SequenceId {
-  const sequence = project.sequences.find((candidate) =>
-    candidate.tracks.some((track) => track.id === trackId),
-  );
-  if (!sequence) throw new Error(`Track not found: ${trackId}`);
-  return sequence.id;
+  return findTrack(project, trackId).sequence.id;
 }

@@ -1,8 +1,23 @@
-import type { AssetId, ClipId, TrackId } from "../ids";
-import type { Asset, TimeUs, Transform } from "../project/types";
+import type { AssetId, ClipId, SequenceId, TrackId } from "../ids";
+import type { Asset, TimeUs, Track, Transform } from "../project/types";
 
 export type EditorCommand =
   | { type: "asset.import"; asset: Asset }
+  | {
+      type: "track.add";
+      sequenceId: SequenceId;
+      kind: Track["kind"];
+      name?: string;
+    }
+  | {
+      type: "track.update";
+      trackId: TrackId;
+      name?: string;
+      muted?: boolean;
+      locked?: boolean;
+    }
+  | { type: "track.remove"; trackId: TrackId }
+  | { type: "track.reorder"; trackId: TrackId; index: number }
   | {
       type: "clip.add";
       trackId: TrackId;

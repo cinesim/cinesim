@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { z } from "zod";
-import type { AssetId, ClipId, EditorCommand, TrackId } from "@cinesim/core";
+import type { AssetId, ClipId, EditorCommand, SequenceId, TrackId } from "@cinesim/core";
 import { inspectAsset, inspectProject, inspectTimeline, listAssets } from "@cinesim/protocol";
 import type { AgentPermissionMode } from "../shared/api";
 import type { DesktopProjectStore } from "./project-store";
@@ -227,6 +227,100 @@ export class AgentMcpServer {
       () =>
         perform("timeline_inspect", "Inspect active timeline", () =>
           inspectTimeline(requireProject()),
+        ),
+    );
+    server.registerTool(
+      "track_add",
+      {
+        title: "Add track",
+        description: "Append a track through a canonical command.",
+        inputSchema: {
+          sequenceId: z
+            .string()
+            .regex(/^sequence_/)
+            .optional(),
+          kind: z.enum(["video", "audio", "overlay"]),
+          name: z.string().trim().min(1).optional(),
+        },
+        annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
+      },
+      (input) =>
+        perform(
+          "track_add",
+          `Add ${input.kind} track`,
+          () => {
+            const project = requireProject();
+            return execute({
+              type: "track.add",
+              sequenceId: (input.sequenceId ?? project.activeSequenceId) as SequenceId,
+              kind: input.kind,
+              ...(input.name === undefined ? {} : { name: input.name }),
+            });
+          },
+          true,
+        ),
+    );
+    server.registerTool(
+      "track_update",
+      {
+        title: "Update track",
+        description: "Rename, mute, or lock a track through one canonical command.",
+        inputSchema: {
+          trackId: z.string().regex(/^track_/),
+          name: z.string().trim().min(1).optional(),
+          muted: z.boolean().optional(),
+          locked: z.boolean().optional(),
+        },
+        annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
+      },
+      (input) =>
+        perform(
+          "track_update",
+          `Update ${input.trackId}`,
+          () =>
+            execute({
+              type: "track.update",
+              trackId: input.trackId as TrackId,
+              ...(input.name === undefined ? {} : { name: input.name }),
+              ...(input.muted === undefined ? {} : { muted: input.muted }),
+              ...(input.locked === undefined ? {} : { locked: input.locked }),
+            }),
+          true,
+        ),
+    );
+    server.registerTool(
+      "track_reorder",
+      {
+        title: "Reorder track",
+        description: "Move a track to a zero-based index in its current sequence.",
+        inputSchema: {
+          trackId: z.string().regex(/^track_/),
+          index: z.number().int().nonnegative(),
+        },
+        annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
+      },
+      ({ trackId, index }) =>
+        perform(
+          "track_reorder",
+          `Move ${trackId} to track index ${index}`,
+          () => execute({ type: "track.reorder", trackId: trackId as TrackId, index }),
+          true,
+        ),
+    );
+    server.registerTool(
+      "track_delete",
+      {
+        title: "Delete empty track",
+        description: "Remove an unlocked, empty track through a canonical command.",
+        inputSchema: { trackId: z.string().regex(/^track_/) },
+        annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true },
+      },
+      ({ trackId }) =>
+        perform(
+          "track_delete",
+          `Delete ${trackId}`,
+          () => execute({ type: "track.remove", trackId: trackId as TrackId }),
+          true,
         ),
     );
     server.registerTool(

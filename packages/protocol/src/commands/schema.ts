@@ -4,10 +4,36 @@ import { assetSchema, transformSchema } from "@cinesim/core";
 const assetId = z.string().regex(/^asset_[a-zA-Z0-9][a-zA-Z0-9_-]*$/);
 const clipId = z.string().regex(/^clip_[a-zA-Z0-9][a-zA-Z0-9_-]*$/);
 const trackId = z.string().regex(/^track_[a-zA-Z0-9][a-zA-Z0-9_-]*$/);
+const sequenceId = z.string().regex(/^sequence_[a-zA-Z0-9][a-zA-Z0-9_-]*$/);
 const timeUs = z.number().int().nonnegative().safe();
 
 export const editorCommandSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("asset.import"), asset: assetSchema }),
+  z.object({
+    type: z.literal("track.add"),
+    sequenceId,
+    kind: z.enum(["video", "audio", "overlay"]),
+    name: z.string().trim().min(1).optional(),
+  }),
+  z
+    .object({
+      type: z.literal("track.update"),
+      trackId,
+      name: z.string().trim().min(1).optional(),
+      muted: z.boolean().optional(),
+      locked: z.boolean().optional(),
+    })
+    .refine(
+      (command) =>
+        command.name !== undefined || command.muted !== undefined || command.locked !== undefined,
+      { message: "Track update must change at least one field" },
+    ),
+  z.object({ type: z.literal("track.remove"), trackId }),
+  z.object({
+    type: z.literal("track.reorder"),
+    trackId,
+    index: z.number().int().nonnegative().safe(),
+  }),
   z.object({
     type: z.literal("clip.add"),
     trackId,

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { isAssetCompatibleWithTrack } from "../project/types";
 import type { Asset, Project, ProjectSettings, Sequence } from "../project/types";
 import { assetSchema, sequenceSchema, settingsSchema } from "./schema";
 
@@ -80,12 +81,17 @@ export function joinProjectFiles(
   if (!timeline.sequences.some((sequence) => sequence.id === manifest.activeSequenceId)) {
     throw new Error(`Active sequence not found: ${manifest.activeSequenceId}`);
   }
-  const assetIds = new Set(assets.assets.map((asset) => asset.id));
+  const assetsById = new Map(assets.assets.map((asset) => [asset.id, asset]));
   for (const sequence of timeline.sequences) {
     for (const track of sequence.tracks) {
       for (const clip of track.clips) {
-        if (!assetIds.has(clip.assetId))
-          throw new Error(`Clip ${clip.id} references missing asset ${clip.assetId}`);
+        const asset = assetsById.get(clip.assetId);
+        if (!asset) throw new Error(`Clip ${clip.id} references missing asset ${clip.assetId}`);
+        if (!isAssetCompatibleWithTrack(asset.kind, track.kind)) {
+          throw new Error(
+            `Clip ${clip.id} has incompatible ${asset.kind} media on ${track.kind} track ${track.id}`,
+          );
+        }
         if (clip.sourceEndUs <= clip.sourceStartUs)
           throw new Error(`Clip ${clip.id} has an invalid source range`);
       }
@@ -110,7 +116,8 @@ export function canonicalizeProject(project: Project): Project {
   copy.assets.sort((left, right) => left.id.localeCompare(right.id));
   copy.sequences.sort((left, right) => left.id.localeCompare(right.id));
   for (const sequence of copy.sequences) {
-    sequence.tracks.sort((left, right) => left.id.localeCompare(right.id));
+    // Track order is authored state: for visual tracks it also determines layer order.
+    // Preserve it while canonicalizing the unordered collections around it.
     for (const track of sequence.tracks) {
       track.clips.sort((left, right) =>
         left.timelineStartUs === right.timelineStartUs

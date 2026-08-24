@@ -46,6 +46,18 @@ export interface Track {
   clips: Clip[];
 }
 
+/**
+ * Returns whether an asset can be represented by a track without changing its
+ * media semantics. Video assets retain their embedded audio while living on a
+ * visual track; audio-only assets live on audio tracks.
+ */
+export function isAssetCompatibleWithTrack(
+  assetKind: Asset["kind"],
+  trackKind: Track["kind"],
+): boolean {
+  return assetKind === "audio" ? trackKind === "audio" : trackKind !== "audio";
+}
+
 export interface Sequence {
   id: SequenceId;
   name: string;
