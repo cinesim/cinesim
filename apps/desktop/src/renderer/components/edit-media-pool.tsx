@@ -1,19 +1,14 @@
 import { useMemo, useState } from "react";
-import { Film, Image as ImageIcon, Music2, Plus, Search } from "lucide-react";
+import { Film, Plus, Search } from "lucide-react";
 import { Button } from "@cinesim/ui";
 import type { Asset, Project } from "@cinesim/core";
 import { formatDuration } from "../lib/format";
+import { MediaSkimSurface } from "./media-skim-surface";
 
 interface EditMediaPoolProps {
   project: Project;
   onAddAsset: (asset: Asset) => Promise<void>;
   onImport: () => Promise<void>;
-}
-
-function AssetIcon({ asset }: { asset: Asset }) {
-  if (asset.kind === "audio") return <Music2 size={16} />;
-  if (asset.kind === "image") return <ImageIcon size={16} />;
-  return <Film size={16} />;
 }
 
 export function EditMediaPool({ project, onAddAsset, onImport }: EditMediaPoolProps) {
@@ -53,8 +48,8 @@ export function EditMediaPool({ project, onAddAsset, onImport }: EditMediaPoolPr
                   title="Double-click to add to the active timeline"
                   onDoubleClick={() => void onAddAsset(asset)}
                 >
-                  <span className="media-thumbnail grid size-10 shrink-0 place-items-center rounded border border-border text-muted">
-                    <AssetIcon asset={asset} />
+                  <span className="media-thumbnail grid size-10 shrink-0 place-items-center overflow-hidden rounded border border-border text-muted">
+                    <MediaSkimSurface asset={asset} />
                   </span>
                   <span className="min-w-0 flex-1">
                     <span className="block truncate text-ui-xs font-medium text-primary">

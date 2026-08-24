@@ -2,6 +2,8 @@ export * from "./compositor/webgpu-compositor";
 export * from "./media/mediabunny-source";
 export * from "./media/video-source";
 export * from "./perception/sampling";
+export * from "./perception/filmstrip";
+export * from "./perception/thumbnail-selection";
 export * from "./playback/audio-scheduler";
 export * from "./playback/clock";
 export * from "./playback/latest-request";

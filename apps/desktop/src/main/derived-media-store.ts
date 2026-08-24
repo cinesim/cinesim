@@ -315,6 +315,16 @@ export class DerivedMediaStore {
     });
   }
 
+  async updateProgress(writerId: string, progress: number): Promise<void> {
+    await this.#serialize(async () => {
+      if (!Number.isFinite(progress) || progress < 0 || progress > 1)
+        throw new Error("Invalid derived progress");
+      const writer = this.#requireWriter(writerId);
+      this.#index.assets[writer.assetId]![writer.kind].progress = progress;
+      this.#emit();
+    });
+  }
+
   async cancelWrite(writerId: string, failureCode?: string): Promise<void> {
     await this.#serialize(async () => {
       const writer = this.#requireWriter(writerId);

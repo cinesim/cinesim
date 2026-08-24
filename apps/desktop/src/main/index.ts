@@ -370,9 +370,19 @@ function registerIpc(): void {
     if (typeof writerId !== "string") throw new Error("Invalid derived writer");
     return store.derivedMedia.finalizeWrite(writerId, result as FinalizeDerivedWrite);
   });
-  ipcMain.handle("derived:write:cancel", (_event, writerId: unknown) => {
-    if (typeof writerId !== "string") throw new Error("Invalid derived writer");
-    return store.derivedMedia.cancelWrite(writerId);
+  ipcMain.handle("derived:write:cancel", (_event, writerId: unknown, failureCode: unknown) => {
+    if (
+      typeof writerId !== "string" ||
+      (failureCode !== undefined &&
+        (typeof failureCode !== "string" || !/^[a-z0-9][a-z0-9-]{0,63}$/.test(failureCode)))
+    )
+      throw new Error("Invalid derived writer cancellation");
+    return store.derivedMedia.cancelWrite(writerId, failureCode);
+  });
+  ipcMain.handle("derived:write:progress", (_event, writerId: unknown, progress: unknown) => {
+    if (typeof writerId !== "string" || typeof progress !== "number")
+      throw new Error("Invalid derived progress");
+    return store.derivedMedia.updateProgress(writerId, progress);
   });
   ipcMain.handle("derived:performance", (_event, observation: unknown) =>
     store.derivedMedia.reportPerformance(observation as DerivedPerformanceObservation),

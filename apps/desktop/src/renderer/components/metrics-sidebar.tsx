@@ -35,6 +35,10 @@ const unavailable = <span className="text-disabled">Unavailable</span>;
 
 export function MetricsSidebar() {
   const metrics = useUiStore((state) => state.runtime);
+  const derived = useUiStore((state) => state.derivedMedia);
+  const artifacts = derived ? Object.values(derived.assets) : [];
+  const readyCount = (kind: "thumbnail" | "filmstrip" | "proxy") =>
+    artifacts.filter((asset) => asset[kind].state === "ready").length;
 
   return (
     <aside className="flex h-full min-h-0 flex-col bg-panel" aria-label="Metrics">
@@ -53,8 +57,15 @@ export function MetricsSidebar() {
           <MetricRow label="Foreground" value={metrics?.foregroundPressure ?? "Idle"} />
           <MetricRow label="Active asset" value={metrics?.activeAssetId ?? "None"} />
           <MetricRow label="Source" value={metrics?.activeSourceKind ?? unavailable} />
-          <MetricRow label="Adaptive decision" value={unavailable} />
-          <MetricRow label="Background job" value="None" />
+          <MetricRow
+            label="Adaptive decision"
+            value={
+              metrics?.activeAssetId
+                ? (derived?.assets[metrics.activeAssetId]?.performance.decision ?? unavailable)
+                : unavailable
+            }
+          />
+          <MetricRow label="Background job" value={derived?.jobs.running ? "Running" : "None"} />
         </Section>
 
         <Section icon={<Activity size={13} />} title="Playback & scrubbing">
@@ -87,25 +98,61 @@ export function MetricsSidebar() {
         </Section>
 
         <Section icon={<Image size={13} />} title="Derived artifacts">
-          <MetricRow label="Thumbnails" value={unavailable} />
-          <MetricRow label="Filmstrips" value={unavailable} />
-          <MetricRow label="Proxies" value={unavailable} />
-          <MetricRow label="Worker" value={unavailable} />
+          <MetricRow label="Thumbnails" value={`${readyCount("thumbnail")}/${artifacts.length}`} />
+          <MetricRow label="Filmstrips" value={`${readyCount("filmstrip")}/${artifacts.length}`} />
+          <MetricRow label="Proxies" value={`${readyCount("proxy")}/${artifacts.length}`} />
+          <MetricRow
+            label="Jobs"
+            value={
+              derived
+                ? `${derived.jobs.running} running · ${derived.jobs.queued} queued`
+                : unavailable
+            }
+          />
+          <MetricRow label="Failed" value={derived?.jobs.failed ?? 0} />
         </Section>
 
         <Section icon={<Database size={13} />} title="Storage">
-          <MetricRow label="Derived bytes" value={unavailable} />
-          <MetricRow label="Budget" value={unavailable} />
-          <MetricRow label="Safety reserve" value={unavailable} />
-          <MetricRow label="Evictions" value={unavailable} />
+          <MetricRow label="Derived bytes" value={formatBytes(derived?.storage.totalBytes)} />
+          <MetricRow label="Budget" value={formatBytes(derived?.storage.budgetBytes)} />
+          <MetricRow
+            label="Safety reserve"
+            value={formatBytes(derived?.storage.safetyReserveBytes)}
+          />
+          <MetricRow label="Evictions" value={derived?.storage.evictionCount ?? 0} />
         </Section>
 
         <Section icon={<Sparkles size={13} />} title="Decision log">
-          <div className="rounded-md border border-border bg-panel-muted px-2 py-3 text-center text-ui-xs text-muted">
-            Adaptive decisions will appear here as media is observed.
-          </div>
+          {derived?.decisionLog.length ? (
+            <ol className="space-y-2">
+              {derived.decisionLog
+                .slice(-20)
+                .reverse()
+                .map((event) => (
+                  <li
+                    key={`${event.at}-${event.kind}`}
+                    className="rounded-md border border-border bg-panel-muted p-2"
+                  >
+                    <p className="text-ui-xs text-secondary">{event.detail}</p>
+                    <p className="mt-1 text-[10px] text-muted">{event.kind}</p>
+                  </li>
+                ))}
+            </ol>
+          ) : (
+            <div className="rounded-md border border-border bg-panel-muted px-2 py-3 text-center text-ui-xs text-muted">
+              Adaptive decisions will appear here as media is observed.
+            </div>
+          )}
         </Section>
       </div>
     </aside>
   );
+}
+
+function formatBytes(value: number | undefined): React.ReactNode {
+  if (value === undefined) return unavailable;
+  if (value < 1024) return `${value} B`;
+  if (value < 1024 ** 2) return `${(value / 1024).toFixed(1)} KB`;
+  if (value < 1024 ** 3) return `${(value / 1024 ** 2).toFixed(1)} MB`;
+  return `${(value / 1024 ** 3).toFixed(1)} GB`;
 }

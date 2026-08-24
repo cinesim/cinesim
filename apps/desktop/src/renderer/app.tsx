@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Library, SlidersHorizontal, StickyNote } from "lucide-react";
 import { Button } from "@cinesim/ui";
 import { DEFAULT_EDITOR_LAYOUT } from "../shared/api";
@@ -11,6 +11,8 @@ import { Settings } from "./components/settings";
 import { TopBar } from "./components/top-bar";
 import { Welcome } from "./components/welcome";
 import { Workspace } from "./components/workspace";
+import { MediaJobCoordinator } from "./media/media-job-coordinator";
+import { useUiStore } from "./store/ui-store";
 
 type Destination = "home" | "project" | "settings";
 type ProjectSection = "media" | "edit";
@@ -39,10 +41,18 @@ export function App() {
   const [auxiliaryMode, setAuxiliaryMode] = useState<AuxiliarySidebarMode>(() =>
     localStorage.getItem("cinesim.agentsSidebarOpen") === "true" ? "agents" : null,
   );
+  const mediaJobsRef = useRef<MediaJobCoordinator | null>(null);
+  const latestProjectRef = useRef(session?.project);
+  const projectDirectory = session?.directory;
+  const setDerivedMedia = useUiStore((state) => state.setDerivedMedia);
 
   useEffect(() => {
     localStorage.setItem("cinesim.agentsSidebarOpen", String(auxiliaryMode === "agents"));
   }, [auxiliaryMode]);
+
+  useEffect(() => {
+    latestProjectRef.current = session?.project;
+  }, [session?.project]);
 
   useEffect(() => {
     void Promise.all([window.cinesim.getSession(), window.cinesim.getAppState()])
@@ -68,6 +78,25 @@ export function App() {
   }, []);
 
   useEffect(() => window.cinesim.onProjectChanged(setSession), []);
+
+  useEffect(() => {
+    const project = latestProjectRef.current;
+    if (!project || !projectDirectory) {
+      setDerivedMedia(null);
+      return;
+    }
+    const coordinator = new MediaJobCoordinator(project, setDerivedMedia);
+    mediaJobsRef.current = coordinator;
+    void coordinator.start();
+    return () => {
+      mediaJobsRef.current = null;
+      void coordinator.destroy();
+    };
+  }, [projectDirectory, setDerivedMedia]);
+
+  useEffect(() => {
+    if (session) void mediaJobsRef.current?.updateProject(session.project);
+  }, [session]);
 
   async function showProject(nextSession: DesktopProjectSession): Promise<void> {
     const nextAppState = await window.cinesim.getAppState();

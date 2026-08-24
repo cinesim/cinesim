@@ -5,8 +5,13 @@ import {
   LatestRequestController,
   LatestOnlyExecutor,
   MonotonicPlaybackClock,
+  filmstripSampleTimes,
+  nearestSampleIndex,
+  pointerSourceTimeUs,
   resolveScene,
+  scoreThumbnailRgba,
   sparseSampleTimes,
+  thumbnailCandidateTimes,
 } from "../src";
 
 const asset: Asset = {
@@ -108,5 +113,38 @@ describe("LatestOnlyExecutor", () => {
     await executor.run(3);
     expect(effects).toEqual([3]);
     expect(executor.metrics).toMatchObject({ obsolete: 1, failed: 1, completed: 1 });
+  });
+});
+
+describe("derived perception primitives", () => {
+  it("maps pointer coordinates to clamped source time", () => {
+    expect(pointerSourceTimeUs(50, 100, 200, 1_000)).toBe(0);
+    expect(pointerSourceTimeUs(200, 100, 200, 1_000)).toBe(500);
+    expect(pointerSourceTimeUs(400, 100, 200, 1_000)).toBe(999);
+  });
+
+  it("keeps filmstrip sampling bounded and deterministic", () => {
+    const times = filmstripSampleTimes(3_600_000_000);
+    expect(times).toHaveLength(32);
+    expect(times[0]).toBe(0);
+    expect(times.at(-1)).toBe(3_599_999_999);
+    expect(nearestSampleIndex([0, 100, 200], 149)).toBe(1);
+    expect(nearestSampleIndex([0, 100, 200], 151)).toBe(2);
+  });
+
+  it("scores useful thumbnail candidates and rejects flat frames", () => {
+    const flat = new Uint8ClampedArray(4 * 4 * 4).fill(0);
+    const detailed = new Uint8ClampedArray(4 * 4 * 4);
+    for (let index = 0; index < detailed.length; index += 4) {
+      const value = (index / 4) % 2 ? 230 : 30;
+      detailed[index] = value;
+      detailed[index + 1] = value;
+      detailed[index + 2] = value;
+      detailed[index + 3] = 255;
+    }
+    expect(scoreThumbnailRgba(flat, 4, 4, 500, 1_000).rejected).toBe(true);
+    expect(scoreThumbnailRgba(detailed, 4, 4, 500, 1_000).score).toBeGreaterThan(0);
+    expect(thumbnailCandidateTimes(60_000_000)).toHaveLength(12);
+    expect(thumbnailCandidateTimes(60_000_000)).toEqual(thumbnailCandidateTimes(60_000_000));
   });
 });

@@ -298,7 +298,8 @@ export interface DesktopApi {
   beginDerivedWrite(input: BeginDerivedWrite): Promise<{ writerId: string }>;
   writeDerivedChunk(writerId: string, offset: number, data: Uint8Array): Promise<void>;
   finalizeDerivedWrite(writerId: string, result: FinalizeDerivedWrite): Promise<void>;
-  cancelDerivedWrite(writerId: string): Promise<void>;
+  cancelDerivedWrite(writerId: string, failureCode?: string): Promise<void>;
+  updateDerivedProgress(writerId: string, progress: number): Promise<void>;
   reportDerivedPerformance(observation: DerivedPerformanceObservation): Promise<void>;
   execute(
     command: EditorCommand,
