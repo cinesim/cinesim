@@ -12,6 +12,7 @@ import { Viewer } from "./viewer";
 import type { ViewerController } from "./viewer";
 import { useRendererStore } from "../store/renderer-store-context";
 import { EditorDndProvider } from "../interactions/editor-dnd-context";
+import { editShortcutAction } from "../interactions/edit-shortcuts";
 
 interface WorkspaceProps {
   session: DesktopProjectSession;
@@ -32,6 +33,13 @@ const MIN_VIEWER_HEIGHT = 220;
 
 function clamp(value: number, minimum: number, maximum: number): number {
   return Math.min(Math.max(value, minimum), Math.max(minimum, maximum));
+}
+
+function isEditableTarget(target: EventTarget | null): boolean {
+  return (
+    target instanceof HTMLElement &&
+    (target.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName))
+  );
 }
 
 function fitLayout(
@@ -148,7 +156,11 @@ export function Workspace({
   const appendAsset = useRendererStore((state) => state.appendAsset);
   const saveEditorLayout = useRendererStore((state) => state.saveEditorLayout);
   const selectClip = useRendererStore((state) => state.selectClip);
+  const selectedClipId = useRendererStore((state) => state.selectedClipId);
+  const playheadUs = useRendererStore((state) => state.playheadUs);
   const setPlayheadUs = useRendererStore((state) => state.setPlayheadUs);
+  const setTool = useRendererStore((state) => state.setTool);
+  const toggleSnapping = useRendererStore((state) => state.toggleSnapping);
   const activeSequence =
     session.project.sequences.find((sequence) => sequence.id === activeSequenceId) ??
     session.project.sequences.find(
@@ -188,6 +200,29 @@ export function Workspace({
     selectClip(null);
     setPlayheadUs(0);
   }, [activeSequence?.id, selectClip, setPlayheadUs]);
+
+  useEffect(() => {
+    if (section !== "edit") return;
+    function shortcut(event: KeyboardEvent): void {
+      if (event.defaultPrevented || event.repeat || isEditableTarget(event.target)) return;
+      const action = editShortcutAction(event);
+      if (!action) return;
+      event.preventDefault();
+      if (action === "select-tool") setTool("select");
+      else if (action === "trim-tool") setTool("trim");
+      else if (action === "blade-tool") setTool("blade");
+      else if (action === "toggle-snapping") toggleSnapping();
+      else if (action === "delete-selection" && selectedClipId) {
+        void execute({ type: "clip.remove", clipId: selectedClipId }).then((result) => {
+          if (result.ok) selectClip(null);
+        });
+      } else if (action === "split-selection" && selectedClipId) {
+        void execute({ type: "clip.split", clipId: selectedClipId, atUs: playheadUs });
+      }
+    }
+    window.addEventListener("keydown", shortcut);
+    return () => window.removeEventListener("keydown", shortcut);
+  }, [execute, playheadUs, section, selectClip, selectedClipId, setTool, toggleSnapping]);
 
   function applyTransientLayout(next: EditorLayoutState): void {
     const fitted = fitLayout(next, layoutBounds, mediaPoolOpen, inspectorOpen, notesOpen);

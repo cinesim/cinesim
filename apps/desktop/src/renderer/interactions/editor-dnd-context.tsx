@@ -1,4 +1,4 @@
-import { createContext, useContext, useMemo, useState } from "react";
+import { createContext, useContext, useEffect, useMemo, useState } from "react";
 import {
   DndContext,
   DragOverlay,
@@ -74,10 +74,13 @@ export function EditorDndProvider({
   const zoom = useRendererStore((state) => state.timelineZoom);
   const snapping = useRendererStore((state) => state.snappingEnabled);
   const playheadUs = useRendererStore((state) => state.playheadUs);
+  const setTimelineDragging = useRendererStore((state) => state.setTimelineDragging);
   const [active, setActive] = useState<EditorDragData | null>(null);
   const [proposal, setProposal] = useState<TimelineDropProposal | null>(null);
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
   const pixelsPerUs = (BASE_PIXELS_PER_SECOND * zoom) / 1_000_000;
+
+  useEffect(() => () => setTimelineDragging(false), [setTimelineDragging]);
 
   function proposalFor(event: DragMoveEvent | DragOverEvent | DragEndEvent) {
     const input = dragData(event);
@@ -112,6 +115,7 @@ export function EditorDndProvider({
     if (!input) return;
     setActive(input);
     setProposal(null);
+    setTimelineDragging(true);
     if (input.kind === "asset") onAssetDragStart?.();
   }
 
@@ -123,6 +127,7 @@ export function EditorDndProvider({
     if (input?.kind === "asset") onAssetDragEnd?.();
     setActive(null);
     setProposal(null);
+    setTimelineDragging(false);
   }
 
   function cancel(_event: DragCancelEvent): void {

@@ -40,6 +40,7 @@ function runtimeFixture(timeUs: number): RuntimeSnapshot {
     mode: { kind: "timeline", timeUs },
     timeUs,
     playing: false,
+    playbackRate: 0,
     activeAssetId: null,
     activeSourceKind: null,
     foregroundPressure: "idle",

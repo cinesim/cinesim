@@ -16,7 +16,7 @@ export type Destination = "home" | "project" | "settings";
 export type ProjectSection = "media" | "edit";
 export type SettingsSection = "general" | "agents";
 export type AuxiliarySidebarMode = "agents" | "metrics" | null;
-export type EditTool = "select" | "blade";
+export type EditTool = "select" | "trim" | "blade";
 export type PanelKind = "mediaPool" | "inspector" | "notes";
 
 export type ActionResult<T> = { ok: true; value: T } | { ok: false; error: string };
@@ -58,6 +58,8 @@ export interface RendererState {
   operationError: string | null;
   selectedClipId: ClipId | null;
   timelineZoom: number;
+  timelineTrackHeight: number;
+  timelineDragging: boolean;
   snappingEnabled: boolean;
   tool: EditTool;
   playheadUs: TimeUs;
@@ -89,6 +91,8 @@ export interface RendererState {
   clearError: () => void;
   selectClip: (id: ClipId | null) => void;
   setTimelineZoom: (zoom: number) => void;
+  setTimelineTrackHeight: (height: number) => void;
+  setTimelineDragging: (dragging: boolean) => void;
   toggleSnapping: () => void;
   setTool: (tool: EditTool) => void;
   setPlayheadUs: (timeUs: TimeUs) => void;
@@ -162,6 +166,7 @@ function hydratedProjectState(
     notesOpen: appState.notesOpenByProject[session.directory] ?? true,
     operationError: null,
     selectedClipId: null,
+    timelineDragging: false,
     playheadUs: 0,
     playbackRuntime: null,
     derivedMedia: null,
@@ -278,6 +283,8 @@ export function createRendererStore({ api, storage }: RendererStoreDependencies)
       operationError: null,
       selectedClipId: null,
       timelineZoom: 1,
+      timelineTrackHeight: 56,
+      timelineDragging: false,
       snappingEnabled: true,
       tool: "select",
       playheadUs: 0,
@@ -465,6 +472,9 @@ export function createRendererStore({ api, storage }: RendererStoreDependencies)
       selectClip: (selectedClipId) => set({ selectedClipId }),
       setTimelineZoom: (timelineZoom) =>
         set({ timelineZoom: Math.min(4, Math.max(0.25, timelineZoom)) }),
+      setTimelineTrackHeight: (timelineTrackHeight) =>
+        set({ timelineTrackHeight: Math.min(112, Math.max(40, Math.round(timelineTrackHeight))) }),
+      setTimelineDragging: (timelineDragging) => set({ timelineDragging }),
       toggleSnapping: () => set((state) => ({ snappingEnabled: !state.snappingEnabled })),
       setTool: (tool) => set({ tool }),
       setPlayheadUs: (playheadUs) => set({ playheadUs }),

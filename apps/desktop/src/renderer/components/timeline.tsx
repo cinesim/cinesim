@@ -7,12 +7,33 @@ import {
   ZoomIn,
   ZoomOut,
   Lock,
+  LockOpen,
   Magnet,
+  Menu as MenuIcon,
+  MoveHorizontal,
+  Plus,
+  ChevronUp,
+  ChevronDown,
+  Video,
+  AudioLines,
+  Layers,
+  Volume2,
   VolumeX,
 } from "lucide-react";
-import { Button, cn, PaneHeader, Separator } from "@cinesim/ui";
+import {
+  Button,
+  cn,
+  Menu,
+  MenuContent,
+  MenuItem,
+  MenuLabel,
+  MenuTrigger,
+  PaneHeader,
+  Separator,
+} from "@cinesim/ui";
 import { clipDurationUs, getSequence, sequenceDurationUs } from "@cinesim/core";
-import type { Clip, EditorCommand, Project, Track } from "@cinesim/core";
+import type { Asset, Clip, EditorCommand, Project, Track } from "@cinesim/core";
+import type { DerivedAssetSnapshot, DerivedMediaSnapshot } from "../../shared/api";
 import {
   IDLE_TRIM_GESTURE,
   trimPreviewRange,
@@ -23,6 +44,7 @@ import { formatTimecode } from "../lib/format";
 import type { ActionResult } from "../store/renderer-store";
 import { useRendererStore } from "../store/renderer-store-context";
 import { useEditorDnd } from "../interactions/editor-dnd-context";
+import { TimelineWaveform } from "./timeline-waveform";
 
 const BASE_PIXELS_PER_SECOND = 86;
 
@@ -35,13 +57,26 @@ interface TimelineProps {
 interface ClipBlockProps {
   clip: Clip;
   track: Track;
+  asset: Asset | undefined;
+  derived: DerivedMediaSnapshot | null;
+  derivedAsset: DerivedAssetSnapshot | undefined;
   pixelsPerUs: number;
   selected: boolean;
-  name: string;
   onCommand: (command: EditorCommand) => Promise<ActionResult<unknown>>;
+  trackHeight: number;
 }
 
-function ClipBlock({ clip, track, pixelsPerUs, selected, name, onCommand }: ClipBlockProps) {
+function ClipBlock({
+  clip,
+  track,
+  asset,
+  derived,
+  derivedAsset,
+  pixelsPerUs,
+  selected,
+  onCommand,
+  trackHeight,
+}: ClipBlockProps) {
   const tool = useRendererStore((state) => state.tool);
   const selectClip = useRendererStore((state) => state.selectClip);
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
@@ -52,6 +87,8 @@ function ClipBlock({ clip, track, pixelsPerUs, selected, name, onCommand }: Clip
   const [trimGesture, setTrimGesture] = useState<TrimGestureState>(IDLE_TRIM_GESTURE);
   const trimGestureRef = useRef<TrimGestureState>(IDLE_TRIM_GESTURE);
   const previewRange = trimPreviewRange(trimGesture);
+  const name = asset?.name ?? clip.assetId;
+  const preparationLabel = derivedAsset ? prepStatus(derivedAsset) : null;
   const left = (previewRange?.timelineStartUs ?? clip.timelineStartUs) * pixelsPerUs;
   const width = Math.max(
     18,
@@ -129,7 +166,7 @@ function ClipBlock({ clip, track, pixelsPerUs, selected, name, onCommand }: Clip
     <div
       ref={setNodeRef}
       className={cn(
-        "absolute top-1 h-11 overflow-hidden rounded-md border text-left shadow-sm outline-none transition-[border-color,filter]",
+        "absolute top-1 overflow-hidden rounded-md border text-left shadow-sm outline-none transition-[border-color,filter]",
         track.kind === "audio"
           ? "border-clip-border bg-clip-audio"
           : "border-clip-border bg-clip-video",
@@ -141,8 +178,20 @@ function ClipBlock({ clip, track, pixelsPerUs, selected, name, onCommand }: Clip
       style={{
         left,
         width,
+        height: Math.max(32, trackHeight - 8),
       }}
     >
+      {asset &&
+        derived &&
+        derivedAsset?.waveform.state === "ready" &&
+        (asset.kind === "audio" || asset.hasAudio === true) && (
+          <TimelineWaveform
+            asset={asset}
+            clip={clip}
+            artifact={derivedAsset.waveform}
+            derived={derived}
+          />
+        )}
       <button
         type="button"
         {...listeners}
@@ -158,6 +207,11 @@ function ClipBlock({ clip, track, pixelsPerUs, selected, name, onCommand }: Clip
         <span className="relative block px-2 pt-0.5 text-ui-xs text-clip-text-muted tabular-nums">
           {clip.id}
         </span>
+        {preparationLabel && (
+          <span className="absolute right-1.5 top-1 rounded bg-black/35 px-1 py-0.5 text-[9px] font-medium text-white/85">
+            {preparationLabel}
+          </span>
+        )}
       </button>
       <button
         type="button"
@@ -183,17 +237,44 @@ function ClipBlock({ clip, track, pixelsPerUs, selected, name, onCommand }: Clip
   );
 }
 
+function prepStatus(asset: DerivedAssetSnapshot): string | null {
+  if (asset.proxy.state === "running" || asset.proxy.state === "queued")
+    return artifactStatus("Proxy", asset.proxy);
+  const perception = [asset.waveform, asset.filmstrip, asset.thumbnail].find(
+    (artifact) => artifact.state === "running" || artifact.state === "queued",
+  );
+  if (perception) return artifactStatus("Preparing", perception);
+  if (asset.proxy.state === "ready") return "Proxy ready";
+  if (
+    asset.proxy.state === "failed" ||
+    asset.waveform.state === "failed" ||
+    asset.filmstrip.state === "failed"
+  )
+    return "Prep failed";
+  return null;
+}
+
+function artifactStatus(label: string, artifact: DerivedAssetSnapshot["proxy"]): string {
+  return artifact.state === "running" && artifact.progress !== undefined
+    ? `${label} ${Math.round(artifact.progress * 100)}%`
+    : `${label} queued`;
+}
+
 function TimelineTrackRow({
   track,
   assets,
+  derived,
   pixelsPerUs,
+  trackHeight,
   selectedClipId,
   onCommand,
   onBackgroundPointerDown,
 }: {
   track: Track;
-  assets: Map<string, string>;
+  assets: Map<string, Asset>;
+  derived: DerivedMediaSnapshot | null;
   pixelsPerUs: number;
+  trackHeight: number;
   selectedClipId: Clip["id"] | null;
   onCommand: (command: EditorCommand) => Promise<ActionResult<unknown>>;
   onBackgroundPointerDown: (event: React.PointerEvent<HTMLButtonElement>) => void;
@@ -209,11 +290,8 @@ function TimelineTrackRow({
   return (
     <div
       ref={setNodeRef}
-      className={cn(
-        "timeline-track relative h-[52px] border-b border-border",
-        isOver && "bg-surface/55",
-      )}
-      style={{ backgroundSize: `${pixelsPerUs * 1_000_000}px 100%` }}
+      className={cn("timeline-track relative border-b border-border", isOver && "bg-surface/55")}
+      style={{ height: trackHeight, backgroundSize: `${pixelsPerUs * 1_000_000}px 100%` }}
     >
       <button
         type="button"
@@ -229,16 +307,19 @@ function TimelineTrackRow({
           key={clip.id}
           clip={clip}
           track={track}
+          asset={assets.get(clip.assetId)}
+          derived={derived}
+          derivedAsset={derived?.assets[clip.assetId]}
           pixelsPerUs={pixelsPerUs}
           selected={selectedClipId === clip.id}
-          name={assets.get(clip.assetId) ?? clip.assetId}
           onCommand={onCommand}
+          trackHeight={trackHeight}
         />
       ))}
       {trackProposal && (
         <div
           className={cn(
-            "pointer-events-none absolute top-1 z-40 h-11 overflow-hidden rounded-md border-2 px-2 py-1 shadow-lg",
+            "pointer-events-none absolute top-1 z-40 overflow-hidden rounded-md border-2 px-2 py-1 shadow-lg",
             trackProposal.valid
               ? "border-primary bg-selection/80 text-primary"
               : "border-red-500/80 bg-red-500/15 text-red-700 dark:text-red-300",
@@ -249,10 +330,11 @@ function TimelineTrackRow({
               18,
               (trackProposal.timelineEndUs - trackProposal.timelineStartUs) * pixelsPerUs,
             ),
+            height: Math.max(32, trackHeight - 8),
           }}
         >
           <span className="block truncate text-ui-xs font-medium">
-            {assets.get(trackProposal.assetId) ?? trackProposal.assetId}
+            {assets.get(trackProposal.assetId)?.name ?? trackProposal.assetId}
           </span>
           <span className="block truncate text-[10px] opacity-75">
             {trackProposal.valid ? "Drop to place" : trackProposal.reason?.replaceAll("-", " ")}
@@ -263,9 +345,146 @@ function TimelineTrackRow({
   );
 }
 
+function TrackHeader({
+  track,
+  index,
+  total,
+  height,
+  onCommand,
+}: {
+  track: Track;
+  index: number;
+  total: number;
+  height: number;
+  onCommand: (command: EditorCommand) => Promise<ActionResult<unknown>>;
+}) {
+  const [renaming, setRenaming] = useState(false);
+  const [name, setName] = useState(track.name);
+  const renameInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => setName(track.name), [track.name]);
+  useEffect(() => {
+    if (renaming) {
+      renameInputRef.current?.focus();
+      renameInputRef.current?.select();
+    }
+  }, [renaming]);
+
+  function commitName(): void {
+    setRenaming(false);
+    const trimmed = name.trim();
+    if (!trimmed || trimmed === track.name) {
+      setName(track.name);
+      return;
+    }
+    void onCommand({ type: "track.update", trackId: track.id, name: trimmed });
+  }
+
+  const kindLabel = track.kind === "audio" ? "A" : track.kind === "overlay" ? "O" : "V";
+  return (
+    <div className="grid content-center gap-0.5 border-b border-border px-2" style={{ height }}>
+      <div className="flex min-w-0 items-center gap-1.5">
+        <span className="grid size-5 shrink-0 place-items-center rounded bg-surface text-[10px] font-semibold text-muted">
+          {kindLabel}
+        </span>
+        {renaming ? (
+          <input
+            ref={renameInputRef}
+            className="h-6 min-w-0 flex-1 rounded border border-border-strong bg-panel-muted px-1.5 text-ui-xs text-primary outline-none focus-visible:ring-2 focus-visible:ring-focus"
+            value={name}
+            onChange={(event) => setName(event.target.value)}
+            onBlur={commitName}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") commitName();
+              if (event.key === "Escape") {
+                setName(track.name);
+                setRenaming(false);
+              }
+            }}
+          />
+        ) : (
+          <button
+            type="button"
+            className="min-w-0 flex-1 truncate text-left text-ui-xs font-medium text-secondary hover:text-primary"
+            title={`${track.name} · Double-click to rename`}
+            onDoubleClick={() => setRenaming(true)}
+          >
+            {track.name}
+          </button>
+        )}
+      </div>
+      <div className="flex items-center gap-0.5 pl-6">
+        <Button
+          size="icon-sm"
+          variant={track.muted ? "secondary" : "ghost"}
+          className="size-6"
+          aria-label={track.muted ? `Unmute ${track.name}` : `Mute ${track.name}`}
+          title={track.muted ? "Unmute track" : "Mute track"}
+          onClick={() =>
+            void onCommand({ type: "track.update", trackId: track.id, muted: !track.muted })
+          }
+        >
+          {track.muted ? <VolumeX size={11} /> : <Volume2 size={11} />}
+        </Button>
+        <Button
+          size="icon-sm"
+          variant={track.locked ? "secondary" : "ghost"}
+          className="size-6"
+          aria-label={track.locked ? `Unlock ${track.name}` : `Lock ${track.name}`}
+          title={track.locked ? "Unlock track" : "Lock track"}
+          onClick={() =>
+            void onCommand({ type: "track.update", trackId: track.id, locked: !track.locked })
+          }
+        >
+          {track.locked ? <Lock size={11} /> : <LockOpen size={11} />}
+        </Button>
+        <Button
+          size="icon-sm"
+          variant="ghost"
+          className="size-6"
+          aria-label={`Move ${track.name} up`}
+          title="Move track up"
+          disabled={track.locked || index === 0}
+          onClick={() =>
+            void onCommand({ type: "track.reorder", trackId: track.id, index: index - 1 })
+          }
+        >
+          <ChevronUp size={11} />
+        </Button>
+        <Button
+          size="icon-sm"
+          variant="ghost"
+          className="size-6"
+          aria-label={`Move ${track.name} down`}
+          title="Move track down"
+          disabled={track.locked || index === total - 1}
+          onClick={() =>
+            void onCommand({ type: "track.reorder", trackId: track.id, index: index + 1 })
+          }
+        >
+          <ChevronDown size={11} />
+        </Button>
+        <Button
+          size="icon-sm"
+          variant="ghost"
+          className="ml-auto size-6"
+          aria-label={`Remove ${track.name}`}
+          title={track.clips.length ? "Empty the track before removing it" : "Remove track"}
+          disabled={track.locked || track.clips.length > 0}
+          onClick={() => void onCommand({ type: "track.remove", trackId: track.id })}
+        >
+          <Trash2 size={11} />
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 export function Timeline({ project, onCommand, onSeek }: TimelineProps) {
   const zoom = useRendererStore((state) => state.timelineZoom);
   const setZoom = useRendererStore((state) => state.setTimelineZoom);
+  const trackHeight = useRendererStore((state) => state.timelineTrackHeight);
+  const setTrackHeight = useRendererStore((state) => state.setTimelineTrackHeight);
   const tool = useRendererStore((state) => state.tool);
   const setTool = useRendererStore((state) => state.setTool);
   const selectedClipId = useRendererStore((state) => state.selectedClipId);
@@ -274,12 +493,13 @@ export function Timeline({ project, onCommand, onSeek }: TimelineProps) {
   const setPlayheadUs = useRendererStore((state) => state.setPlayheadUs);
   const snappingEnabled = useRendererStore((state) => state.snappingEnabled);
   const toggleSnapping = useRendererStore((state) => state.toggleSnapping);
+  const derived = useRendererStore((state) => state.derivedMedia);
   const sequence = getSequence(project);
   const pixelsPerUs = (BASE_PIXELS_PER_SECOND * zoom) / 1_000_000;
   const contentDurationUs = Math.max(sequenceDurationUs(sequence) + 5_000_000, 30_000_000 / zoom);
   const contentWidth = Math.round(contentDurationUs * pixelsPerUs);
   const assets = useMemo(
-    () => new Map(project.assets.map((asset) => [asset.id, asset.name])),
+    () => new Map(project.assets.map((asset) => [asset.id, asset])),
     [project.assets],
   );
 
@@ -316,12 +536,80 @@ export function Timeline({ project, onCommand, onSeek }: TimelineProps) {
         </Button>
         <Button
           size="icon"
+          variant={tool === "trim" ? "secondary" : "ghost"}
+          aria-label="Trim tool"
+          title="Trim tool (T)"
+          onClick={() => setTool("trim")}
+        >
+          <MoveHorizontal size={14} />
+        </Button>
+        <Button
+          size="icon"
           variant={tool === "blade" ? "secondary" : "ghost"}
           aria-label="Blade tool"
           onClick={() => setTool("blade")}
         >
           <Scissors size={14} />
         </Button>
+        <Separator orientation="vertical" className="mx-1 h-4 self-auto" />
+        <Menu>
+          <MenuTrigger
+            aria-label="Add timeline track"
+            title="Add timeline track"
+            className="grid size-8 place-items-center rounded-md text-secondary hover:bg-surface hover:text-primary"
+          >
+            <Plus size={14} />
+          </MenuTrigger>
+          <MenuContent align="start" className="w-48">
+            <MenuLabel>Add track</MenuLabel>
+            <MenuItem
+              onClick={() =>
+                void onCommand({ type: "track.add", sequenceId: sequence.id, kind: "video" })
+              }
+            >
+              <Video size={14} /> Video track
+            </MenuItem>
+            <MenuItem
+              onClick={() =>
+                void onCommand({ type: "track.add", sequenceId: sequence.id, kind: "audio" })
+              }
+            >
+              <AudioLines size={14} /> Audio track
+            </MenuItem>
+            <MenuItem
+              onClick={() =>
+                void onCommand({ type: "track.add", sequenceId: sequence.id, kind: "overlay" })
+              }
+            >
+              <Layers size={14} /> Overlay track
+            </MenuItem>
+          </MenuContent>
+        </Menu>
+        <Menu>
+          <MenuTrigger
+            aria-label="Timeline view options"
+            title="Timeline view options"
+            className="grid size-8 place-items-center rounded-md text-secondary hover:bg-surface hover:text-primary"
+          >
+            <MenuIcon size={14} />
+          </MenuTrigger>
+          <MenuContent align="start" className="w-56 p-2">
+            <MenuLabel>Track appearance</MenuLabel>
+            <label className="grid gap-1 px-2 py-1 text-ui-xs text-muted">
+              Height
+              <input
+                aria-label="Timeline track height"
+                className="h-1 accent-accent"
+                type="range"
+                min={40}
+                max={112}
+                step={4}
+                value={trackHeight}
+                onChange={(event) => setTrackHeight(Number(event.target.value))}
+              />
+            </label>
+          </MenuContent>
+        </Menu>
         <Separator orientation="vertical" className="mx-1 h-4 self-auto" />
         <Button
           size="icon"
@@ -390,19 +678,17 @@ export function Timeline({ project, onCommand, onSeek }: TimelineProps) {
           <ZoomIn size={13} />
         </Button>
       </PaneHeader>
-      <div className="grid min-h-0 flex-1 grid-cols-[84px_1fr] overflow-hidden">
+      <div className="grid min-h-0 flex-1 grid-cols-[168px_1fr] overflow-hidden">
         <div className="z-20 border-r border-border bg-panel pt-6">
-          {sequence.tracks.map((track) => (
-            <div
+          {sequence.tracks.map((track, index) => (
+            <TrackHeader
               key={track.id}
-              className="flex h-[52px] items-center gap-1 border-b border-border px-2"
-            >
-              <span className="min-w-0 flex-1 truncate text-ui-xs font-medium text-muted">
-                {track.name}
-              </span>
-              {track.muted && <VolumeX size={10} className="text-disabled" />}
-              {track.locked && <Lock size={10} className="text-disabled" />}
-            </div>
+              track={track}
+              index={index}
+              total={sequence.tracks.length}
+              height={trackHeight}
+              onCommand={onCommand}
+            />
           ))}
         </div>
         <div className="timeline-scroll relative min-h-0 overflow-auto">
@@ -434,7 +720,9 @@ export function Timeline({ project, onCommand, onSeek }: TimelineProps) {
                 key={track.id}
                 track={track}
                 assets={assets}
+                derived={derived}
                 pixelsPerUs={pixelsPerUs}
+                trackHeight={trackHeight}
                 selectedClipId={selectedClipId}
                 onCommand={onCommand}
                 onBackgroundPointerDown={trackSeek}
