@@ -20,3 +20,10 @@ Cinesim is a local-first, agent-native nonlinear video editor. Keep the system s
 16. A drag/trim gesture creates one committed command and one undo step; do not persist every pointer movement.
 17. Run `vp check` and relevant `vp test` suites before completing changes. Do not launch Electron when the task explicitly prohibits it.
 18. Do not use the built-in browser skill in this workspace.
+
+## Development diagnostics
+
+- Node-side diagnostics are written to `.context/logs/` as local NDJSON during development; diagnostic queries are bounded.
+- Use `vp exec -- tsx tools/diagnostics.ts --errors` for a concise recent failure report.
+- Use `vp exec -- tsx tools/diagnostics.ts --errors --json` for structured output.
+- Keep logs off MCP stdout; MCP protocol output belongs on stdout and diagnostics belong on stderr/files.

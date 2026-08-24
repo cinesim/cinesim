@@ -13,10 +13,13 @@ import {
   stableJson,
 } from "@cinesim/core";
 import type { Asset, EditorCommand, Project, ProjectSettings } from "@cinesim/core";
+import { createCinesimLogger } from "@cinesim/logging";
 import { dispatchCommand } from "@cinesim/protocol";
 import { ALL_FORMATS, FilePathSource, Input } from "mediabunny";
 import type { DesktopProjectSession } from "../shared/api";
 import { DerivedMediaStore } from "./derived-media-store";
+
+const log = createCinesimLogger({ service: "desktop-commands" });
 
 const PROJECT_AGENTS = `# Project creative direction
 
@@ -142,15 +145,41 @@ export class DesktopProjectStore {
 
   async execute(command: EditorCommand) {
     return this.#serialize(async () => {
-      const project = this.#requireProject();
-      const dispatched = dispatchCommand(project, command);
-      if (!dispatched.ok) throw new Error(`${dispatched.error.code}: ${dispatched.error.message}`);
-      this.#history!.commit(dispatched.value.command);
-      this.derivedMedia.updateProject(this.#history!.project);
-      this.#revision += 1;
-      await this.#persist();
-      const { project: _project, ...result } = dispatched.value;
-      return { session: this.session(), result };
+      const operationId = crypto.randomUUID();
+      const startedAt = Date.now();
+      log.info({ operationId, operation: command.type }, "command started");
+      try {
+        const project = this.#requireProject();
+        const dispatched = dispatchCommand(project, command);
+        if (!dispatched.ok) {
+          const error = new Error(`${dispatched.error.code}: ${dispatched.error.message}`);
+          (error as Error & { code: string }).code = dispatched.error.code;
+          throw error;
+        }
+        this.#history!.commit(dispatched.value.command);
+        this.derivedMedia.updateProject(this.#history!.project);
+        this.#revision += 1;
+        await this.#persist();
+        const { project: _project, ...result } = dispatched.value;
+        log.info(
+          {
+            operationId,
+            operation: command.type,
+            projectRevision: this.#revision,
+            durationMs: Date.now() - startedAt,
+            changedIds: result.changedIds,
+            createdIds: result.createdIds,
+          },
+          "command completed",
+        );
+        return { session: this.session(), result };
+      } catch (error) {
+        log.error(
+          { err: error, operationId, operation: command.type, durationMs: Date.now() - startedAt },
+          "command failed",
+        );
+        throw error;
+      }
     });
   }
 

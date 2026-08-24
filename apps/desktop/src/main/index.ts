@@ -11,6 +11,7 @@ import {
   shell,
 } from "electron";
 import type { EditorCommand } from "@cinesim/core";
+import { createCinesimLogger } from "@cinesim/logging";
 import type {
   AgentCreateInput,
   AgentProviderKind,
@@ -29,6 +30,7 @@ import { DesktopAppStateStore, parseEditorLayoutState } from "./app-state-store"
 import { DesktopProjectStore } from "./project-store";
 
 const store = new DesktopProjectStore();
+const log = createCinesimLogger({ service: "desktop" });
 let appState: DesktopAppStateStore;
 let agentSettings: AgentSettingsStore;
 let agents: AgentManager;
@@ -548,7 +550,7 @@ async function startApplication(): Promise<void> {
 }
 
 void startApplication().catch((error: unknown) => {
-  console.error("Cinesim failed to start", error);
+  log.error({ err: error }, "Cinesim failed to start");
   app.quit();
 });
 
@@ -561,7 +563,7 @@ app.on("before-quit", (event) => {
   event.preventDefault();
   shutdown ??= agents
     .close()
-    .catch((error: unknown) => console.error("Cinesim agent shutdown failed", error))
+    .catch((error: unknown) => log.error({ err: error }, "Cinesim agent shutdown failed"))
     .then(() => {
       quitReady = true;
       app.quit();
