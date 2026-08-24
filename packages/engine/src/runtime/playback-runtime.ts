@@ -11,7 +11,11 @@ import type {
   VideoSourceFactory,
 } from "../media/video-source";
 import { WebAudioScheduler } from "../playback/audio-scheduler";
-import { MonotonicPlaybackClock } from "../playback/clock";
+import {
+  MAX_PLAYBACK_RATE,
+  MonotonicPlaybackClock,
+  normalizePlaybackRate,
+} from "../playback/clock";
 import { findUpcomingLayers, resolveScene } from "../playback/scene-resolver";
 import { LatestOnlyExecutor } from "./latest-only-executor";
 
@@ -25,6 +29,7 @@ export interface RuntimeSnapshot {
   mode: PreviewMode;
   timeUs: TimeUs;
   playing: boolean;
+  playbackRate: number;
   activeAssetId: AssetId | null;
   activeSourceKind: MediaSourceKind | null;
   foregroundPressure: ForegroundPressure;
@@ -54,11 +59,100 @@ export interface PlaybackRuntimeOptions {
   sourceResolver?: MediaSourceResolver;
   now?: () => number;
   onError?: (error: Error) => void;
+  scheduleFrame?: (callback: () => void) => number;
+  cancelFrame?: (handle: number) => void;
 }
 
 interface RenderRequest {
   mode: PreviewMode;
-  reason: "initial" | "project" | "timeline-seek" | "playback" | "asset-preview" | "restore";
+  reason:
+    | "initial"
+    | "project"
+    | "timeline-seek"
+    | "asset-preview"
+    | "restore"
+    | "refresh"
+    | "frame-step";
+}
+
+export type ShuttleDirection = -1 | 0 | 1;
+
+const defaultScheduleFrame = (callback: () => void): number => {
+  if (typeof requestAnimationFrame === "function") return requestAnimationFrame(callback);
+  return setTimeout(callback, 16) as unknown as number;
+};
+
+const defaultCancelFrame = (handle: number): void => {
+  if (typeof cancelAnimationFrame === "function") cancelAnimationFrame(handle);
+  else clearTimeout(handle);
+};
+
+const frameIndexAt = (timeUs: TimeUs, frameRate: number): number =>
+  Math.max(0, Math.floor((timeUs * frameRate) / 1_000_000 + 0.000_1));
+
+const frameTimeUs = (frameIndex: number, frameRate: number): TimeUs =>
+  Math.max(0, Math.round((frameIndex * 1_000_000) / frameRate));
+
+const frameTimestampUs = (frame: VideoFrame, fallback: TimeUs): TimeUs =>
+  typeof frame.timestamp === "number" ? Math.max(0, Math.round(frame.timestamp)) : fallback;
+
+/** Owns at most two decoded source frames plus the clone handed to the compositor. */
+class SequentialVideoCursor {
+  readonly #source: VideoSource;
+  #iterator: AsyncGenerator<VideoFrame> | null = null;
+  #current: VideoFrame | null = null;
+  #next: VideoFrame | null = null;
+  #lastRequestedUs: TimeUs | null = null;
+
+  constructor(source: VideoSource) {
+    this.#source = source;
+  }
+
+  async frameAt(timeUs: TimeUs): Promise<VideoFrame | null> {
+    if (!this.#source.frames) return this.#source.getFrame(timeUs);
+    if (
+      !this.#current ||
+      this.#lastRequestedUs === null ||
+      timeUs < this.#lastRequestedUs ||
+      timeUs - this.#lastRequestedUs > 500_000
+    )
+      await this.#restart(timeUs);
+    this.#lastRequestedUs = timeUs;
+    if (!this.#current) return null;
+
+    while (true) {
+      if (!this.#next) {
+        const result = await this.#iterator?.next();
+        if (!result || result.done) break;
+        this.#next = result.value;
+      }
+      if (frameTimestampUs(this.#next, timeUs) > timeUs) break;
+      this.#current.close();
+      this.#current = this.#next;
+      this.#next = null;
+    }
+    return this.#current.clone();
+  }
+
+  async #restart(timeUs: TimeUs): Promise<void> {
+    await this.close();
+    this.#current = await this.#source.getFrame(timeUs);
+    if (!this.#current || !this.#source.frames) return;
+    const timestampUs = frameTimestampUs(this.#current, timeUs);
+    const durationUs = Math.max(1, Math.round(this.#current.duration ?? 1));
+    this.#iterator = this.#source.frames(timestampUs + durationUs);
+  }
+
+  async close(): Promise<void> {
+    const iterator = this.#iterator;
+    this.#iterator = null;
+    this.#current?.close();
+    this.#current = null;
+    this.#next?.close();
+    this.#next = null;
+    this.#lastRequestedUs = null;
+    await iterator?.return(undefined);
+  }
 }
 
 const defaultResolver: MediaSourceResolver = {
@@ -80,7 +174,10 @@ export class PlaybackRuntime {
   readonly #sourceFactory: VideoSourceFactory;
   readonly #sourceResolver: MediaSourceResolver;
   readonly #onError: (error: Error) => void;
+  readonly #scheduleFrame: (callback: () => void) => number;
+  readonly #cancelFrame: (handle: number) => void;
   readonly #sources = new Map<string, VideoSource & Partial<AudioSource>>();
+  readonly #sequentialCursors = new Map<string, SequentialVideoCursor>();
   readonly #sourceDescriptors = new Map<AssetId, MediaSourceDescriptor>();
   readonly #listeners = new Set<(snapshot: RuntimeSnapshot) => void>();
   readonly #executor: LatestOnlyExecutor<RenderRequest, void>;
@@ -88,6 +185,13 @@ export class PlaybackRuntime {
   #initialized = false;
   #destroyed = false;
   #animationFrame = 0;
+  #transportGeneration = 0;
+  #lastPlaybackFrameIndex: number | null = null;
+  #playbackRequests = 0;
+  #playbackFramesPresented = 0;
+  #playbackFramesObsolete = 0;
+  #playbackFailedRequests = 0;
+  #playbackFrameInFlight = false;
   #lastSnapshotAt = 0;
   #renderedSinceSnapshot = 0;
   #droppedFrames = 0;
@@ -114,9 +218,11 @@ export class PlaybackRuntime {
     this.#sourceFactory = options.sourceFactory ?? defaultSourceFactory;
     this.#sourceResolver = options.sourceResolver ?? defaultResolver;
     this.#onError = options.onError ?? (() => undefined);
+    this.#scheduleFrame = options.scheduleFrame ?? defaultScheduleFrame;
+    this.#cancelFrame = options.cancelFrame ?? defaultCancelFrame;
     this.#executor = new LatestOnlyExecutor(async (request, context) => {
       const started = this.#now();
-      const frames = await this.#decode(request.mode);
+      const frames = await this.#decodeRandom(request.mode);
       if (!context.isCurrent() || this.#destroyed) {
         for (const layer of frames) layer.frame.close();
         return;
@@ -125,13 +231,6 @@ export class PlaybackRuntime {
       this.#compositor.render(frames, { width: sequence.width, height: sequence.height });
       this.#renderedSinceSnapshot += 1;
       this.#mode = request.mode;
-      if (
-        request.mode.kind === "timeline" &&
-        (request.reason === "timeline-seek" ||
-          request.reason === "restore" ||
-          request.reason === "initial")
-      )
-        this.#clock.seek(request.mode.timeUs);
       if (request.reason === "timeline-seek" || request.reason === "asset-preview")
         this.#seekLatencyMs = this.#now() - started;
       this.#prewarm(request.mode);
@@ -150,10 +249,20 @@ export class PlaybackRuntime {
 
   setProject(project: Project): void {
     this.#project = project;
-    if (this.#initialized)
-      this.#runBackground(
-        this.#request({ kind: "timeline", timeUs: this.#clock.now() }, "project"),
-      );
+    this.#resetSequentialCursors();
+    if (!this.#initialized) return;
+    if (this.#clock.playing) {
+      this.#stopAudio();
+      if (this.#clock.rate === 1 && this.#hasAudibleContent())
+        this.#restartAudio(this.#clock.now());
+      this.#startTransportLoop();
+      return;
+    }
+    const mode =
+      this.#mode.kind === "asset"
+        ? this.#mode
+        : { kind: "timeline" as const, timeUs: this.#clock.now() };
+    this.#runBackground(this.#request(mode, "project"));
   }
 
   subscribe(listener: (snapshot: RuntimeSnapshot) => void): () => void {
@@ -164,10 +273,19 @@ export class PlaybackRuntime {
 
   play(): void {
     if (this.#clock.playing || this.#destroyed) return;
-    if (this.#mode.kind === "asset") this.#runBackground(this.exitAssetPreview());
+    this.#clock.setRate(1);
+    this.#startPlaying();
+  }
+
+  #startPlaying(): void {
+    if (this.#mode.kind === "asset") {
+      const mode: PreviewMode = { kind: "timeline", timeUs: this.#clock.now() };
+      this.#mode = mode;
+    }
     this.#clock.play();
-    this.#restartAudio(this.#clock.now());
-    this.#tick();
+    if (this.#clock.rate === 1 && this.#hasAudibleContent()) this.#restartAudio(this.#clock.now());
+    this.#startTransportLoop();
+    this.#emit();
   }
 
   playTimeline(): void {
@@ -175,13 +293,18 @@ export class PlaybackRuntime {
   }
 
   pause(): void {
+    if (!this.#clock.playing && !this.#animationFrame) return;
     this.#clock.pause();
+    this.#transportGeneration += 1;
+    this.#lastPlaybackFrameIndex = null;
     this.#audioGeneration += 1;
     this.#audioStartingGeneration = null;
     this.#audioTransportGeneration = null;
     this.#audioSchedulingGeneration = null;
     this.#audioScheduler?.stop();
-    if (typeof cancelAnimationFrame === "function") cancelAnimationFrame(this.#animationFrame);
+    if (this.#animationFrame) this.#cancelFrame(this.#animationFrame);
+    this.#animationFrame = 0;
+    this.#resetSequentialCursors();
     this.#emit();
   }
 
@@ -196,9 +319,73 @@ export class PlaybackRuntime {
   async seekTimeline(timeUs: TimeUs): Promise<void> {
     const durationUs = sequenceDurationUs(getSequence(this.#project));
     const safeTimeUs = Math.max(0, Math.min(Math.round(timeUs), durationUs));
+    const wasPlaying = this.#clock.playing;
+    this.#transportGeneration += 1;
+    if (this.#animationFrame) this.#cancelFrame(this.#animationFrame);
+    this.#animationFrame = 0;
+    this.#lastPlaybackFrameIndex = null;
+    this.#resetSequentialCursors();
+    this.#clock.seek(safeTimeUs);
     this.#mode = { kind: "timeline", timeUs: safeTimeUs };
     await this.#request(this.#mode, "timeline-seek");
-    if (this.#clock.playing) this.#restartAudio(safeTimeUs);
+    if (wasPlaying && this.#clock.playing) {
+      if (this.#clock.rate === 1 && this.#hasAudibleContent()) this.#restartAudio(safeTimeUs);
+      this.#startTransportLoop();
+    }
+    this.#emit();
+  }
+
+  async stepFrames(deltaFrames: number): Promise<void> {
+    if (!Number.isSafeInteger(deltaFrames)) throw new Error("Frame delta must be an integer");
+    if (deltaFrames === 0) return this.refresh();
+    this.pause();
+    const sequence = getSequence(this.#project);
+    const durationUs = sequenceDurationUs(sequence);
+    const frameCount = Math.max(1, Math.ceil((durationUs * sequence.frameRate) / 1_000_000));
+    const currentFrame = frameIndexAt(this.#clock.now(), sequence.frameRate);
+    const targetFrame = Math.max(0, Math.min(currentFrame + deltaFrames, frameCount - 1));
+    const targetUs = Math.min(durationUs, frameTimeUs(targetFrame, sequence.frameRate));
+    this.#clock.seek(targetUs);
+    this.#mode = { kind: "timeline", timeUs: targetUs };
+    await this.#request(this.#mode, "frame-step");
+    this.#emit();
+  }
+
+  setPlaybackRate(rate: number): void {
+    if (!Number.isFinite(rate)) throw new Error("Playback rate must be finite");
+    if (rate === 0) {
+      this.pause();
+      return;
+    }
+    const normalized = normalizePlaybackRate(rate);
+    const changed = normalized !== this.#clock.rate;
+    this.#clock.setRate(normalized);
+    if (!this.#clock.playing) {
+      this.#startPlaying();
+      return;
+    }
+    if (!changed) return;
+    this.#stopAudio();
+    if (normalized === 1 && this.#hasAudibleContent()) this.#restartAudio(this.#clock.now());
+    this.#startTransportLoop();
+    this.#emit();
+  }
+
+  shuttle(direction: ShuttleDirection): void {
+    if (direction === 0) {
+      this.pause();
+      return;
+    }
+    const sameDirection = this.#clock.playing && Math.sign(this.#clock.rate) === direction;
+    const speed = sameDirection ? Math.min(Math.abs(this.#clock.rate) * 2, MAX_PLAYBACK_RATE) : 1;
+    this.setPlaybackRate(direction * speed);
+  }
+
+  async refresh(): Promise<void> {
+    if (!this.#initialized || this.#destroyed || this.#clock.playing) return;
+    const mode: PreviewMode =
+      this.#mode.kind === "asset" ? this.#mode : { kind: "timeline", timeUs: this.#clock.now() };
+    await this.#request(mode, "refresh");
     this.#emit();
   }
 
@@ -234,23 +421,75 @@ export class PlaybackRuntime {
         this.#sources.delete(key);
       }
     }
+    this.#resetSequentialCursors();
     if (assetId) this.#sourceDescriptors.delete(assetId);
     else this.#sourceDescriptors.clear();
   }
 
-  #tick = (): void => {
-    if (!this.#clock.playing || this.#destroyed) return;
-    const duration = sequenceDurationUs(getSequence(this.#project));
-    const timeUs = Math.min(this.#clock.now(), duration);
-    if (timeUs >= duration) {
+  #startTransportLoop(): void {
+    const generation = ++this.#transportGeneration;
+    this.#executor.invalidate();
+    this.#lastPlaybackFrameIndex = null;
+    if (this.#animationFrame) this.#cancelFrame(this.#animationFrame);
+    this.#animationFrame = 0;
+    this.#resetSequentialCursors();
+    this.#runBackground(this.#tick(generation));
+  }
+
+  async #tick(generation: number): Promise<void> {
+    if (!this.#isCurrentTransport(generation)) return;
+    const sequence = getSequence(this.#project);
+    const durationUs = sequenceDurationUs(sequence);
+    const rawTimeUs = this.#clock.now();
+    if (
+      (this.#clock.rate > 0 && rawTimeUs >= durationUs) ||
+      (this.#clock.rate < 0 && rawTimeUs <= 0)
+    ) {
+      this.#clock.seek(this.#clock.rate > 0 ? durationUs : 0);
       this.pause();
       return;
     }
-    const metrics = this.#executor.metrics;
-    if (metrics.inFlight) this.#droppedFrames += 1;
-    this.#runBackground(this.#request({ kind: "timeline", timeUs }, "playback"));
+
+    const safeTimeUs = Math.max(0, Math.min(rawTimeUs, durationUs));
+    const frameIndex = frameIndexAt(safeTimeUs, sequence.frameRate);
+    if (frameIndex !== this.#lastPlaybackFrameIndex) {
+      if (this.#lastPlaybackFrameIndex !== null)
+        this.#droppedFrames += Math.max(0, Math.abs(frameIndex - this.#lastPlaybackFrameIndex) - 1);
+      this.#lastPlaybackFrameIndex = frameIndex;
+      this.#playbackRequests += 1;
+      const mode: PreviewMode = {
+        kind: "timeline",
+        timeUs: frameTimeUs(frameIndex, sequence.frameRate),
+      };
+      this.#playbackFrameInFlight = true;
+      let frames;
+      try {
+        frames =
+          this.#clock.rate > 0
+            ? await this.#decodeSequential(mode.timeUs)
+            : await this.#decodeRandom(mode);
+      } catch (error) {
+        this.#playbackFailedRequests += 1;
+        if (this.#isCurrentTransport(generation)) this.#scheduleTransportTick(generation);
+        throw error;
+      } finally {
+        this.#playbackFrameInFlight = false;
+      }
+      if (!this.#isCurrentTransport(generation)) {
+        for (const layer of frames) layer.frame.close();
+        this.#playbackFramesObsolete += 1;
+        return;
+      }
+      this.#compositor.render(frames, { width: sequence.width, height: sequence.height });
+      this.#renderedSinceSnapshot += 1;
+      this.#playbackFramesPresented += 1;
+      this.#mode = mode;
+      this.#prewarm(mode);
+    }
+
     if (
-      this.#audioScheduledUntilUs - timeUs < 700_000 &&
+      this.#clock.rate === 1 &&
+      this.#audioScheduledUntilUs - safeTimeUs < 700_000 &&
       this.#audioTransportGeneration === this.#audioGeneration &&
       this.#audioStartingGeneration !== this.#audioGeneration &&
       this.#audioSchedulingGeneration !== this.#audioGeneration
@@ -258,20 +497,32 @@ export class PlaybackRuntime {
       this.#runBackground(
         this.#scheduleAudioWindow(
           this.#audioScheduledUntilUs,
-          timeUs + 1_800_000,
+          safeTimeUs + 1_800_000,
           this.#audioGeneration,
         ),
       );
     if (this.#now() - this.#lastSnapshotAt > 100) this.#emit();
-    this.#animationFrame = requestAnimationFrame(this.#tick);
-  };
+    if (!this.#isCurrentTransport(generation)) return;
+    this.#scheduleTransportTick(generation);
+  }
+
+  #scheduleTransportTick(generation: number): void {
+    this.#animationFrame = this.#scheduleFrame(() => {
+      this.#animationFrame = 0;
+      this.#runBackground(this.#tick(generation));
+    });
+  }
+
+  #isCurrentTransport(generation: number): boolean {
+    return this.#clock.playing && !this.#destroyed && generation === this.#transportGeneration;
+  }
 
   async #request(mode: PreviewMode, reason: RenderRequest["reason"]): Promise<void> {
     if (!this.#initialized || this.#destroyed) return;
     await this.#executor.run({ mode, reason });
   }
 
-  async #decode(mode: PreviewMode) {
+  async #decodeRandom(mode: PreviewMode) {
     if (mode.kind === "asset") {
       const asset = this.#project.assets.find((candidate) => candidate.id === mode.assetId);
       if (!asset || asset.kind !== "video") return [];
@@ -295,6 +546,35 @@ export class PlaybackRuntime {
     return frames.filter((value): value is NonNullable<typeof value> => value !== null);
   }
 
+  async #decodeSequential(timeUs: TimeUs) {
+    const layers = resolveScene(this.#project, timeUs);
+    const activeCursorKeys = new Set<string>();
+    const frames = await Promise.all(
+      layers.map(async (layer) => {
+        const descriptor = this.#sourceResolver.resolve(layer.asset.id);
+        const source = this.#source(descriptor);
+        const key = `${layer.clip.id}:${descriptor.assetId}:${descriptor.kind}:${descriptor.url}`;
+        activeCursorKeys.add(key);
+        let cursor = this.#sequentialCursors.get(key);
+        if (!cursor) {
+          cursor = new SequentialVideoCursor(source);
+          this.#sequentialCursors.set(key, cursor);
+        }
+        const frame = await cursor.frameAt(layer.sourceTimeUs);
+        return frame ? { frame, transform: layer.clip.transform } : null;
+      }),
+    );
+    for (const [key, cursor] of this.#sequentialCursors) {
+      if (activeCursorKeys.has(key)) continue;
+      this.#sequentialCursors.delete(key);
+      this.#runBackground(cursor.close());
+    }
+    const active = layers.at(-1);
+    this.#lastActiveAssetId = active?.asset.id ?? null;
+    this.#lastActiveSourceKind = active ? this.#sourceResolver.resolve(active.asset.id).kind : null;
+    return frames.filter((value): value is NonNullable<typeof value> => value !== null);
+  }
+
   #source(descriptor: MediaSourceDescriptor): VideoSource & Partial<AudioSource> {
     const key = `${descriptor.assetId}:${descriptor.kind}:${descriptor.url}`;
     let source = this.#sources.get(key);
@@ -312,6 +592,24 @@ export class PlaybackRuntime {
       const descriptor = this.#sourceResolver.resolve(upcoming.asset.id);
       this.#runBackground(this.#source(descriptor).prepare());
     }
+  }
+
+  #resetSequentialCursors(): void {
+    const cursors = [...this.#sequentialCursors.values()];
+    this.#sequentialCursors.clear();
+    for (const cursor of cursors) this.#runBackground(cursor.close());
+  }
+
+  #stopAudio(): void {
+    this.#audioGeneration += 1;
+    this.#audioStartingGeneration = null;
+    this.#audioTransportGeneration = null;
+    this.#audioSchedulingGeneration = null;
+    this.#audioScheduler?.stop();
+  }
+
+  #hasAudibleContent(): boolean {
+    return this.#project.assets.some((asset) => asset.hasAudio);
   }
 
   #restartAudio(timeUs: TimeUs): void {
@@ -411,25 +709,26 @@ export class PlaybackRuntime {
       mode: this.#mode,
       timeUs: timelineTimeUs,
       playing: this.#clock.playing,
+      playbackRate: this.#clock.playing ? this.#clock.rate : 0,
       activeAssetId: this.#lastActiveAssetId,
       activeSourceKind: this.#lastActiveSourceKind,
       foregroundPressure: this.#clock.playing
         ? "playing"
         : this.#mode.kind === "asset"
           ? "hover-skimming"
-          : executor.inFlight
+          : executor.inFlight || this.#playbackFrameInFlight
             ? "seeking"
             : "idle",
       renderFps: Math.round(this.#renderedSinceSnapshot / elapsedSeconds),
       targetFps: sequence.frameRate,
       droppedFrames: this.#droppedFrames,
-      frameOperationsInFlight: executor.inFlight,
+      frameOperationsInFlight: executor.inFlight + (this.#playbackFrameInFlight ? 1 : 0),
       newestRequestPending: executor.pending > 0,
-      requestsReceived: executor.received,
+      requestsReceived: executor.received + this.#playbackRequests,
       requestsCoalesced: executor.coalesced,
-      framesPresented: executor.completed,
-      framesObsolete: executor.obsolete,
-      failedRequests: executor.failed,
+      framesPresented: executor.completed + this.#playbackFramesPresented,
+      framesObsolete: executor.obsolete + this.#playbackFramesObsolete,
+      failedRequests: executor.failed + this.#playbackFailedRequests,
       activeSources: this.#sources.size,
       activeClips: resolveScene(this.#project, timelineTimeUs).length,
       seekLatencyMs: this.#seekLatencyMs,
@@ -455,6 +754,7 @@ export class PlaybackRuntime {
     this.#destroyed = true;
     this.pause();
     this.#executor.destroy();
+    this.#resetSequentialCursors();
     for (const source of this.#sources.values()) source.destroy();
     this.#sources.clear();
     this.#listeners.clear();

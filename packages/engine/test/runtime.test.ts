@@ -57,6 +57,21 @@ describe("timeline runtime primitives", () => {
     expect(clock.now()).toBe(2_250_000);
   });
 
+  it("anchors signed rate changes without introducing a time discontinuity", () => {
+    let nowMs = 0;
+    const clock = new MonotonicPlaybackClock(() => nowMs);
+    clock.seek(1_000_000);
+    clock.play();
+    nowMs = 100;
+    clock.setRate(2);
+    expect(clock.now()).toBe(1_100_000);
+    nowMs = 200;
+    expect(clock.now()).toBe(1_300_000);
+    clock.setRate(-1);
+    nowMs = 300;
+    expect(clock.now()).toBe(1_200_000);
+  });
+
   it("drops obsolete seek results", async () => {
     const resolvers = new Map<number, (value: number) => void>();
     const controller = new LatestRequestController<number, number>(
@@ -281,6 +296,237 @@ describe("PlaybackRuntime source preview", () => {
     await new Promise<void>((resolve) => setTimeout(resolve, 0));
 
     expect(reported).toEqual([expected]);
+    runtime.destroy();
+  });
+});
+
+describe("PlaybackRuntime transport", () => {
+  const flush = async () => {
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+  };
+
+  function timelineProject() {
+    let project = applyCommand(createProject({ name: "Transport", frameRate: 30 }), {
+      type: "asset.import",
+      asset,
+    }).project;
+    project = applyCommand(project, {
+      type: "clip.add",
+      trackId: project.sequences[0]!.tracks[0]!.id,
+      assetId: asset.id,
+      timelineStartUs: 0,
+    }).project;
+    return project;
+  }
+
+  function frame(sourceTimeUs: number, onClose: () => void = () => undefined): VideoFrame {
+    const create = (): VideoFrame =>
+      ({
+        sourceTimeUs,
+        timestamp: sourceTimeUs,
+        duration: 33_333,
+        displayWidth: 1920,
+        displayHeight: 1080,
+        clone: create,
+        close: onClose,
+      }) as unknown as VideoFrame;
+    return create();
+  }
+
+  function compositor(renderedTimes: number[]): PreviewCompositor {
+    return {
+      initialize: async () => undefined,
+      render: (layers) => {
+        for (const layer of layers) {
+          renderedTimes.push((layer.frame as VideoFrame & { sourceTimeUs: number }).sourceTimeUs);
+          layer.frame.close();
+        }
+      },
+      metrics: {
+        gpuSubmitCpuMs: 0,
+        submittedFrames: 0,
+        activeFrames: 0,
+        deviceLostCount: 0,
+        outputWidth: 1920,
+        outputHeight: 1080,
+      },
+      destroy: () => undefined,
+    };
+  }
+
+  it("presents slow playback decodes instead of invalidating one on every display refresh", async () => {
+    let nowMs = 0;
+    let nextFrameHandle = 0;
+    const scheduled = new Map<number, () => void>();
+    const playbackDecodes: Array<{ timeUs: number; resolve: (value: VideoFrame) => void }> = [];
+    let decodeCount = 0;
+    const renderedTimes: number[] = [];
+    const runtime = new PlaybackRuntime(timelineProject(), compositor(renderedTimes), {
+      now: () => nowMs,
+      scheduleFrame: (callback) => {
+        const handle = ++nextFrameHandle;
+        scheduled.set(handle, callback);
+        return handle;
+      },
+      cancelFrame: (handle) => scheduled.delete(handle),
+      sourceFactory: () => ({
+        prepare: async () => ({
+          durationUs: asset.durationUs,
+          width: 1920,
+          height: 1080,
+          frameRate: 30,
+          hasAudio: false,
+        }),
+        seek: async () => undefined,
+        getFrame: async (timeUs) => {
+          decodeCount += 1;
+          if (decodeCount === 1) return frame(timeUs);
+          return new Promise<VideoFrame>((resolve) => playbackDecodes.push({ timeUs, resolve }));
+        },
+        destroy: () => undefined,
+      }),
+    });
+    await runtime.initialize();
+
+    runtime.play();
+    await flush();
+    expect(playbackDecodes).toHaveLength(1);
+    expect(scheduled).toHaveLength(0);
+
+    // A 100 ms decoder spans six 60 Hz display refreshes. There is still only
+    // one request in flight, and its result remains eligible for presentation.
+    nowMs = 100;
+    playbackDecodes.shift()!.resolve(frame(0));
+    await flush();
+    expect(renderedTimes).toEqual([0, 0]);
+    expect(scheduled).toHaveLength(1);
+
+    const callback = scheduled.values().next().value!;
+    scheduled.clear();
+    callback();
+    await flush();
+    expect(playbackDecodes[0]!.timeUs).toBe(100_000);
+    nowMs = 200;
+    playbackDecodes.shift()!.resolve(frame(100_000));
+    await flush();
+
+    let snapshot!: Parameters<Parameters<typeof runtime.subscribe>[0]>[0];
+    const unsubscribe = runtime.subscribe((value) => (snapshot = value));
+    unsubscribe();
+    expect(snapshot.framesPresented).toBe(3);
+    expect(snapshot.framesObsolete).toBe(0);
+    expect(snapshot.droppedFrames).toBe(2);
+    runtime.destroy();
+  });
+
+  it("uses a bounded sequential cursor during forward playback", async () => {
+    let nowMs = 0;
+    let callback: (() => void) | undefined;
+    let randomReads = 0;
+    let sequentialStarts = 0;
+    let retainedFrames = 0;
+    const renderedTimes: number[] = [];
+    const trackedFrame = (timeUs: number): VideoFrame => {
+      retainedFrames += 1;
+      let closed = false;
+      return {
+        sourceTimeUs: timeUs,
+        timestamp: timeUs,
+        duration: 33_333,
+        displayWidth: 1920,
+        displayHeight: 1080,
+        clone: () => trackedFrame(timeUs),
+        close: () => {
+          if (closed) return;
+          closed = true;
+          retainedFrames -= 1;
+        },
+      } as unknown as VideoFrame;
+    };
+    const runtime = new PlaybackRuntime(timelineProject(), compositor(renderedTimes), {
+      now: () => nowMs,
+      scheduleFrame: (next) => {
+        callback = next;
+        return 1;
+      },
+      cancelFrame: () => {
+        callback = undefined;
+      },
+      sourceFactory: () => ({
+        prepare: async () => ({
+          durationUs: asset.durationUs,
+          width: 1920,
+          height: 1080,
+          frameRate: 30,
+          hasAudio: false,
+        }),
+        seek: async () => undefined,
+        getFrame: async (timeUs) => {
+          randomReads += 1;
+          return trackedFrame(timeUs);
+        },
+        frames: async function* (fromUs) {
+          sequentialStarts += 1;
+          for (let timeUs = fromUs; timeUs < asset.durationUs; timeUs += 33_333)
+            yield trackedFrame(timeUs);
+        },
+        destroy: () => undefined,
+      }),
+    });
+    await runtime.initialize();
+    runtime.play();
+    await flush();
+    nowMs = 34;
+    const next = callback!;
+    callback = undefined;
+    next();
+    await flush();
+
+    expect(randomReads).toBe(2); // Initial render plus cursor bootstrap.
+    expect(sequentialStarts).toBe(1);
+    expect(renderedTimes.at(-1)).toBe(33_333);
+    expect(retainedFrames).toBeLessThanOrEqual(2);
+    runtime.destroy();
+    await flush();
+    expect(retainedFrames).toBe(0);
+  });
+
+  it("steps exact sequence frames and exposes bounded J/K/L shuttle rates", async () => {
+    let snapshot!: Parameters<Parameters<PlaybackRuntime["subscribe"]>[0]>[0];
+    const runtime = new PlaybackRuntime(timelineProject(), compositor([]), {
+      now: () => 0,
+      scheduleFrame: () => 1,
+      cancelFrame: () => undefined,
+      sourceFactory: () => ({
+        prepare: async () => ({
+          durationUs: asset.durationUs,
+          width: 1920,
+          height: 1080,
+          frameRate: 30,
+          hasAudio: false,
+        }),
+        seek: async () => undefined,
+        getFrame: async (timeUs) => frame(timeUs),
+        destroy: () => undefined,
+      }),
+    });
+    await runtime.initialize();
+    await runtime.seekTimeline(1_000_000);
+    await runtime.stepFrames(1);
+    const unsubscribe = runtime.subscribe((value) => (snapshot = value));
+    expect(snapshot.timeUs).toBe(1_033_333);
+
+    runtime.shuttle(1);
+    runtime.shuttle(1);
+    runtime.shuttle(1);
+    runtime.shuttle(1);
+    runtime.shuttle(1);
+    expect(snapshot.playbackRate).toBe(8);
+    runtime.shuttle(-1);
+    expect(snapshot.playbackRate).toBe(-1);
+    runtime.shuttle(0);
+    expect(snapshot.playbackRate).toBe(0);
+    unsubscribe();
     runtime.destroy();
   });
 });

@@ -86,6 +86,25 @@ export class MediabunnyWebCodecsSource implements VideoSource, AudioSource {
     }
   }
 
+  async *frames(fromUs: TimeUs, toUs?: TimeUs): AsyncGenerator<VideoFrame> {
+    await this.prepare();
+    if (!this.#videoSink) return;
+    const generation = this.#generation;
+    const samples = this.#videoSink.samples(
+      seconds(fromUs),
+      toUs === undefined ? undefined : seconds(toUs),
+      { verifyKeyPackets: false },
+    );
+    for await (const sample of samples) {
+      try {
+        if (generation !== this.#generation) return;
+        yield sample.toVideoFrame();
+      } finally {
+        sample.close();
+      }
+    }
+  }
+
   async *buffers(fromUs: TimeUs, toUs: TimeUs): AsyncGenerator<AudioBufferChunk> {
     await this.prepare();
     if (!this.#audioSink) return;

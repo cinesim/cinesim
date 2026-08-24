@@ -12,6 +12,13 @@ export interface VideoSource {
   prepare(): Promise<VideoSourceMetadata>;
   seek(timeUs: TimeUs): Promise<void>;
   getFrame(timeUs: TimeUs): Promise<VideoFrame | null>;
+  /**
+   * Decodes presentation-order frames beginning at `fromUs`. Implementations may
+   * decode a small bounded window ahead. Playback uses this optional path only
+   * while source time is moving forward; random access continues through
+   * `getFrame`.
+   */
+  frames?(fromUs: TimeUs, toUs?: TimeUs): AsyncGenerator<VideoFrame>;
   destroy(): void;
 }
 
