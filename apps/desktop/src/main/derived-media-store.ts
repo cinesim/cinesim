@@ -38,7 +38,7 @@ import {
   waveformPeakCount,
 } from "../shared/waveform-format";
 
-export const DERIVED_GENERATOR_VERSION = "3";
+export const DERIVED_GENERATOR_VERSION = "4";
 const INDEX_FILE = join(".video", "cache", "media-intelligence.json");
 const MAX_WRITERS = 4;
 const MAX_CHUNK_BYTES = 4 * 1024 * 1024;

@@ -20,6 +20,7 @@ import { cn } from "@cinesim/ui";
 import { formatDuration } from "../lib/format";
 import { useRendererStore } from "../store/renderer-store-context";
 import type { ActionResult } from "../store/renderer-store";
+import { MediaSkimSurface } from "../components/media-skim-surface";
 import {
   commandForTimelineDrop,
   proposeAssetDrop,
@@ -175,7 +176,9 @@ export function EditorDndProvider({
                 proposal?.valid === false ? "border-red-500/70" : "border-border-strong",
               )}
             >
-              <div className="aspect-video bg-surface" />
+              <div className="aspect-video overflow-hidden bg-surface text-muted">
+                <MediaSkimSurface asset={activeAsset} disabled />
+              </div>
               <div className="flex items-center gap-2 px-2 py-1.5 text-ui-xs">
                 <span className="min-w-0 flex-1 truncate font-medium text-primary">
                   {activeAsset.name}

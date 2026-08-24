@@ -47,6 +47,7 @@ import type { ActionResult } from "../store/renderer-store";
 import { useRendererStore } from "../store/renderer-store-context";
 import { useEditorDnd } from "../interactions/editor-dnd-context";
 import { quantizeToFrame, timelineSnapCandidates } from "../interactions/timeline-geometry";
+import { TimelineFilmstrip } from "./timeline-filmstrip";
 import { TimelineWaveform } from "./timeline-waveform";
 
 const BASE_PIXELS_PER_SECOND = 86;
@@ -201,6 +202,16 @@ function ClipBlock({
         height: Math.max(32, trackHeight - 8),
       }}
     >
+      {asset?.kind === "video" && derived && derivedAsset && (
+        <TimelineFilmstrip
+          asset={asset}
+          clip={previewClip}
+          record={derivedAsset}
+          derived={derived}
+          width={width}
+          height={Math.max(32, trackHeight - 8)}
+        />
+      )}
       {asset &&
         derived &&
         derivedAsset?.waveform.state === "ready" &&
@@ -217,14 +228,19 @@ function ClipBlock({
         {...listeners}
         {...attributes}
         aria-label={`${selected ? "Selected " : ""}${name} clip`}
-        className="absolute inset-0 text-left outline-none focus-visible:ring-2 focus-visible:ring-focus"
+        className="absolute inset-0 z-20 text-left outline-none focus-visible:ring-2 focus-visible:ring-focus"
         onClick={activate}
       >
-        <span className="clip-texture pointer-events-none absolute inset-0 opacity-40" />
-        <span className="relative block truncate px-2 pt-1.5 text-ui-xs font-medium text-clip-text">
+        <span
+          className={cn(
+            "clip-texture pointer-events-none absolute inset-0",
+            asset?.kind === "video" ? "opacity-15" : "opacity-40",
+          )}
+        />
+        <span className="relative ml-1.5 mt-1 block w-fit max-w-[75%] truncate rounded-sm bg-black/35 px-1.5 py-0.5 text-ui-xs font-medium text-white shadow-sm">
           {name}
         </span>
-        <span className="relative block px-2 pt-0.5 text-ui-xs text-clip-text-muted tabular-nums">
+        <span className="relative ml-1.5 mt-0.5 block w-fit rounded-sm bg-black/25 px-1 text-ui-xs text-white/75 tabular-nums">
           {clip.id}
         </span>
         {preparationLabel && (
@@ -327,6 +343,10 @@ function TimelineTrackRow({
     data: { kind: "timeline-track", trackId: track.id },
   });
   const trackProposal = proposal?.trackId === track.id ? proposal : null;
+  const proposalAsset = trackProposal ? assets.get(trackProposal.assetId) : undefined;
+  const proposalWidth = trackProposal
+    ? Math.max(18, (trackProposal.timelineEndUs - trackProposal.timelineStartUs) * pixelsPerUs)
+    : 0;
 
   return (
     <div
@@ -370,17 +390,24 @@ function TimelineTrackRow({
           )}
           style={{
             left: trackProposal.timelineStartUs * pixelsPerUs,
-            width: Math.max(
-              18,
-              (trackProposal.timelineEndUs - trackProposal.timelineStartUs) * pixelsPerUs,
-            ),
+            width: proposalWidth,
             height: Math.max(32, trackHeight - 8),
           }}
         >
-          <span className="block truncate text-ui-xs font-medium">
-            {assets.get(trackProposal.assetId)?.name ?? trackProposal.assetId}
+          {proposalAsset?.kind === "video" && derived?.assets[proposalAsset.id] && (
+            <TimelineFilmstrip
+              asset={proposalAsset}
+              clip={{ sourceStartUs: 0, sourceEndUs: proposalAsset.durationUs }}
+              record={derived.assets[proposalAsset.id]!}
+              derived={derived}
+              width={proposalWidth}
+              height={Math.max(32, trackHeight - 8)}
+            />
+          )}
+          <span className="relative block w-fit max-w-[80%] truncate rounded-sm bg-black/35 px-1 text-ui-xs font-medium text-white">
+            {proposalAsset?.name ?? trackProposal.assetId}
           </span>
-          <span className="block truncate text-[10px] opacity-75">
+          <span className="relative mt-0.5 block w-fit rounded-sm bg-black/25 px-1 text-[10px] text-white/80">
             {trackProposal.valid ? "Drop to place" : trackProposal.reason?.replaceAll("-", " ")}
           </span>
         </div>
