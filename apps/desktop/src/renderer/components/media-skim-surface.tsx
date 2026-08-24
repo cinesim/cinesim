@@ -2,6 +2,7 @@ import { useState } from "react";
 import { AlertTriangle, Film, Image as ImageIcon, LoaderCircle, Music2 } from "lucide-react";
 import { nearestSampleIndex, pointerSourceTimeUs } from "@cinesim/engine";
 import type { Asset } from "@cinesim/core";
+import type { DerivedAssetSnapshot } from "../../shared/api";
 import { useUiStore } from "../store/ui-store";
 import { derivedArtifactUrl } from "../media/media-job-coordinator";
 
@@ -18,6 +19,16 @@ function Placeholder({ asset }: { asset: Asset }) {
   return <Film size={18} />;
 }
 
+export function thumbnailPresentation(
+  record: DerivedAssetSnapshot | undefined,
+): "ready" | "pending" | "failed" | "placeholder" {
+  if (record?.thumbnail.state === "ready") return "ready";
+  if (record?.thumbnail.state === "queued" || record?.thumbnail.state === "running")
+    return "pending";
+  if (record?.thumbnail.state === "failed") return "failed";
+  return "placeholder";
+}
+
 export function MediaSkimSurface({
   asset,
   className,
@@ -27,10 +38,7 @@ export function MediaSkimSurface({
   const [skimTimeUs, setSkimTimeUs] = useState<number | null>(null);
   const derived = useUiStore((state) => state.derivedMedia);
   const record = derived?.assets[asset.id];
-  const thumbnailReady = record?.thumbnail.state === "ready";
-  const thumbnailPending =
-    record?.thumbnail.state === "queued" || record?.thumbnail.state === "running";
-  const thumbnailFailed = record?.thumbnail.state === "failed";
+  const thumbnailState = thumbnailPresentation(record);
   const filmstrip = record?.filmstrip;
   const filmstripReady = filmstrip?.state === "ready" && filmstrip.tileTimesUs?.length;
   const tileIndex =
@@ -75,16 +83,16 @@ export function MediaSkimSurface({
             backgroundPosition: `${columns === 1 ? 0 : (column / (columns - 1)) * 100}% ${rows === 1 ? 0 : (row / (rows - 1)) * 100}%`,
           }}
         />
-      ) : thumbnailReady ? (
+      ) : thumbnailState === "ready" ? (
         <img
           src={derivedArtifactUrl("thumbnail", asset, derived?.generatorVersion)}
           alt=""
           draggable={false}
           className="absolute inset-0 h-full w-full object-cover"
         />
-      ) : thumbnailPending ? (
+      ) : thumbnailState === "pending" ? (
         <LoaderCircle aria-label="Generating thumbnail" className="animate-spin" size={18} />
-      ) : thumbnailFailed ? (
+      ) : thumbnailState === "failed" ? (
         <AlertTriangle aria-label="Thumbnail generation failed" size={18} />
       ) : (
         <Placeholder asset={asset} />

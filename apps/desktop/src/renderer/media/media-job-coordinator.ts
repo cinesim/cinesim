@@ -13,6 +13,8 @@ interface ActiveJob {
   writers: Partial<Record<DerivedArtifactKind, string>>;
 }
 
+const WORKER_INACTIVITY_TIMEOUT_MS = 120_000;
+
 export class MediaJobCoordinator {
   #project: Project;
   #snapshot: DerivedMediaSnapshot | null = null;
@@ -21,6 +23,7 @@ export class MediaJobCoordinator {
   #unsubscribe: (() => void) | null = null;
   #destroyed = false;
   #resumeTimer: ReturnType<typeof setTimeout> | null = null;
+  #workerInactivityTimer: ReturnType<typeof setTimeout> | null = null;
   #messageQueue: Promise<void> = Promise.resolve();
   #foregroundPressure: "idle" | "hover-skimming" | "seeking" | "playing" = "idle";
   readonly #onSnapshot: (snapshot: DerivedMediaSnapshot) => void;
@@ -32,11 +35,21 @@ export class MediaJobCoordinator {
 
   async start(): Promise<void> {
     if (this.#destroyed || this.#worker) return;
-    this.#worker = new Worker(new URL("../workers/derived-media.worker.ts", import.meta.url), {
+    this.#createWorker();
+    this.#unsubscribe = window.cinesim.onDerivedMediaChanged((snapshot) => {
+      this.#acceptSnapshot(snapshot);
+    });
+    this.#acceptSnapshot(await window.cinesim.getDerivedMediaSnapshot());
+    await this.updateProject(this.#project);
+  }
+
+  #createWorker(): void {
+    const worker = new Worker(new URL("../workers/derived-media.worker.ts", import.meta.url), {
       type: "module",
       name: "cinesim-derived-media",
     });
-    this.#worker.onmessage = (event: MessageEvent<DerivedWorkerResponse>) => {
+    this.#worker = worker;
+    worker.onmessage = (event: MessageEvent<DerivedWorkerResponse>) => {
       this.#messageQueue = this.#messageQueue
         .then(() => this.#handleWorkerMessage(event.data))
         .catch((error: unknown) =>
@@ -46,14 +59,10 @@ export class MediaJobCoordinator {
           ),
         );
     };
-    this.#worker.onerror = (event) => {
-      if (this.#active) void this.#failActive("worker-crashed", event.message);
+    worker.onerror = (event) => {
+      if (this.#worker === worker && this.#active)
+        void this.#recoverWorker("worker-crashed", event.message || "Derived media worker crashed");
     };
-    this.#unsubscribe = window.cinesim.onDerivedMediaChanged((snapshot) => {
-      this.#acceptSnapshot(snapshot);
-    });
-    this.#acceptSnapshot(await window.cinesim.getDerivedMediaSnapshot());
-    await this.updateProject(this.#project);
   }
 
   async updateProject(project: Project): Promise<void> {
@@ -69,6 +78,7 @@ export class MediaJobCoordinator {
     if (this.#destroyed) return;
     this.#destroyed = true;
     if (this.#resumeTimer) clearTimeout(this.#resumeTimer);
+    this.#clearWorkerInactivityTimer();
     this.#unsubscribe?.();
     this.#unsubscribe = null;
     if (this.#active) {
@@ -96,6 +106,7 @@ export class MediaJobCoordinator {
       this.#resumeTimer = null;
     }
     if (pressure !== "idle") {
+      this.#clearWorkerInactivityTimer();
       this.#worker.postMessage({
         type: "proxy-pause",
         jobId: active.jobId,
@@ -103,11 +114,13 @@ export class MediaJobCoordinator {
       return;
     }
     this.#resumeTimer = setTimeout(() => {
-      if (this.#active?.jobId === active.jobId)
+      if (this.#active?.jobId === active.jobId) {
         this.#worker?.postMessage({
           type: "proxy-resume",
           jobId: active.jobId,
         } satisfies DerivedWorkerRequest);
+        this.#armWorkerInactivityTimer(active.jobId);
+      }
       this.#resumeTimer = null;
     }, 750);
   }
@@ -157,6 +170,7 @@ export class MediaJobCoordinator {
           ? { thumbnailSourceTimeUs: record.thumbnail.sourceTimeUs }
           : {}),
       } satisfies DerivedWorkerRequest);
+      this.#armWorkerInactivityTimer(jobId);
     } catch (error) {
       await this.#failActive(
         "job-start-failed",
@@ -185,6 +199,7 @@ export class MediaJobCoordinator {
         height: asset.height ?? 720,
         ...(asset.frameRate ? { frameRate: asset.frameRate } : {}),
       } satisfies DerivedWorkerRequest);
+      this.#armWorkerInactivityTimer(jobId);
       this.setForegroundPressure(this.#foregroundPressure);
     } catch {
       await this.#failActive("proxy-start-failed");
@@ -194,6 +209,8 @@ export class MediaJobCoordinator {
   async #handleWorkerMessage(message: DerivedWorkerResponse): Promise<void> {
     const active = this.#active;
     if (!active || message.jobId !== active.jobId || this.#destroyed) return;
+    if (active.kind !== "proxy" || this.#foregroundPressure === "idle")
+      this.#armWorkerInactivityTimer(active.jobId);
     if (message.type === "progress") {
       const writerId = active.writers[message.stage];
       if (writerId) await window.cinesim.updateDerivedProgress(writerId, message.progress);
@@ -234,6 +251,7 @@ export class MediaJobCoordinator {
       try {
         await window.cinesim.finalizeDerivedWrite(writerId, { bytes: message.bytes });
         delete active.writers.proxy;
+        this.#clearWorkerInactivityTimer();
         this.#active = null;
         await this.#schedule();
       } catch {
@@ -282,6 +300,7 @@ export class MediaJobCoordinator {
         operation: "sampling",
         latencyMs: message.samplingLatencyMs,
       });
+      this.#clearWorkerInactivityTimer();
       this.#active = null;
       await this.#schedule();
     } catch (error) {
@@ -315,6 +334,7 @@ export class MediaJobCoordinator {
 
   async #failActive(failureCode: string, detail?: string): Promise<void> {
     const active = this.#active;
+    this.#clearWorkerInactivityTimer();
     this.#active = null;
     if (!active) return;
     await Promise.all(
@@ -322,7 +342,35 @@ export class MediaJobCoordinator {
         window.cinesim.cancelDerivedWrite(writerId, failureCode, detail).catch(() => undefined),
       ),
     );
-    if (!this.#destroyed) await this.#schedule();
+    if (!this.#destroyed) this.#acceptSnapshot(await window.cinesim.getDerivedMediaSnapshot());
+  }
+
+  #armWorkerInactivityTimer(jobId: string): void {
+    this.#clearWorkerInactivityTimer();
+    this.#workerInactivityTimer = setTimeout(() => {
+      if (this.#active?.jobId === jobId)
+        void this.#recoverWorker(
+          "worker-timeout",
+          `Derived media worker produced no activity for ${WORKER_INACTIVITY_TIMEOUT_MS}ms`,
+        );
+    }, WORKER_INACTIVITY_TIMEOUT_MS);
+  }
+
+  #clearWorkerInactivityTimer(): void {
+    if (!this.#workerInactivityTimer) return;
+    clearTimeout(this.#workerInactivityTimer);
+    this.#workerInactivityTimer = null;
+  }
+
+  async #recoverWorker(failureCode: string, detail: string): Promise<void> {
+    const worker = this.#worker;
+    this.#worker = null;
+    worker?.terminate();
+    await this.#failActive(failureCode, detail);
+    if (this.#destroyed || this.#worker) return;
+    this.#messageQueue = Promise.resolve();
+    this.#createWorker();
+    await this.#schedule();
   }
 }
 

@@ -10,12 +10,14 @@ import { MediaJobCoordinator } from "../src/renderer/media/media-job-coordinator
 
 class FakeWorker {
   static instance: FakeWorker | null = null;
+  static readonly instances: FakeWorker[] = [];
   onmessage: ((event: MessageEvent<DerivedWorkerResponse>) => void) | null = null;
   onerror: ((event: ErrorEvent) => void) | null = null;
   readonly sent: DerivedWorkerRequest[] = [];
 
   constructor() {
     FakeWorker.instance = this;
+    FakeWorker.instances.push(this);
   }
 
   postMessage(message: DerivedWorkerRequest): void {
@@ -89,11 +91,12 @@ function snapshot(
 }
 
 function setup(initial: DerivedMediaSnapshot) {
+  const current = structuredClone(initial);
   const finalized: { writerId: string; result: FinalizeDerivedWrite }[] = [];
   const canceled: { writerId: string; failureCode?: string; detail?: string }[] = [];
   const api = {
-    getDerivedMediaSnapshot: vi.fn(async () => initial),
-    requestDerivedJobs: vi.fn(async () => initial),
+    getDerivedMediaSnapshot: vi.fn(async () => current),
+    requestDerivedJobs: vi.fn(async () => current),
     onDerivedMediaChanged: vi.fn(() => () => undefined),
     beginDerivedWrite: vi.fn(async ({ kind }: { kind: string }) => ({
       writerId: `${kind}-writer`,
@@ -101,6 +104,8 @@ function setup(initial: DerivedMediaSnapshot) {
     writeDerivedChunk: vi.fn(async () => undefined),
     finalizeDerivedWrite: vi.fn(async (writerId: string, result: FinalizeDerivedWrite) => {
       finalized.push({ writerId, result });
+      const kind = writerId.startsWith("thumbnail") ? "thumbnail" : "filmstrip";
+      current.assets.asset_fixture![kind] = { state: "ready", bytes: result.bytes };
     }),
     cancelDerivedWrite: vi.fn(async (writerId: string, failureCode?: string, detail?: string) => {
       canceled.push({
@@ -108,6 +113,10 @@ function setup(initial: DerivedMediaSnapshot) {
         ...(failureCode ? { failureCode } : {}),
         ...(detail ? { detail } : {}),
       });
+      const kind = writerId.startsWith("thumbnail") ? "thumbnail" : "filmstrip";
+      current.assets.asset_fixture![kind] = failureCode
+        ? { state: "failed", failureCode }
+        : { state: "queued" };
     }),
     updateDerivedProgress: vi.fn(async () => undefined),
     reportDerivedPerformance: vi.fn(async () => undefined),
@@ -118,8 +127,10 @@ function setup(initial: DerivedMediaSnapshot) {
 }
 
 afterEach(() => {
+  vi.useRealTimers();
   vi.unstubAllGlobals();
   FakeWorker.instance = null;
+  FakeWorker.instances.length = 0;
 });
 
 describe("MediaJobCoordinator", () => {
@@ -192,6 +203,61 @@ describe("MediaJobCoordinator", () => {
       kinds: ["filmstrip"],
       thumbnailSourceTimeUs: 500_000,
     });
+    await coordinator.destroy();
+  });
+
+  it("replaces a crashed worker after recording the active job failure", async () => {
+    const { canceled } = setup(snapshot());
+    const coordinator = new MediaJobCoordinator(project(), () => undefined);
+    await coordinator.start();
+    await vi.waitFor(() => expect(FakeWorker.instance?.sent).toHaveLength(1));
+    const crashed = FakeWorker.instance!;
+
+    crashed.onerror?.({ message: "decoder process exited" } as ErrorEvent);
+
+    await vi.waitFor(() => expect(canceled).toHaveLength(2));
+    await vi.waitFor(() => expect(FakeWorker.instances).toHaveLength(2));
+    expect(FakeWorker.instance).not.toBe(crashed);
+    expect(canceled).toEqual([
+      {
+        writerId: "thumbnail-writer",
+        failureCode: "worker-crashed",
+        detail: "decoder process exited",
+      },
+      {
+        writerId: "filmstrip-writer",
+        failureCode: "worker-crashed",
+        detail: "decoder process exited",
+      },
+    ]);
+    await coordinator.destroy();
+  });
+
+  it("fails and replaces a worker that stops producing activity", async () => {
+    vi.useFakeTimers();
+    const { canceled } = setup(snapshot());
+    const coordinator = new MediaJobCoordinator(project(), () => undefined);
+    await coordinator.start();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(FakeWorker.instance?.sent).toHaveLength(1);
+    const stalled = FakeWorker.instance!;
+
+    await vi.advanceTimersByTimeAsync(120_000);
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(canceled).toEqual([
+      {
+        writerId: "thumbnail-writer",
+        failureCode: "worker-timeout",
+        detail: "Derived media worker produced no activity for 120000ms",
+      },
+      {
+        writerId: "filmstrip-writer",
+        failureCode: "worker-timeout",
+        detail: "Derived media worker produced no activity for 120000ms",
+      },
+    ]);
+    expect(FakeWorker.instance).not.toBe(stalled);
     await coordinator.destroy();
   });
 });
