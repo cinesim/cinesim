@@ -6,12 +6,13 @@ import { formatByteCount } from "../lib/format";
 type StorageSnapshot = DerivedMediaSnapshot["storage"];
 
 const STORAGE_CATEGORIES: ReadonlyArray<{
-  key: "proxyBytes" | "filmstripBytes" | "thumbnailBytes";
+  key: "proxyBytes" | "filmstripBytes" | "waveformBytes" | "thumbnailBytes";
   label: string;
   color: string;
 }> = [
   { key: "proxyBytes", label: "Proxies", color: "var(--gray-12)" },
   { key: "filmstripBytes", label: "Filmstrips", color: "var(--gray-10)" },
+  { key: "waveformBytes", label: "Waveforms", color: "var(--gray-9)" },
   { key: "thumbnailBytes", label: "Thumbnails", color: "var(--gray-8)" },
 ];
 

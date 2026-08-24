@@ -61,7 +61,7 @@ export function MetricsSidebar() {
   const activeDerived = metrics?.activeAssetId ? derived?.assets[metrics.activeAssetId] : undefined;
   const decisionLogRef = useRef<HTMLOListElement>(null);
   const latestDecisionAt = derived?.decisionLog.at(-1)?.at;
-  const readyCount = (kind: "thumbnail" | "filmstrip" | "proxy") =>
+  const readyCount = (kind: "thumbnail" | "filmstrip" | "waveform" | "proxy") =>
     artifacts.filter((asset) => asset[kind].state === "ready").length;
   const liveSample = useMemo<LiveMetricValues | null>(() => {
     if (!metrics && !background && !electronHealth) return null;
@@ -169,6 +169,10 @@ export function MetricsSidebar() {
                 <MetricRow
                   label="Filmstrips"
                   value={`${readyCount("filmstrip")}/${artifacts.length}`}
+                />
+                <MetricRow
+                  label="Waveforms"
+                  value={`${readyCount("waveform")}/${artifacts.length}`}
                 />
                 <MetricRow label="Proxies" value={`${readyCount("proxy")}/${artifacts.length}`} />
                 <MetricRow label="Dropped frames" value={metrics?.droppedFrames ?? 0} />
@@ -316,6 +320,10 @@ export function MetricsSidebar() {
                 <MetricRow
                   label="Filmstrips"
                   value={`${readyCount("filmstrip")}/${artifacts.length}`}
+                />
+                <MetricRow
+                  label="Waveforms"
+                  value={`${readyCount("waveform")}/${artifacts.length}`}
                 />
                 <MetricRow label="Proxies" value={`${readyCount("proxy")}/${artifacts.length}`} />
                 <MetricRow

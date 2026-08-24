@@ -31,8 +31,13 @@ import type {
   SourceFingerprint,
   SourcePerformanceSnapshot,
 } from "../shared/api";
+import {
+  WAVEFORM_FORMAT_VERSION,
+  waveformByteLength,
+  waveformPeakCount,
+} from "../shared/waveform-format";
 
-export const DERIVED_GENERATOR_VERSION = "2";
+export const DERIVED_GENERATOR_VERSION = "3";
 const INDEX_FILE = join(".video", "cache", "media-intelligence.json");
 const MAX_WRITERS = 4;
 const MAX_CHUNK_BYTES = 4 * 1024 * 1024;
@@ -52,6 +57,7 @@ interface PersistedAsset extends Omit<DerivedAssetSnapshot, "assetId" | "fingerp
   sourceFingerprint: SourceFingerprint;
   thumbnail: PersistedArtifact;
   filmstrip: PersistedArtifact;
+  waveform: PersistedArtifact;
   proxy: PersistedArtifact;
 }
 
@@ -111,6 +117,7 @@ function emptyStorage(): DerivedMediaSnapshot["storage"] {
     safetyReserveBytes: 0,
     thumbnailBytes: 0,
     filmstripBytes: 0,
+    waveformBytes: 0,
     proxyBytes: 0,
     evictionCount: 0,
   };
@@ -142,11 +149,14 @@ function projectOpenPersistenceSignature(index: PersistedIndex): string {
 function artifactPath(kind: DerivedArtifactKind, assetId: string, profileId?: string): string {
   if (kind === "thumbnail") return join(".video", "thumbnails", `${assetId}.jpg`);
   if (kind === "filmstrip") return join(".video", "filmstrips", `${assetId}.jpg`);
+  if (kind === "waveform") return join(".video", "waveforms", `${assetId}.cswf`);
   return join(".video", "proxies", `${assetId}-${profileId ?? "edit-720p"}.mp4`);
 }
 
 function mimeType(kind: DerivedArtifactKind): string {
-  return kind === "proxy" ? "video/mp4" : "image/jpeg";
+  if (kind === "proxy") return "video/mp4";
+  if (kind === "waveform") return "application/vnd.cinesim.waveform";
+  return "image/jpeg";
 }
 
 function isAssetId(value: string): boolean {
@@ -215,7 +225,12 @@ export class DerivedMediaStore {
       let recovered = false;
       let invalidatedFilmstripMetadata = false;
       for (const record of Object.values(this.#index.assets)) {
-        for (const artifact of [record.thumbnail, record.filmstrip, record.proxy]) {
+        for (const artifact of [
+          record.thumbnail,
+          record.filmstrip,
+          record.waveform,
+          record.proxy,
+        ]) {
           if (artifact.state === "running") {
             artifact.state = "queued";
             artifact.progress = 0;
@@ -295,6 +310,7 @@ export class DerivedMediaStore {
         fingerprintStatus: record.sourceFingerprint.size < 0 ? "missing" : "current",
         thumbnail: this.#publicArtifact(record.thumbnail),
         filmstrip: this.#publicArtifact(record.filmstrip),
+        waveform: this.#publicArtifact(record.waveform),
         proxy: this.#publicArtifact(record.proxy),
         performance: structuredClone(record.performance),
       };
@@ -302,6 +318,7 @@ export class DerivedMediaStore {
     const artifacts = Object.values(assets).flatMap((asset) => [
       asset.thumbnail,
       asset.filmstrip,
+      asset.waveform,
       asset.proxy,
     ]);
     return {
@@ -329,9 +346,12 @@ export class DerivedMediaStore {
       const project = this.#requireProject();
       for (const assetId of new Set(assetIds)) {
         const asset = project.assets.find((candidate) => candidate.id === assetId);
-        if (!asset || asset.kind !== "video") continue;
+        if (!asset || (asset.kind !== "video" && asset.kind !== "audio")) continue;
         const record = await this.#ensureAsset(asset);
-        for (const kind of ["thumbnail", "filmstrip"] as const) {
+        const kinds: DerivedArtifactKind[] = [];
+        if (asset.kind === "video") kinds.push("thumbnail", "filmstrip");
+        if (asset.kind === "audio" || asset.hasAudio === true) kinds.push("waveform");
+        for (const kind of kinds) {
           const artifact = record[kind];
           if (artifact.state === "missing" || artifact.state === "failed")
             artifact.state = "queued";
@@ -356,6 +376,11 @@ export class DerivedMediaStore {
       if (this.#writers.size >= MAX_WRITERS) throw new Error("Too many derived writers");
       const directory = this.#requireDirectory();
       const asset = this.#requireAsset(input.assetId);
+      if (
+        input.kind === "waveform" &&
+        input.expectedBytes !== waveformByteLength(waveformPeakCount(asset.durationUs))
+      )
+        throw new Error("Waveform writer requires the exact bounded artifact size");
       const record = await this.#ensureAsset(asset);
       const id = randomUUID();
       const relativePath = artifactPath(input.kind, input.assetId, input.profileId);
@@ -425,7 +450,7 @@ export class DerivedMediaStore {
         throw new Error("Derived artifact size does not match written data");
       if (writer.expectedBytes && result.bytes !== writer.expectedBytes)
         throw new Error("Derived artifact does not match expected size");
-      this.#validateFinalize(writer.kind, result);
+      this.#validateFinalize(writer.kind, result, this.#requireAsset(writer.assetId));
       await writer.handle.sync();
       await writer.handle.close();
       await rename(writer.tempPath, writer.finalPath);
@@ -445,6 +470,9 @@ export class DerivedMediaStore {
       if (result.rows !== undefined) artifact.rows = result.rows;
       if (result.tileWidth !== undefined) artifact.tileWidth = result.tileWidth;
       if (result.tileHeight !== undefined) artifact.tileHeight = result.tileHeight;
+      if (result.peakCount !== undefined) artifact.peakCount = result.peakCount;
+      if (result.waveformFormatVersion !== undefined)
+        artifact.waveformFormatVersion = result.waveformFormatVersion;
       this.#log({
         assetId: writer.assetId,
         kind: `${writer.kind}-ready`,
@@ -711,7 +739,12 @@ export class DerivedMediaStore {
     const current = this.#index.assets[asset.id];
     if (current && this.#fingerprintsEqual(current.sourceFingerprint, fingerprint)) return current;
     if (current) {
-      for (const artifact of [current.thumbnail, current.filmstrip, current.proxy]) {
+      for (const artifact of [
+        current.thumbnail,
+        current.filmstrip,
+        current.waveform,
+        current.proxy,
+      ]) {
         if (artifact.relativePath)
           await rm(this.#containedPath(artifact.relativePath), { force: true }).catch(
             () => undefined,
@@ -732,6 +765,7 @@ export class DerivedMediaStore {
       sourceFingerprint: fingerprint,
       thumbnail: emptyArtifact(),
       filmstrip: emptyArtifact(),
+      waveform: emptyArtifact(),
       proxy: emptyArtifact(),
       performance: { original: emptyPerformance(), decision: "observing", reasons: [] },
     };
@@ -796,26 +830,29 @@ export class DerivedMediaStore {
     );
     let thumbnailBytes = 0;
     let filmstripBytes = 0;
+    let waveformBytes = 0;
     let proxyBytes = 0;
     for (const record of Object.values(this.#index.assets)) {
       thumbnailBytes += record.thumbnail.bytes ?? 0;
       filmstripBytes += record.filmstrip.bytes ?? 0;
+      waveformBytes += record.waveform.bytes ?? 0;
       proxyBytes += record.proxy.bytes ?? 0;
     }
     this.#index.storage = {
       ...this.#index.storage,
-      totalBytes: thumbnailBytes + filmstripBytes + proxyBytes,
+      totalBytes: thumbnailBytes + filmstripBytes + waveformBytes + proxyBytes,
       budgetBytes,
       safetyReserveBytes,
       thumbnailBytes,
       filmstripBytes,
+      waveformBytes,
       proxyBytes,
     };
   }
 
   async #removeInterruptedTemps(): Promise<void> {
     await Promise.all(
-      ["thumbnails", "filmstrips", "proxies"].map(async (folder) => {
+      ["thumbnails", "filmstrips", "waveforms", "proxies"].map(async (folder) => {
         const directory = this.#containedPath(join(".video", folder));
         const names = await readdir(directory).catch(() => []);
         await Promise.all(
@@ -832,7 +869,7 @@ export class DerivedMediaStore {
     if (storage.totalBytes <= storage.budgetBytes) return;
     const candidates = Object.entries(this.#index.assets)
       .flatMap(([assetId, record]) =>
-        (["proxy", "filmstrip"] as const).map((kind) => ({
+        (["proxy", "filmstrip", "waveform"] as const).map((kind) => ({
           assetId,
           kind,
           artifact: record[kind],
@@ -842,7 +879,8 @@ export class DerivedMediaStore {
         (candidate) => candidate.artifact.state === "ready" && candidate.artifact.relativePath,
       )
       .sort((left, right) => {
-        if (left.kind !== right.kind) return left.kind === "proxy" ? -1 : 1;
+        const priority = { proxy: 0, filmstrip: 1, waveform: 2 } as const;
+        if (left.kind !== right.kind) return priority[left.kind] - priority[right.kind];
         return (left.artifact.lastAccessAt ?? "").localeCompare(right.artifact.lastAccessAt ?? "");
       });
     for (const candidate of candidates) {
@@ -898,7 +936,7 @@ export class DerivedMediaStore {
 
   #validateWriteInput(input: BeginDerivedWrite): void {
     if (!isAssetId(input.assetId)) throw new Error("Invalid asset ID");
-    if (!["thumbnail", "filmstrip", "proxy"].includes(input.kind))
+    if (!["thumbnail", "filmstrip", "waveform", "proxy"].includes(input.kind))
       throw new Error("Invalid derived artifact kind");
     if (!validProfile(input.profileId)) throw new Error("Invalid proxy profile");
     if (input.kind !== "proxy" && input.profileId)
@@ -912,13 +950,15 @@ export class DerivedMediaStore {
       throw new Error("Invalid expected derived size");
   }
 
-  #validateFinalize(kind: DerivedArtifactKind, result: FinalizeDerivedWrite): void {
+  #validateFinalize(kind: DerivedArtifactKind, result: FinalizeDerivedWrite, asset: Asset): void {
     for (const value of [
       result.sourceTimeUs,
       result.columns,
       result.rows,
       result.tileWidth,
       result.tileHeight,
+      result.peakCount,
+      result.waveformFormatVersion,
     ]) {
       if (value !== undefined && (!Number.isSafeInteger(value) || value < 0))
         throw new Error("Invalid derived metadata");
@@ -931,6 +971,18 @@ export class DerivedMediaStore {
       throw new Error("Invalid filmstrip times");
     if (kind === "filmstrip" && !this.#validFilmstripMetadata(result))
       throw new Error("Incomplete or inconsistent filmstrip metadata");
+    if (
+      kind === "waveform" &&
+      (result.waveformFormatVersion !== WAVEFORM_FORMAT_VERSION ||
+        result.peakCount !== waveformPeakCount(asset.durationUs) ||
+        result.bytes !== waveformByteLength(result.peakCount))
+    )
+      throw new Error("Incomplete or inconsistent waveform metadata");
+    if (
+      kind !== "waveform" &&
+      (result.peakCount !== undefined || result.waveformFormatVersion !== undefined)
+    )
+      throw new Error("Waveform metadata is only valid for waveforms");
   }
 
   #validFilmstripMetadata(

@@ -6,6 +6,7 @@ import type {
   FinalizeDerivedWrite,
 } from "../../shared/api";
 import type { DerivedWorkerRequest, DerivedWorkerResponse } from "./derived-worker-api";
+import { waveformByteLength, waveformPeakCount } from "../../shared/waveform-format";
 
 interface ActiveJob {
   jobId: string;
@@ -28,7 +29,7 @@ export class MediaJobCoordinator {
   #resumeTimer: ReturnType<typeof setTimeout> | null = null;
   #workerInactivityTimer: ReturnType<typeof setTimeout> | null = null;
   #messageQueue: Promise<void> = Promise.resolve();
-  #foregroundPressure: "idle" | "hover-skimming" | "seeking" | "playing" = "idle";
+  #foregroundPressure: "idle" | "hover-skimming" | "seeking" | "playing" | "dragging" = "idle";
   readonly #onSnapshot: (snapshot: DerivedMediaSnapshot) => void;
 
   constructor(
@@ -76,10 +77,10 @@ export class MediaJobCoordinator {
   async updateProject(project: Project): Promise<void> {
     this.#project = project;
     if (this.#destroyed) return;
-    const videoIds = project.assets
-      .filter((asset) => asset.kind === "video")
+    const mediaIds = project.assets
+      .filter((asset) => asset.kind === "video" || asset.kind === "audio")
       .map((asset) => asset.id);
-    this.#acceptSnapshot(await window.cinesim.requestDerivedJobs(this.#projectScope, videoIds));
+    this.#acceptSnapshot(await window.cinesim.requestDerivedJobs(this.#projectScope, mediaIds));
   }
 
   async destroy(): Promise<void> {
@@ -105,10 +106,15 @@ export class MediaJobCoordinator {
     this.#worker = null;
   }
 
-  setForegroundPressure(pressure: "idle" | "hover-skimming" | "seeking" | "playing"): void {
+  setForegroundPressure(
+    pressure: "idle" | "hover-skimming" | "seeking" | "playing" | "dragging",
+  ): void {
     this.#foregroundPressure = pressure;
     const active = this.#active;
-    if (!active || active.kind !== "proxy" || !this.#worker) return;
+    if (!active || !this.#worker) {
+      if (pressure === "idle") void this.#schedule();
+      return;
+    }
     if (this.#resumeTimer) {
       clearTimeout(this.#resumeTimer);
       this.#resumeTimer = null;
@@ -116,7 +122,7 @@ export class MediaJobCoordinator {
     if (pressure !== "idle") {
       this.#clearWorkerInactivityTimer();
       this.#worker.postMessage({
-        type: "proxy-pause",
+        type: active.kind === "proxy" ? "proxy-pause" : "perception-pause",
         jobId: active.jobId,
       } satisfies DerivedWorkerRequest);
       return;
@@ -124,7 +130,7 @@ export class MediaJobCoordinator {
     this.#resumeTimer = setTimeout(() => {
       if (this.#active?.jobId === active.jobId) {
         this.#worker?.postMessage({
-          type: "proxy-resume",
+          type: active.kind === "proxy" ? "proxy-resume" : "perception-resume",
           jobId: active.jobId,
         } satisfies DerivedWorkerRequest);
         this.#armWorkerInactivityTimer(active.jobId);
@@ -146,11 +152,24 @@ export class MediaJobCoordinator {
   }
 
   async #schedule(): Promise<void> {
-    if (this.#destroyed || this.#active || !this.#snapshot || !this.#worker) return;
+    if (
+      this.#destroyed ||
+      this.#active ||
+      !this.#snapshot ||
+      !this.#worker ||
+      this.#foregroundPressure !== "idle"
+    )
+      return;
     const asset = this.#project.assets.find((candidate) => {
-      if (candidate.kind !== "video") return false;
       const derived = this.#snapshot!.assets[candidate.id];
-      return derived?.thumbnail.state === "queued" || derived?.filmstrip.state === "queued";
+      if (!derived) return false;
+      if (candidate.kind === "video")
+        return (
+          derived.thumbnail.state === "queued" ||
+          derived.filmstrip.state === "queued" ||
+          derived.waveform.state === "queued"
+        );
+      return candidate.kind === "audio" && derived.waveform.state === "queued";
     });
     if (!asset) {
       const proxyAsset = this.#project.assets.find(
@@ -162,9 +181,11 @@ export class MediaJobCoordinator {
       return;
     }
     const record = this.#snapshot.assets[asset.id]!;
-    const kinds = (["thumbnail", "filmstrip"] as const).filter(
-      (kind) => record[kind].state === "queued",
-    );
+    const kinds = (["thumbnail", "filmstrip", "waveform"] as const).filter((kind) => {
+      if (record[kind].state !== "queued") return false;
+      if (kind === "waveform") return asset.kind === "audio" || asset.hasAudio === true;
+      return asset.kind === "video";
+    });
     const jobId = crypto.randomUUID();
     const active: ActiveJob = {
       jobId,
@@ -179,6 +200,9 @@ export class MediaJobCoordinator {
         const writer = await window.cinesim.beginDerivedWrite(this.#projectScope, {
           assetId: asset.id,
           kind,
+          ...(kind === "waveform"
+            ? { expectedBytes: waveformByteLength(waveformPeakCount(asset.durationUs)) }
+            : {}),
         });
         active.writers[kind] = writer.writerId;
       }
@@ -201,6 +225,7 @@ export class MediaJobCoordinator {
           : {}),
       } satisfies DerivedWorkerRequest);
       this.#armWorkerInactivityTimer(jobId);
+      if (this.#foregroundPressure !== "idle") this.setForegroundPressure(this.#foregroundPressure);
     } catch (error) {
       await this.#failActive(
         "job-start-failed",
@@ -253,8 +278,7 @@ export class MediaJobCoordinator {
   async #handleWorkerMessage(message: DerivedWorkerResponse): Promise<void> {
     const active = this.#active;
     if (!active || message.jobId !== active.jobId || this.#destroyed) return;
-    if (active.kind !== "proxy" || this.#foregroundPressure === "idle")
-      this.#armWorkerInactivityTimer(active.jobId);
+    if (this.#foregroundPressure === "idle") this.#armWorkerInactivityTimer(active.jobId);
     if (message.type === "activity") {
       await window.cinesim.reportDerivedActivity(this.#projectScope, {
         jobId: active.jobId,
@@ -351,6 +375,20 @@ export class MediaJobCoordinator {
       }
       return;
     }
+    if (message.type === "waveform-complete") {
+      try {
+        await this.#publish("waveform", message.waveform, active, {
+          peakCount: message.peakCount,
+          waveformFormatVersion: message.waveformFormatVersion,
+        });
+      } catch (error) {
+        await this.#failActive(
+          "waveform-write-failed",
+          error instanceof Error ? error.message : "Waveform could not be published",
+        );
+      }
+      return;
+    }
     try {
       await window.cinesim.reportDerivedPerformance(this.#projectScope, {
         assetId: active.assetId,
@@ -370,7 +408,7 @@ export class MediaJobCoordinator {
   }
 
   async #publish(
-    kind: "thumbnail" | "filmstrip",
+    kind: "thumbnail" | "filmstrip" | "waveform",
     buffer: ArrayBuffer,
     active: ActiveJob,
     metadata: Omit<FinalizeDerivedWrite, "bytes">,

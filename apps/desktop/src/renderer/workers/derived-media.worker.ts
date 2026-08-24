@@ -8,6 +8,7 @@ import {
 } from "@cinesim/engine";
 import {
   ALL_FORMATS,
+  AudioBufferSink,
   CanvasSink,
   Conversion,
   Input,
@@ -21,6 +22,11 @@ import {
 import type { StreamTargetChunk } from "mediabunny";
 import type { DerivedWorkerRequest, DerivedWorkerResponse } from "../media/derived-worker-api";
 import { originalMediaUrl } from "../media/media-url";
+import {
+  encodeWaveformEnvelope,
+  WAVEFORM_FORMAT_VERSION,
+  waveformPeakCount,
+} from "../../shared/waveform-format";
 
 const scope = self as DedicatedWorkerGlobalScope;
 const canceled = new Set<string>();
@@ -29,6 +35,11 @@ let activeProxy: {
   jobId: string;
   conversion: Conversion | null;
   pauseController: AbortController | null;
+  paused: boolean;
+  resume: (() => void) | null;
+} | null = null;
+let activePerception: {
+  jobId: string;
   paused: boolean;
   resume: (() => void) | null;
 } | null = null;
@@ -43,7 +54,11 @@ function post(message: DerivedWorkerResponse, transfer: Transferable[] = []): vo
   scope.postMessage(message, transfer);
 }
 
-function progress(jobId: string, stage: "thumbnail" | "filmstrip", value: number): void {
+function progress(
+  jobId: string,
+  stage: "thumbnail" | "filmstrip" | "waveform",
+  value: number,
+): void {
   post({ type: "progress", jobId, stage, progress: Math.min(1, Math.max(0, value)) });
 }
 
@@ -68,6 +83,7 @@ function assertActive(jobId: string): void {
 
 async function generate(request: Extract<DerivedWorkerRequest, { type: "generate" }>) {
   const started = performance.now();
+  activePerception = { jobId: request.jobId, paused: false, resume: null };
   activity(request.jobId, "input-opening", started);
   const input = new Input({
     source: new UrlSource(
@@ -82,10 +98,17 @@ async function generate(request: Extract<DerivedWorkerRequest, { type: "generate
   try {
     if (!(await input.canRead())) throw new Error("unsupported-container");
     activity(request.jobId, "container-ready", started);
-    const track = await input.getPrimaryVideoTrack();
-    if (!track) throw new Error("source-undecodable");
+    const needsVideo = request.kinds.some((kind) => kind !== "waveform");
+    const needsAudio = request.kinds.includes("waveform");
+    const [track, audioTrack] = await Promise.all([
+      needsVideo ? input.getPrimaryVideoTrack() : null,
+      needsAudio ? input.getPrimaryAudioTrack() : null,
+    ]);
+    if (needsVideo && !track) throw new Error("source-undecodable");
+    if (needsAudio && !audioTrack) throw new Error("source-has-no-audio");
     activity(request.jobId, "track-ready", started);
-    if (!(await track.canDecode())) throw new Error("source-undecodable");
+    if (track && !(await track.canDecode())) throw new Error("source-undecodable");
+    if (audioTrack && !(await audioTrack.canDecode())) throw new Error("source-audio-undecodable");
     activity(request.jobId, "decoder-ready", started);
 
     let sourceTimeUs = request.thumbnailSourceTimeUs ?? 0;
@@ -95,7 +118,7 @@ async function generate(request: Extract<DerivedWorkerRequest, { type: "generate
         completedSamples: 0,
         totalSamples: candidateTimesUs.length,
       });
-      const candidateSink = new CanvasSink(track, {
+      const candidateSink = new CanvasSink(track!, {
         width: THUMBNAIL_WIDTH,
         height: THUMBNAIL_HEIGHT,
         fit: "contain",
@@ -114,6 +137,7 @@ async function generate(request: Extract<DerivedWorkerRequest, { type: "generate
         candidateTimesUs.map((timeUs) => timeUs / 1_000_000),
         { verifyKeyPackets: false },
       )) {
+        await waitUntilPerceptionResumed(request.jobId);
         assertActive(request.jobId);
         const requestedTimeUs = candidateTimesUs[candidateIndex] ?? 0;
         candidateIndex += 1;
@@ -152,83 +176,80 @@ async function generate(request: Extract<DerivedWorkerRequest, { type: "generate
       });
     }
 
-    if (!request.kinds.includes("filmstrip")) {
-      activity(request.jobId, "completed", started);
-      post({
-        type: "perception-complete",
-        jobId: request.jobId,
-        samplingLatencyMs: performance.now() - started,
+    if (request.kinds.includes("filmstrip")) {
+      const tileTimesUs = filmstripSampleTimes(request.durationUs);
+      if (tileTimesUs.length === 0) throw new Error("no-video-frames");
+      activity(request.jobId, "filmstrip-sampling", started, {
+        completedSamples: 0,
+        totalSamples: tileTimesUs.length,
       });
-      return;
+      const nearest = nearestSampleIndex(tileTimesUs, sourceTimeUs);
+      const spacing = request.durationUs / Math.max(1, tileTimesUs.length);
+      if (Math.abs(tileTimesUs[nearest]! - sourceTimeUs) > spacing / 2) {
+        tileTimesUs[nearest] = sourceTimeUs;
+        tileTimesUs.sort((left, right) => left - right);
+      }
+      const rows = Math.ceil(tileTimesUs.length / COLUMNS);
+      const contactSheet = new OffscreenCanvas(COLUMNS * TILE_WIDTH, rows * TILE_HEIGHT);
+      const contactContext = contactSheet.getContext("2d");
+      if (!contactContext) throw new Error("canvas-unavailable");
+      const filmstripSink = new CanvasSink(track!, {
+        width: TILE_WIDTH,
+        height: TILE_HEIGHT,
+        fit: "contain",
+        poolSize: 2,
+        decoderOptions: { hardwareAcceleration: "prefer-hardware", optimizeForLatency: true },
+      });
+      let tileIndex = 0;
+      for await (const wrapped of filmstripSink.canvasesAtTimestamps(
+        tileTimesUs.map((timeUs) => timeUs / 1_000_000),
+        { verifyKeyPackets: false },
+      )) {
+        await waitUntilPerceptionResumed(request.jobId);
+        assertActive(request.jobId);
+        if (wrapped) {
+          const column = tileIndex % COLUMNS;
+          const row = Math.floor(tileIndex / COLUMNS);
+          contactContext.drawImage(
+            wrapped.canvas,
+            column * TILE_WIDTH,
+            row * TILE_HEIGHT,
+            TILE_WIDTH,
+            TILE_HEIGHT,
+          );
+        }
+        tileIndex += 1;
+        progress(request.jobId, "filmstrip", tileIndex / tileTimesUs.length);
+      }
+      assertActive(request.jobId);
+      activity(request.jobId, "filmstrip-encoding", started, {
+        completedSamples: tileIndex,
+        totalSamples: tileTimesUs.length,
+      });
+      const filmstripBlob = await contactSheet.convertToBlob({ type: "image/jpeg", quality: 0.78 });
+      const filmstripBytes = await filmstripBlob.arrayBuffer();
+      post(
+        {
+          type: "filmstrip-complete",
+          jobId: request.jobId,
+          filmstrip: filmstripBytes,
+          tileTimesUs,
+          columns: COLUMNS,
+          rows,
+          tileWidth: TILE_WIDTH,
+          tileHeight: TILE_HEIGHT,
+        },
+        [filmstripBytes],
+      );
+      activity(request.jobId, "filmstrip-ready", started, {
+        completedSamples: tileIndex,
+        totalSamples: tileTimesUs.length,
+      });
     }
 
-    const tileTimesUs = filmstripSampleTimes(request.durationUs);
-    if (tileTimesUs.length === 0) throw new Error("no-video-frames");
-    activity(request.jobId, "filmstrip-sampling", started, {
-      completedSamples: 0,
-      totalSamples: tileTimesUs.length,
-    });
-    const nearest = nearestSampleIndex(tileTimesUs, sourceTimeUs);
-    const spacing = request.durationUs / Math.max(1, tileTimesUs.length);
-    if (Math.abs(tileTimesUs[nearest]! - sourceTimeUs) > spacing / 2) {
-      tileTimesUs[nearest] = sourceTimeUs;
-      tileTimesUs.sort((left, right) => left - right);
+    if (request.kinds.includes("waveform")) {
+      await generateWaveform(request, audioTrack!, started);
     }
-    const rows = Math.ceil(tileTimesUs.length / COLUMNS);
-    const contactSheet = new OffscreenCanvas(COLUMNS * TILE_WIDTH, rows * TILE_HEIGHT);
-    const contactContext = contactSheet.getContext("2d");
-    if (!contactContext) throw new Error("canvas-unavailable");
-    const filmstripSink = new CanvasSink(track, {
-      width: TILE_WIDTH,
-      height: TILE_HEIGHT,
-      fit: "contain",
-      poolSize: 2,
-      decoderOptions: { hardwareAcceleration: "prefer-hardware", optimizeForLatency: true },
-    });
-    let tileIndex = 0;
-    for await (const wrapped of filmstripSink.canvasesAtTimestamps(
-      tileTimesUs.map((timeUs) => timeUs / 1_000_000),
-      { verifyKeyPackets: false },
-    )) {
-      assertActive(request.jobId);
-      if (wrapped) {
-        const column = tileIndex % COLUMNS;
-        const row = Math.floor(tileIndex / COLUMNS);
-        contactContext.drawImage(
-          wrapped.canvas,
-          column * TILE_WIDTH,
-          row * TILE_HEIGHT,
-          TILE_WIDTH,
-          TILE_HEIGHT,
-        );
-      }
-      tileIndex += 1;
-      progress(request.jobId, "filmstrip", tileIndex / tileTimesUs.length);
-    }
-    assertActive(request.jobId);
-    activity(request.jobId, "filmstrip-encoding", started, {
-      completedSamples: tileIndex,
-      totalSamples: tileTimesUs.length,
-    });
-    const filmstripBlob = await contactSheet.convertToBlob({ type: "image/jpeg", quality: 0.78 });
-    const filmstripBytes = await filmstripBlob.arrayBuffer();
-    post(
-      {
-        type: "filmstrip-complete",
-        jobId: request.jobId,
-        filmstrip: filmstripBytes,
-        tileTimesUs,
-        columns: COLUMNS,
-        rows,
-        tileWidth: TILE_WIDTH,
-        tileHeight: TILE_HEIGHT,
-      },
-      [filmstripBytes],
-    );
-    activity(request.jobId, "filmstrip-ready", started, {
-      completedSamples: tileIndex,
-      totalSamples: tileTimesUs.length,
-    });
     activity(request.jobId, "completed", started);
     post({
       type: "perception-complete",
@@ -237,8 +258,76 @@ async function generate(request: Extract<DerivedWorkerRequest, { type: "generate
     });
   } finally {
     input.dispose();
+    if (activePerception?.jobId === request.jobId) {
+      activePerception.resume?.();
+      activePerception = null;
+    }
     canceled.delete(request.jobId);
   }
+}
+
+async function generateWaveform(
+  request: Extract<DerivedWorkerRequest, { type: "generate" }>,
+  track: NonNullable<Awaited<ReturnType<Input["getPrimaryAudioTrack"]>>>,
+  started: number,
+): Promise<void> {
+  const peakCount = waveformPeakCount(request.durationUs);
+  const minima = new Float32Array(peakCount);
+  const maxima = new Float32Array(peakCount);
+  const durationSeconds = Math.max(request.durationUs / 1_000_000, Number.EPSILON);
+  const sink = new AudioBufferSink(track);
+  activity(request.jobId, "waveform-decoding", started);
+  for await (const wrapped of sink.buffers(0, durationSeconds, { verifyKeyPackets: false })) {
+    await waitUntilPerceptionResumed(request.jobId);
+    assertActive(request.jobId);
+    const buffer = wrapped.buffer;
+    const channels = Array.from({ length: buffer.numberOfChannels }, (_, channel) =>
+      buffer.getChannelData(channel),
+    );
+    for (let sampleIndex = 0; sampleIndex < buffer.length; sampleIndex += 1) {
+      const timestamp = wrapped.timestamp + sampleIndex / buffer.sampleRate;
+      const peakIndex = Math.max(
+        0,
+        Math.min(peakCount - 1, Math.floor((timestamp / durationSeconds) * peakCount)),
+      );
+      for (const channel of channels) {
+        const sample = channel[sampleIndex] ?? 0;
+        if (sample < minima[peakIndex]!) minima[peakIndex] = sample;
+        if (sample > maxima[peakIndex]!) maxima[peakIndex] = sample;
+      }
+    }
+    progress(
+      request.jobId,
+      "waveform",
+      Math.min(0.99, Math.max(0, (wrapped.timestamp + wrapped.duration) / durationSeconds)),
+    );
+  }
+  assertActive(request.jobId);
+  activity(request.jobId, "waveform-encoding", started);
+  const waveform = encodeWaveformEnvelope(minima, maxima);
+  post(
+    {
+      type: "waveform-complete",
+      jobId: request.jobId,
+      waveform,
+      peakCount,
+      waveformFormatVersion: WAVEFORM_FORMAT_VERSION,
+    },
+    [waveform],
+  );
+  progress(request.jobId, "waveform", 1);
+  activity(request.jobId, "waveform-ready", started, {
+    completedSamples: peakCount,
+    totalSamples: peakCount,
+  });
+}
+
+async function waitUntilPerceptionResumed(jobId: string): Promise<void> {
+  if (!activePerception || activePerception.jobId !== jobId || !activePerception.paused) return;
+  await new Promise<void>((resolve) => {
+    if (activePerception?.jobId === jobId) activePerception.resume = resolve;
+    else resolve();
+  });
 }
 
 function even(value: number): number {
@@ -365,6 +454,7 @@ scope.onmessage = (event: MessageEvent<DerivedWorkerRequest>) => {
   const request = event.data;
   if (request.type === "cancel") {
     canceled.add(request.jobId);
+    if (activePerception?.jobId === request.jobId) activePerception.resume?.();
     if (activeProxy?.jobId === request.jobId) {
       activeProxy.resume?.();
       void activeProxy.conversion?.cancel();
@@ -391,6 +481,18 @@ scope.onmessage = (event: MessageEvent<DerivedWorkerRequest>) => {
       activeProxy.paused = false;
       activeProxy.resume?.();
       activeProxy.resume = null;
+    }
+    return;
+  }
+  if (request.type === "perception-pause") {
+    if (activePerception?.jobId === request.jobId) activePerception.paused = true;
+    return;
+  }
+  if (request.type === "perception-resume") {
+    if (activePerception?.jobId === request.jobId) {
+      activePerception.paused = false;
+      activePerception.resume?.();
+      activePerception.resume = null;
     }
     return;
   }

@@ -24,7 +24,7 @@ const asset: Asset = {
 function snapshot(thumbnailState: DerivedArtifactState): DerivedMediaSnapshot {
   return {
     version: 1,
-    generatorVersion: "2",
+    generatorVersion: "3",
     projectScope,
     assets: {
       asset_fixture: {
@@ -37,6 +37,7 @@ function snapshot(thumbnailState: DerivedArtifactState): DerivedMediaSnapshot {
               ? { state: "failed", failureCode: "generation-failed" }
               : { state: thumbnailState },
         filmstrip: { state: "missing" },
+        waveform: { state: "missing" },
         proxy: { state: "missing" },
         performance: {
           original: {
@@ -57,6 +58,7 @@ function snapshot(thumbnailState: DerivedArtifactState): DerivedMediaSnapshot {
       safetyReserveBytes: 100,
       thumbnailBytes: 0,
       filmstripBytes: 0,
+      waveformBytes: 0,
       proxyBytes: 0,
       evictionCount: 0,
     },

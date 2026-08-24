@@ -4,7 +4,7 @@ export interface GenerateDerivedRequest {
   assetId: string;
   projectScope: DerivedProjectScope;
   durationUs: number;
-  kinds: ("thumbnail" | "filmstrip")[];
+  kinds: ("thumbnail" | "filmstrip" | "waveform")[];
   thumbnailSourceTimeUs?: number;
 }
 
@@ -35,12 +35,18 @@ export interface SetProxyPausedRequest {
   jobId: string;
 }
 
+export interface SetPerceptionPausedRequest {
+  type: "perception-pause" | "perception-resume";
+  jobId: string;
+}
+
 export type DerivedWorkerRequest =
   | GenerateDerivedRequest
   | GenerateProxyRequest
   | CancelDerivedRequest
   | ProxyChunkAck
-  | SetProxyPausedRequest;
+  | SetProxyPausedRequest
+  | SetPerceptionPausedRequest;
 
 export type DerivedWorkerResponse =
   | {
@@ -51,7 +57,12 @@ export type DerivedWorkerResponse =
       completedSamples?: number;
       totalSamples?: number;
     }
-  | { type: "progress"; jobId: string; progress: number; stage: "thumbnail" | "filmstrip" }
+  | {
+      type: "progress";
+      jobId: string;
+      progress: number;
+      stage: "thumbnail" | "filmstrip" | "waveform";
+    }
   | {
       type: "thumbnail-complete";
       jobId: string;
@@ -67,6 +78,13 @@ export type DerivedWorkerResponse =
       rows: number;
       tileWidth: number;
       tileHeight: number;
+    }
+  | {
+      type: "waveform-complete";
+      jobId: string;
+      waveform: ArrayBuffer;
+      peakCount: number;
+      waveformFormatVersion: number;
     }
   | { type: "perception-complete"; jobId: string; samplingLatencyMs: number }
   | { type: "failed"; jobId: string; failureCode: string; detail: string }
