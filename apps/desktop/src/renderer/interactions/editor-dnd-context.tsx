@@ -1,0 +1,204 @@
+import { createContext, useContext, useMemo, useState } from "react";
+import {
+  DndContext,
+  DragOverlay,
+  PointerSensor,
+  pointerWithin,
+  useSensor,
+  useSensors,
+} from "@dnd-kit/core";
+import type {
+  DragCancelEvent,
+  DragEndEvent,
+  DragMoveEvent,
+  DragOverEvent,
+  DragStartEvent,
+} from "@dnd-kit/core";
+import { getSequence } from "@cinesim/core";
+import type { AssetId, ClipId, EditorCommand, Project, TrackId } from "@cinesim/core";
+import { cn } from "@cinesim/ui";
+import { formatDuration } from "../lib/format";
+import { useRendererStore } from "../store/renderer-store-context";
+import type { ActionResult } from "../store/renderer-store";
+import {
+  proposeAssetDrop,
+  proposeClipMove,
+  timelineSnapCandidates,
+  type TimelineDropProposal,
+} from "./timeline-geometry";
+
+export type EditorDragData =
+  | { kind: "asset"; assetId: AssetId }
+  | { kind: "clip"; clipId: ClipId; trackId: TrackId };
+
+export interface TimelineTrackDropData {
+  kind: "timeline-track";
+  trackId: TrackId;
+}
+
+interface EditorDndState {
+  active: EditorDragData | null;
+  proposal: TimelineDropProposal | null;
+  dragging: boolean;
+  pixelsPerUs: number;
+}
+
+const EditorDndContext = createContext<EditorDndState | null>(null);
+const BASE_PIXELS_PER_SECOND = 86;
+
+function dragData(event: DragStartEvent | DragMoveEvent | DragOverEvent | DragEndEvent) {
+  return event.active.data.current as EditorDragData | undefined;
+}
+
+function pointerClientX(event: DragMoveEvent | DragOverEvent | DragEndEvent): number | null {
+  const activator = event.activatorEvent;
+  if ("clientX" in activator && typeof activator.clientX === "number")
+    return activator.clientX + event.delta.x;
+  const translated = event.active.rect.current.translated;
+  return translated ? translated.left + translated.width / 2 : null;
+}
+
+export function EditorDndProvider({
+  project,
+  onCommand,
+  onAssetDragStart,
+  onAssetDragEnd,
+  children,
+}: {
+  project: Project;
+  onCommand: (command: EditorCommand) => Promise<ActionResult<unknown>>;
+  onAssetDragStart?: () => void;
+  onAssetDragEnd?: () => void;
+  children: React.ReactNode;
+}) {
+  const zoom = useRendererStore((state) => state.timelineZoom);
+  const snapping = useRendererStore((state) => state.snappingEnabled);
+  const playheadUs = useRendererStore((state) => state.playheadUs);
+  const [active, setActive] = useState<EditorDragData | null>(null);
+  const [proposal, setProposal] = useState<TimelineDropProposal | null>(null);
+  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
+  const pixelsPerUs = (BASE_PIXELS_PER_SECOND * zoom) / 1_000_000;
+
+  function proposalFor(event: DragMoveEvent | DragOverEvent | DragEndEvent) {
+    const input = dragData(event);
+    const target = event.over?.data.current as TimelineTrackDropData | undefined;
+    const pointerX = pointerClientX(event);
+    if (!input || target?.kind !== "timeline-track" || pointerX === null || !event.over)
+      return null;
+    const rawPointerTimeUs = Math.max(0, (pointerX - event.over.rect.left) / pixelsPerUs);
+    const snapCandidatesUs = [...timelineSnapCandidates(project), playheadUs];
+    const snapToleranceUs = snapping ? Math.round(8 / pixelsPerUs) : 0;
+    if (input.kind === "asset")
+      return proposeAssetDrop(project, input.assetId, target.trackId, rawPointerTimeUs, {
+        snapCandidatesUs,
+        snapToleranceUs,
+      });
+    const sequence = getSequence(project);
+    const source = sequence.tracks
+      .flatMap((track) => track.clips)
+      .find((clip) => clip.id === input.clipId);
+    if (!source) return null;
+    return proposeClipMove(
+      project,
+      input.clipId,
+      target.trackId,
+      source.timelineStartUs + event.delta.x / pixelsPerUs,
+      { snapCandidatesUs, snapToleranceUs },
+    );
+  }
+
+  function start(event: DragStartEvent): void {
+    const input = dragData(event);
+    if (!input) return;
+    setActive(input);
+    setProposal(null);
+    if (input.kind === "asset") onAssetDragStart?.();
+  }
+
+  function update(event: DragMoveEvent | DragOverEvent): void {
+    setProposal(proposalFor(event));
+  }
+
+  function reset(input = active): void {
+    if (input?.kind === "asset") onAssetDragEnd?.();
+    setActive(null);
+    setProposal(null);
+  }
+
+  function cancel(_event: DragCancelEvent): void {
+    reset();
+  }
+
+  async function finish(event: DragEndEvent): Promise<void> {
+    const input = dragData(event) ?? active;
+    const finalProposal = proposalFor(event) ?? proposal;
+    reset(input);
+    if (!input || !finalProposal?.valid) return;
+    if (input.kind === "asset") {
+      await onCommand({
+        type: "clip.add",
+        trackId: finalProposal.trackId,
+        assetId: input.assetId,
+        timelineStartUs: finalProposal.timelineStartUs,
+      });
+      return;
+    }
+    await onCommand({
+      type: "clip.move",
+      clipId: input.clipId,
+      trackId: finalProposal.trackId,
+      timelineStartUs: finalProposal.timelineStartUs,
+    });
+  }
+
+  const value = useMemo(
+    () => ({ active, proposal, dragging: active !== null, pixelsPerUs }),
+    [active, pixelsPerUs, proposal],
+  );
+  const activeAsset =
+    active?.kind === "asset"
+      ? project.assets.find((candidate) => candidate.id === active.assetId)
+      : null;
+
+  return (
+    <EditorDndContext value={value}>
+      <DndContext
+        sensors={sensors}
+        collisionDetection={pointerWithin}
+        onDragStart={start}
+        onDragMove={update}
+        onDragOver={update}
+        onDragCancel={cancel}
+        onDragEnd={(event) => void finish(event)}
+      >
+        {children}
+        <DragOverlay dropAnimation={null}>
+          {activeAsset ? (
+            <div
+              className={cn(
+                "w-44 overflow-hidden rounded-lg border bg-panel shadow-2xl",
+                proposal?.valid === false ? "border-red-500/70" : "border-border-strong",
+              )}
+            >
+              <div className="aspect-video bg-surface" />
+              <div className="flex items-center gap-2 px-2 py-1.5 text-ui-xs">
+                <span className="min-w-0 flex-1 truncate font-medium text-primary">
+                  {activeAsset.name}
+                </span>
+                <span className="text-muted tabular-nums">
+                  {formatDuration(activeAsset.durationUs)}
+                </span>
+              </div>
+            </div>
+          ) : null}
+        </DragOverlay>
+      </DndContext>
+    </EditorDndContext>
+  );
+}
+
+export function useEditorDnd(): EditorDndState {
+  const value = useContext(EditorDndContext);
+  if (!value) throw new Error("Editor drag state is unavailable outside EditorDndProvider");
+  return value;
+}

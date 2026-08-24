@@ -58,6 +58,7 @@ export interface RendererState {
   operationError: string | null;
   selectedClipId: ClipId | null;
   timelineZoom: number;
+  snappingEnabled: boolean;
   tool: EditTool;
   playheadUs: TimeUs;
   playbackRuntime: PlaybackRuntimeState | null;
@@ -88,6 +89,7 @@ export interface RendererState {
   clearError: () => void;
   selectClip: (id: ClipId | null) => void;
   setTimelineZoom: (zoom: number) => void;
+  toggleSnapping: () => void;
   setTool: (tool: EditTool) => void;
   setPlayheadUs: (timeUs: TimeUs) => void;
   setPlaybackRuntime: (
@@ -276,6 +278,7 @@ export function createRendererStore({ api, storage }: RendererStoreDependencies)
       operationError: null,
       selectedClipId: null,
       timelineZoom: 1,
+      snappingEnabled: true,
       tool: "select",
       playheadUs: 0,
       playbackRuntime: null,
@@ -462,6 +465,7 @@ export function createRendererStore({ api, storage }: RendererStoreDependencies)
       selectClip: (selectedClipId) => set({ selectedClipId }),
       setTimelineZoom: (timelineZoom) =>
         set({ timelineZoom: Math.min(4, Math.max(0.25, timelineZoom)) }),
+      toggleSnapping: () => set((state) => ({ snappingEnabled: !state.snappingEnabled })),
       setTool: (tool) => set({ tool }),
       setPlayheadUs: (playheadUs) => set({ playheadUs }),
       setPlaybackRuntime: (projectDirectory, sequenceId, snapshot) => {
