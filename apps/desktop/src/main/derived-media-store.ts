@@ -60,6 +60,12 @@ interface PersistedIndex {
   decisionLog: DerivedMediaEvent[];
 }
 
+interface PreparedDerivedProject {
+  directory: string;
+  index: PersistedIndex;
+  readDurationMs: number;
+}
+
 interface WriterSession {
   id: string;
   projectDirectory: string;
@@ -117,6 +123,19 @@ function emptyIndex(): PersistedIndex {
   };
 }
 
+function projectOpenPersistenceSignature(index: PersistedIndex): string {
+  return JSON.stringify({
+    ...index,
+    storage: {
+      ...index.storage,
+      // These values describe current filesystem capacity and are refreshed in memory on open.
+      // Persisting only their fluctuations creates needless File Provider writes.
+      budgetBytes: 0,
+      safetyReserveBytes: 0,
+    },
+  });
+}
+
 function artifactPath(kind: DerivedArtifactKind, assetId: string, profileId?: string): string {
   if (kind === "thumbnail") return join(".video", "thumbnails", `${assetId}.jpg`);
   if (kind === "filmstrip") return join(".video", "filmstrips", `${assetId}.jpg`);
@@ -156,8 +175,21 @@ export class DerivedMediaStore {
   #runtimeEmitTimer: ReturnType<typeof setTimeout> | null = null;
   #diskHeadroomAvailable = false;
 
-  async setProject(directory: string, project: Project): Promise<void> {
+  async prepareProject(directory: string): Promise<PreparedDerivedProject> {
+    const startedAt = performance.now();
+    const index = await this.#readIndex(directory);
+    return { directory, index, readDurationMs: performance.now() - startedAt };
+  }
+
+  async setProject(
+    directory: string,
+    project: Project,
+    prepared?: PreparedDerivedProject,
+  ): Promise<void> {
     await this.#serialize(async () => {
+      // A prepared index is safe for a different, inactive project. Reopening the active
+      // directory must read again after queued writer operations have finished.
+      const usePreparedIndex = prepared?.directory === directory && this.#directory !== directory;
       await this.#closeWriters();
       this.#directory = directory;
       this.#project = project;
@@ -167,7 +199,8 @@ export class DerivedMediaStore {
       this.#progressLogBuckets.clear();
       if (this.#runtimeEmitTimer) clearTimeout(this.#runtimeEmitTimer);
       this.#runtimeEmitTimer = null;
-      this.#index = await this.#readIndex(directory);
+      this.#index = usePreparedIndex ? prepared.index : await this.#readIndex(directory);
+      const persistenceSignature = projectOpenPersistenceSignature(this.#index);
       await this.#removeInterruptedTemps();
       let recovered = false;
       for (const record of Object.values(this.#index.assets)) {
@@ -179,7 +212,7 @@ export class DerivedMediaStore {
           }
         }
       }
-      for (const asset of project.assets) await this.#ensureAsset(asset);
+      await Promise.all(project.assets.map((asset) => this.#ensureAsset(asset)));
       await this.#refreshStorage();
       for (const asset of project.assets) this.#applyAdaptiveDecision(asset.id);
       if (recovered)
@@ -189,8 +222,19 @@ export class DerivedMediaStore {
           { operation: "project-open", projectId: project.id },
           "interrupted derived jobs returned to the queue",
         );
-      await this.#persist();
+      const indexChanged = projectOpenPersistenceSignature(this.#index) !== persistenceSignature;
+      if (indexChanged) await this.#persist();
       this.#emit();
+      log.info(
+        {
+          operation: "project-open-derived",
+          projectId: project.id,
+          indexReadMs: usePreparedIndex ? prepared.readDurationMs : undefined,
+          assetCount: project.assets.length,
+          indexChanged,
+        },
+        "derived media initialized for project",
+      );
     });
   }
 
@@ -243,6 +287,7 @@ export class DerivedMediaStore {
   async requestJobs(assetIds: string[]): Promise<DerivedMediaSnapshot> {
     return this.#serialize(async () => {
       if (assetIds.length > 500) throw new Error("Too many derived job requests");
+      const persistenceSignature = projectOpenPersistenceSignature(this.#index);
       const project = this.#requireProject();
       for (const assetId of new Set(assetIds)) {
         const asset = project.assets.find((candidate) => candidate.id === assetId);
@@ -254,7 +299,8 @@ export class DerivedMediaStore {
             artifact.state = "queued";
         }
       }
-      await this.#persist();
+      if (projectOpenPersistenceSignature(this.#index) !== persistenceSignature)
+        await this.#persist();
       this.#emit();
       return this.snapshot();
     });
@@ -575,8 +621,7 @@ export class DerivedMediaStore {
         this.#deadlines.set(key, deadlines);
         summary.deadlineMissRate = deadlines.missed / deadlines.total;
       }
-      this.#applyAdaptiveDecision(observation.assetId);
-      await this.#persist();
+      if (this.#applyAdaptiveDecision(observation.assetId)) await this.#persist();
       this.#emit();
     });
   }
@@ -596,12 +641,6 @@ export class DerivedMediaStore {
     const path = this.#containedPath(artifact.relativePath);
     const info = await stat(path);
     artifact.lastAccessAt = new Date().toISOString();
-    void this.#persist().catch((error: unknown) =>
-      log.error(
-        { err: error, operation: "artifact-access", assetId, artifactKind: kind },
-        "derived artifact access time could not be persisted",
-      ),
-    );
     return { path, size: info.size, mimeType: mimeType(kind) };
   }
 
@@ -712,15 +751,17 @@ export class DerivedMediaStore {
   }
 
   async #removeInterruptedTemps(): Promise<void> {
-    for (const folder of ["thumbnails", "filmstrips", "proxies"]) {
-      const directory = this.#containedPath(join(".video", folder));
-      const names = await readdir(directory).catch(() => []);
-      await Promise.all(
-        names
-          .filter((name) => name.endsWith(".tmp") && /^[a-zA-Z0-9_.-]+$/.test(name))
-          .map((name) => rm(join(directory, name), { force: true })),
-      );
-    }
+    await Promise.all(
+      ["thumbnails", "filmstrips", "proxies"].map(async (folder) => {
+        const directory = this.#containedPath(join(".video", folder));
+        const names = await readdir(directory).catch(() => []);
+        await Promise.all(
+          names
+            .filter((name) => name.endsWith(".tmp") && /^[a-zA-Z0-9_.-]+$/.test(name))
+            .map((name) => rm(join(directory, name), { force: true })),
+        );
+      }),
+    );
   }
 
   async #evictIfNeeded(): Promise<void> {
@@ -760,9 +801,9 @@ export class DerivedMediaStore {
     await this.#refreshStorage();
   }
 
-  #applyAdaptiveDecision(assetId: string): void {
+  #applyAdaptiveDecision(assetId: string): boolean {
     const record = this.#index.assets[assetId];
-    if (!record) return;
+    if (!record) return false;
     const result = evaluateAdaptivePolicy({
       ...record.performance.original,
       proxyState: record.proxy.state,
@@ -772,6 +813,7 @@ export class DerivedMediaStore {
     });
     const previousDecision = record.performance.decision;
     const previousReasons = record.performance.reasons.join(",");
+    const previousProxyState = record.proxy.state;
     record.performance.decision = result.decision;
     record.performance.reasons = result.reasons;
     if (result.queueProxy && record.proxy.state === "missing") record.proxy.state = "queued";
@@ -784,6 +826,11 @@ export class DerivedMediaStore {
         kind: "adaptive-decision",
         detail: `${record.performance.decision}: ${record.performance.reasons.join(", ")}`,
       });
+    return (
+      previousDecision !== record.performance.decision ||
+      previousReasons !== record.performance.reasons.join(",") ||
+      previousProxyState !== record.proxy.state
+    );
   }
 
   #validateWriteInput(input: BeginDerivedWrite): void {

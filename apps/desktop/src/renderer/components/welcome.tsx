@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { ArrowRight, Clapperboard, Plus } from "lucide-react";
 import { Button } from "@cinesim/ui";
 import type { DesktopAppState, DesktopProjectSession } from "../../shared/api";
@@ -8,7 +8,8 @@ interface WelcomeProps {
   appState: DesktopAppState;
   error: string | null;
   loading: boolean;
-  onOpen: (session: DesktopProjectSession) => void;
+  onOpen: (session: DesktopProjectSession) => Promise<void>;
+  onOpeningChange: (opening: boolean) => void;
 }
 
 function projectGradient(key: string): React.CSSProperties {
@@ -36,49 +37,70 @@ function Shortcut({ children, dark = false }: { children: React.ReactNode; dark?
   );
 }
 
-export function Welcome({ appState, error: externalError, loading, onOpen }: WelcomeProps) {
+export function Welcome({
+  appState,
+  error: externalError,
+  loading,
+  onOpen,
+  onOpeningChange,
+}: WelcomeProps) {
   const [name, setName] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const busyRef = useRef(false);
   const modifier = window.cinesim.platform === "darwin" ? "⌘" : "Ctrl+";
 
   async function create() {
-    if (!name.trim()) return;
+    if (!name.trim() || busyRef.current) return;
+    busyRef.current = true;
     setBusy(true);
+    onOpeningChange(true);
     setError(null);
     try {
       const session = await window.cinesim.createProject(name);
-      if (session) onOpen(session);
+      if (session) await onOpen(session);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Could not create project");
     }
+    busyRef.current = false;
     setBusy(false);
+    onOpeningChange(false);
   }
 
   const open = useCallback(async () => {
+    if (busyRef.current) return;
+    busyRef.current = true;
     setBusy(true);
+    onOpeningChange(true);
     setError(null);
     try {
       const session = await window.cinesim.openProject();
-      if (session) onOpen(session);
+      if (session) await onOpen(session);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Could not open project");
     }
+    busyRef.current = false;
     setBusy(false);
-  }, [onOpen]);
+    onOpeningChange(false);
+  }, [onOpen, onOpeningChange]);
 
   const openRecent = useCallback(
     async (directory: string) => {
+      if (busyRef.current) return;
+      busyRef.current = true;
       setBusy(true);
+      onOpeningChange(true);
       setError(null);
       try {
-        onOpen(await window.cinesim.openRecentProject(directory));
+        await onOpen(await window.cinesim.openRecentProject(directory));
       } catch (caught) {
         setError(caught instanceof Error ? caught.message : "Could not open project");
       }
+      busyRef.current = false;
       setBusy(false);
+      onOpeningChange(false);
     },
-    [onOpen],
+    [onOpen, onOpeningChange],
   );
 
   useEffect(() => {

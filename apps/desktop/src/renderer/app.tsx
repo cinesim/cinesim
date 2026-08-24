@@ -7,6 +7,7 @@ import { AgentsSidebar } from "./components/agents-sidebar";
 import { AppShell, toggleAuxiliaryMode } from "./components/app-shell";
 import type { AuxiliarySidebarMode } from "./components/app-shell";
 import { MetricsSidebar } from "./components/metrics-sidebar";
+import { ProjectLoadingState } from "./components/project-loading-state";
 import { Settings } from "./components/settings";
 import { TopBar } from "./components/top-bar";
 import { Welcome } from "./components/welcome";
@@ -37,11 +38,13 @@ export function App() {
   const [notesOpen, setNotesOpen] = useState(true);
   const [settingsSection, setSettingsSection] = useState<"general" | "agents">("general");
   const [loading, setLoading] = useState(true);
+  const [openingProject, setOpeningProject] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [auxiliaryMode, setAuxiliaryMode] = useState<AuxiliarySidebarMode>(() =>
     localStorage.getItem("cinesim.agentsSidebarOpen") === "true" ? "agents" : null,
   );
   const mediaJobsRef = useRef<MediaJobCoordinator | null>(null);
+  const projectOpenInFlightRef = useRef(false);
   const latestProjectRef = useRef(session?.project);
   const projectDirectory = session?.directory;
   const setDerivedMedia = useUiStore((state) => state.setDerivedMedia);
@@ -153,15 +156,23 @@ export function App() {
   }
 
   async function openRecent(directory: string): Promise<void> {
+    if (projectOpenInFlightRef.current) return;
+    projectOpenInFlightRef.current = true;
+    setOpeningProject(true);
     try {
       await showProject(await window.cinesim.openRecentProject(directory));
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "The project could not be opened");
       setDestination("home");
     }
+    projectOpenInFlightRef.current = false;
+    setOpeningProject(false);
   }
 
   async function openProject(): Promise<void> {
+    if (projectOpenInFlightRef.current) return;
+    projectOpenInFlightRef.current = true;
+    setOpeningProject(true);
     try {
       const nextSession = await window.cinesim.openProject();
       if (nextSession) await showProject(nextSession);
@@ -169,6 +180,8 @@ export function App() {
       setError(caught instanceof Error ? caught.message : "The project could not be opened");
       setDestination("home");
     }
+    projectOpenInFlightRef.current = false;
+    setOpeningProject(false);
   }
 
   function showProjectSection(section: ProjectSection): void {
@@ -311,7 +324,9 @@ export function App() {
       auxiliaryMode={destination === "project" ? auxiliaryMode : null}
       onAuxiliaryMode={setAuxiliaryMode}
     >
-      {destination === "settings" ? (
+      {openingProject ? (
+        <ProjectLoadingState />
+      ) : destination === "settings" ? (
         <Settings section={settingsSection} />
       ) : destination === "project" && session ? (
         <Workspace
@@ -335,7 +350,8 @@ export function App() {
           appState={appState}
           error={error}
           loading={loading}
-          onOpen={(next) => void showProject(next)}
+          onOpen={showProject}
+          onOpeningChange={setOpeningProject}
         />
       )}
     </AppShell>
