@@ -11,6 +11,7 @@ import type {
   VideoSourceFactory,
 } from "../media/video-source";
 import { WebAudioScheduler } from "../playback/audio-scheduler";
+import type { PlaybackAudioScheduler } from "../playback/audio-scheduler";
 import {
   MAX_PLAYBACK_RATE,
   MonotonicPlaybackClock,
@@ -61,6 +62,7 @@ export interface PlaybackRuntimeOptions {
   onError?: (error: Error) => void;
   scheduleFrame?: (callback: () => void) => number;
   cancelFrame?: (handle: number) => void;
+  audioSchedulerFactory?: () => PlaybackAudioScheduler;
 }
 
 interface RenderRequest {
@@ -103,6 +105,7 @@ class SequentialVideoCursor {
   #current: VideoFrame | null = null;
   #next: VideoFrame | null = null;
   #lastRequestedUs: TimeUs | null = null;
+  #generation = 0;
 
   constructor(source: VideoSource) {
     this.#source = source;
@@ -120,10 +123,19 @@ class SequentialVideoCursor {
     this.#lastRequestedUs = timeUs;
     if (!this.#current) return null;
 
+    const currentStartUs = frameTimestampUs(this.#current, timeUs);
+    const currentDurationUs = Math.max(1, Math.round(this.#current.duration ?? 1));
+    if (timeUs < currentStartUs + currentDurationUs) return this.#current.clone();
+
     while (true) {
       if (!this.#next) {
+        const generation = this.#generation;
         const result = await this.#iterator?.next();
         if (!result || result.done) break;
+        if (generation !== this.#generation) {
+          result.value.close();
+          return null;
+        }
         this.#next = result.value;
       }
       if (frameTimestampUs(this.#next, timeUs) > timeUs) break;
@@ -136,7 +148,13 @@ class SequentialVideoCursor {
 
   async #restart(timeUs: TimeUs): Promise<void> {
     await this.close();
-    this.#current = await this.#source.getFrame(timeUs);
+    const generation = this.#generation;
+    const frame = await this.#source.getFrame(timeUs);
+    if (generation !== this.#generation) {
+      frame?.close();
+      return;
+    }
+    this.#current = frame;
     if (!this.#current || !this.#source.frames) return;
     const timestampUs = frameTimestampUs(this.#current, timeUs);
     const durationUs = Math.max(1, Math.round(this.#current.duration ?? 1));
@@ -144,6 +162,7 @@ class SequentialVideoCursor {
   }
 
   async close(): Promise<void> {
+    this.#generation += 1;
     const iterator = this.#iterator;
     this.#iterator = null;
     this.#current?.close();
@@ -176,6 +195,7 @@ export class PlaybackRuntime {
   readonly #onError: (error: Error) => void;
   readonly #scheduleFrame: (callback: () => void) => number;
   readonly #cancelFrame: (handle: number) => void;
+  readonly #audioSchedulerFactory: () => PlaybackAudioScheduler;
   readonly #sources = new Map<string, VideoSource & Partial<AudioSource>>();
   readonly #sequentialCursors = new Map<string, SequentialVideoCursor>();
   readonly #sourceDescriptors = new Map<AssetId, MediaSourceDescriptor>();
@@ -186,6 +206,8 @@ export class PlaybackRuntime {
   #destroyed = false;
   #animationFrame = 0;
   #transportGeneration = 0;
+  #seekGeneration = 0;
+  #resumeAfterSeek = false;
   #lastPlaybackFrameIndex: number | null = null;
   #playbackRequests = 0;
   #playbackFramesPresented = 0;
@@ -199,7 +221,7 @@ export class PlaybackRuntime {
   #lastActiveAssetId: AssetId | null = null;
   #lastActiveSourceKind: MediaSourceKind | null = null;
   #sourcePreviewSuppressions = 0;
-  #audioScheduler: WebAudioScheduler | null = null;
+  #audioScheduler: PlaybackAudioScheduler | null = null;
   #audioScheduledUntilUs: TimeUs = 0;
   #audioGeneration = 0;
   #audioStartingGeneration: number | null = null;
@@ -220,6 +242,7 @@ export class PlaybackRuntime {
     this.#onError = options.onError ?? (() => undefined);
     this.#scheduleFrame = options.scheduleFrame ?? defaultScheduleFrame;
     this.#cancelFrame = options.cancelFrame ?? defaultCancelFrame;
+    this.#audioSchedulerFactory = options.audioSchedulerFactory ?? (() => new WebAudioScheduler());
     this.#executor = new LatestOnlyExecutor(async (request, context) => {
       const started = this.#now();
       const frames = await this.#decodeRandom(request.mode);
@@ -249,19 +272,29 @@ export class PlaybackRuntime {
 
   setProject(project: Project): void {
     this.#project = project;
+    const shouldResume = this.#clock.playing || this.#resumeAfterSeek;
+    this.#seekGeneration += 1;
+    this.#resumeAfterSeek = false;
+    const durationUs = sequenceDurationUs(getSequence(project));
+    const safeTimeUs = Math.max(0, Math.min(this.#clock.now(), durationUs));
+    this.#clock.seek(safeTimeUs);
+    if (this.#mode.kind === "timeline") this.#mode = { kind: "timeline", timeUs: safeTimeUs };
     this.#resetSequentialCursors();
     if (!this.#initialized) return;
-    if (this.#clock.playing) {
+    if (shouldResume) {
+      if (!this.#clock.playing) this.#clock.play();
       this.#stopAudio();
       if (this.#clock.rate === 1 && this.#hasAudibleContent())
         this.#restartAudio(this.#clock.now());
       this.#startTransportLoop();
+      this.#emit();
       return;
     }
     const mode =
       this.#mode.kind === "asset"
         ? this.#mode
         : { kind: "timeline" as const, timeUs: this.#clock.now() };
+    this.#emit();
     this.#runBackground(this.#request(mode, "project"));
   }
 
@@ -278,6 +311,8 @@ export class PlaybackRuntime {
   }
 
   #startPlaying(): void {
+    this.#seekGeneration += 1;
+    this.#resumeAfterSeek = false;
     if (this.#mode.kind === "asset") {
       const mode: PreviewMode = { kind: "timeline", timeUs: this.#clock.now() };
       this.#mode = mode;
@@ -293,7 +328,17 @@ export class PlaybackRuntime {
   }
 
   pause(): void {
-    if (!this.#clock.playing && !this.#animationFrame) return;
+    const pendingPlayingSeek = this.#resumeAfterSeek;
+    this.#seekGeneration += 1;
+    this.#resumeAfterSeek = false;
+    if (!this.#clock.playing && !this.#animationFrame) {
+      if (pendingPlayingSeek) {
+        this.#executor.invalidate();
+        this.#stopAudio();
+        this.#emit();
+      }
+      return;
+    }
     this.#clock.pause();
     this.#transportGeneration += 1;
     this.#lastPlaybackFrameIndex = null;
@@ -319,7 +364,11 @@ export class PlaybackRuntime {
   async seekTimeline(timeUs: TimeUs): Promise<void> {
     const durationUs = sequenceDurationUs(getSequence(this.#project));
     const safeTimeUs = Math.max(0, Math.min(Math.round(timeUs), durationUs));
-    const wasPlaying = this.#clock.playing;
+    const shouldResume = this.#clock.playing || this.#resumeAfterSeek;
+    const seekGeneration = ++this.#seekGeneration;
+    this.#resumeAfterSeek = shouldResume;
+    if (this.#clock.playing) this.#clock.pause();
+    if (shouldResume) this.#stopAudio();
     this.#transportGeneration += 1;
     if (this.#animationFrame) this.#cancelFrame(this.#animationFrame);
     this.#animationFrame = 0;
@@ -328,8 +377,12 @@ export class PlaybackRuntime {
     this.#clock.seek(safeTimeUs);
     this.#mode = { kind: "timeline", timeUs: safeTimeUs };
     await this.#request(this.#mode, "timeline-seek");
-    if (wasPlaying && this.#clock.playing) {
-      if (this.#clock.rate === 1 && this.#hasAudibleContent()) this.#restartAudio(safeTimeUs);
+    if (seekGeneration !== this.#seekGeneration || this.#destroyed) return;
+    this.#resumeAfterSeek = false;
+    if (shouldResume) {
+      this.#clock.play();
+      if (this.#clock.rate === 1 && this.#hasAudibleContent())
+        this.#restartAudio(this.#clock.now());
       this.#startTransportLoop();
     }
     this.#emit();
@@ -390,7 +443,7 @@ export class PlaybackRuntime {
   }
 
   enterAssetPreview(assetId: AssetId, sourceTimeUs: TimeUs): void {
-    if (this.#clock.playing) {
+    if (this.#clock.playing || this.#resumeAfterSeek) {
       this.#sourcePreviewSuppressions += 1;
       this.#emit();
       return;
@@ -625,7 +678,7 @@ export class PlaybackRuntime {
   }
 
   async #startAudio(timeUs: TimeUs, generation: number): Promise<void> {
-    this.#audioScheduler ??= new WebAudioScheduler();
+    this.#audioScheduler ??= this.#audioSchedulerFactory();
     try {
       await this.#audioScheduler.resume();
       if (this.#destroyed || generation !== this.#audioGeneration || !this.#clock.playing) return;

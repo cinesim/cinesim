@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { shouldShowTimelineEmptyState, viewerDisplaySize } from "../src/renderer/components/viewer";
+import {
+  shouldShowTimelineEmptyState,
+  steppedSourceTimeUs,
+  viewerDisplaySize,
+} from "../src/renderer/components/viewer";
 
 describe("viewer presentation helpers", () => {
   it("fits the sequence into the available stage without scaling above 100%", () => {
@@ -21,5 +25,11 @@ describe("viewer presentation helpers", () => {
     expect(shouldShowTimelineEmptyState(0, { kind: "timeline" })).toBe(true);
     expect(shouldShowTimelineEmptyState(0, { kind: "asset" })).toBe(false);
     expect(shouldShowTimelineEmptyState(1, { kind: "timeline" })).toBe(false);
+  });
+
+  it("steps source preview frames without leaving the asset duration", () => {
+    expect(steppedSourceTimeUs(1_000_000, 5_000_000, 30, 1)).toBe(1_033_333);
+    expect(steppedSourceTimeUs(0, 5_000_000, 30, -1)).toBe(0);
+    expect(steppedSourceTimeUs(5_000_000, 5_000_000, 30, -1)).toBe(4_966_667);
   });
 });

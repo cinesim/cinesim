@@ -27,6 +27,7 @@ import { getSequence, sequenceDurationUs } from "@cinesim/core";
 import type { Project } from "@cinesim/core";
 import type { DerivedProjectScope } from "../../shared/api";
 import { PlaybackRuntime, WebGpuCompositor } from "@cinesim/engine";
+import type { PreviewMode } from "@cinesim/engine";
 import { formatTimecode } from "../lib/format";
 import { useRendererStore, useRendererStoreApi } from "../store/renderer-store-context";
 import { AdaptiveSourceResolver } from "../media/adaptive-source-resolver";
@@ -58,10 +59,11 @@ const DEFAULT_GUIDES: ViewerGuides = {
   titleSafe: false,
 };
 
-function isEditableTarget(target: EventTarget | null): boolean {
-  return (
-    target instanceof HTMLElement &&
-    (target.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName))
+function isInteractiveShortcutTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof Element)) return false;
+  if (target instanceof HTMLElement && target.isContentEditable) return true;
+  return Boolean(
+    target.closest('input, textarea, select, button, a[href], [role="button"], [role="menuitem"]'),
   );
 }
 
@@ -94,6 +96,46 @@ export function shouldShowTimelineEmptyState(
   return durationUs === 0 && mode?.kind !== "asset";
 }
 
+export function steppedSourceTimeUs(
+  currentTimeUs: number,
+  durationUs: number,
+  frameRate: number,
+  deltaFrames: number,
+): number {
+  const safeRate = Number.isFinite(frameRate) && frameRate > 0 ? frameRate : 30;
+  const frameCount = Math.max(1, Math.ceil((durationUs * safeRate) / 1_000_000));
+  const currentFrame = Math.max(
+    0,
+    Math.floor((Math.max(0, currentTimeUs) * safeRate) / 1_000_000 + 0.000_1),
+  );
+  const targetFrame = Math.max(0, Math.min(currentFrame + deltaFrames, frameCount - 1));
+  return Math.min(durationUs, Math.round((targetFrame * 1_000_000) / safeRate));
+}
+
+function stepDisplayedFrame(
+  playback: PlaybackRuntime,
+  project: Project,
+  mode: PreviewMode | undefined,
+  deltaFrames: number,
+): void {
+  if (mode?.kind !== "asset") {
+    void playback.stepFrames(deltaFrames);
+    return;
+  }
+  const asset = project.assets.find((candidate) => candidate.id === mode.assetId);
+  if (!asset) return;
+  const frameRate = asset.frameRate ?? getSequence(project).frameRate;
+  playback.enterAssetPreview(
+    asset.id,
+    steppedSourceTimeUs(mode.sourceTimeUs, asset.durationUs, frameRate, deltaFrames),
+  );
+}
+
+function goToDisplayedStart(playback: PlaybackRuntime, mode: PreviewMode | undefined): void {
+  if (mode?.kind === "asset") playback.enterAssetPreview(mode.assetId, 0);
+  else void playback.seekTimeline(0);
+}
+
 export function Viewer({
   project,
   projectDirectory,
@@ -112,7 +154,8 @@ export function Viewer({
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const { cacheKey: derivedCacheKey, epoch: derivedEpoch } = derivedScope;
   const runtimeRef = useRef<PlaybackRuntime | null>(null);
-  const initialProjectRef = useRef(project);
+  const projectRef = useRef(project);
+  projectRef.current = project;
   const refreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [stageSize, setStageSize] = useState({ width: 0, height: 0 });
@@ -144,7 +187,7 @@ export function Viewer({
     if (!canvas) return;
     const reportPlaybackError = (caught: Error) => setError(caught.message);
     const compositor = new WebGpuCompositor(canvas, { onError: reportPlaybackError });
-    const playback = new PlaybackRuntime(initialProjectRef.current, compositor, {
+    const playback = new PlaybackRuntime(projectRef.current, compositor, {
       sourceResolver: new AdaptiveSourceResolver(
         { cacheKey: derivedCacheKey, epoch: derivedEpoch },
         () => store.getState().derivedMedia,
@@ -220,18 +263,16 @@ export function Viewer({
     store,
   ]);
 
-  useEffect(() => runtimeRef.current?.setProject(project), [project]);
+  useEffect(
+    () => runtimeRef.current?.setProject(projectRef.current),
+    [derivedCacheKey, derivedEpoch, project, projectDirectory, sequenceId],
+  );
 
   useEffect(() => {
     const stage = stageRef.current;
     if (!stage) return;
     const resize = () => {
       setStageSize({ width: stage.clientWidth, height: stage.clientHeight });
-      if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
-      refreshTimerRef.current = setTimeout(() => {
-        refreshTimerRef.current = null;
-        void runtimeRef.current?.refresh();
-      }, 100);
     };
     resize();
     const observer = new ResizeObserver(resize);
@@ -240,9 +281,22 @@ export function Viewer({
   }, []);
 
   useEffect(() => {
+    if (displaySize.width <= 1 || displaySize.height <= 1) return;
+    if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
+    refreshTimerRef.current = setTimeout(() => {
+      refreshTimerRef.current = null;
+      void runtimeRef.current?.refresh();
+    }, 100);
+    return () => {
+      if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
+      refreshTimerRef.current = null;
+    };
+  }, [displaySize.height, displaySize.width]);
+
+  useEffect(() => {
     function shortcut(event: KeyboardEvent): void {
       if (
-        isEditableTarget(event.target) ||
+        isInteractiveShortcutTarget(event.target) ||
         event.metaKey ||
         event.ctrlKey ||
         event.altKey ||
@@ -251,6 +305,7 @@ export function Viewer({
         return;
       const playback = runtimeRef.current;
       if (!playback) return;
+      const snapshot = store.getState().playbackRuntime?.snapshot;
       const key = event.key.toLowerCase();
       if (event.code === "Space") {
         event.preventDefault();
@@ -268,13 +323,13 @@ export function Viewer({
         playback.shuttle(1);
       } else if (event.key === "ArrowLeft") {
         event.preventDefault();
-        void playback.stepFrames(-1);
+        stepDisplayedFrame(playback, projectRef.current, snapshot?.mode, -1);
       } else if (event.key === "ArrowRight") {
         event.preventDefault();
-        void playback.stepFrames(1);
+        stepDisplayedFrame(playback, projectRef.current, snapshot?.mode, 1);
       } else if (event.key === "Home") {
         event.preventDefault();
-        void playback.seekTimeline(0);
+        goToDisplayedStart(playback, snapshot?.mode);
       }
     }
     window.addEventListener("keydown", shortcut);
@@ -368,7 +423,10 @@ export function Viewer({
             variant="ghost"
             aria-label="Go to beginning"
             title="Go to beginning (Home)"
-            onClick={() => void seek(0)}
+            onClick={() => {
+              const playback = runtimeRef.current;
+              if (playback) goToDisplayedStart(playback, runtime?.mode);
+            }}
           >
             <SkipBack size={14} />
           </Button>
@@ -377,7 +435,10 @@ export function Viewer({
             variant="ghost"
             aria-label="Previous frame"
             title="Previous frame (Left Arrow)"
-            onClick={() => void runtimeRef.current?.stepFrames(-1)}
+            onClick={() => {
+              const playback = runtimeRef.current;
+              if (playback) stepDisplayedFrame(playback, projectRef.current, runtime?.mode, -1);
+            }}
           >
             <StepBack size={14} />
           </Button>
@@ -404,7 +465,10 @@ export function Viewer({
             variant="ghost"
             aria-label="Next frame"
             title="Next frame (Right Arrow)"
-            onClick={() => void runtimeRef.current?.stepFrames(1)}
+            onClick={() => {
+              const playback = runtimeRef.current;
+              if (playback) stepDisplayedFrame(playback, projectRef.current, runtime?.mode, 1);
+            }}
           >
             <StepForward size={14} />
           </Button>

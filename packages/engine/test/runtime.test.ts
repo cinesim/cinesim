@@ -17,7 +17,12 @@ import {
   sparseSampleTimes,
   thumbnailCandidateTimes,
 } from "../src";
-import type { CompositorLayer, PreviewCompositor, VideoSourceFactory } from "../src";
+import type {
+  CompositorLayer,
+  PlaybackAudioScheduler,
+  PreviewCompositor,
+  VideoSourceFactory,
+} from "../src";
 
 const asset: Asset = {
   id: "asset_000001",
@@ -360,15 +365,15 @@ describe("PlaybackRuntime transport", () => {
     await new Promise<void>((resolve) => setTimeout(resolve, 0));
   };
 
-  function timelineProject() {
+  function timelineProject(projectAsset: Asset = asset) {
     let project = applyCommand(createProject({ name: "Transport", frameRate: 30 }), {
       type: "asset.import",
-      asset,
+      asset: projectAsset,
     }).project;
     project = applyCommand(project, {
       type: "clip.add",
       trackId: project.sequences[0]!.tracks[0]!.id,
-      assetId: asset.id,
+      assetId: projectAsset.id,
       timelineStartUs: 0,
     }).project;
     return project;
@@ -544,6 +549,211 @@ describe("PlaybackRuntime transport", () => {
     runtime.destroy();
     await flush();
     expect(retainedFrames).toBe(0);
+  });
+
+  it("presents a covering frame without waiting for a future sequential sample", async () => {
+    let callback: (() => void) | undefined;
+    let futurePulls = 0;
+    const renderedTimes: number[] = [];
+    const runtime = new PlaybackRuntime(timelineProject(), compositor(renderedTimes), {
+      now: () => 0,
+      scheduleFrame: (next) => {
+        callback = next;
+        return 1;
+      },
+      cancelFrame: () => {
+        callback = undefined;
+      },
+      sourceFactory: () => ({
+        prepare: async () => ({
+          durationUs: asset.durationUs,
+          width: 1920,
+          height: 1080,
+          frameRate: 30,
+          hasAudio: false,
+        }),
+        seek: async () => undefined,
+        getFrame: async (timeUs) => frame(timeUs),
+        frames: async function* () {
+          futurePulls += 1;
+          await new Promise<void>(() => undefined);
+          yield frame(33_333);
+        },
+        destroy: () => undefined,
+      }),
+    });
+    await runtime.initialize();
+    runtime.play();
+    await flush();
+
+    expect(renderedTimes).toEqual([0, 0]);
+    expect(futurePulls).toBe(0);
+    expect(callback).toBeTypeOf("function");
+    runtime.destroy();
+  });
+
+  it("keeps only the newest playing seek and restarts audio at its exact position", async () => {
+    const audibleAsset: Asset = { ...asset, hasAudio: true };
+    const renderedTimes: number[] = [];
+    const audioStarts: number[] = [];
+    let audioStops = 0;
+    const audioScheduler: PlaybackAudioScheduler = {
+      startTransport: (timeUs) => audioStarts.push(timeUs),
+      schedule: async () => undefined,
+      resume: async () => undefined,
+      stop: () => {
+        audioStops += 1;
+      },
+      destroy: async () => undefined,
+    };
+    const pending = new Map<number, (value: VideoFrame) => void>();
+    const deferred = new Set<number>();
+    let deferSeeks = false;
+    const runtime = new PlaybackRuntime(timelineProject(audibleAsset), compositor(renderedTimes), {
+      now: () => 0,
+      scheduleFrame: () => 1,
+      cancelFrame: () => undefined,
+      audioSchedulerFactory: () => audioScheduler,
+      sourceFactory: () => ({
+        prepare: async () => ({
+          durationUs: audibleAsset.durationUs,
+          width: 1920,
+          height: 1080,
+          frameRate: 30,
+          hasAudio: true,
+        }),
+        seek: async () => undefined,
+        getFrame: async (timeUs) => {
+          if (
+            deferSeeks &&
+            (timeUs === 1_000_000 || timeUs === 2_000_000) &&
+            !deferred.has(timeUs)
+          ) {
+            deferred.add(timeUs);
+            return new Promise<VideoFrame>((resolve) => pending.set(timeUs, resolve));
+          }
+          return frame(timeUs);
+        },
+        buffers: async function* () {
+          // An empty stream is enough to exercise transport ownership.
+        },
+        destroy: () => undefined,
+      }),
+    });
+    await runtime.initialize();
+    runtime.play();
+    await flush();
+    expect(audioStarts).toEqual([0]);
+
+    deferSeeks = true;
+    const first = runtime.seekTimeline(1_000_000);
+    const second = runtime.seekTimeline(2_000_000);
+    expect(audioStops).toBeGreaterThan(1);
+    pending.get(1_000_000)!(frame(1_000_000));
+    await flush();
+    expect(audioStarts).toEqual([0]);
+    pending.get(2_000_000)!(frame(2_000_000));
+    await Promise.all([first, second]);
+    await flush();
+
+    expect(audioStarts).toEqual([0, 2_000_000]);
+    expect(renderedTimes).not.toContain(1_000_000);
+    expect(renderedTimes.at(-1)).toBe(2_000_000);
+    runtime.destroy();
+  });
+
+  it("closes a slow sequential bootstrap frame when playback is paused", async () => {
+    let resolveBootstrap!: (frame: VideoFrame) => void;
+    let reads = 0;
+    let retainedFrames = 0;
+    const trackedFrame = (timeUs: number): VideoFrame => {
+      retainedFrames += 1;
+      let closed = false;
+      return {
+        timestamp: timeUs,
+        duration: 33_333,
+        displayWidth: 1920,
+        displayHeight: 1080,
+        clone: () => trackedFrame(timeUs),
+        close: () => {
+          if (closed) return;
+          closed = true;
+          retainedFrames -= 1;
+        },
+      } as VideoFrame;
+    };
+    const runtime = new PlaybackRuntime(timelineProject(), compositor([]), {
+      now: () => 0,
+      scheduleFrame: () => 1,
+      cancelFrame: () => undefined,
+      sourceFactory: () => ({
+        prepare: async () => ({
+          durationUs: asset.durationUs,
+          width: 1920,
+          height: 1080,
+          frameRate: 30,
+          hasAudio: false,
+        }),
+        seek: async () => undefined,
+        getFrame: async (timeUs) => {
+          reads += 1;
+          if (reads === 1) return trackedFrame(timeUs);
+          return new Promise<VideoFrame>((resolve) => (resolveBootstrap = resolve));
+        },
+        frames: async function* () {
+          yield* [] as VideoFrame[];
+          throw new Error("A canceled bootstrap must not open a sequential iterator");
+        },
+        destroy: () => undefined,
+      }),
+    });
+    await runtime.initialize();
+    expect(retainedFrames).toBe(0);
+    runtime.play();
+    await flush();
+    runtime.pause();
+    resolveBootstrap(trackedFrame(0));
+    await flush();
+
+    expect(retainedFrames).toBe(0);
+    runtime.destroy();
+  });
+
+  it("clamps paused transport when a project edit shortens the sequence", async () => {
+    const project = timelineProject();
+    const runtime = new PlaybackRuntime(project, compositor([]), {
+      now: () => 0,
+      sourceFactory: () => ({
+        prepare: async () => ({
+          durationUs: asset.durationUs,
+          width: 1920,
+          height: 1080,
+          frameRate: 30,
+          hasAudio: false,
+        }),
+        seek: async () => undefined,
+        getFrame: async (timeUs) => frame(timeUs),
+        destroy: () => undefined,
+      }),
+    });
+    await runtime.initialize();
+    await runtime.seekTimeline(4_000_000);
+    const clipId = project.sequences[0]!.tracks[0]!.clips[0]!.id;
+    const shortened = applyCommand(project, {
+      type: "clip.trimEnd",
+      clipId,
+      atUs: 1_000_000,
+    }).project;
+
+    let snapshot!: Parameters<Parameters<PlaybackRuntime["subscribe"]>[0]>[0];
+    const unsubscribe = runtime.subscribe((value) => (snapshot = value));
+    runtime.setProject(shortened);
+    expect(snapshot.timeUs).toBe(1_000_000);
+    await flush();
+    unsubscribe();
+    expect(snapshot.timeUs).toBe(1_000_000);
+    expect(snapshot.mode).toEqual({ kind: "timeline", timeUs: 1_000_000 });
+    runtime.destroy();
   });
 
   it("steps exact sequence frames and exposes bounded J/K/L shuttle rates", async () => {
