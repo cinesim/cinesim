@@ -32,6 +32,8 @@ export interface MediaSourceDescriptor {
 
 export interface MediaSourceResolver {
   resolve(assetId: AssetId): MediaSourceDescriptor;
+  /** Resolve the canonical source even when the preferred playback source is a video-only proxy. */
+  resolveOriginal(assetId: AssetId): MediaSourceDescriptor;
   invalidate?(assetId?: AssetId): void;
 }
 

@@ -662,6 +662,63 @@ describe("PlaybackRuntime transport", () => {
     runtime.destroy();
   });
 
+  it("opens the resolver's canonical original source for playback audio", async () => {
+    const audibleAsset: Asset = { ...asset, hasAudio: true };
+    const openedUrls: string[] = [];
+    const audioScheduler: PlaybackAudioScheduler = {
+      startTransport: () => undefined,
+      schedule: async () => undefined,
+      resume: async () => undefined,
+      stop: () => undefined,
+      destroy: async () => undefined,
+    };
+    const runtime = new PlaybackRuntime(timelineProject(audibleAsset), compositor([]), {
+      now: () => 0,
+      scheduleFrame: () => 1,
+      cancelFrame: () => undefined,
+      audioSchedulerFactory: () => audioScheduler,
+      sourceResolver: {
+        resolve: (assetId) => ({
+          assetId,
+          kind: "proxy",
+          url: "cinesim-media://proxy/scoped/asset_000001",
+        }),
+        resolveOriginal: (assetId) => ({
+          assetId,
+          kind: "original",
+          url: "cinesim-media://asset/scoped/asset_000001?epoch=current",
+        }),
+      },
+      sourceFactory: (descriptor) => {
+        openedUrls.push(descriptor.url);
+        return {
+          prepare: async () => ({
+            durationUs: audibleAsset.durationUs,
+            width: 1920,
+            height: 1080,
+            frameRate: 30,
+            hasAudio: true,
+          }),
+          seek: async () => undefined,
+          getFrame: async (timeUs) => frame(timeUs),
+          buffers: async function* () {
+            // The URL selection occurs before scheduling begins.
+          },
+          destroy: () => undefined,
+        };
+      },
+    });
+
+    await runtime.initialize();
+    runtime.play();
+    await flush();
+
+    expect(openedUrls).toContain("cinesim-media://proxy/scoped/asset_000001");
+    expect(openedUrls).toContain("cinesim-media://asset/scoped/asset_000001?epoch=current");
+    expect(openedUrls).not.toContain("cinesim-media://asset/asset_000001");
+    runtime.destroy();
+  });
+
   it("closes a slow sequential bootstrap frame when playback is paused", async () => {
     let resolveBootstrap!: (frame: VideoFrame) => void;
     let reads = 0;

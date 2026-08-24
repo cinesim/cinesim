@@ -180,6 +180,11 @@ const defaultResolver: MediaSourceResolver = {
     kind: "original",
     url: `cinesim-media://asset/${assetId}`,
   }),
+  resolveOriginal: (assetId) => ({
+    assetId,
+    kind: "original",
+    url: `cinesim-media://asset/${assetId}`,
+  }),
 };
 
 const defaultSourceFactory: VideoSourceFactory = (descriptor) =>
@@ -716,11 +721,7 @@ export class PlaybackRuntime {
           const timelineFromUs = Math.max(fromUs, clip.timelineStartUs);
           const timelineToUs = Math.min(toUs, clipEndUs(clip));
           const sourceFromUs = clip.sourceStartUs + timelineFromUs - clip.timelineStartUs;
-          const source = this.#source({
-            assetId: asset.id,
-            kind: "original",
-            url: `cinesim-media://asset/${asset.id}`,
-          });
+          const source = this.#source(this.#sourceResolver.resolveOriginal(asset.id));
           if (!source.buffers) continue;
           work.push(
             this.#audioScheduler.schedule(

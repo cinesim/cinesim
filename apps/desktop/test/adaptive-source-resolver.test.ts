@@ -86,4 +86,16 @@ describe("AdaptiveSourceResolver", () => {
       url: "cinesim-media://asset/aaaaaaaaaaaaaaaaaaaaaaaa/asset_fixture?epoch=00000000-0000-4000-8000-000000000001",
     });
   });
+
+  it("resolves the scoped original explicitly when audio cannot use the video-only proxy", () => {
+    expect(
+      new AdaptiveSourceResolver(projectScope, () => snapshot("ready")).resolveOriginal(
+        "asset_fixture",
+      ),
+    ).toEqual({
+      assetId: "asset_fixture",
+      kind: "original",
+      url: "cinesim-media://asset/aaaaaaaaaaaaaaaaaaaaaaaa/asset_fixture?epoch=00000000-0000-4000-8000-000000000001",
+    });
+  });
 });
