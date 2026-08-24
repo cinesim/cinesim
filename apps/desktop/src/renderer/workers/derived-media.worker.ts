@@ -20,6 +20,7 @@ import {
 } from "mediabunny";
 import type { StreamTargetChunk } from "mediabunny";
 import type { DerivedWorkerRequest, DerivedWorkerResponse } from "../media/derived-worker-api";
+import { originalMediaUrl } from "../media/media-url";
 
 const scope = self as DedicatedWorkerGlobalScope;
 const canceled = new Set<string>();
@@ -69,10 +70,13 @@ async function generate(request: Extract<DerivedWorkerRequest, { type: "generate
   const started = performance.now();
   activity(request.jobId, "input-opening", started);
   const input = new Input({
-    source: new UrlSource(`cinesim-media://asset/${request.assetId}`, {
-      maxCacheSize: 32 * 1024 * 1024,
-      parallelism: 1,
-    }),
+    source: new UrlSource(
+      originalMediaUrl({ id: request.assetId as `asset_${string}` }, request.projectScope),
+      {
+        maxCacheSize: 32 * 1024 * 1024,
+        parallelism: 1,
+      },
+    ),
     formats: ALL_FORMATS,
   });
   try {
@@ -253,10 +257,13 @@ async function generateProxy(request: Extract<DerivedWorkerRequest, { type: "pro
   const started = performance.now();
   activity(request.jobId, "input-opening", started);
   const input = new Input({
-    source: new UrlSource(`cinesim-media://asset/${request.assetId}`, {
-      maxCacheSize: 32 * 1024 * 1024,
-      parallelism: 1,
-    }),
+    source: new UrlSource(
+      originalMediaUrl({ id: request.assetId as `asset_${string}` }, request.projectScope),
+      {
+        maxCacheSize: 32 * 1024 * 1024,
+        parallelism: 1,
+      },
+    ),
     formats: ALL_FORMATS,
   });
   let maxEnd = 0;

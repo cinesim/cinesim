@@ -23,6 +23,7 @@ import type {
   BeginDerivedWrite,
   DerivedArtifactKind,
   DerivedPerformanceObservation,
+  DerivedProjectScope,
   DerivedWorkerActivity,
   DerivedWorkerStage,
   FinalizeDerivedWrite,
@@ -32,6 +33,7 @@ import { detectProvider } from "./agent-provider-detection";
 import { AgentSettingsStore } from "./agent-settings-store";
 import { DesktopAppStateStore, parseEditorLayoutState } from "./app-state-store";
 import { electronHealthSnapshot } from "./electron-health";
+import { DERIVED_GENERATOR_VERSION } from "./derived-media-store";
 import { DesktopProjectStore } from "./project-store";
 
 const store = new DesktopProjectStore();
@@ -91,6 +93,20 @@ function isAgentEffort(value: unknown): value is NonNullable<AgentSessionUpdate[
     value === "xhigh" ||
     value === "max"
   );
+}
+
+function parseDerivedProjectScope(value: unknown): DerivedProjectScope {
+  if (typeof value !== "object" || value === null || Array.isArray(value))
+    throw new Error("Invalid derived media project scope");
+  const input = value as Record<string, unknown>;
+  if (
+    typeof input.cacheKey !== "string" ||
+    !/^[a-f0-9]{24}$/.test(input.cacheKey) ||
+    typeof input.epoch !== "string" ||
+    !/^[a-f0-9-]{36}$/.test(input.epoch)
+  )
+    throw new Error("Invalid derived media project scope");
+  return { cacheKey: input.cacheKey, epoch: input.epoch };
 }
 
 function parseDerivedWorkerActivity(value: unknown): DerivedWorkerActivity {
@@ -364,24 +380,43 @@ async function registerMediaProtocol(): Promise<void> {
       )[url.hostname as "thumbnail" | "filmstrip" | "proxy"];
       if (url.hostname !== "asset" && !derivedKind)
         return new Response("Not found", { status: 404 });
-      const assetId = url.pathname.slice(1);
+      const pathParts = url.pathname.split("/").filter(Boolean);
+      if (pathParts.length !== 2) return new Response("Bad media path", { status: 400 });
+      const [cacheKey, assetId] = pathParts as [string, string];
       if (!/^asset_[a-zA-Z0-9][a-zA-Z0-9_-]*$/.test(assetId))
         return new Response("Bad asset ID", { status: 400 });
+      let projectScope: DerivedProjectScope;
+      try {
+        projectScope = parseDerivedProjectScope({
+          cacheKey,
+          epoch: url.searchParams.get("epoch"),
+        });
+      } catch {
+        return new Response("Bad project scope", { status: 400 });
+      }
+      try {
+        store.derivedMedia.assertScope(projectScope);
+      } catch {
+        return new Response("Stale project scope", { status: 409 });
+      }
       diagnosticAssetId = assetId;
       const range = request.headers.get("range");
       if (derivedKind) {
-        if (url.searchParams.get("v") !== "1")
+        if (url.searchParams.get("v") !== DERIVED_GENERATOR_VERSION)
           return new Response("Unknown generator version", { status: 404 });
         const profileId = url.searchParams.get("profile") ?? undefined;
+        const revision = url.searchParams.get("revision") ?? undefined;
         if (
           (derivedKind === "proxy" && !profileId) ||
           (profileId !== undefined && !/^[a-z0-9][a-z0-9_-]{0,63}$/.test(profileId))
         )
           return new Response("Bad proxy profile", { status: 400 });
         const result = await store.derivedMedia.artifactFile(
+          projectScope,
           derivedKind as DerivedArtifactKind,
           assetId,
           profileId,
+          revision,
         );
         if (request.method === "HEAD")
           return new Response(null, {
@@ -516,14 +551,17 @@ function registerIpc(): void {
       session = await store.inspectAndImportMedia(filePath);
     return session;
   });
-  ipcMain.handle("derived:get", () => store.derivedMedia.snapshot());
-  ipcMain.handle("derived:request-jobs", (_event, assetIds: unknown) => {
+  ipcMain.handle("derived:get", (_event, scope: unknown) => {
+    store.derivedMedia.assertScope(parseDerivedProjectScope(scope));
+    return store.derivedMedia.snapshot();
+  });
+  ipcMain.handle("derived:request-jobs", (_event, scope: unknown, assetIds: unknown) => {
     if (!Array.isArray(assetIds) || assetIds.some((id) => typeof id !== "string"))
       throw new Error("Invalid derived job request");
-    return store.derivedMedia.requestJobs(assetIds);
+    return store.derivedMedia.requestJobs(parseDerivedProjectScope(scope), assetIds);
   });
-  ipcMain.handle("derived:write:begin", (_event, input: unknown) =>
-    store.derivedMedia.beginWrite(input as BeginDerivedWrite),
+  ipcMain.handle("derived:write:begin", (_event, scope: unknown, input: unknown) =>
+    store.derivedMedia.beginWrite(parseDerivedProjectScope(scope), input as BeginDerivedWrite),
   );
   ipcMain.handle(
     "derived:write:chunk",
@@ -559,11 +597,17 @@ function registerIpc(): void {
       throw new Error("Invalid derived progress");
     return store.derivedMedia.updateProgress(writerId, progress);
   });
-  ipcMain.handle("derived:activity", (_event, activity: unknown) =>
-    store.derivedMedia.reportActivity(parseDerivedWorkerActivity(activity)),
+  ipcMain.handle("derived:activity", (_event, scope: unknown, activity: unknown) =>
+    store.derivedMedia.reportActivity(
+      parseDerivedProjectScope(scope),
+      parseDerivedWorkerActivity(activity),
+    ),
   );
-  ipcMain.handle("derived:performance", (_event, observation: unknown) =>
-    store.derivedMedia.reportPerformance(observation as DerivedPerformanceObservation),
+  ipcMain.handle("derived:performance", (_event, scope: unknown, observation: unknown) =>
+    store.derivedMedia.reportPerformance(
+      parseDerivedProjectScope(scope),
+      observation as DerivedPerformanceObservation,
+    ),
   );
   ipcMain.handle("command:execute", (_event, command: EditorCommand) => store.execute(command));
   ipcMain.handle("app-state:get", () => appState.snapshot());

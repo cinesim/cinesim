@@ -2,11 +2,17 @@ import type { CommandResult, EditorCommand, Project, ProjectSettings } from "@ci
 
 export interface DesktopProjectSession {
   directory: string;
+  derivedScope: DerivedProjectScope;
   project: Project;
   settings: ProjectSettings;
   revision: number;
   canUndo: boolean;
   canRedo: boolean;
+}
+
+export interface DerivedProjectScope {
+  cacheKey: string;
+  epoch: string;
 }
 
 export type DerivedArtifactKind = "thumbnail" | "filmstrip" | "proxy";
@@ -130,6 +136,7 @@ export interface DerivedRuntimeSnapshot {
 export interface DerivedMediaSnapshot {
   version: 1;
   generatorVersion: string;
+  projectScope: DerivedProjectScope;
   assets: Record<string, DerivedAssetSnapshot>;
   storage: {
     totalBytes: number;
@@ -373,15 +380,21 @@ export interface DesktopApi {
   openProject(): Promise<DesktopProjectSession | null>;
   openRecentProject(directory: string): Promise<DesktopProjectSession>;
   importMedia(): Promise<DesktopProjectSession | null>;
-  getDerivedMediaSnapshot(): Promise<DerivedMediaSnapshot>;
-  requestDerivedJobs(assetIds: string[]): Promise<DerivedMediaSnapshot>;
-  beginDerivedWrite(input: BeginDerivedWrite): Promise<{ writerId: string }>;
+  getDerivedMediaSnapshot(scope: DerivedProjectScope): Promise<DerivedMediaSnapshot>;
+  requestDerivedJobs(scope: DerivedProjectScope, assetIds: string[]): Promise<DerivedMediaSnapshot>;
+  beginDerivedWrite(
+    scope: DerivedProjectScope,
+    input: BeginDerivedWrite,
+  ): Promise<{ writerId: string }>;
   writeDerivedChunk(writerId: string, offset: number, data: Uint8Array): Promise<void>;
   finalizeDerivedWrite(writerId: string, result: FinalizeDerivedWrite): Promise<void>;
   cancelDerivedWrite(writerId: string, failureCode?: string, detail?: string): Promise<void>;
   updateDerivedProgress(writerId: string, progress: number): Promise<void>;
-  reportDerivedActivity(activity: DerivedWorkerActivity): Promise<void>;
-  reportDerivedPerformance(observation: DerivedPerformanceObservation): Promise<void>;
+  reportDerivedActivity(scope: DerivedProjectScope, activity: DerivedWorkerActivity): Promise<void>;
+  reportDerivedPerformance(
+    scope: DerivedProjectScope,
+    observation: DerivedPerformanceObservation,
+  ): Promise<void>;
   execute(
     command: EditorCommand,
   ): Promise<{ session: DesktopProjectSession; result: Omit<CommandResult, "project"> }>;

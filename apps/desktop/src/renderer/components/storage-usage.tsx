@@ -1,5 +1,6 @@
 import { Database } from "lucide-react";
 import type { DerivedMediaSnapshot } from "../../shared/api";
+import { formatByteCount } from "../lib/format";
 
 type StorageSnapshot = DerivedMediaSnapshot["storage"];
 
@@ -30,7 +31,7 @@ export function StorageUsage({ storage }: { storage: StorageSnapshot | undefined
         <div className="flex items-baseline justify-between gap-3">
           <h4 className="text-ui font-medium text-primary">Project cache</h4>
           <p className="text-right text-ui-xs tabular-nums text-secondary">
-            {formatStorageBytes(totalBytes)} of {formatStorageBytes(budgetBytes)} used
+            {formatByteCount(totalBytes)} of {formatByteCount(budgetBytes)} used
           </p>
         </div>
 
@@ -40,7 +41,7 @@ export function StorageUsage({ storage }: { storage: StorageSnapshot | undefined
             return (
               <span
                 key={category.key}
-                title={`${category.label}: ${formatStorageBytes(bytes)}`}
+                title={`${category.label}: ${formatByteCount(bytes)}`}
                 style={{
                   background: category.color,
                   flexBasis: `${(bytes / scaleBytes) * 100}%`,
@@ -51,17 +52,17 @@ export function StorageUsage({ storage }: { storage: StorageSnapshot | undefined
           })}
           <span
             className="min-w-0 bg-surface"
-            title={`Available budget: ${formatStorageBytes(remainingBytes)}`}
+            title={`Available budget: ${formatByteCount(remainingBytes)}`}
             style={{ flexBasis: `${(remainingBytes / scaleBytes) * 100}%` }}
           />
         </div>
         <p className="sr-only">
-          {formatStorageBytes(totalBytes)} of {formatStorageBytes(budgetBytes)} used
+          {formatByteCount(totalBytes)} of {formatByteCount(budgetBytes)} used
         </p>
 
         <div className="mt-1 flex items-center justify-between text-[10px] tabular-nums text-muted">
           <span>{formatPercentage(usedPercentage)} used</span>
-          <span>{formatStorageBytes(remainingBytes)} available</span>
+          <span>{formatByteCount(remainingBytes)} available</span>
         </div>
 
         <ul className="mt-3 flex flex-wrap gap-x-4 gap-y-1.5">
@@ -74,7 +75,7 @@ export function StorageUsage({ storage }: { storage: StorageSnapshot | undefined
               >
                 <span className="size-2 rounded-full" style={{ background: category.color }} />
                 <span>{category.label}</span>
-                <span className="tabular-nums text-primary">{formatStorageBytes(bytes)}</span>
+                <span className="tabular-nums text-primary">{formatByteCount(bytes)}</span>
               </li>
             );
           })}
@@ -83,7 +84,7 @@ export function StorageUsage({ storage }: { storage: StorageSnapshot | undefined
         <dl className="mt-3 border-t border-border pt-2">
           <StorageRow
             label="Disk safety reserve"
-            value={formatStorageBytes(storage?.safetyReserveBytes ?? 0)}
+            value={formatByteCount(storage?.safetyReserveBytes ?? 0)}
           />
           <StorageRow label="Automatic evictions" value={storage?.evictionCount ?? 0} />
           {storage?.lastEvictionReason && (
@@ -109,11 +110,4 @@ function formatPercentage(value: number): string {
   if (value < 0.1) return "<0.1%";
   if (value < 10) return `${value.toFixed(1)}%`;
   return `${Math.round(value)}%`;
-}
-
-function formatStorageBytes(value: number): string {
-  if (value < 1024) return `${value} B`;
-  if (value < 1024 ** 2) return `${(value / 1024).toFixed(1)} KB`;
-  if (value < 1024 ** 3) return `${(value / 1024 ** 2).toFixed(1)} MB`;
-  return `${(value / 1024 ** 3).toFixed(1)} GB`;
 }

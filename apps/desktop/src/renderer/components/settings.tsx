@@ -16,6 +16,12 @@ import type {
   AgentProviderStatus,
   AgentSettings,
 } from "../../shared/api";
+import {
+  AGENT_EFFORTS,
+  AGENT_PROVIDER_KINDS,
+  effortLabel,
+  providerLabel,
+} from "../agents/provider-catalog";
 
 interface SettingsProps {
   section: "general" | "agents";
@@ -120,7 +126,7 @@ function AgentSettings() {
       </div>
 
       <div className="mb-6 flex border-b border-border" role="tablist" aria-label="Agent provider">
-        {(["claude", "codex"] as const).map((candidate) => {
+        {AGENT_PROVIDER_KINDS.map((candidate) => {
           const candidateStatus = statuses.find((entry) => entry.provider === candidate);
           return (
             <button
@@ -140,7 +146,7 @@ function AgentSettings() {
                   candidateStatus?.state === "connected" ? "bg-emerald-500" : "bg-disabled",
                 )}
               />
-              {candidate === "claude" ? "Claude Code" : "Codex"}
+              {providerLabel(candidate)}
             </button>
           );
         })}
@@ -162,7 +168,7 @@ function AgentSettings() {
       <div className="mt-7 divide-y divide-border rounded-xl border border-border bg-panel">
         <SettingRow
           title="Executable path"
-          detail={`Leave empty to detect the system ${provider === "claude" ? "Claude Code" : "Codex"} executable.`}
+          detail={`Leave empty to detect the system ${providerLabel(provider)} executable.`}
         >
           <div className="flex min-w-0 gap-2">
             <input
@@ -214,11 +220,11 @@ function AgentSettings() {
             value={configured.effort}
             onChange={(event) => void updateProvider({ effort: event.target.value as AgentEffort })}
           >
-            <option value="low">Low</option>
-            <option value="medium">Medium</option>
-            <option value="high">High</option>
-            <option value="xhigh">Extra high</option>
-            <option value="max">Maximum</option>
+            {AGENT_EFFORTS.map((effort) => (
+              <option key={effort} value={effort}>
+                {effortLabel(effort)}
+              </option>
+            ))}
           </select>
         </SettingRow>
         <SettingRow

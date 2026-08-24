@@ -2,10 +2,16 @@ import { describe, expect, it } from "vitest";
 import type { Asset } from "@cinesim/core";
 import type { DerivedArtifactState, DerivedMediaSnapshot } from "../src/shared/api";
 import {
+  filmstripPresentationReady,
   skimPositionPercent,
   thumbnailPresentation,
 } from "../src/renderer/components/media-skim-surface";
-import { derivedArtifactUrl } from "../src/renderer/media/media-job-coordinator";
+import { derivedArtifactUrl } from "../src/renderer/media/media-url";
+
+const projectScope = {
+  cacheKey: "aaaaaaaaaaaaaaaaaaaaaaaa",
+  epoch: "00000000-0000-4000-8000-000000000001",
+};
 
 const asset: Asset = {
   id: "asset_fixture",
@@ -18,14 +24,15 @@ const asset: Asset = {
 function snapshot(thumbnailState: DerivedArtifactState): DerivedMediaSnapshot {
   return {
     version: 1,
-    generatorVersion: "1",
+    generatorVersion: "2",
+    projectScope,
     assets: {
       asset_fixture: {
         assetId: "asset_fixture",
         fingerprintStatus: "current",
         thumbnail:
           thumbnailState === "ready"
-            ? { state: "ready", bytes: 100 }
+            ? { state: "ready", bytes: 100, updatedAt: "thumbnail-revision" }
             : thumbnailState === "failed"
               ? { state: "failed", failureCode: "generation-failed" }
               : { state: thumbnailState },
@@ -79,9 +86,38 @@ describe("MediaSkimSurface", () => {
 
   it("shows a generated thumbnail without waiting for a filmstrip", () => {
     expect(presentation("ready")).toBe("ready");
-    expect(derivedArtifactUrl("thumbnail", asset)).toBe(
-      "cinesim-media://thumbnail/asset_fixture?v=1",
+    expect(derivedArtifactUrl("thumbnail", asset, projectScope, "2", "thumbnail-revision")).toBe(
+      "cinesim-media://thumbnail/aaaaaaaaaaaaaaaaaaaaaaaa/asset_fixture?epoch=00000000-0000-4000-8000-000000000001&v=2&revision=thumbnail-revision",
     );
+  });
+
+  it("uses different immutable URLs for identical asset IDs in different projects", () => {
+    const first = derivedArtifactUrl("filmstrip", asset, projectScope, "2", "filmstrip-revision");
+    const second = derivedArtifactUrl(
+      "filmstrip",
+      asset,
+      { ...projectScope, cacheKey: "bbbbbbbbbbbbbbbbbbbbbbbb" },
+      "2",
+      "filmstrip-revision",
+    );
+    expect(first).not.toBe(second);
+  });
+
+  it("rejects incomplete or inconsistent filmstrip tile metadata", () => {
+    const record = snapshot("ready").assets.asset_fixture!;
+    record.filmstrip = {
+      state: "ready",
+      bytes: 100,
+      updatedAt: "filmstrip-revision",
+      tileTimesUs: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9],
+      columns: 8,
+      rows: 4,
+      tileWidth: 160,
+      tileHeight: 90,
+    };
+    expect(filmstripPresentationReady(record)).toBe(false);
+    record.filmstrip.rows = 2;
+    expect(filmstripPresentationReady(record)).toBe(true);
   });
 
   it("surfaces thumbnail generation failure", () => {

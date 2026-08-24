@@ -7,9 +7,10 @@ const api: DesktopApi = {
   openProject: () => ipcRenderer.invoke("project:open"),
   openRecentProject: (directory) => ipcRenderer.invoke("project:open-recent", directory),
   importMedia: () => ipcRenderer.invoke("media:import"),
-  getDerivedMediaSnapshot: () => ipcRenderer.invoke("derived:get"),
-  requestDerivedJobs: (assetIds) => ipcRenderer.invoke("derived:request-jobs", assetIds),
-  beginDerivedWrite: (input) => ipcRenderer.invoke("derived:write:begin", input),
+  getDerivedMediaSnapshot: (scope) => ipcRenderer.invoke("derived:get", scope),
+  requestDerivedJobs: (scope, assetIds) =>
+    ipcRenderer.invoke("derived:request-jobs", scope, assetIds),
+  beginDerivedWrite: (scope, input) => ipcRenderer.invoke("derived:write:begin", scope, input),
   writeDerivedChunk: (writerId, offset, data) =>
     ipcRenderer.invoke("derived:write:chunk", writerId, offset, data),
   finalizeDerivedWrite: (writerId, result) =>
@@ -18,8 +19,10 @@ const api: DesktopApi = {
     ipcRenderer.invoke("derived:write:cancel", writerId, failureCode, detail),
   updateDerivedProgress: (writerId, progress) =>
     ipcRenderer.invoke("derived:write:progress", writerId, progress),
-  reportDerivedActivity: (activity) => ipcRenderer.invoke("derived:activity", activity),
-  reportDerivedPerformance: (observation) => ipcRenderer.invoke("derived:performance", observation),
+  reportDerivedActivity: (scope, activity) =>
+    ipcRenderer.invoke("derived:activity", scope, activity),
+  reportDerivedPerformance: (scope, observation) =>
+    ipcRenderer.invoke("derived:performance", scope, observation),
   execute: (command: EditorCommand) => ipcRenderer.invoke("command:execute", command),
   undo: () => ipcRenderer.invoke("project:undo"),
   redo: () => ipcRenderer.invoke("project:redo"),

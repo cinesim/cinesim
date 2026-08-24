@@ -2,6 +2,7 @@ import type { Asset, Project } from "@cinesim/core";
 import type {
   DerivedArtifactKind,
   DerivedMediaSnapshot,
+  DerivedProjectScope,
   FinalizeDerivedWrite,
 } from "../../shared/api";
 import type { DerivedWorkerRequest, DerivedWorkerResponse } from "./derived-worker-api";
@@ -18,6 +19,7 @@ const WORKER_INACTIVITY_TIMEOUT_MS = 120_000;
 
 export class MediaJobCoordinator {
   #project: Project;
+  readonly #projectScope: DerivedProjectScope;
   #snapshot: DerivedMediaSnapshot | null = null;
   #worker: Worker | null = null;
   #active: ActiveJob | null = null;
@@ -29,8 +31,13 @@ export class MediaJobCoordinator {
   #foregroundPressure: "idle" | "hover-skimming" | "seeking" | "playing" = "idle";
   readonly #onSnapshot: (snapshot: DerivedMediaSnapshot) => void;
 
-  constructor(project: Project, onSnapshot: (snapshot: DerivedMediaSnapshot) => void) {
+  constructor(
+    project: Project,
+    projectScope: DerivedProjectScope,
+    onSnapshot: (snapshot: DerivedMediaSnapshot) => void,
+  ) {
     this.#project = project;
+    this.#projectScope = projectScope;
     this.#onSnapshot = onSnapshot;
   }
 
@@ -40,7 +47,7 @@ export class MediaJobCoordinator {
     this.#unsubscribe = window.cinesim.onDerivedMediaChanged((snapshot) => {
       this.#acceptSnapshot(snapshot);
     });
-    this.#acceptSnapshot(await window.cinesim.getDerivedMediaSnapshot());
+    this.#acceptSnapshot(await window.cinesim.getDerivedMediaSnapshot(this.#projectScope));
     await this.updateProject(this.#project);
   }
 
@@ -72,7 +79,7 @@ export class MediaJobCoordinator {
     const videoIds = project.assets
       .filter((asset) => asset.kind === "video")
       .map((asset) => asset.id);
-    this.#acceptSnapshot(await window.cinesim.requestDerivedJobs(videoIds));
+    this.#acceptSnapshot(await window.cinesim.requestDerivedJobs(this.#projectScope, videoIds));
   }
 
   async destroy(): Promise<void> {
@@ -127,7 +134,12 @@ export class MediaJobCoordinator {
   }
 
   #acceptSnapshot(snapshot: DerivedMediaSnapshot): void {
-    if (this.#destroyed) return;
+    if (
+      this.#destroyed ||
+      snapshot.projectScope.cacheKey !== this.#projectScope.cacheKey ||
+      snapshot.projectScope.epoch !== this.#projectScope.epoch
+    )
+      return;
     this.#snapshot = snapshot;
     this.#onSnapshot(snapshot);
     void this.#schedule();
@@ -164,10 +176,13 @@ export class MediaJobCoordinator {
     this.#active = active;
     try {
       for (const kind of kinds) {
-        const writer = await window.cinesim.beginDerivedWrite({ assetId: asset.id, kind });
+        const writer = await window.cinesim.beginDerivedWrite(this.#projectScope, {
+          assetId: asset.id,
+          kind,
+        });
         active.writers[kind] = writer.writerId;
       }
-      await window.cinesim.reportDerivedActivity({
+      await window.cinesim.reportDerivedActivity(this.#projectScope, {
         jobId,
         assetId: asset.id,
         jobKind: "perception",
@@ -178,6 +193,7 @@ export class MediaJobCoordinator {
         type: "generate",
         jobId,
         assetId: asset.id,
+        projectScope: this.#projectScope,
         durationUs: asset.durationUs,
         kinds,
         ...(record.thumbnail.sourceTimeUs !== undefined
@@ -205,13 +221,13 @@ export class MediaJobCoordinator {
     };
     this.#active = active;
     try {
-      const writer = await window.cinesim.beginDerivedWrite({
+      const writer = await window.cinesim.beginDerivedWrite(this.#projectScope, {
         assetId: asset.id,
         kind: "proxy",
         profileId: "edit-1280",
       });
       active.writers.proxy = writer.writerId;
-      await window.cinesim.reportDerivedActivity({
+      await window.cinesim.reportDerivedActivity(this.#projectScope, {
         jobId,
         assetId: asset.id,
         jobKind: "proxy",
@@ -222,6 +238,7 @@ export class MediaJobCoordinator {
         type: "proxy",
         jobId,
         assetId: asset.id,
+        projectScope: this.#projectScope,
         width: asset.width ?? 1280,
         height: asset.height ?? 720,
         ...(asset.frameRate ? { frameRate: asset.frameRate } : {}),
@@ -239,7 +256,7 @@ export class MediaJobCoordinator {
     if (active.kind !== "proxy" || this.#foregroundPressure === "idle")
       this.#armWorkerInactivityTimer(active.jobId);
     if (message.type === "activity") {
-      await window.cinesim.reportDerivedActivity({
+      await window.cinesim.reportDerivedActivity(this.#projectScope, {
         jobId: active.jobId,
         assetId: active.assetId,
         jobKind: active.kind,
@@ -335,7 +352,7 @@ export class MediaJobCoordinator {
       return;
     }
     try {
-      await window.cinesim.reportDerivedPerformance({
+      await window.cinesim.reportDerivedPerformance(this.#projectScope, {
         assetId: active.assetId,
         sourceKind: "original",
         operation: "sampling",
@@ -379,7 +396,7 @@ export class MediaJobCoordinator {
     this.#active = null;
     if (!active) return;
     await window.cinesim
-      .reportDerivedActivity({
+      .reportDerivedActivity(this.#projectScope, {
         jobId: active.jobId,
         assetId: active.assetId,
         jobKind: active.kind,
@@ -394,7 +411,11 @@ export class MediaJobCoordinator {
         window.cinesim.cancelDerivedWrite(writerId, failureCode, detail).catch(() => undefined),
       ),
     );
-    if (!this.#destroyed) this.#acceptSnapshot(await window.cinesim.getDerivedMediaSnapshot());
+    if (!this.#destroyed)
+      await window.cinesim
+        .getDerivedMediaSnapshot(this.#projectScope)
+        .then((snapshot) => this.#acceptSnapshot(snapshot))
+        .catch(() => undefined);
   }
 
   #armWorkerInactivityTimer(jobId: string): void {
@@ -424,12 +445,4 @@ export class MediaJobCoordinator {
     this.#createWorker();
     await this.#schedule();
   }
-}
-
-export function derivedArtifactUrl(
-  kind: Exclude<DerivedArtifactKind, "proxy">,
-  asset: Pick<Asset, "id">,
-  generatorVersion = "1",
-): string {
-  return `cinesim-media://${kind}/${asset.id}?v=${encodeURIComponent(generatorVersion)}`;
 }

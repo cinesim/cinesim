@@ -1,20 +1,19 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Clock3, Film, Search } from "lucide-react";
 import { Button } from "@cinesim/ui";
-import { getSequence, sequenceDurationUs } from "@cinesim/core";
+import { sequenceDurationUs } from "@cinesim/core";
 import type { Asset, Project } from "@cinesim/core";
-import type { DesktopProjectSession } from "../../shared/api";
 import { formatDuration } from "../lib/format";
+import { useRendererStore } from "../store/renderer-store-context";
 import { LibraryCard, LibraryGrid } from "./library-card";
 import { MediaSkimSurface } from "./media-skim-surface";
 
 interface MediaBinProps {
   project: Project;
-  onSession: (session: DesktopProjectSession) => void;
   onOpenTimeline: (sequenceId: string) => void;
 }
 
-export function MediaBin({ project, onSession, onOpenTimeline }: MediaBinProps) {
+export function MediaBin({ project, onOpenTimeline }: MediaBinProps) {
   const [query, setQuery] = useState("");
   const modifier = window.cinesim.platform === "darwin" ? "⌘" : "Ctrl+";
   const normalizedQuery = query.trim().toLowerCase();
@@ -28,10 +27,10 @@ export function MediaBin({ project, onSession, onOpenTimeline }: MediaBinProps) 
     [normalizedQuery, project.assets],
   );
 
-  const importMedia = useCallback(async () => {
-    const session = await window.cinesim.importMedia();
-    if (session) onSession(session);
-  }, [onSession]);
+  const importProjectMedia = useRendererStore((state) => state.importMedia);
+  const appendAsset = useRendererStore((state) => state.appendAsset);
+  const activeSequenceId = useRendererStore((state) => state.activeSequenceId);
+  const importMedia = useCallback(async () => importProjectMedia(), [importProjectMedia]);
 
   useEffect(() => {
     function shortcut(event: KeyboardEvent) {
@@ -50,19 +49,7 @@ export function MediaBin({ project, onSession, onOpenTimeline }: MediaBinProps) 
   }, [importMedia]);
 
   async function addToTimeline(asset: Asset) {
-    const sequence = getSequence(project);
-    const track = sequence.tracks.find(
-      (candidate) => candidate.kind === (asset.kind === "audio" ? "audio" : "video"),
-    );
-    if (!track) return;
-    const timelineStartUs = sequenceDurationUs(sequence);
-    const response = await window.cinesim.execute({
-      type: "clip.add",
-      trackId: track.id,
-      assetId: asset.id,
-      timelineStartUs,
-    });
-    onSession(response.session);
+    await appendAsset(asset.id, activeSequenceId ?? project.activeSequenceId);
   }
 
   return (
@@ -116,8 +103,8 @@ export function MediaBin({ project, onSession, onOpenTimeline }: MediaBinProps) 
             <LibraryCard
               key={asset.id}
               badge={asset.kind}
-              ariaLabel={`Add ${asset.name} to the default timeline`}
-              title="Double-click to add to the default timeline"
+              ariaLabel={`Add ${asset.name} to the active timeline`}
+              title="Double-click to add to the active timeline"
               previewClassName="media-thumbnail"
               preview={<MediaSkimSurface asset={asset} />}
               bottomCorner={

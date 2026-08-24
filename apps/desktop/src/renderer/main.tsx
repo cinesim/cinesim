@@ -7,6 +7,7 @@ import {
   RouterProvider,
 } from "@tanstack/react-router";
 import { App } from "./app";
+import { RendererControllerProvider } from "./store/renderer-store-context";
 import "./styles.css";
 
 const rootRoute = createRootRoute({ component: App });
@@ -24,6 +25,8 @@ declare module "@tanstack/react-router" {
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
-    <RouterProvider router={router} />
+    <RendererControllerProvider api={window.cinesim}>
+      <RouterProvider router={router} />
+    </RendererControllerProvider>
   </StrictMode>,
 );

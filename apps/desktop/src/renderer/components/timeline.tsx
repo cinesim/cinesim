@@ -1,24 +1,24 @@
-import { useMemo } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { DndContext, PointerSensor, useDraggable, useSensor, useSensors } from "@dnd-kit/core";
 import type { DragEndEvent } from "@dnd-kit/core";
 import { Scissors, MousePointer2, Trash2, ZoomIn, ZoomOut, Lock, VolumeX } from "lucide-react";
 import { Button, cn } from "@cinesim/ui";
-import {
-  clipDurationUs,
-  clipEndUs,
-  findClip,
-  getSequence,
-  sequenceDurationUs,
-} from "@cinesim/core";
+import { clipDurationUs, findClip, getSequence, sequenceDurationUs } from "@cinesim/core";
 import type { Clip, EditorCommand, Project, Track } from "@cinesim/core";
+import {
+  IDLE_TRIM_GESTURE,
+  transitionTrimGesture,
+  type TrimGestureState,
+} from "../interactions/trim-gesture";
 import { formatTimecode } from "../lib/format";
-import { useUiStore } from "../store/ui-store";
+import type { ActionResult } from "../store/renderer-store";
+import { useRendererStore } from "../store/renderer-store-context";
 
 const BASE_PIXELS_PER_SECOND = 86;
 
 interface TimelineProps {
   project: Project;
-  onCommand: (command: EditorCommand) => Promise<void>;
+  onCommand: (command: EditorCommand) => Promise<ActionResult<unknown>>;
   onSeek?: (timeUs: number) => void;
 }
 
@@ -28,12 +28,12 @@ interface ClipBlockProps {
   pixelsPerUs: number;
   selected: boolean;
   name: string;
-  onCommand: (command: EditorCommand) => Promise<void>;
+  onCommand: (command: EditorCommand) => Promise<ActionResult<unknown>>;
 }
 
 function ClipBlock({ clip, track, pixelsPerUs, selected, name, onCommand }: ClipBlockProps) {
-  const tool = useUiStore((state) => state.tool);
-  const selectClip = useUiStore((state) => state.selectClip);
+  const tool = useRendererStore((state) => state.tool);
+  const selectClip = useRendererStore((state) => state.selectClip);
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
     id: clip.id,
     data: { clipId: clip.id, trackId: track.id },
@@ -41,24 +41,49 @@ function ClipBlock({ clip, track, pixelsPerUs, selected, name, onCommand }: Clip
   });
   const left = clip.timelineStartUs * pixelsPerUs;
   const width = Math.max(18, clipDurationUs(clip) * pixelsPerUs);
+  const trimGesture = useRef<TrimGestureState>(IDLE_TRIM_GESTURE);
+
+  useEffect(
+    () => () => {
+      trimGesture.current = IDLE_TRIM_GESTURE;
+    },
+    [],
+  );
 
   function trim(which: "start" | "end", event: React.PointerEvent) {
     event.stopPropagation();
-    const origin = event.clientX;
-    const target = event.currentTarget;
-    target.setPointerCapture(event.pointerId);
-    const finish = (rawEvent: Event) => {
-      const up = rawEvent as PointerEvent;
-      const deltaUs = Math.round((up.clientX - origin) / pixelsPerUs);
-      const atUs = which === "start" ? clip.timelineStartUs + deltaUs : clipEndUs(clip) + deltaUs;
-      void onCommand({
-        type: which === "start" ? "clip.trimStart" : "clip.trimEnd",
-        clipId: clip.id,
-        atUs,
-      });
-      target.removeEventListener("pointerup", finish);
-    };
-    target.addEventListener("pointerup", finish);
+    const transition = transitionTrimGesture(trimGesture.current, {
+      type: "start",
+      pointerId: event.pointerId,
+      edge: which,
+      clientX: event.clientX,
+      pixelsPerUs,
+      clip,
+    });
+    trimGesture.current = transition.state;
+    if (transition.state.status === "trimming")
+      event.currentTarget.setPointerCapture(event.pointerId);
+  }
+
+  function finishTrim(event: React.PointerEvent<HTMLButtonElement>) {
+    const transition = transitionTrimGesture(trimGesture.current, {
+      type: "finish",
+      pointerId: event.pointerId,
+      clientX: event.clientX,
+    });
+    trimGesture.current = transition.state;
+    if (event.currentTarget.hasPointerCapture(event.pointerId))
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    if (transition.command) void onCommand(transition.command);
+  }
+
+  function cancelTrim(event: React.PointerEvent<HTMLButtonElement>) {
+    trimGesture.current = transitionTrimGesture(trimGesture.current, {
+      type: "cancel",
+      pointerId: event.pointerId,
+    }).state;
+    if (event.currentTarget.hasPointerCapture(event.pointerId))
+      event.currentTarget.releasePointerCapture(event.pointerId);
   }
 
   function activate(event: React.MouseEvent<HTMLButtonElement>) {
@@ -109,26 +134,32 @@ function ClipBlock({ clip, track, pixelsPerUs, selected, name, onCommand }: Clip
         aria-label="Trim clip start"
         className="absolute inset-y-0 left-0 w-1.5 cursor-ew-resize hover:bg-primary"
         onPointerDown={(event) => trim("start", event)}
+        onPointerUp={finishTrim}
+        onPointerCancel={cancelTrim}
+        onLostPointerCapture={cancelTrim}
       />
       <button
         type="button"
         aria-label="Trim clip end"
         className="absolute inset-y-0 right-0 w-1.5 cursor-ew-resize hover:bg-primary"
         onPointerDown={(event) => trim("end", event)}
+        onPointerUp={finishTrim}
+        onPointerCancel={cancelTrim}
+        onLostPointerCapture={cancelTrim}
       />
     </div>
   );
 }
 
 export function Timeline({ project, onCommand, onSeek }: TimelineProps) {
-  const zoom = useUiStore((state) => state.timelineZoom);
-  const setZoom = useUiStore((state) => state.setTimelineZoom);
-  const tool = useUiStore((state) => state.tool);
-  const setTool = useUiStore((state) => state.setTool);
-  const selectedClipId = useUiStore((state) => state.selectedClipId);
-  const selectClip = useUiStore((state) => state.selectClip);
-  const playheadUs = useUiStore((state) => state.playheadUs);
-  const setPlayheadUs = useUiStore((state) => state.setPlayheadUs);
+  const zoom = useRendererStore((state) => state.timelineZoom);
+  const setZoom = useRendererStore((state) => state.setTimelineZoom);
+  const tool = useRendererStore((state) => state.tool);
+  const setTool = useRendererStore((state) => state.setTool);
+  const selectedClipId = useRendererStore((state) => state.selectedClipId);
+  const selectClip = useRendererStore((state) => state.selectClip);
+  const playheadUs = useRendererStore((state) => state.playheadUs);
+  const setPlayheadUs = useRendererStore((state) => state.setPlayheadUs);
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }));
   const sequence = getSequence(project);
   const pixelsPerUs = (BASE_PIXELS_PER_SECOND * zoom) / 1_000_000;
@@ -202,9 +233,9 @@ export function Timeline({ project, onCommand, onSeek }: TimelineProps) {
           disabled={!selectedClipId}
           onClick={() =>
             selectedClipId &&
-            void onCommand({ type: "clip.remove", clipId: selectedClipId }).then(() =>
-              selectClip(null),
-            )
+            void onCommand({ type: "clip.remove", clipId: selectedClipId }).then((result) => {
+              if (result.ok) selectClip(null);
+            })
           }
         >
           <Trash2 size={14} />

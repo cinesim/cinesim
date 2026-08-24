@@ -1,24 +1,23 @@
 import { Bug, FolderOpen, Redo2, Save, Sparkles, Undo2 } from "lucide-react";
 import { Button } from "@cinesim/ui";
-import type { DesktopProjectSession } from "../../shared/api";
+import { sessionFromLifecycle } from "../store/renderer-store";
+import { useRendererStore } from "../store/renderer-store-context";
 
 interface TopBarProps {
-  session: DesktopProjectSession;
-  onSession: (session: DesktopProjectSession) => void;
   metricsOpen: boolean;
   onToggleMetrics: () => void;
   agentsOpen: boolean;
   onToggleAgents: () => void;
 }
 
-export function TopBar({
-  session,
-  onSession,
-  metricsOpen,
-  onToggleMetrics,
-  agentsOpen,
-  onToggleAgents,
-}: TopBarProps) {
+export function TopBar({ metricsOpen, onToggleMetrics, agentsOpen, onToggleAgents }: TopBarProps) {
+  const session = useRendererStore((state) => sessionFromLifecycle(state.project));
+  const undo = useRendererStore((state) => state.undo);
+  const redo = useRendererStore((state) => state.redo);
+  const save = useRendererStore((state) => state.save);
+  const revealProject = useRendererStore((state) => state.revealProject);
+  if (!session) return null;
+
   return (
     <div className="flex items-center gap-0.5">
       <Button
@@ -26,7 +25,7 @@ export function TopBar({
         variant="ghost"
         aria-label="Undo"
         disabled={!session.canUndo}
-        onClick={() => void window.cinesim.undo().then(onSession)}
+        onClick={() => void undo()}
       >
         <Undo2 size={15} />
       </Button>
@@ -35,16 +34,11 @@ export function TopBar({
         variant="ghost"
         aria-label="Redo"
         disabled={!session.canRedo}
-        onClick={() => void window.cinesim.redo().then(onSession)}
+        onClick={() => void redo()}
       >
         <Redo2 size={15} />
       </Button>
-      <Button
-        size="icon"
-        variant="ghost"
-        aria-label="Save project"
-        onClick={() => void window.cinesim.save().then(onSession)}
-      >
+      <Button size="icon" variant="ghost" aria-label="Save project" onClick={() => void save()}>
         <Save size={15} />
       </Button>
       <Button
@@ -69,7 +63,7 @@ export function TopBar({
         size="icon"
         variant="ghost"
         aria-label="Reveal project"
-        onClick={() => void window.cinesim.revealProject()}
+        onClick={() => void revealProject()}
       >
         <FolderOpen size={15} />
       </Button>

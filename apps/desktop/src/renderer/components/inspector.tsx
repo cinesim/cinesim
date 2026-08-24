@@ -2,10 +2,10 @@ import { SlidersHorizontal } from "lucide-react";
 import { findClip } from "@cinesim/core";
 import type { Project } from "@cinesim/core";
 import { formatDuration } from "../lib/format";
-import { useUiStore } from "../store/ui-store";
+import { useRendererStore } from "../store/renderer-store-context";
 
 export function Inspector({ project }: { project: Project }) {
-  const selectedClipId = useUiStore((state) => state.selectedClipId);
+  const selectedClipId = useRendererStore((state) => state.selectedClipId);
   const location = selectedClipId
     ? (() => {
         try {

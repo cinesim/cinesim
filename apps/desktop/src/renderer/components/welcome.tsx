@@ -1,15 +1,18 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { ArrowRight, Clapperboard, Plus } from "lucide-react";
 import { Button } from "@cinesim/ui";
 import type { DesktopAppState, DesktopProjectSession } from "../../shared/api";
+import type { ActionResult } from "../store/renderer-store";
 import { LibraryCard, LibraryGrid } from "./library-card";
 
 interface WelcomeProps {
   appState: DesktopAppState;
   error: string | null;
   loading: boolean;
-  onOpen: (session: DesktopProjectSession) => Promise<void>;
-  onOpeningChange: (opening: boolean) => void;
+  opening: boolean;
+  onCreate: (name: string) => Promise<ActionResult<DesktopProjectSession | null>>;
+  onOpen: () => Promise<ActionResult<DesktopProjectSession | null>>;
+  onOpenRecent: (directory: string) => Promise<ActionResult<DesktopProjectSession>>;
 }
 
 function projectGradient(key: string): React.CSSProperties {
@@ -39,68 +42,32 @@ function Shortcut({ children, dark = false }: { children: React.ReactNode; dark?
 
 export function Welcome({
   appState,
-  error: externalError,
+  error,
   loading,
+  opening,
+  onCreate,
   onOpen,
-  onOpeningChange,
+  onOpenRecent,
 }: WelcomeProps) {
   const [name, setName] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const busyRef = useRef(false);
   const modifier = window.cinesim.platform === "darwin" ? "⌘" : "Ctrl+";
 
   async function create() {
-    if (!name.trim() || busyRef.current) return;
-    busyRef.current = true;
-    setBusy(true);
-    onOpeningChange(true);
-    setError(null);
-    try {
-      const session = await window.cinesim.createProject(name);
-      if (session) await onOpen(session);
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Could not create project");
-    }
-    busyRef.current = false;
-    setBusy(false);
-    onOpeningChange(false);
+    if (!name.trim() || opening) return;
+    await onCreate(name);
   }
 
   const open = useCallback(async () => {
-    if (busyRef.current) return;
-    busyRef.current = true;
-    setBusy(true);
-    onOpeningChange(true);
-    setError(null);
-    try {
-      const session = await window.cinesim.openProject();
-      if (session) await onOpen(session);
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Could not open project");
-    }
-    busyRef.current = false;
-    setBusy(false);
-    onOpeningChange(false);
-  }, [onOpen, onOpeningChange]);
+    if (opening) return;
+    await onOpen();
+  }, [onOpen, opening]);
 
   const openRecent = useCallback(
     async (directory: string) => {
-      if (busyRef.current) return;
-      busyRef.current = true;
-      setBusy(true);
-      onOpeningChange(true);
-      setError(null);
-      try {
-        await onOpen(await window.cinesim.openRecentProject(directory));
-      } catch (caught) {
-        setError(caught instanceof Error ? caught.message : "Could not open project");
-      }
-      busyRef.current = false;
-      setBusy(false);
-      onOpeningChange(false);
+      if (opening) return;
+      await onOpenRecent(directory);
     },
-    [onOpen, onOpeningChange],
+    [onOpenRecent, opening],
   );
 
   useEffect(() => {
@@ -159,14 +126,14 @@ export function Welcome({
                   value={name}
                   placeholder="Name your project"
                   maxLength={120}
-                  disabled={busy}
+                  disabled={opening}
                   onChange={(event) => setName(event.target.value)}
                   onKeyDown={(event) => event.key === "Enter" && void create()}
                 />
               </label>
               <Button
                 variant="primary"
-                disabled={busy || !name.trim()}
+                disabled={opening || !name.trim()}
                 onClick={() => void create()}
               >
                 Start <ArrowRight size={14} />
@@ -179,7 +146,7 @@ export function Welcome({
               key={project.directory}
               ariaLabel={`Open ${project.name}`}
               title={project.directory}
-              disabled={busy}
+              disabled={opening}
               previewClassName="text-white"
               previewStyle={projectGradient(`${project.name}:${project.directory}`)}
               corner={index < 9 ? <Shortcut dark>{`${modifier}${index + 1}`}</Shortcut> : undefined}
@@ -198,9 +165,9 @@ export function Welcome({
           ))}
         </LibraryGrid>
 
-        {(error || externalError) && (
+        {error && (
           <p className="mt-4 rounded-lg border border-border-strong bg-panel px-4 py-3 text-ui text-primary">
-            {error ?? externalError}
+            {error}
           </p>
         )}
       </div>

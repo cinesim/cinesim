@@ -1,7 +1,7 @@
 import { Activity, Cpu, Gauge, Image, Sparkles } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { formatTimecode } from "../lib/format";
-import { useUiStore } from "../store/ui-store";
+import { formatByteCount, formatDiagnosticDurationMs, formatTimecode } from "../lib/format";
+import { useRendererStore } from "../store/renderer-store-context";
 import { LiveMetricChart, type LiveMetricValues, useLiveMetricHistory } from "./live-metric-chart";
 import { StorageUsage } from "./storage-usage";
 
@@ -49,9 +49,9 @@ const unavailable = <span className="text-disabled">Unavailable</span>;
 
 export function MetricsSidebar() {
   const [activeTab, setActiveTab] = useState<MetricsTab>("overview");
-  const metrics = useUiStore((state) => state.runtime);
-  const derived = useUiStore((state) => state.derivedMedia);
-  const electronHealth = useUiStore((state) => state.electronHealth);
+  const metrics = useRendererStore((state) => state.playbackRuntime?.snapshot ?? null);
+  const derived = useRendererStore((state) => state.derivedMedia);
+  const electronHealth = useRendererStore((state) => state.electronHealth);
   const artifacts = derived ? Object.values(derived.assets) : [];
   const background = derived?.runtime;
   const activeJob = background?.activeJob;
@@ -289,13 +289,15 @@ export function MetricsSidebar() {
               />
               <MetricRow
                 label="Worker elapsed"
-                value={activeJob ? formatDuration(activeJob.elapsedMs) : unavailable}
+                value={activeJob ? formatDiagnosticDurationMs(activeJob.elapsedMs) : unavailable}
               />
               <MetricRow label="Last result" value={background?.lastJob?.stage ?? unavailable} />
               <MetricRow
                 label="Last duration"
                 value={
-                  background?.lastJob ? formatDuration(background.lastJob.durationMs) : unavailable
+                  background?.lastJob
+                    ? formatDiagnosticDurationMs(background.lastJob.durationMs)
+                    : unavailable
                 }
               />
             </Section>
@@ -499,18 +501,6 @@ function ChartSection({ children }: { children: React.ReactNode }) {
 function formatBytes(value: number | undefined): React.ReactNode {
   if (value === undefined) return unavailable;
   return formatByteCount(value);
-}
-
-function formatByteCount(value: number): string {
-  if (value < 1024) return `${value} B`;
-  if (value < 1024 ** 2) return `${(value / 1024).toFixed(1)} KB`;
-  if (value < 1024 ** 3) return `${(value / 1024 ** 2).toFixed(1)} MB`;
-  return `${(value / 1024 ** 3).toFixed(1)} GB`;
-}
-
-function formatDuration(value: number): string {
-  if (value < 1_000) return `${value.toFixed(1)} ms`;
-  return `${(value / 1_000).toFixed(2)} s`;
 }
 
 function formatLogTime(value: string): string {

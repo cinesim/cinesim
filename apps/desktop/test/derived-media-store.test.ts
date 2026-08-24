@@ -39,9 +39,10 @@ describe("DerivedMediaStore", () => {
     const { directory, project } = await fixture("write");
     const store = new DerivedMediaStore();
     await store.setProject(directory, project);
-    await store.requestJobs(["asset_fixture"]);
+    const scope = store.scope();
+    await store.requestJobs(scope, ["asset_fixture"]);
 
-    const { writerId } = await store.beginWrite({
+    const { writerId } = await store.beginWrite(scope, {
       assetId: "asset_fixture",
       kind: "thumbnail",
       expectedBytes: 4,
@@ -60,10 +61,19 @@ describe("DerivedMediaStore", () => {
     expect(JSON.stringify(snapshot)).not.toContain("relativePath");
     const indexPath = join(directory, ".video", "cache", "media-intelligence.json");
     const indexBeforeRead = await stat(indexPath);
-    const artifactFile = await store.artifactFile("thumbnail", "asset_fixture");
+    const artifactFile = await store.artifactFile(
+      scope,
+      "thumbnail",
+      "asset_fixture",
+      undefined,
+      snapshot.assets.asset_fixture!.thumbnail.updatedAt,
+    );
     expect(artifactFile).toMatchObject({ size: 4, mimeType: "image/jpeg" });
     expect(artifactFile.path.startsWith(join(directory, ".video"))).toBe(true);
     expect([...(await readFile(artifactFile.path))]).toEqual([10, 20, 30, 40]);
+    await expect(
+      store.artifactFile(scope, "thumbnail", "asset_fixture", undefined, "stale-revision"),
+    ).rejects.toThrow("Unknown derived artifact revision");
     expect((await stat(indexPath)).ino).toBe(indexBeforeRead.ino);
   });
 
@@ -71,11 +81,16 @@ describe("DerivedMediaStore", () => {
     const { directory, project } = await fixture("bounds");
     const store = new DerivedMediaStore();
     await store.setProject(directory, project);
+    const scope = store.scope();
 
     await expect(
-      store.beginWrite({ assetId: "asset_fixture", kind: "proxy", profileId: "../bad" }),
+      store.beginWrite(scope, {
+        assetId: "asset_fixture",
+        kind: "proxy",
+        profileId: "../bad",
+      }),
     ).rejects.toThrow("Invalid proxy profile");
-    const { writerId } = await store.beginWrite({
+    const { writerId } = await store.beginWrite(scope, {
       assetId: "asset_fixture",
       kind: "filmstrip",
       expectedBytes: 2,
@@ -94,12 +109,111 @@ describe("DerivedMediaStore", () => {
     );
   });
 
+  it("requires complete filmstrip grid metadata before publishing", async () => {
+    const { directory, project } = await fixture("filmstrip-metadata");
+    const store = new DerivedMediaStore();
+    await store.setProject(directory, project);
+    const scope = store.scope();
+    const first = await store.beginWrite(scope, {
+      assetId: "asset_fixture",
+      kind: "filmstrip",
+      expectedBytes: 2,
+    });
+    await store.writeChunk(first.writerId, 0, new Uint8Array([1, 2]));
+    await expect(
+      store.finalizeWrite(first.writerId, {
+        bytes: 2,
+        tileTimesUs: [0, 100_000, 200_000],
+        columns: 2,
+        rows: 3,
+        tileWidth: 160,
+        tileHeight: 90,
+      }),
+    ).rejects.toThrow("inconsistent filmstrip metadata");
+    await store.cancelWrite(first.writerId);
+
+    const second = await store.beginWrite(scope, {
+      assetId: "asset_fixture",
+      kind: "filmstrip",
+      expectedBytes: 2,
+    });
+    await store.writeChunk(second.writerId, 0, new Uint8Array([3, 4]));
+    await store.finalizeWrite(second.writerId, {
+      bytes: 2,
+      tileTimesUs: [0, 100_000, 200_000],
+      columns: 2,
+      rows: 2,
+      tileWidth: 160,
+      tileHeight: 90,
+    });
+    expect(store.snapshot().assets.asset_fixture?.filmstrip).toMatchObject({
+      state: "ready",
+      columns: 2,
+      rows: 2,
+    });
+  });
+
+  it("rejects stale project work even when projects reuse the same IDs", async () => {
+    const first = await fixture("scope-first");
+    const second = await fixture("scope-second");
+    const store = new DerivedMediaStore();
+    await store.setProject(first.directory, first.project);
+    const firstScope = store.scope();
+    const retiredWriter = await store.beginWrite(firstScope, {
+      assetId: "asset_fixture",
+      kind: "thumbnail",
+    });
+
+    await store.setProject(second.directory, second.project);
+    const secondScope = store.scope();
+    expect(secondScope.cacheKey).not.toBe(firstScope.cacheKey);
+    await expect(store.requestJobs(firstScope, ["asset_fixture"])).rejects.toThrow(
+      "Stale derived media project scope",
+    );
+    await expect(store.updateProgress(retiredWriter.writerId, 0.5)).resolves.toBeUndefined();
+    await expect(
+      store.writeChunk(retiredWriter.writerId, 0, new Uint8Array([1])),
+    ).resolves.toBeUndefined();
+    await expect(
+      store.finalizeWrite(retiredWriter.writerId, { bytes: 1 }),
+    ).resolves.toBeUndefined();
+    await expect(store.cancelWrite(retiredWriter.writerId)).resolves.toBeUndefined();
+    expect(() =>
+      store.reportActivity(firstScope, {
+        jobId: "00000000-0000-4000-8000-000000000001",
+        assetId: "asset_fixture",
+        jobKind: "perception",
+        stage: "thumbnail-sampling",
+        elapsedMs: 25,
+      }),
+    ).not.toThrow();
+    await expect(
+      store.reportPerformance(firstScope, {
+        assetId: "asset_fixture",
+        sourceKind: "original",
+        operation: "sampling",
+        latencyMs: 25,
+      }),
+    ).resolves.toBeUndefined();
+    expect(store.snapshot().runtime.activeJob).toBeUndefined();
+    expect(store.snapshot().assets.asset_fixture?.performance.original.observations).toBe(0);
+
+    await store.setProject(second.directory, second.project);
+    const reopenedScope = store.scope();
+    expect(reopenedScope.cacheKey).toBe(secondScope.cacheKey);
+    expect(reopenedScope.epoch).not.toBe(secondScope.epoch);
+    await expect(
+      store.beginWrite(secondScope, { assetId: "asset_fixture", kind: "thumbnail" }),
+    ).rejects.toThrow("Stale derived media project scope");
+  });
+
   it("serializes persistence triggered by concurrent artifact reads", async () => {
     const first = await fixture("concurrent-access");
     const second = await fixture("concurrent-access-next");
     const store = new DerivedMediaStore();
     await store.setProject(first.directory, first.project);
-    const { writerId } = await store.beginWrite({
+    const scope = store.scope();
+    const { writerId } = await store.beginWrite(scope, {
       assetId: "asset_fixture",
       kind: "thumbnail",
       expectedBytes: 2,
@@ -108,7 +222,15 @@ describe("DerivedMediaStore", () => {
     await store.finalizeWrite(writerId, { bytes: 2 });
 
     await Promise.all(
-      Array.from({ length: 8 }, () => store.artifactFile("thumbnail", "asset_fixture")),
+      Array.from({ length: 8 }, () =>
+        store.artifactFile(
+          scope,
+          "thumbnail",
+          "asset_fixture",
+          undefined,
+          store.snapshot().assets.asset_fixture!.thumbnail.updatedAt,
+        ),
+      ),
     );
     await store.setProject(second.directory, second.project);
 
@@ -127,7 +249,7 @@ describe("DerivedMediaStore", () => {
     const store = new DerivedMediaStore();
     const prepared = await store.prepareProject(directory);
     await store.setProject(directory, project, prepared);
-    await store.requestJobs([]);
+    await store.requestJobs(store.scope(), []);
 
     const after = await stat(indexPath);
     expect(after.ino).toBe(before.ino);
@@ -138,7 +260,10 @@ describe("DerivedMediaStore", () => {
     const second = await fixture("recover-second");
     const original = new DerivedMediaStore();
     await original.setProject(first.directory, first.project);
-    await original.beginWrite({ assetId: "asset_fixture", kind: "filmstrip" });
+    await original.beginWrite(original.scope(), {
+      assetId: "asset_fixture",
+      kind: "filmstrip",
+    });
     expect(original.snapshot().assets.asset_fixture?.filmstrip.state).toBe("running");
     await original.setProject(second.directory, second.project);
 
@@ -152,8 +277,9 @@ describe("DerivedMediaStore", () => {
     const { directory, project } = await fixture("adaptive");
     const store = new DerivedMediaStore();
     await store.setProject(directory, project);
+    const scope = store.scope();
     for (let index = 0; index < 5; index += 1) {
-      await store.reportPerformance({
+      await store.reportPerformance(scope, {
         assetId: "asset_fixture",
         sourceKind: "original",
         operation: "hover-seek",
@@ -174,7 +300,7 @@ describe("DerivedMediaStore", () => {
     const { directory, project } = await fixture("runtime-metrics");
     const store = new DerivedMediaStore();
     await store.setProject(directory, project);
-    store.reportActivity({
+    store.reportActivity(store.scope(), {
       jobId: "00000000-0000-4000-8000-000000000001",
       assetId: "asset_fixture",
       jobKind: "perception",
