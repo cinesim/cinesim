@@ -1,7 +1,7 @@
 import { Bug, FolderOpen, Redo2, Save, Sparkles, Undo2 } from "lucide-react";
 import { Button } from "@cinesim/ui";
-import { sessionFromLifecycle } from "../store/renderer-store";
-import { useRendererStore } from "../store/renderer-store-context";
+import { sessionFromLifecycle } from "../../store/renderer-store";
+import { useRendererStore } from "../../store/renderer-store-context";
 
 interface TopBarProps {
   metricsOpen: boolean;

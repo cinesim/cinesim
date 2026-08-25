@@ -3,7 +3,7 @@ import {
   shouldShowTimelineEmptyState,
   steppedSourceTimeUs,
   viewerDisplaySize,
-} from "../src/renderer/components/viewer";
+} from "../src/renderer/components/viewer/viewer";
 
 describe("viewer presentation helpers", () => {
   it("fits the sequence into the available stage without scaling above 100%", () => {

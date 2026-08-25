@@ -1,8 +1,8 @@
 import { nearestSampleIndex } from "@cinesim/engine";
 import type { Asset, Clip } from "@cinesim/core";
-import type { DerivedAssetSnapshot, DerivedMediaSnapshot } from "../../shared/api";
-import { derivedArtifactUrl } from "../media/media-url";
-import { filmstripPresentationReady, thumbnailPresentation } from "./media-skim-surface";
+import type { DerivedAssetSnapshot, DerivedMediaSnapshot } from "../../../shared/api";
+import { derivedArtifactUrl } from "../../lib/media-url";
+import { filmstripPresentationReady, thumbnailPresentation } from "../media/media-skim-surface";
 
 const MAX_VISIBLE_CELLS = 96;
 const MIN_CELL_WIDTH = 32;

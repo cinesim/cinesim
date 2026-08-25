@@ -20,14 +20,14 @@ import {
   getFirstEncodableVideoCodec,
 } from "mediabunny";
 import type { StreamTargetChunk } from "mediabunny";
-import type { DerivedWorkerRequest, DerivedWorkerResponse } from "../media/derived-worker-api";
-import { originalMediaUrl } from "../media/media-url";
+import type { DerivedWorkerRequest, DerivedWorkerResponse } from "../lib/derived-worker-api";
+import { originalMediaUrl } from "../lib/media-url";
 import {
   encodeWaveformEnvelope,
   WAVEFORM_FORMAT_VERSION,
   waveformPeakCount,
 } from "../../shared/waveform-format";
-import { accumulateWaveformSample } from "../media/waveform-sampling";
+import { accumulateWaveformSample } from "../lib/waveform-sampling";
 
 const scope = self as DedicatedWorkerGlobalScope;
 const canceled = new Set<string>();

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { WaveformEnvelope } from "../src/shared/waveform-format";
-import { waveformEnvelopePath } from "../src/renderer/components/timeline-waveform";
+import { waveformEnvelopePath } from "../src/renderer/components/timeline/timeline-waveform";
 
 describe("timeline waveform geometry", () => {
   const envelope: WaveformEnvelope = {

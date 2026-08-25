@@ -29,13 +29,13 @@ import type {
   AgentProviderKind,
   AgentProviderStatus,
   AgentSettings,
-} from "../../shared/api";
+} from "../../../shared/api";
 import {
   AGENT_EFFORTS,
   AGENT_PROVIDER_KINDS,
   effortLabel,
   providerLabel,
-} from "../agents/provider-catalog";
+} from "../../lib/agent-provider-catalog";
 
 interface SettingsProps {
   section: "general" | "agents";

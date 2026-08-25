@@ -1,5 +1,5 @@
 import { PaneHeader, PreviewCard, Skeleton } from "@cinesim/ui";
-import { LibraryGrid } from "./library-card";
+import { LibraryGrid } from "../shared/library-card";
 
 export function ProjectLoadingState() {
   return (

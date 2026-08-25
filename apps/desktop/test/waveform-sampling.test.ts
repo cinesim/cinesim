@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   accumulateWaveformSample,
   type PlanarAudioSample,
-} from "../src/renderer/media/waveform-sampling";
+} from "../src/renderer/lib/waveform-sampling";
 
 describe("worker waveform sampling", () => {
   it("reduces planar decoded samples without constructing an AudioBuffer", () => {

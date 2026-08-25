@@ -8,7 +8,7 @@ import {
   proposeClipMove,
   quantizeToFrame,
   snapTimelineTime,
-} from "../src/renderer/interactions/timeline-geometry";
+} from "../src/renderer/lib/timeline-geometry";
 
 const video: Asset = {
   id: "asset_video",

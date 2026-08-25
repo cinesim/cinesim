@@ -11,8 +11,8 @@ import {
   Settings as SettingsIcon,
 } from "lucide-react";
 import { Button, cn, Separator, Tooltip, TooltipContent, TooltipTrigger } from "@cinesim/ui";
-import type { DesktopAppState, DesktopProjectSession } from "../../shared/api";
-import { usePersistentSidebarWidth } from "../hooks/use-persistent-sidebar-width";
+import type { DesktopAppState, DesktopProjectSession } from "../../../shared/api";
+import { usePersistentSidebarWidth } from "../../hooks/use-persistent-sidebar-width";
 import { ProjectBreadcrumb } from "./project-breadcrumb";
 import { ShortcutHint, ShortcutsDialog } from "./shortcuts-dialog";
 

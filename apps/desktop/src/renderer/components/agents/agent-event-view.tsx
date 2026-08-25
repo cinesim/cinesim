@@ -21,7 +21,7 @@ import {
 } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import { cn, Notice } from "@cinesim/ui";
-import type { AgentEvent, AgentSessionSnapshot } from "../../shared/api";
+import type { AgentEvent, AgentSessionSnapshot } from "../../../shared/api";
 
 export function AgentEventView({
   event,

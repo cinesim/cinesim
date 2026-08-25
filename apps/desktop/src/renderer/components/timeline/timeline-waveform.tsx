@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react";
 import type { Asset, Clip } from "@cinesim/core";
-import type { DerivedArtifactSnapshot, DerivedMediaSnapshot } from "../../shared/api";
-import { decodeWaveformEnvelope, type WaveformEnvelope } from "../../shared/waveform-format";
-import { derivedArtifactUrl } from "../media/media-url";
+import type { DerivedArtifactSnapshot, DerivedMediaSnapshot } from "../../../shared/api";
+import { decodeWaveformEnvelope, type WaveformEnvelope } from "../../../shared/waveform-format";
+import { derivedArtifactUrl } from "../../lib/media-url";
 
 const INT16_MAX = 0x7fff;
 const MAX_CACHED_WAVEFORMS = 64;

@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useState } from "react";
 import { ArrowRight, Clapperboard, Plus } from "lucide-react";
 import { Button, Input, Kbd, Notice, PreviewCard, Skeleton } from "@cinesim/ui";
-import type { DesktopAppState, DesktopProjectSession } from "../../shared/api";
-import type { ActionResult } from "../store/renderer-store";
-import { LibraryGrid } from "./library-card";
+import type { DesktopAppState, DesktopProjectSession } from "../../../shared/api";
+import type { ActionResult } from "../../store/renderer-store";
+import { LibraryGrid } from "../shared/library-card";
 
 interface WelcomeProps {
   appState: DesktopAppState;

@@ -13,9 +13,9 @@ import {
   SearchField,
 } from "@cinesim/ui";
 import type { Asset, Project } from "@cinesim/core";
-import { formatDuration } from "../lib/format";
+import { formatDuration } from "../../lib/format";
+import { useEditorDnd } from "../workspace/editor-dnd-context";
 import { MediaSkimSurface } from "./media-skim-surface";
-import { useEditorDnd } from "../interactions/editor-dnd-context";
 
 interface EditMediaPoolProps {
   project: Project;

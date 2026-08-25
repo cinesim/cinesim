@@ -9,8 +9,8 @@ import {
 } from "@cinesim/ui";
 import { findClip } from "@cinesim/core";
 import type { Project } from "@cinesim/core";
-import { formatDuration } from "../lib/format";
-import { useRendererStore } from "../store/renderer-store-context";
+import { formatDuration } from "../../lib/format";
+import { useRendererStore } from "../../store/renderer-store-context";
 
 export function Inspector({ project }: { project: Project }) {
   const selectedClipId = useRendererStore((state) => state.selectedClipId);

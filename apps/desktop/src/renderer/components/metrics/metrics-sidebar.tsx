@@ -9,9 +9,9 @@ import {
   TabsList,
   TabsTrigger,
 } from "@cinesim/ui";
-import { formatByteCount, formatDiagnosticDurationMs, formatTimecode } from "../lib/format";
-import { sessionFromLifecycle } from "../store/renderer-store";
-import { useRendererStore } from "../store/renderer-store-context";
+import { formatByteCount, formatDiagnosticDurationMs, formatTimecode } from "../../lib/format";
+import { sessionFromLifecycle } from "../../store/renderer-store";
+import { useRendererStore } from "../../store/renderer-store-context";
 import { LiveMetricChart, type LiveMetricValues, useLiveMetricHistory } from "./live-metric-chart";
 import { StorageUsage } from "./storage-usage";
 

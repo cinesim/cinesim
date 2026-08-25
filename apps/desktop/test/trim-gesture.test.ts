@@ -5,7 +5,7 @@ import {
   trimPreviewClip,
   trimPreviewRange,
   transitionTrimGesture,
-} from "../src/renderer/interactions/trim-gesture";
+} from "../src/renderer/lib/trim-gesture";
 
 const clip: Clip = {
   id: "clip_fixture",
