@@ -6,6 +6,7 @@ import type { Asset, Project } from "@cinesim/core";
 import { formatDuration } from "../../lib/format";
 import { useRendererStore } from "../../store/renderer-store-context";
 import { LibraryGrid } from "../shared/library-card";
+import { AssetSourceMetadata } from "./asset-source-metadata";
 import { MediaSkimSurface } from "./media-skim-surface";
 
 interface MediaBinProps {
@@ -75,7 +76,6 @@ export function MediaBin({ project, onOpenTimeline }: MediaBinProps) {
           {sequences.map((sequence) => (
             <PreviewCard
               key={sequence.id}
-              badge="Timeline"
               ariaLabel={`Open ${sequence.name}`}
               title="Double-click to open timeline"
               previewClassName="timeline-thumbnail"
@@ -97,7 +97,6 @@ export function MediaBin({ project, onOpenTimeline }: MediaBinProps) {
           {assets.map((asset) => (
             <PreviewCard
               key={asset.id}
-              badge={asset.kind}
               ariaLabel={`Add ${asset.name} to the active timeline`}
               title="Double-click to add to the active timeline"
               previewClassName="media-thumbnail"
@@ -113,6 +112,10 @@ export function MediaBin({ project, onOpenTimeline }: MediaBinProps) {
                 {asset.name}
               </p>
               <p className="mt-1 truncate text-ui-xs text-muted tabular-nums">{asset.id}</p>
+              <AssetSourceMetadata
+                asset={asset}
+                className="mt-0.5 truncate text-ui-xs text-muted tabular-nums"
+              />
             </PreviewCard>
           ))}
 

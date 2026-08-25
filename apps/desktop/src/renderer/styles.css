@@ -216,11 +216,13 @@ aside > div::-webkit-scrollbar-thumb {
 }
 
 .viewer-scrubber::-webkit-slider-thumb {
-  width: 8px;
-  height: 8px;
+  width: 20px;
+  height: 20px;
   appearance: none;
   border-radius: 999px;
-  background: var(--ui-playhead);
+  border: 2px solid rgb(255 255 255 / 0.85);
+  background: rgb(255 255 255);
+  box-shadow: 0 1px 6px rgb(0 0 0 / 0.35);
 }
 
 ::selection {

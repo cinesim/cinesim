@@ -2,6 +2,7 @@ import { dialog, ipcMain, shell } from "electron";
 import type { EditorCommand } from "@cinesim/core";
 import type { DesktopAppStateStore } from "../state/app-state-store";
 import type { DesktopProjectStore } from "./project-store";
+import { canonicalProjectSizeBytes } from "./project-size";
 
 export function registerProjectIpc(
   store: DesktopProjectStore,
@@ -39,6 +40,16 @@ export function registerProjectIpc(
     return session;
   });
   ipcMain.handle("project:session", () => (store.project ? store.session() : null));
+  ipcMain.handle("project:recent-sizes", async () => {
+    const projects = appState.snapshot().recentProjects;
+    const sizes = await Promise.all(
+      projects.map(async (project) => [
+        project.directory,
+        await canonicalProjectSizeBytes(project.directory).catch(() => null),
+      ]),
+    );
+    return Object.fromEntries(sizes);
+  });
   ipcMain.handle("project:save", () => store.save());
   ipcMain.handle("project:undo", () => store.undo());
   ipcMain.handle("project:redo", () => store.redo());

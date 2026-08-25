@@ -15,6 +15,7 @@ import {
 import type { Asset, Project } from "@cinesim/core";
 import { formatDuration } from "../../lib/format";
 import { useEditorDnd } from "../workspace/editor-dnd-context";
+import { AssetSourceMetadata } from "./asset-source-metadata";
 import { MediaSkimSurface } from "./media-skim-surface";
 
 interface EditMediaPoolProps {
@@ -113,7 +114,6 @@ function DraggableAssetCard({
       className={isDragging ? "opacity-45" : undefined}
     >
       <PreviewCard
-        badge={asset.kind}
         ariaLabel={`Add ${asset.name} to the active timeline`}
         title="Double-click to add to the active timeline"
         size="compact"
@@ -149,6 +149,10 @@ function DraggableAssetCard({
           {asset.name}
         </p>
         <p className="mt-0.5 truncate text-[10px] text-muted tabular-nums">{asset.id}</p>
+        <AssetSourceMetadata
+          asset={asset}
+          className="mt-0.5 truncate text-[10px] text-muted tabular-nums"
+        />
       </PreviewCard>
     </div>
   );

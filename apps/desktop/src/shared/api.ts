@@ -412,6 +412,7 @@ export interface DesktopApi {
   save(): Promise<DesktopProjectSession>;
   revealProject(): Promise<void>;
   getSession(): Promise<DesktopProjectSession | null>;
+  getRecentProjectSizes(): Promise<Record<string, number | null>>;
   getAppState(): Promise<DesktopAppState>;
   getElectronHealthSnapshot(): Promise<ElectronHealthSnapshot>;
   setProjectMediaPoolOpen(open: boolean): Promise<DesktopAppState>;
