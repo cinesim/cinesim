@@ -46,7 +46,7 @@ Generated local state is entirely under ignored `.video/{cache,proxies,thumbnail
 
 ## Command and history architecture
 
-The only edit semantics are core commands: asset import; track add, update, remove, and reorder; and clip add, remove, move, trim start/end, and split. Protocol validates inputs and delegates to core. Desktop, CLI, and MCP use that dispatcher. Stable IDs are deterministically allocated from existing IDs. The desktop keeps immutable snapshots per committed operation for undo/redo; pointer movement is ephemeral and a completed gesture commits one command.
+The only edit semantics are core commands: asset import and cascading removal; timeline creation from ordered assets and safe removal; track add, update, remove, and reorder; and clip add, remove, move, trim start/end, and split. Protocol validates inputs and delegates to core. Desktop, CLI, and MCP use that dispatcher. Stable IDs are deterministically allocated from existing IDs. The desktop keeps immutable snapshots per committed operation for undo/redo; pointer movement is ephemeral and a completed gesture commits one command.
 
 ## Media and playback architecture
 
@@ -64,7 +64,7 @@ Audio uses Mediabunny `AudioBufferSink`. A Web Audio scheduler anchors timeline 
 
 ## Desktop UI
 
-Implemented surfaces include project create/open, media import/bin, representative thumbnails, silent filmstrip card skimming, exact Media Pool source hover preview in the WebGPU Viewer, and duration-aware asset/clip drag previews with deterministic snapping and collision feedback. The timeline supports canonical video/audio/overlay track creation, rename, mute, lock, reorder, and safe removal; adjustable track height and zoom; selection/trim/blade tools; transient trim feedback; split/delete; filmstrip frames; and source-range-cropped waveforms. Video assets with audio are represented exclusively as reciprocal linked video and audio clip components on separate tracks; linked edits remain atomic and older embedded representations are upgraded on load. The viewer distinguishes source and timeline modes, restores the timeline frame after hover, initializes the current timeline frame even when paused, resizes responsively, provides fit/50/100/200% display scales, configurable grids and safe-area guides, fullscreen, exact frame stepping, and Space/J-K-L/Home/arrow transport shortcuts. The bug control opens a dedicated Metrics sidebar that is mutually exclusive with the Agents sidebar and reports bounded runtime, adaptive, artifact, job, GPU, and storage diagnostics. Zustand stores only ephemeral UI state; canonical project snapshots remain outside it.
+Implemented surfaces include project create/open/forget/Trash, media import/bin, explorer-style asset selection, timeline creation from ordered selected assets, cascading asset removal, representative thumbnails, silent filmstrip card skimming, exact Media Pool source hover preview in the WebGPU Viewer, and duration-aware asset/clip drag previews with deterministic snapping and collision feedback. The timeline supports canonical creation/removal; video/audio/overlay track creation, rename, mute, lock, reorder, and safe removal; adjustable track height and zoom; selection/trim/blade tools; transient trim feedback; split/delete; filmstrip frames; and source-range-cropped waveforms. Video assets with audio are represented exclusively as reciprocal linked video and audio clip components on separate tracks; linked edits remain atomic and older embedded representations are upgraded on load. The viewer distinguishes source and timeline modes, restores the timeline frame after hover, initializes the current timeline frame even when paused, resizes responsively, provides fit/50/100/200% display scales, configurable grids and safe-area guides, fullscreen, exact frame stepping, and Space/J-K-L/Home/arrow transport shortcuts. The bug control opens a dedicated Metrics sidebar that is mutually exclusive with the Agents sidebar and reports bounded runtime, adaptive, artifact, job, GPU, and storage diagnostics. Zustand stores only ephemeral UI state; canonical project snapshots remain outside it.
 
 The Edit workspace has persistent splitters for the Media Pool, Inspector, Notes, and Timeline. Media Pool, Inspector, and Notes visibility and final panel sizes are stored per project in the desktop's noncanonical UI state; resize movement does not write project files or create undo history.
 
@@ -82,7 +82,7 @@ Every agent turn captures canonical state before and after the turn with Git plu
 
 The CLI is exposed as both `cinesim` and the specification's temporary `video` alias. Inspect commands support `--json`. Clip editing accepts stable IDs and human time strings and persists through the common dispatcher.
 
-The MCP stdio server exposes project/asset/timeline inspection, canonical track operations, clip add/move/trim/split/delete, and derived filmstrip/frame lookup with concise structured content. `CINESIM_PROJECT` selects the project directory for both adapters.
+The MCP stdio server exposes project/asset/timeline inspection, asset removal, timeline creation/removal, canonical track operations, clip add/move/trim/split/delete, and derived filmstrip/frame lookup with concise structured content. `CINESIM_PROJECT` selects the project directory for both adapters.
 
 ## Verification performed
 

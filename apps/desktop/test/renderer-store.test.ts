@@ -264,4 +264,42 @@ describe("renderer project controller", () => {
       timelineStartUs: 0,
     });
   });
+
+  it("forgets project metadata without closing the active project", async () => {
+    const session = sessionFixture();
+    const forgetProject = vi.fn(async () => EMPTY_APP_STATE);
+    const store = createRendererStore({
+      api: apiFixture({ getSession: async () => session, forgetProject }),
+    });
+    await store.getState().initialize();
+
+    const result = await store.getState().forgetProject(session.directory);
+
+    expect(result.ok).toBe(true);
+    expect(forgetProject).toHaveBeenCalledWith(session.directory);
+    expect(store.getState().project).toEqual({ status: "ready", session });
+  });
+
+  it("unmounts the active project before moving its directory to Trash", async () => {
+    vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => {
+      callback(0);
+      return 1;
+    });
+    const session = sessionFixture();
+    let store: ReturnType<typeof createRendererStore>;
+    const trashProject = vi.fn(async () => {
+      expect(store.getState().project).toEqual({ status: "idle" });
+      return EMPTY_APP_STATE;
+    });
+    store = createRendererStore({
+      api: apiFixture({ getSession: async () => session, trashProject }),
+    });
+    await store.getState().initialize();
+
+    const result = await store.getState().trashProject(session.directory);
+
+    expect(result.ok).toBe(true);
+    expect(trashProject).toHaveBeenCalledWith(session.directory);
+    expect(store.getState().destination).toBe("home");
+  });
 });

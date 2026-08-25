@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -109,6 +109,39 @@ describe("DerivedMediaStore", () => {
     await expect(store.writeChunk(writerId, 0, new Uint8Array([1]))).rejects.toThrow(
       "Unknown derived writer",
     );
+  });
+
+  it("cancels writers and prunes disposable artifacts for removed assets", async () => {
+    const { directory, project } = await fixture("asset-prune");
+    const store = new DerivedMediaStore();
+    await store.setProject(directory, project);
+    const scope = store.scope();
+    const readyWriter = await store.beginWrite(scope, {
+      assetId: "asset_fixture",
+      kind: "thumbnail",
+      expectedBytes: 2,
+    });
+    await store.writeChunk(readyWriter.writerId, 0, new Uint8Array([1, 2]));
+    await store.finalizeWrite(readyWriter.writerId, { bytes: 2 });
+    const artifactPath = join(directory, ".video", "thumbnails", "asset_fixture.jpg");
+    const framePath = join(directory, ".video", "frames", "asset_fixture-250000.png");
+    await mkdir(join(directory, ".video", "frames"), { recursive: true });
+    await writeFile(framePath, new Uint8Array([3, 4]));
+    await expect(stat(artifactPath)).resolves.toBeDefined();
+    const activeWriter = await store.beginWrite(scope, {
+      assetId: "asset_fixture",
+      kind: "filmstrip",
+    });
+
+    store.updateProject({ ...project, assets: [] });
+    await store.pruneRemovedAssets();
+
+    expect(store.snapshot().assets).toEqual({});
+    await expect(stat(artifactPath)).rejects.toThrow();
+    await expect(stat(framePath)).rejects.toThrow();
+    await expect(
+      store.writeChunk(activeWriter.writerId, 0, new Uint8Array([1])),
+    ).resolves.toBeUndefined();
   });
 
   it("requires complete filmstrip grid metadata before publishing", async () => {
@@ -372,7 +405,9 @@ describe("DerivedMediaStore", () => {
 
   it("queues a proxy only after repeated unhealthy warmed seeks", async () => {
     const { directory, project } = await fixture("adaptive");
-    const store = new DerivedMediaStore();
+    const store = new DerivedMediaStore({
+      diskSpace: { capacityBytes: 100 * 1024 ** 3, availableBytes: 50 * 1024 ** 3 },
+    });
     await store.setProject(directory, project);
     const scope = store.scope();
     for (let index = 0; index < 5; index += 1) {

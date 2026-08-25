@@ -114,4 +114,50 @@ describe("DesktopProjectStore", () => {
       "asset_second",
     ]);
   });
+
+  it("persists timeline creation and cascading asset removal through commands", async () => {
+    const parentDirectory = await mkdtemp(join(tmpdir(), "cinesim-delete-test-"));
+    temporaryDirectories.push(parentDirectory);
+    const store = new DesktopProjectStore();
+    const created = await store.create(parentDirectory, "Delete fixture");
+    await store.execute({
+      type: "asset.import",
+      asset: {
+        id: "asset_selected",
+        kind: "audio",
+        name: "Selected",
+        source: { kind: "local", path: join(parentDirectory, "selected.wav") },
+        durationUs: 1_000_000,
+      },
+    });
+    await store.execute({
+      type: "sequence.createFromAssets",
+      assetIds: ["asset_selected"],
+      name: "Selects",
+    });
+    await store.execute({ type: "asset.remove", assetIds: ["asset_selected"] });
+
+    const reopened = new DesktopProjectStore();
+    const session = await reopened.open(created.directory);
+    expect(session.project.assets).toEqual([]);
+    expect(session.project.sequences).toHaveLength(2);
+    expect(
+      session.project.sequences
+        .flatMap((sequence) => sequence.tracks)
+        .every((track) => track.clips.length === 0),
+    ).toBe(true);
+  });
+
+  it("closes the active project and its derived scope", async () => {
+    const parentDirectory = await mkdtemp(join(tmpdir(), "cinesim-close-test-"));
+    temporaryDirectories.push(parentDirectory);
+    const store = new DesktopProjectStore();
+    await store.create(parentDirectory, "Close fixture");
+
+    await store.close();
+
+    expect(store.directory).toBeNull();
+    expect(store.project).toBeNull();
+    expect(() => store.session()).toThrow("No project is open");
+  });
 });

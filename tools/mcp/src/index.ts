@@ -85,6 +85,33 @@ server.registerTool(
 );
 
 server.registerTool(
+  "asset_delete",
+  {
+    title: "Remove project assets",
+    description: "Remove assets and every referencing timeline clip without deleting source media.",
+    inputSchema: z.object({
+      assetIds: z
+        .array(z.string().regex(/^asset_/))
+        .min(1)
+        .max(500),
+    }),
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true },
+  },
+  async ({ assetIds }) => {
+    try {
+      const store = await loaded();
+      const result = await store.execute({
+        type: "asset.remove",
+        assetIds: assetIds as AssetId[],
+      });
+      return textResult({ summary: result.summary, changedIds: result.changedIds });
+    } catch (error) {
+      return failure(error);
+    }
+  },
+);
+
+server.registerTool(
   "timeline_inspect",
   {
     title: "Inspect the active timeline",
@@ -95,6 +122,57 @@ server.registerTool(
     try {
       const store = await loaded();
       return textResult(inspectTimeline(store.project));
+    } catch (error) {
+      return failure(error);
+    }
+  },
+);
+
+server.registerTool(
+  "timeline_create_from_assets",
+  {
+    title: "Create timeline from assets",
+    description: "Create one timeline and place the ordered assets sequentially in one command.",
+    inputSchema: z.object({
+      assetIds: z
+        .array(z.string().regex(/^asset_/))
+        .min(1)
+        .max(500),
+      name: z.string().trim().min(1).max(120).optional(),
+    }),
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
+  },
+  async ({ assetIds, name }) => {
+    try {
+      const store = await loaded();
+      const result = await store.execute({
+        type: "sequence.createFromAssets",
+        assetIds: assetIds as AssetId[],
+        ...(name === undefined ? {} : { name }),
+      });
+      return textResult({ summary: result.summary, createdIds: result.createdIds });
+    } catch (error) {
+      return failure(error);
+    }
+  },
+);
+
+server.registerTool(
+  "timeline_delete",
+  {
+    title: "Delete timeline",
+    description: "Delete an unlocked timeline while preserving its source assets.",
+    inputSchema: z.object({ sequenceId: z.string().regex(/^sequence_/) }),
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true },
+  },
+  async ({ sequenceId }) => {
+    try {
+      const store = await loaded();
+      const result = await store.execute({
+        type: "sequence.remove",
+        sequenceId: sequenceId as SequenceId,
+      });
+      return textResult({ summary: result.summary, changedIds: result.changedIds });
     } catch (error) {
       return failure(error);
     }

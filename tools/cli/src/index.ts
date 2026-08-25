@@ -76,14 +76,52 @@ asset
     const loaded = await store();
     output(inspectAsset(loaded.project, assetId as AssetId), options.json);
   });
+asset
+  .command("delete")
+  .argument("<asset-ids...>")
+  .option("--json")
+  .action(async (assetIds: string[], options) => {
+    const loaded = await store();
+    const result = await loaded.execute({
+      type: "asset.remove",
+      assetIds: assetIds as AssetId[],
+    });
+    output({ summary: result.summary, changedIds: result.changedIds }, options.json);
+  });
 
-const timeline = program.command("timeline").description("Timeline queries");
+const timeline = program.command("timeline").description("Timeline operations");
 timeline
   .command("inspect")
   .option("--json", "Emit structured JSON")
   .action(async (options) => {
     const loaded = await store();
     output(inspectTimeline(loaded.project), options.json);
+  });
+timeline
+  .command("create-from-assets")
+  .argument("<asset-ids...>")
+  .option("--name <name>")
+  .option("--json")
+  .action(async (assetIds: string[], options) => {
+    const loaded = await store();
+    const result = await loaded.execute({
+      type: "sequence.createFromAssets",
+      assetIds: assetIds as AssetId[],
+      ...(options.name === undefined ? {} : { name: options.name }),
+    });
+    output({ summary: result.summary, createdIds: result.createdIds }, options.json);
+  });
+timeline
+  .command("delete")
+  .argument("<sequence-id>")
+  .option("--json")
+  .action(async (sequenceId, options) => {
+    const loaded = await store();
+    const result = await loaded.execute({
+      type: "sequence.remove",
+      sequenceId: sequenceId as SequenceId,
+    });
+    output({ summary: result.summary, changedIds: result.changedIds }, options.json);
   });
 
 const track = program.command("track").description("Deterministic track edits");

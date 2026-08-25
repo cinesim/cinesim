@@ -203,6 +203,14 @@ export class DesktopProjectStore {
         this.derivedMedia.updateProject(this.#history!.project);
         this.#revision += 1;
         await this.#persist();
+        await this.derivedMedia
+          .pruneRemovedAssets()
+          .catch((error: unknown) =>
+            log.warn(
+              { err: error, operation: command.type },
+              "canonical edit completed but derived cleanup failed",
+            ),
+          );
         const { project: _project, ...result } = dispatched.value;
         log.info(
           {
@@ -232,7 +240,13 @@ export class DesktopProjectStore {
       this.#history!.undo();
       this.derivedMedia.updateProject(this.#history!.project);
       this.#revision += 1;
-      return this.#persist();
+      const session = await this.#persist();
+      await this.derivedMedia
+        .pruneRemovedAssets()
+        .catch((error: unknown) =>
+          log.warn({ err: error, operation: "undo" }, "derived cleanup after undo failed"),
+        );
+      return session;
     });
   }
 
@@ -242,7 +256,13 @@ export class DesktopProjectStore {
       this.#history!.redo();
       this.derivedMedia.updateProject(this.#history!.project);
       this.#revision += 1;
-      return this.#persist();
+      const session = await this.#persist();
+      await this.derivedMedia
+        .pruneRemovedAssets()
+        .catch((error: unknown) =>
+          log.warn({ err: error, operation: "redo" }, "derived cleanup after redo failed"),
+        );
+      return session;
     });
   }
 
@@ -258,6 +278,16 @@ export class DesktopProjectStore {
 
   assetPath(assetId: string): string | null {
     return this.project?.assets.find((asset) => asset.id === assetId)?.source.path ?? null;
+  }
+
+  async close(): Promise<void> {
+    await this.#serialize(async () => {
+      await this.derivedMedia.clearProject();
+      this.#directory = null;
+      this.#history = null;
+      this.#settings = DEFAULT_SETTINGS;
+      this.#revision += 1;
+    });
   }
 
   session(): DesktopProjectSession {

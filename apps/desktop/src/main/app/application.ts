@@ -69,7 +69,7 @@ export class DesktopApplication implements ApplicationLifecycle {
     this.#agents = agents;
     await agents.load();
 
-    registerProjectIpc(this.projectStore, appState);
+    registerProjectIpc(this.projectStore, appState, agents);
     registerDerivedMediaIpc(this.projectStore.derivedMedia);
     registerAppStateIpc(appState, this.projectStore);
     registerAgentIpc(agents, agentSettings);
@@ -83,10 +83,13 @@ export class DesktopApplication implements ApplicationLifecycle {
 
   async close(): Promise<void> {
     this.#eventLoopMonitor.stop();
-    if (!this.#agents) return;
     await this.#agents
-      .close()
+      ?.close()
       .catch((error: unknown) => log.error({ err: error }, "Cinesim agent shutdown failed"));
+    if (this.projectStore.project)
+      await this.projectStore
+        .close()
+        .catch((error: unknown) => log.error({ err: error }, "Project shutdown failed"));
   }
 
   #openWindow(): void {

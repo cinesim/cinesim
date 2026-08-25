@@ -34,6 +34,8 @@ export function App() {
   const openProject = useRendererStore((state) => state.openProject);
   const openRecentProject = useRendererStore((state) => state.openRecentProject);
   const createProject = useRendererStore((state) => state.createProject);
+  const forgetProject = useRendererStore((state) => state.forgetProject);
+  const trashProject = useRendererStore((state) => state.trashProject);
   const loading = project.status === "booting";
   const openingProject = project.status === "opening";
 
@@ -149,6 +151,8 @@ export function App() {
             onCreate={createProject}
             onOpen={openProject}
             onOpenRecent={openRecentProject}
+            onForgetProject={forgetProject}
+            onTrashProject={trashProject}
           />
         )}
       </AppShell>

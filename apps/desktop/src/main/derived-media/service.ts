@@ -66,6 +66,10 @@ import { DerivedRuntimeTracker } from "./runtime-tracker";
 
 const log = createCinesimLogger({ service: "derived-media" });
 
+interface DerivedMediaStoreOptions {
+  diskSpace?: { capacityBytes: number; availableBytes: number };
+}
+
 export class DerivedMediaStore {
   #directory: string | null = null;
   #scope: DerivedProjectScope | null = null;
@@ -79,11 +83,14 @@ export class DerivedMediaStore {
   #latencies = new Map<string, number[]>();
   #deadlines = new Map<string, { total: number; missed: number }>();
   #progressLogBuckets = new Map<string, number>();
+  #removedAssetIds = new Set<string>();
   #diskHeadroomAvailable = false;
   #runtimeTracker = new DerivedRuntimeTracker(
     () => this.#emit(),
     () => this.#scope,
   );
+
+  constructor(private readonly options: DerivedMediaStoreOptions = {}) {}
 
   async prepareProject(directory: string): Promise<PreparedDerivedProject> {
     const startedAt = performance.now();
@@ -112,9 +119,11 @@ export class DerivedMediaStore {
       this.#deadlines.clear();
       this.#runtimeTracker.reset();
       this.#progressLogBuckets.clear();
+      this.#removedAssetIds.clear();
       this.#index = usePreparedIndex ? prepared.index : await this.#indexRepository.read(directory);
       const persistenceSignature = projectOpenPersistenceSignature(this.#index);
       await this.#removeInterruptedTemps();
+      await this.#pruneRemovedAssetsNow();
       let recovered = false;
       let invalidatedFilmstripMetadata = false;
       for (const record of Object.values(this.#index.assets)) {
@@ -175,7 +184,31 @@ export class DerivedMediaStore {
   }
 
   updateProject(project: Project): void {
+    const retained = new Set<string>(project.assets.map((asset) => asset.id));
+    for (const asset of this.#project?.assets ?? []) {
+      if (!retained.has(asset.id)) this.#removedAssetIds.add(asset.id);
+    }
+    for (const asset of project.assets) this.#removedAssetIds.delete(asset.id);
     this.#project = project;
+  }
+
+  async pruneRemovedAssets(): Promise<void> {
+    await this.#serialize(() => this.#pruneRemovedAssetsNow());
+  }
+
+  async clearProject(): Promise<void> {
+    await this.#serialize(async () => {
+      await this.#closeWriters();
+      this.#directory = null;
+      this.#scope = null;
+      this.#project = null;
+      this.#index = emptyIndex();
+      this.#latencies.clear();
+      this.#deadlines.clear();
+      this.#progressLogBuckets.clear();
+      this.#removedAssetIds.clear();
+      this.#runtimeTracker.reset();
+    });
   }
 
   scope(): DerivedProjectScope {
@@ -580,9 +613,11 @@ export class DerivedMediaStore {
 
   async #refreshStorage(): Promise<void> {
     const directory = this.#requireDirectory();
-    const fileSystem = await statfs(directory);
-    const capacity = fileSystem.blocks * fileSystem.bsize;
-    const available = fileSystem.bavail * fileSystem.bsize;
+    const fileSystem = this.options.diskSpace ? null : await statfs(directory);
+    const capacity =
+      this.options.diskSpace?.capacityBytes ?? fileSystem!.blocks * fileSystem!.bsize;
+    const available =
+      this.options.diskSpace?.availableBytes ?? fileSystem!.bavail * fileSystem!.bsize;
     const safetyReserveBytes = Math.max(2 * 1024 ** 3, Math.floor(capacity * 0.05));
     this.#diskHeadroomAvailable = available > safetyReserveBytes + 512 * 1024 ** 2;
     const budgetBytes = Math.max(
@@ -619,6 +654,79 @@ export class DerivedMediaStore {
         await Promise.all(
           names
             .filter((name) => name.endsWith(".tmp") && /^[a-zA-Z0-9_.-]+$/.test(name))
+            .map((name) => rm(join(directory, name), { force: true })),
+        );
+      }),
+    );
+  }
+
+  async #pruneRemovedAssetsNow(): Promise<void> {
+    const project = this.#requireProject();
+    const retained = new Set<string>(project.assets.map((asset) => asset.id));
+    const removedIds = [
+      ...new Set([
+        ...this.#removedAssetIds,
+        ...Object.keys(this.#index.assets).filter((assetId) => !retained.has(assetId)),
+      ]),
+    ];
+    if (removedIds.length === 0) return;
+    const removed = new Set(removedIds);
+    for (const writer of this.#writers.values()) {
+      if (!removed.has(writer.assetId)) continue;
+      this.#retireWriter(writer.id);
+      await writer.handle.close().catch(() => undefined);
+      await rm(writer.tempPath, { force: true }).catch(() => undefined);
+      this.#writers.delete(writer.id);
+    }
+    for (const assetId of removedIds) {
+      const record = this.#index.assets[assetId];
+      if (record) {
+        for (const artifact of [
+          record.thumbnail,
+          record.filmstrip,
+          record.waveform,
+          record.proxy,
+        ]) {
+          if (artifact.relativePath)
+            await rm(this.#containedPath(artifact.relativePath), { force: true }).catch(
+              () => undefined,
+            );
+        }
+        delete this.#index.assets[assetId];
+      }
+      this.#latencies.delete(`${assetId}:original`);
+      this.#latencies.delete(`${assetId}:proxy`);
+      this.#deadlines.delete(`${assetId}:original`);
+      this.#deadlines.delete(`${assetId}:proxy`);
+      await this.#removeUnindexedAssetArtifacts(assetId);
+    }
+    this.#removedAssetIds.clear();
+    await this.#refreshStorage();
+    await this.#persist();
+    this.#emit();
+  }
+
+  async #removeUnindexedAssetArtifacts(assetId: string): Promise<void> {
+    const candidates = [
+      { folder: "thumbnails", matches: (name: string) => name === `${assetId}.jpg` },
+      { folder: "filmstrips", matches: (name: string) => name === `${assetId}.jpg` },
+      { folder: "waveforms", matches: (name: string) => name === `${assetId}.cswf` },
+      {
+        folder: "proxies",
+        matches: (name: string) => name.startsWith(`${assetId}-`) && name.endsWith(".mp4"),
+      },
+      {
+        folder: "frames",
+        matches: (name: string) => name.startsWith(`${assetId}-`) && name.endsWith(".png"),
+      },
+    ];
+    await Promise.all(
+      candidates.map(async ({ folder, matches }) => {
+        const directory = this.#containedPath(join(".video", folder));
+        const names = await readdir(directory).catch(() => []);
+        await Promise.all(
+          names
+            .filter((name) => matches(name) && /^[a-zA-Z0-9_.-]+$/.test(name))
             .map((name) => rm(join(directory, name), { force: true })),
         );
       }),

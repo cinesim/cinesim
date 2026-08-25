@@ -33,4 +33,20 @@ Tracks are changed through the shared command pathway:
 - `track.reorder` takes `trackId` and a zero-based `index`. Locked tracks cannot be reordered.
 - `track.remove` takes `trackId`. Removal is intentionally safe: the track must be unlocked and empty.
 
+Collection edits use the same command pathway:
+
+- `sequence.createFromAssets` takes an ordered, non-empty `assetIds` list and optional name and
+  format overrides. It creates standard video/audio tracks, places assets sequentially, creates
+  reciprocal audio components when needed, and makes the new timeline active in one undo step.
+- `asset.remove` takes a non-empty `assetIds` list. It removes the canonical asset references and
+  every clip using them. A usage on a locked track blocks the operation. Source media is never
+  deleted; disposable derived artifacts are pruned by the filesystem adapter after commit.
+- `sequence.remove` deletes an unlocked timeline and its clips without removing assets. The last
+  timeline cannot be deleted, and removing the active timeline chooses the lowest remaining stable
+  sequence ID as the deterministic fallback.
+
+Desktop project removal is deliberately outside core editing semantics. Forgetting a project only
+removes app metadata. Moving a project to Trash closes active services and uses the operating system
+Trash for the exact validated project directory.
+
 CLI and MCP operations are adapters for these commands; they do not implement separate editing behavior.

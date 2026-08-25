@@ -1,4 +1,4 @@
-import type { CSSProperties, ReactNode } from "react";
+import type { CSSProperties, MouseEventHandler, ReactNode } from "react";
 import { cn } from "./cn";
 
 export interface PreviewCardProps {
@@ -14,8 +14,10 @@ export interface PreviewCardProps {
   ariaLabel?: string;
   title?: string;
   disabled?: boolean;
-  onClick?: () => void;
-  onDoubleClick?: () => void;
+  selected?: boolean;
+  onClick?: MouseEventHandler<HTMLButtonElement>;
+  onDoubleClick?: MouseEventHandler<HTMLButtonElement>;
+  onContextMenu?: MouseEventHandler<HTMLButtonElement>;
 }
 
 export function PreviewCard({
@@ -31,10 +33,12 @@ export function PreviewCard({
   ariaLabel,
   title,
   disabled,
+  selected,
   onClick,
   onDoubleClick,
+  onContextMenu,
 }: PreviewCardProps) {
-  const interactive = Boolean(onClick || onDoubleClick);
+  const interactive = Boolean(onClick || onDoubleClick || onContextMenu);
   const contents = (
     <>
       <div
@@ -69,10 +73,11 @@ export function PreviewCard({
     <article
       data-slot="preview-card"
       className={cn(
-        "group relative min-w-0 overflow-hidden border border-border bg-panel text-left shadow-sm transition",
-        interactive &&
-          "hover:-translate-y-0.5 hover:border-border-strong hover:shadow-lg hover:shadow-black/10",
+        "group relative min-w-0 overflow-hidden rounded-xs border border-border bg-panel text-left shadow-sm transition",
+        interactive && "hover:border-border-strong hover:shadow-lg hover:shadow-black/10",
+        selected && "border-accent ring-2 ring-accent/70",
       )}
+      data-selected={selected || undefined}
     >
       {interactive ? (
         <button
@@ -81,8 +86,10 @@ export function PreviewCard({
           aria-label={ariaLabel}
           title={title}
           disabled={disabled}
+          aria-pressed={selected || undefined}
           onClick={onClick}
           onDoubleClick={onDoubleClick}
+          onContextMenu={onContextMenu}
         >
           {contents}
         </button>

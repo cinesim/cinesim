@@ -239,6 +239,27 @@ export class AgentManager implements AgentToolHooks {
     return this.#changed(projectDirectory);
   }
 
+  async removeProject(projectDirectory: string): Promise<void> {
+    const sessionIds = this.#state.sessions
+      .filter((session) => session.projectDirectory === projectDirectory)
+      .map((session) => session.id);
+    await Promise.all(sessionIds.map((sessionId) => this.#stopRuntime(sessionId)));
+    this.#state.sessions = this.#state.sessions.filter(
+      (session) => session.projectDirectory !== projectDirectory,
+    );
+    delete this.#state.activeSessionByProject[projectDirectory];
+    this.#checkpointStores.delete(projectDirectory);
+    await this.#save();
+    this.onChanged({ projectDirectory, activeSessionId: null, sessions: [] });
+  }
+
+  async stopProject(projectDirectory: string): Promise<void> {
+    const sessionIds = this.#state.sessions
+      .filter((session) => session.projectDirectory === projectDirectory)
+      .map((session) => session.id);
+    await Promise.all(sessionIds.map((sessionId) => this.#stopRuntime(sessionId)));
+  }
+
   async send(
     sessionId: string,
     rawMessage: string,

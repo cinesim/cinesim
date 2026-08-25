@@ -10,6 +10,19 @@ const timeUs = z.number().int().nonnegative().safe();
 export const editorCommandSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("asset.import"), asset: assetSchema }),
   z.object({
+    type: z.literal("asset.remove"),
+    assetIds: z.array(assetId).min(1).max(500),
+  }),
+  z.object({
+    type: z.literal("sequence.createFromAssets"),
+    assetIds: z.array(assetId).min(1).max(500),
+    name: z.string().trim().min(1).max(120).optional(),
+    width: z.number().int().positive().safe().optional(),
+    height: z.number().int().positive().safe().optional(),
+    frameRate: z.number().positive().finite().optional(),
+  }),
+  z.object({ type: z.literal("sequence.remove"), sequenceId }),
+  z.object({
     type: z.literal("track.add"),
     sequenceId,
     kind: z.enum(["video", "audio", "overlay"]),
