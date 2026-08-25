@@ -4,8 +4,8 @@ import { join } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { afterEach, describe, expect, it } from "vitest";
-import { AgentMcpServer } from "../src/main/agent-mcp-server";
-import { DesktopProjectStore } from "../src/main/project-store";
+import { AgentMcpServer } from "../src/main/agents/mcp/server";
+import { DesktopProjectStore } from "../src/main/projects/project-store";
 
 const temporaryDirectories: string[] = [];
 

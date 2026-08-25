@@ -1,7 +1,7 @@
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
-import { DEFAULT_EDITOR_LAYOUT, EDITOR_LAYOUT_LIMITS } from "../shared/api";
-import type { DesktopAppState, EditorLayoutState, RecentProject } from "../shared/api";
+import { DEFAULT_EDITOR_LAYOUT, EDITOR_LAYOUT_LIMITS } from "../../shared/api";
+import type { DesktopAppState, EditorLayoutState, RecentProject } from "../../shared/api";
 
 const EMPTY_STATE: DesktopAppState = {
   version: 1,

@@ -1,10 +1,9 @@
 import { mkdir, readFile, rename, stat, writeFile } from "node:fs/promises";
-import { basename, dirname, join } from "node:path";
+import { dirname, join } from "node:path";
 import {
   createProject,
   DEFAULT_SETTINGS,
   joinProjectFiles,
-  nextId,
   PROJECT_FILES,
   ProjectHistory,
   settingsFromToml,
@@ -12,12 +11,12 @@ import {
   splitProjectFiles,
   stableJson,
 } from "@cinesim/core";
-import type { Asset, EditorCommand, Project, ProjectSettings } from "@cinesim/core";
+import type { EditorCommand, Project, ProjectSettings } from "@cinesim/core";
 import { createCinesimLogger } from "@cinesim/logging";
 import { dispatchCommand } from "@cinesim/protocol";
-import { ALL_FORMATS, FilePathSource, Input } from "mediabunny";
-import type { DesktopProjectSession } from "../shared/api";
-import { DerivedMediaStore } from "./derived-media-store";
+import type { DesktopProjectSession } from "../../shared/api";
+import { DerivedMediaStore } from "../derived-media/service";
+import { inspectMedia } from "./media-import";
 
 const log = createCinesimLogger({ service: "desktop-commands" });
 
@@ -249,36 +248,12 @@ export class DesktopProjectStore {
 
   async inspectAndImportMedia(filePath: string): Promise<DesktopProjectSession> {
     const project = this.#requireProject();
-    const input = new Input({ source: new FilePathSource(filePath), formats: ALL_FORMATS });
-    try {
-      if (!(await input.canRead())) throw new Error("Unsupported media file");
-      const [video, audio, durationSeconds] = await Promise.all([
-        input.getPrimaryVideoTrack(),
-        input.getPrimaryAudioTrack(),
-        input.computeDuration(),
-      ]);
-      const existingIds = project.assets.map((asset) => asset.id);
-      const asset: Asset = {
-        id: nextId("asset", existingIds),
-        kind: video ? "video" : audio ? "audio" : "image",
-        name: basename(filePath),
-        source: { kind: "local", path: filePath },
-        durationUs: Math.max(1, Math.round(durationSeconds * 1_000_000)),
-        ...(video
-          ? {
-              width: await video.getDisplayWidth(),
-              height: await video.getDisplayHeight(),
-              frameRate: (await video.computeFrameRateMetrics({ targetPacketCount: 128 }))
-                .bestGuessFrameRate,
-            }
-          : {}),
-        hasAudio: Boolean(audio),
-      };
-      await this.execute({ type: "asset.import", asset });
-      return this.session();
-    } finally {
-      input.dispose();
-    }
+    const asset = await inspectMedia(
+      filePath,
+      project.assets.map((candidate) => candidate.id),
+    );
+    await this.execute({ type: "asset.import", asset });
+    return this.session();
   }
 
   assetPath(assetId: string): string | null {

@@ -4,8 +4,8 @@ import type {
   AgentProviderRuntime,
   AgentRuntimeCallbacks,
   AgentRuntimeLaunchOptions,
-} from "./agent-runtime";
-import { asRecord, stringValue } from "./agent-runtime";
+} from "./types";
+import { asRecord, stringValue } from "./types";
 
 function tokenCount(value: unknown): number {
   return typeof value === "number" && Number.isFinite(value) && value >= 0 ? Math.round(value) : 0;

@@ -4,7 +4,11 @@ import { access } from "node:fs/promises";
 import { homedir } from "node:os";
 import { delimiter, join } from "node:path";
 import { promisify } from "node:util";
-import type { AgentProviderKind, AgentProviderSettings, AgentProviderStatus } from "../shared/api";
+import type {
+  AgentProviderKind,
+  AgentProviderSettings,
+  AgentProviderStatus,
+} from "../../shared/api";
 
 const execFileAsync = promisify(execFile);
 const PROVIDER_COMMAND: Record<AgentProviderKind, string> = { claude: "claude", codex: "codex" };

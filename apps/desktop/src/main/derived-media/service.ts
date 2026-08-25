@@ -9,9 +9,7 @@ import {
   rm,
   stat,
   statfs,
-  writeFile,
 } from "node:fs/promises";
-import type { FileHandle } from "node:fs/promises";
 import { dirname, join, relative, resolve, sep } from "node:path";
 import type { Asset, Project } from "@cinesim/core";
 import { evaluateAdaptivePolicy } from "@cinesim/engine";
@@ -23,156 +21,50 @@ import type {
   DerivedAssetSnapshot,
   DerivedMediaEvent,
   DerivedProjectScope,
-  DerivedRuntimeSnapshot,
   DerivedMediaSnapshot,
   DerivedPerformanceObservation,
   DerivedWorkerActivity,
   FinalizeDerivedWrite,
-  SourceFingerprint,
-  SourcePerformanceSnapshot,
-} from "../shared/api";
+} from "../../shared/api";
 import {
   decodeWaveformEnvelope,
-  WAVEFORM_FORMAT_VERSION,
   waveformByteLength,
   waveformPeakCount,
-} from "../shared/waveform-format";
+} from "../../shared/waveform-format";
+import {
+  validateFinalize,
+  validateWriteInput,
+  validFilmstripMetadata,
+} from "./artifact-validation";
+import { DerivedIndexRepository } from "./index-repository";
+import {
+  artifactPath,
+  DERIVED_GENERATOR_VERSION,
+  emptyIndex,
+  emptyPerformance,
+  isAssetId,
+  MAX_ARTIFACT_BYTES,
+  MAX_CHUNK_BYTES,
+  MAX_DECISION_EVENTS,
+  MAX_RETIRED_WRITERS,
+  MAX_WRITERS,
+  mimeType,
+  percentile,
+  projectOpenPersistenceSignature,
+} from "./model";
+import type {
+  PersistedArtifact,
+  PersistedAsset,
+  PersistedIndex,
+  PreparedDerivedProject,
+  WriterSession,
+} from "./model";
 
-export const DERIVED_GENERATOR_VERSION = "4";
-const INDEX_FILE = join(".video", "cache", "media-intelligence.json");
-const MAX_WRITERS = 4;
-const MAX_CHUNK_BYTES = 4 * 1024 * 1024;
-const MAX_ARTIFACT_BYTES = 2 * 1024 * 1024 * 1024;
-const EDGE_BYTES = 64 * 1024;
-const MAX_DECISION_EVENTS = 100;
-const MAX_RETIRED_WRITERS = 256;
+export { DERIVED_GENERATOR_VERSION } from "./model";
+import { fingerprintsEqual, fingerprintSource } from "./source-fingerprint";
+import { DerivedRuntimeTracker } from "./runtime-tracker";
+
 const log = createCinesimLogger({ service: "derived-media" });
-
-interface PersistedArtifact extends DerivedArtifactSnapshot {
-  relativePath?: string;
-  generatorVersion: string;
-  sourceFingerprint: SourceFingerprint;
-}
-
-interface PersistedAsset extends Omit<DerivedAssetSnapshot, "assetId" | "fingerprintStatus"> {
-  sourceFingerprint: SourceFingerprint;
-  thumbnail: PersistedArtifact;
-  filmstrip: PersistedArtifact;
-  waveform: PersistedArtifact;
-  proxy: PersistedArtifact;
-}
-
-interface PersistedIndex {
-  version: 1;
-  generatorVersion: string;
-  assets: Record<string, PersistedAsset>;
-  storage: DerivedMediaSnapshot["storage"];
-  decisionLog: DerivedMediaEvent[];
-}
-
-interface PreparedDerivedProject {
-  directory: string;
-  index: PersistedIndex;
-  readDurationMs: number;
-}
-
-interface WriterSession {
-  id: string;
-  projectDirectory: string;
-  assetId: string;
-  kind: DerivedArtifactKind;
-  profileId?: string;
-  expectedBytes?: number;
-  maxEnd: number;
-  tempPath: string;
-  finalPath: string;
-  handle: FileHandle;
-}
-
-function emptyPerformance(): SourcePerformanceSnapshot {
-  return {
-    observations: 0,
-    requestsReceived: 0,
-    requestsCoalesced: 0,
-    framesPresented: 0,
-    framesObsolete: 0,
-  };
-}
-
-function emptyRuntime(): DerivedRuntimeSnapshot {
-  return {
-    protocol: {
-      requests: 0,
-      rangeRequests: 0,
-      bytesRead: 0,
-      averageLatencyMs: 0,
-      errors: 0,
-    },
-  };
-}
-
-function emptyStorage(): DerivedMediaSnapshot["storage"] {
-  return {
-    totalBytes: 0,
-    budgetBytes: 0,
-    safetyReserveBytes: 0,
-    thumbnailBytes: 0,
-    filmstripBytes: 0,
-    waveformBytes: 0,
-    proxyBytes: 0,
-    evictionCount: 0,
-  };
-}
-
-function emptyIndex(): PersistedIndex {
-  return {
-    version: 1,
-    generatorVersion: DERIVED_GENERATOR_VERSION,
-    assets: {},
-    storage: emptyStorage(),
-    decisionLog: [],
-  };
-}
-
-function projectOpenPersistenceSignature(index: PersistedIndex): string {
-  return JSON.stringify({
-    ...index,
-    storage: {
-      ...index.storage,
-      // These values describe current filesystem capacity and are refreshed in memory on open.
-      // Persisting only their fluctuations creates needless File Provider writes.
-      budgetBytes: 0,
-      safetyReserveBytes: 0,
-    },
-  });
-}
-
-function artifactPath(kind: DerivedArtifactKind, assetId: string, profileId?: string): string {
-  if (kind === "thumbnail") return join(".video", "thumbnails", `${assetId}.jpg`);
-  if (kind === "filmstrip") return join(".video", "filmstrips", `${assetId}.jpg`);
-  if (kind === "waveform") return join(".video", "waveforms", `${assetId}.cswf`);
-  return join(".video", "proxies", `${assetId}-${profileId ?? "edit-720p"}.mp4`);
-}
-
-function mimeType(kind: DerivedArtifactKind): string {
-  if (kind === "proxy") return "video/mp4";
-  if (kind === "waveform") return "application/vnd.cinesim.waveform";
-  return "image/jpeg";
-}
-
-function isAssetId(value: string): boolean {
-  return /^asset_[a-zA-Z0-9][a-zA-Z0-9_-]*$/.test(value);
-}
-
-function validProfile(value: string | undefined): boolean {
-  return value === undefined || /^[a-z0-9][a-z0-9_-]{0,63}$/.test(value);
-}
-
-function percentile(values: number[], ratio: number): number | undefined {
-  if (values.length === 0) return undefined;
-  const sorted = [...values].sort((left, right) => left - right);
-  return sorted[Math.min(sorted.length - 1, Math.floor((sorted.length - 1) * ratio))];
-}
 
 export class DerivedMediaStore {
   #directory: string | null = null;
@@ -183,17 +75,19 @@ export class DerivedMediaStore {
   #retiredWriters = new Set<string>();
   #listeners = new Set<(snapshot: DerivedMediaSnapshot) => void>();
   #operationQueue: Promise<unknown> = Promise.resolve();
-  #persistQueue: Promise<void> = Promise.resolve();
+  #indexRepository = new DerivedIndexRepository();
   #latencies = new Map<string, number[]>();
   #deadlines = new Map<string, { total: number; missed: number }>();
-  #runtime = emptyRuntime();
   #progressLogBuckets = new Map<string, number>();
-  #runtimeEmitTimer: ReturnType<typeof setTimeout> | null = null;
   #diskHeadroomAvailable = false;
+  #runtimeTracker = new DerivedRuntimeTracker(
+    () => this.#emit(),
+    () => this.#scope,
+  );
 
   async prepareProject(directory: string): Promise<PreparedDerivedProject> {
     const startedAt = performance.now();
-    const index = await this.#readIndex(directory);
+    const index = await this.#indexRepository.read(directory);
     return { directory, index, readDurationMs: performance.now() - startedAt };
   }
 
@@ -216,11 +110,9 @@ export class DerivedMediaStore {
       this.#project = project;
       this.#latencies.clear();
       this.#deadlines.clear();
-      this.#runtime = emptyRuntime();
+      this.#runtimeTracker.reset();
       this.#progressLogBuckets.clear();
-      if (this.#runtimeEmitTimer) clearTimeout(this.#runtimeEmitTimer);
-      this.#runtimeEmitTimer = null;
-      this.#index = usePreparedIndex ? prepared.index : await this.#readIndex(directory);
+      this.#index = usePreparedIndex ? prepared.index : await this.#indexRepository.read(directory);
       const persistenceSignature = projectOpenPersistenceSignature(this.#index);
       await this.#removeInterruptedTemps();
       let recovered = false;
@@ -238,7 +130,7 @@ export class DerivedMediaStore {
             recovered = true;
           }
         }
-        if (record.filmstrip.state === "ready" && !this.#validFilmstripMetadata(record.filmstrip)) {
+        if (record.filmstrip.state === "ready" && !validFilmstripMetadata(record.filmstrip)) {
           if (record.filmstrip.relativePath)
             await rm(this.#containedPath(record.filmstrip.relativePath), { force: true }).catch(
               () => undefined,
@@ -334,7 +226,7 @@ export class DerivedMediaStore {
         completed: artifacts.filter((artifact) => artifact.state === "ready").length,
         failed: artifacts.filter((artifact) => artifact.state === "failed").length,
       },
-      runtime: structuredClone(this.#runtime),
+      runtime: this.#runtimeTracker.snapshot(),
       decisionLog: structuredClone(this.#index.decisionLog),
     };
   }
@@ -370,7 +262,7 @@ export class DerivedMediaStore {
   ): Promise<{ writerId: string }> {
     return this.#serialize(async () => {
       this.assertScope(scope);
-      this.#validateWriteInput(input);
+      validateWriteInput(input);
       if (input.kind === "proxy" && !this.#diskHeadroomAvailable)
         throw new Error("Insufficient disk headroom for a proxy");
       if (this.#writers.size >= MAX_WRITERS) throw new Error("Too many derived writers");
@@ -450,7 +342,7 @@ export class DerivedMediaStore {
         throw new Error("Derived artifact size does not match written data");
       if (writer.expectedBytes && result.bytes !== writer.expectedBytes)
         throw new Error("Derived artifact does not match expected size");
-      this.#validateFinalize(writer.kind, result, this.#requireAsset(writer.assetId));
+      validateFinalize(writer.kind, result, this.#requireAsset(writer.assetId));
       await writer.handle.sync();
       if (writer.kind === "waveform") {
         const bytes = await readFile(writer.tempPath);
@@ -511,11 +403,7 @@ export class DerivedMediaStore {
       const writer = this.#writerOrRetired(writerId);
       if (!writer) return;
       this.#index.assets[writer.assetId]![writer.kind].progress = progress;
-      const active = this.#runtime.activeJob;
-      if (active?.assetId === writer.assetId) {
-        active.progress = progress;
-        active.lastActivityAt = new Date().toISOString();
-      }
+      this.#runtimeTracker.updateWriterProgress(writer.assetId, progress);
       const bucket = Math.min(4, Math.floor(progress * 4));
       if (this.#progressLogBuckets.get(writerId) !== bucket) {
         this.#progressLogBuckets.set(writerId, bucket);
@@ -535,65 +423,7 @@ export class DerivedMediaStore {
 
   reportActivity(scope: DerivedProjectScope, activity: DerivedWorkerActivity): void {
     if (!this.#scopeMatches(scope)) return;
-    const now = new Date().toISOString();
-    if (activity.stage === "scheduled" || this.#runtime.activeJob?.jobId !== activity.jobId) {
-      this.#runtime.activeJob = {
-        jobId: activity.jobId,
-        assetId: activity.assetId,
-        jobKind: activity.jobKind,
-        stage: activity.stage,
-        progress:
-          activity.completedSamples !== undefined && activity.totalSamples
-            ? activity.completedSamples / activity.totalSamples
-            : 0,
-        elapsedMs: activity.elapsedMs,
-        startedAt: now,
-        lastActivityAt: now,
-        ...(activity.completedSamples !== undefined
-          ? { completedSamples: activity.completedSamples }
-          : {}),
-        ...(activity.totalSamples !== undefined ? { totalSamples: activity.totalSamples } : {}),
-      };
-    } else {
-      const active = this.#runtime.activeJob;
-      active.stage = activity.stage;
-      active.elapsedMs = activity.elapsedMs;
-      active.lastActivityAt = now;
-      if (activity.completedSamples !== undefined)
-        active.completedSamples = activity.completedSamples;
-      if (activity.totalSamples !== undefined) active.totalSamples = activity.totalSamples;
-      if (activity.completedSamples !== undefined && activity.totalSamples)
-        active.progress = activity.completedSamples / activity.totalSamples;
-    }
-    log.info(
-      {
-        operation: "worker-activity",
-        jobId: activity.jobId,
-        assetId: activity.assetId,
-        jobKind: activity.jobKind,
-        stage: activity.stage,
-        elapsedMs: activity.elapsedMs,
-        ...(activity.completedSamples !== undefined
-          ? { completedSamples: activity.completedSamples }
-          : {}),
-        ...(activity.totalSamples !== undefined ? { totalSamples: activity.totalSamples } : {}),
-        ...(activity.failureCode ? { failureCode: activity.failureCode } : {}),
-        ...(activity.detail ? { detail: activity.detail } : {}),
-      },
-      "derived worker activity",
-    );
-    if (activity.stage === "completed" || activity.stage === "failed") {
-      this.#runtime.lastJob = {
-        assetId: activity.assetId,
-        jobKind: activity.jobKind,
-        stage: activity.stage,
-        durationMs: activity.elapsedMs,
-        finishedAt: now,
-        ...(activity.failureCode ? { failureCode: activity.failureCode } : {}),
-      };
-      delete this.#runtime.activeJob;
-    }
-    this.#emit();
+    this.#runtimeTracker.reportActivity(activity);
   }
 
   recordProtocolRead(input: {
@@ -604,45 +434,11 @@ export class DerivedMediaStore {
     durationMs: number;
     range: boolean;
   }): void {
-    const protocol = this.#runtime.protocol;
-    protocol.requests += 1;
-    protocol.rangeRequests += Number(input.range);
-    protocol.bytesRead += input.bytesRead;
-    protocol.averageLatencyMs += (input.durationMs - protocol.averageLatencyMs) / protocol.requests;
-    protocol.lastLatencyMs = input.durationMs;
-    protocol.lastBytesRead = input.bytesRead;
-    protocol.lastAssetId = input.assetId;
-    log.info(
-      {
-        operation: "protocol-read",
-        projectCacheKey: this.#scope?.cacheKey,
-        projectEpoch: this.#scope?.epoch,
-        assetId: input.assetId,
-        start: input.start,
-        requestedEnd: input.requestedEnd,
-        bytesRead: input.bytesRead,
-        durationMs: input.durationMs,
-        range: input.range,
-      },
-      "media protocol range served",
-    );
-    this.#scheduleRuntimeEmit();
+    this.#runtimeTracker.recordProtocolRead(input);
   }
 
   recordProtocolError(assetId: string | undefined, detail: string, durationMs: number): void {
-    this.#runtime.protocol.errors += 1;
-    log.error(
-      {
-        operation: "protocol-error",
-        projectCacheKey: this.#scope?.cacheKey,
-        projectEpoch: this.#scope?.epoch,
-        ...(assetId ? { assetId } : {}),
-        detail,
-        durationMs,
-      },
-      "media protocol request failed",
-    );
-    this.#scheduleRuntimeEmit();
+    this.#runtimeTracker.recordProtocolError(assetId, detail, durationMs);
   }
 
   async cancelWrite(writerId: string, failureCode?: string, detail?: string): Promise<void> {
@@ -744,9 +540,9 @@ export class DerivedMediaStore {
   }
 
   async #ensureAsset(asset: Asset): Promise<PersistedAsset> {
-    const fingerprint = await this.#fingerprint(asset.source.path);
+    const fingerprint = await fingerprintSource(asset.source.path);
     const current = this.#index.assets[asset.id];
-    if (current && this.#fingerprintsEqual(current.sourceFingerprint, fingerprint)) return current;
+    if (current && fingerprintsEqual(current.sourceFingerprint, fingerprint)) return current;
     if (current) {
       for (const artifact of [
         current.thumbnail,
@@ -780,50 +576,6 @@ export class DerivedMediaStore {
     };
     this.#index.assets[asset.id] = record;
     return record;
-  }
-
-  async #fingerprint(path: string): Promise<SourceFingerprint> {
-    const info = await stat(path).catch((error: unknown) => {
-      if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
-      throw error;
-    });
-    if (!info) return { size: -1, mtimeMs: -1, edgeHash: "missing" };
-    const handle = await open(path, "r");
-    try {
-      const firstSize = Math.min(EDGE_BYTES, info.size);
-      const lastSize = Math.min(EDGE_BYTES, Math.max(0, info.size - firstSize));
-      const first = Buffer.alloc(firstSize);
-      const last = Buffer.alloc(lastSize);
-      if (firstSize) await handle.read(first, 0, firstSize, 0);
-      if (lastSize) await handle.read(last, 0, lastSize, info.size - lastSize);
-      const edgeHash = createHash("sha256").update(first).update(last).digest("hex");
-      return { size: info.size, mtimeMs: info.mtimeMs, edgeHash };
-    } finally {
-      await handle.close();
-    }
-  }
-
-  #fingerprintsEqual(left: SourceFingerprint, right: SourceFingerprint): boolean {
-    return (
-      left.size === right.size && left.mtimeMs === right.mtimeMs && left.edgeHash === right.edgeHash
-    );
-  }
-
-  async #readIndex(directory: string): Promise<PersistedIndex> {
-    try {
-      const value = JSON.parse(
-        await readFile(join(directory, INDEX_FILE), "utf8"),
-      ) as PersistedIndex;
-      if (value.version !== 1 || value.generatorVersion !== DERIVED_GENERATOR_VERSION)
-        return emptyIndex();
-      value.decisionLog = Array.isArray(value.decisionLog)
-        ? value.decisionLog.slice(-MAX_DECISION_EVENTS)
-        : [];
-      value.storage = { ...emptyStorage(), ...value.storage };
-      return value;
-    } catch {
-      return emptyIndex();
-    }
   }
 
   async #refreshStorage(): Promise<void> {
@@ -943,77 +695,6 @@ export class DerivedMediaStore {
     );
   }
 
-  #validateWriteInput(input: BeginDerivedWrite): void {
-    if (!isAssetId(input.assetId)) throw new Error("Invalid asset ID");
-    if (!["thumbnail", "filmstrip", "waveform", "proxy"].includes(input.kind))
-      throw new Error("Invalid derived artifact kind");
-    if (!validProfile(input.profileId)) throw new Error("Invalid proxy profile");
-    if (input.kind !== "proxy" && input.profileId)
-      throw new Error("Profiles are only valid for proxies");
-    if (
-      input.expectedBytes !== undefined &&
-      (!Number.isSafeInteger(input.expectedBytes) ||
-        input.expectedBytes <= 0 ||
-        input.expectedBytes > MAX_ARTIFACT_BYTES)
-    )
-      throw new Error("Invalid expected derived size");
-  }
-
-  #validateFinalize(kind: DerivedArtifactKind, result: FinalizeDerivedWrite, asset: Asset): void {
-    for (const value of [
-      result.sourceTimeUs,
-      result.columns,
-      result.rows,
-      result.tileWidth,
-      result.tileHeight,
-      result.peakCount,
-      result.waveformFormatVersion,
-    ]) {
-      if (value !== undefined && (!Number.isSafeInteger(value) || value < 0))
-        throw new Error("Invalid derived metadata");
-    }
-    if (
-      result.tileTimesUs &&
-      (result.tileTimesUs.length > 64 ||
-        result.tileTimesUs.some((value) => !Number.isSafeInteger(value) || value < 0))
-    )
-      throw new Error("Invalid filmstrip times");
-    if (kind === "filmstrip" && !this.#validFilmstripMetadata(result))
-      throw new Error("Incomplete or inconsistent filmstrip metadata");
-    if (
-      kind === "waveform" &&
-      (result.waveformFormatVersion !== WAVEFORM_FORMAT_VERSION ||
-        result.peakCount !== waveformPeakCount(asset.durationUs) ||
-        result.bytes !== waveformByteLength(result.peakCount))
-    )
-      throw new Error("Incomplete or inconsistent waveform metadata");
-    if (
-      kind !== "waveform" &&
-      (result.peakCount !== undefined || result.waveformFormatVersion !== undefined)
-    )
-      throw new Error("Waveform metadata is only valid for waveforms");
-  }
-
-  #validFilmstripMetadata(
-    value: Pick<
-      DerivedArtifactSnapshot,
-      "tileTimesUs" | "columns" | "rows" | "tileWidth" | "tileHeight"
-    >,
-  ): boolean {
-    const { tileTimesUs, columns, rows, tileWidth, tileHeight } = value;
-    return Boolean(
-      tileTimesUs?.length &&
-      Number.isSafeInteger(columns) &&
-      columns! > 0 &&
-      Number.isSafeInteger(rows) &&
-      rows === Math.ceil(tileTimesUs.length / columns!) &&
-      Number.isSafeInteger(tileWidth) &&
-      tileWidth! > 0 &&
-      Number.isSafeInteger(tileHeight) &&
-      tileHeight! > 0,
-    );
-  }
-
   #containedPath(relativePath: string): string {
     const root = resolve(this.#requireDirectory(), ".video");
     const path = resolve(this.#requireDirectory(), relativePath);
@@ -1083,31 +764,13 @@ export class DerivedMediaStore {
   }
 
   async #persist(): Promise<void> {
-    const path = join(this.#requireDirectory(), INDEX_FILE);
-    const contents = `${JSON.stringify(this.#index, null, 2)}\n`;
-    const operation = async () => {
-      const tempPath = `${path}.tmp`;
-      await mkdir(dirname(path), { recursive: true });
-      await writeFile(tempPath, contents, "utf8");
-      await rename(tempPath, path);
-    };
-    const result = this.#persistQueue.catch(() => undefined).then(operation);
-    this.#persistQueue = result;
-    return result;
+    await this.#indexRepository.write(this.#requireDirectory(), this.#index);
   }
 
   #emit(): void {
     if (!this.#directory) return;
     const snapshot = this.snapshot();
     for (const listener of this.#listeners) listener(snapshot);
-  }
-
-  #scheduleRuntimeEmit(): void {
-    if (this.#runtimeEmitTimer) return;
-    this.#runtimeEmitTimer = setTimeout(() => {
-      this.#runtimeEmitTimer = null;
-      this.#emit();
-    }, 250);
   }
 
   async #closeWriters(): Promise<void> {

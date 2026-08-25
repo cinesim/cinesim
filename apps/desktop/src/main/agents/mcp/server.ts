@@ -5,8 +5,8 @@ import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/
 import { z } from "zod";
 import type { AssetId, ClipId, EditorCommand, SequenceId, TrackId } from "@cinesim/core";
 import { inspectAsset, inspectProject, inspectTimeline, listAssets } from "@cinesim/protocol";
-import type { AgentPermissionMode } from "../shared/api";
-import type { DesktopProjectStore } from "./project-store";
+import type { AgentPermissionMode } from "../../../shared/api";
+import type { DesktopProjectStore } from "../../projects/project-store";
 
 interface AgentToolSession {
   sessionId: string;
