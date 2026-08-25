@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 const root = resolve(import.meta.dirname, "../../..");
 const uiSources = ["apps/desktop/src/renderer", "packages/ui/src"];
 const forbiddenTypography = [
-  /\bfont-(?:mono|sans|serif|\[[^\]]+\])\b/g,
+  /\bfont-(?:sans|serif|\[[^\]]+\])\b/g,
   /\btext-(?:xs|sm|base|lg|xl|2xl|3xl|4xl|5xl|6xl|7xl|8xl|9xl|\[[^\]]+\])\b/g,
   /\bfont(?:Family|Size)\s*:/g,
 ];
@@ -17,7 +17,7 @@ function sourceFiles(directory: string): string[] {
 }
 
 describe("renderer typography", () => {
-  it("uses only Geist and the three semantic UI sizes", () => {
+  it("uses Geist, semantic UI sizes, and intentional monospace shortcuts", () => {
     const violations = uiSources.flatMap((directory) =>
       sourceFiles(directory).flatMap((file) => {
         const source = readFileSync(file, "utf8");

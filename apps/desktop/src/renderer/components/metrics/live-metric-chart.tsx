@@ -4,6 +4,14 @@ export interface LiveMetricValues {
   renderFps: number;
   targetFps: number;
   seekLatencyMs: number;
+  droppedFrames: number;
+  requestsReceived: number;
+  framesPresented: number;
+  requestsCoalesced: number;
+  droppedFramesPerSecond: number;
+  requestsPerSecond: number;
+  framesPresentedPerSecond: number;
+  requestsCoalescedPerSecond: number;
   gpuSubmitCpuMs: number;
   protocolLatencyMs: number;
   mainCpuPercent: number;
@@ -23,6 +31,20 @@ interface LiveMetricSample extends LiveMetricValues {
   sampledAt: number;
 }
 
+export type LiveMetricRateKey =
+  | "droppedFramesPerSecond"
+  | "requestsPerSecond"
+  | "framesPresentedPerSecond"
+  | "requestsCoalescedPerSecond";
+
+const RATE_SOURCES: Record<LiveMetricRateKey, keyof LiveMetricValues> = {
+  droppedFramesPerSecond: "droppedFrames",
+  requestsPerSecond: "requestsReceived",
+  framesPresentedPerSecond: "framesPresented",
+  requestsCoalescedPerSecond: "requestsCoalesced",
+};
+const NO_RATE_KEYS: LiveMetricRateKey[] = [];
+
 export interface LiveMetricSeries {
   key: keyof LiveMetricValues;
   label: string;
@@ -30,8 +52,12 @@ export interface LiveMetricSeries {
   dashed?: boolean;
 }
 
-export function useLiveMetricHistory(sample: LiveMetricValues | null): LiveMetricSample[] {
+export function useLiveMetricHistory(
+  sample: LiveMetricValues | null,
+  rateKeys: LiveMetricRateKey[] = NO_RATE_KEYS,
+): LiveMetricSample[] {
   const latestSample = useRef(sample);
+  const previousSample = useRef<LiveMetricSample | null>(null);
   const [history, setHistory] = useState<LiveMetricSample[]>([]);
 
   useEffect(() => {
@@ -42,10 +68,27 @@ export function useLiveMetricHistory(sample: LiveMetricValues | null): LiveMetri
     const interval = window.setInterval(() => {
       const current = latestSample.current;
       if (!current) return;
-      setHistory((previous) => [...previous, { ...current, sampledAt: Date.now() }].slice(-60));
+      const sampledAt = Date.now();
+      const elapsedSeconds = previousSample.current
+        ? Math.max(0, (sampledAt - previousSample.current.sampledAt) / 1000)
+        : 0;
+      const nextSample = { ...current, sampledAt };
+
+      for (const rateKey of rateKeys) {
+        const sourceKey = RATE_SOURCES[rateKey];
+        const currentValue = current[sourceKey];
+        const previousValue = previousSample.current?.[sourceKey];
+        nextSample[rateKey] =
+          previousValue === undefined || elapsedSeconds <= 0
+            ? 0
+            : Math.max(0, (currentValue - previousValue) / elapsedSeconds);
+      }
+
+      previousSample.current = nextSample;
+      setHistory((previous) => [...previous, nextSample].slice(-60));
     }, 500);
     return () => window.clearInterval(interval);
-  }, []);
+  }, [rateKeys]);
 
   return history;
 }
@@ -57,6 +100,7 @@ export function LiveMetricChart({
   minimumMaximum,
   samples,
   series,
+  stacked = false,
 }: {
   title: string;
   description: string;
@@ -64,23 +108,44 @@ export function LiveMetricChart({
   minimumMaximum: number;
   samples: LiveMetricSample[];
   series: LiveMetricSeries[];
+  stacked?: boolean;
 }) {
-  const values = samples.flatMap((sample) => series.map((item) => sample[item.key]));
+  const values = stacked
+    ? samples.map((sample) =>
+        series.reduce((total, item) => total + Math.max(0, sample[item.key]), 0),
+      )
+    : samples.flatMap((sample) => series.map((item) => sample[item.key]));
   const observedMaximum = niceChartMaximum(Math.max(0, ...values));
   const maximum = observedMaximum < minimumMaximum ? minimumMaximum : observedMaximum;
   const latest = samples.at(-1);
+  const latestTotal = latest
+    ? series.reduce((total, item) => total + Math.max(0, latest[item.key]), 0)
+    : undefined;
   const latestSampleTime = latest?.sampledAt ?? Date.now();
   const windowStartedAt = latestSampleTime - 30_000;
   const xAt = (index: number) =>
     Math.max(0, Math.min(100, ((samples[index]!.sampledAt - windowStartedAt) / 30_000) * 100));
   const yAt = (value: number) => 100 - (value / maximum) * 100;
+  const stackBoundary = (sampleIndex: number, seriesIndex: number) =>
+    series
+      .slice(0, seriesIndex + 1)
+      .reduce((total, item) => total + Math.max(0, samples[sampleIndex]![item.key]), 0);
+  const stackBase = (sampleIndex: number, seriesIndex: number) =>
+    series
+      .slice(0, seriesIndex)
+      .reduce((total, item) => total + Math.max(0, samples[sampleIndex]![item.key]), 0);
 
   return (
     <figure className="rounded-md border border-border bg-panel-muted p-1.5">
       <figcaption className="px-0.5 pt-0.5">
         <div className="flex items-center justify-between gap-2">
           <h3 className="text-ui-xs font-semibold text-primary">{title}</h3>
-          <span className="text-[10px] uppercase tracking-wide text-muted">Live · 30 sec</span>
+          <span className="text-[10px] uppercase tracking-wide text-muted">
+            {stacked && latestTotal !== undefined
+              ? `Total ${formatChartValue(latestTotal, unit)} · `
+              : ""}
+            Live · 30 sec
+          </span>
         </div>
         <p className="mt-0.5 text-ui-xs text-muted">{description}</p>
         <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1" aria-label={`${title} legend`}>
@@ -132,24 +197,74 @@ export function LiveMetricChart({
               </g>
             );
           })}
-          {series.map((item) => {
-            const points = samples
-              .map((sample, index) => `${xAt(index)},${yAt(sample[item.key])}`)
-              .join(" ");
-            return (
-              <polyline
-                key={item.key}
-                points={points}
-                fill="none"
-                stroke={item.color}
-                strokeWidth="1.5"
-                strokeDasharray={item.dashed ? "4 3" : undefined}
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                vectorEffect="non-scaling-stroke"
-              />
-            );
-          })}
+          {stacked
+            ? series.map((item, seriesIndex) => {
+                const topPoints = samples
+                  .map(
+                    (_, sampleIndex) =>
+                      `${xAt(sampleIndex)},${yAt(stackBoundary(sampleIndex, seriesIndex))}`,
+                  )
+                  .join(" ");
+                const bottomPoints = samples
+                  .map((_, reverseIndex) => {
+                    const sampleIndex = samples.length - 1 - reverseIndex;
+                    return `${xAt(sampleIndex)},${yAt(stackBase(sampleIndex, seriesIndex))}`;
+                  })
+                  .join(" ");
+                return (
+                  <g key={item.key}>
+                    <polygon
+                      points={`${topPoints} ${bottomPoints}`}
+                      fill={item.color}
+                      fillOpacity="0.62"
+                    />
+                    <polyline
+                      points={topPoints}
+                      fill="none"
+                      stroke={item.color}
+                      strokeWidth="1"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      vectorEffect="non-scaling-stroke"
+                    />
+                  </g>
+                );
+              })
+            : series.map((item) => {
+                const points = samples
+                  .map((sample, index) => `${xAt(index)},${yAt(sample[item.key])}`)
+                  .join(" ");
+                return (
+                  <polyline
+                    key={item.key}
+                    points={points}
+                    fill="none"
+                    stroke={item.color}
+                    strokeWidth="1.5"
+                    strokeDasharray={item.dashed ? "4 3" : undefined}
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    vectorEffect="non-scaling-stroke"
+                  />
+                );
+              })}
+          {stacked && samples.length > 0 && (
+            <polyline
+              points={samples
+                .map(
+                  (_, sampleIndex) =>
+                    `${xAt(sampleIndex)},${yAt(stackBoundary(sampleIndex, series.length - 1))}`,
+                )
+                .join(" ")}
+              fill="none"
+              stroke="var(--ui-text)"
+              strokeOpacity="0.8"
+              strokeWidth="1.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              vectorEffect="non-scaling-stroke"
+            />
+          )}
         </svg>
         <div
           aria-hidden="true"

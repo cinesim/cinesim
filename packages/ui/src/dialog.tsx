@@ -27,7 +27,7 @@ export function DialogContent({
     <BaseDialog.Portal>
       <BaseDialog.Backdrop
         data-slot="dialog-backdrop"
-        className={cn("fixed inset-0 z-[100] bg-black/55 backdrop-blur-[2px]", backdropClassName)}
+        className={cn("fixed inset-0 z-[100] bg-black/55 backdrop-blur-[4px]", backdropClassName)}
       />
       <BaseDialog.Viewport
         data-slot="dialog-viewport"
@@ -36,7 +36,7 @@ export function DialogContent({
         <BaseDialog.Popup
           data-slot="dialog-content"
           className={cn(
-            "relative m-0 w-full overflow-hidden rounded-xl border border-border-strong bg-panel p-0 text-primary shadow-2xl shadow-black/40 outline-none",
+            "relative m-0 w-full origin-center scale-100 overflow-hidden rounded-xl border border-border-strong bg-panel p-0 text-primary shadow-2xl shadow-black/40 outline-none transition-transform duration-150 ease-[cubic-bezier(0.16,1,0.3,1)] data-[starting-style]:scale-90 motion-reduce:transition-none",
             className,
           )}
           {...props}
@@ -89,7 +89,7 @@ export function DialogTitle({ className, ...props }: DialogTitleProps) {
   return (
     <BaseDialog.Title
       data-slot="dialog-title"
-      className={cn("text-ui font-semibold text-primary", className)}
+      className={cn("text-ui-xs font-semibold uppercase tracking-[0.12em] text-primary", className)}
       {...props}
     />
   );

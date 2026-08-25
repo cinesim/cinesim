@@ -67,7 +67,7 @@ export function MediaBin({ project, onOpenTimeline }: MediaBinProps) {
         </span>
         <Button onClick={() => void importMedia()}>
           Import media
-          <Kbd className="ml-1 px-1">{modifier}I</Kbd>
+          <Kbd className="ml-1">{modifier}I</Kbd>
         </Button>
       </PaneHeader>
 
