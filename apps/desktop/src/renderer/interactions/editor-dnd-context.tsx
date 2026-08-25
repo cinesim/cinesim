@@ -18,6 +18,7 @@ import { getSequence } from "@cinesim/core";
 import type { EditorCommand, Project, TrackId } from "@cinesim/core";
 import { cn } from "@cinesim/ui";
 import { formatDuration } from "../lib/format";
+import { BASE_TIMELINE_PIXELS_PER_SECOND } from "../lib/timeline-scale";
 import { useRendererStore } from "../store/renderer-store-context";
 import type { ActionResult } from "../store/renderer-store";
 import { MediaSkimSurface } from "../components/media-skim-surface";
@@ -45,7 +46,6 @@ interface EditorDndState {
 }
 
 const EditorDndContext = createContext<EditorDndState | null>(null);
-const BASE_PIXELS_PER_SECOND = 86;
 
 function dragData(event: DragStartEvent | DragMoveEvent | DragOverEvent | DragEndEvent) {
   return event.active.data.current as EditorDragData | undefined;
@@ -79,7 +79,7 @@ export function EditorDndProvider({
   const [active, setActive] = useState<EditorDragData | null>(null);
   const [proposal, setProposal] = useState<TimelineDropProposal | null>(null);
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
-  const pixelsPerUs = (BASE_PIXELS_PER_SECOND * zoom) / 1_000_000;
+  const pixelsPerUs = (BASE_TIMELINE_PIXELS_PER_SECOND * zoom) / 1_000_000;
 
   useEffect(() => () => setTimelineDragging(false), [setTimelineDragging]);
 

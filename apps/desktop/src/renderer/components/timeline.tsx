@@ -43,18 +43,19 @@ import {
   type TrimGestureState,
 } from "../interactions/trim-gesture";
 import { formatTimecode } from "../lib/format";
+import {
+  BASE_TIMELINE_PIXELS_PER_SECOND,
+  MAX_TIMELINE_ZOOM,
+  timelineContentDurationUs,
+  timelineFitZoom,
+  timelineMajorSecondStep,
+} from "../lib/timeline-scale";
 import type { ActionResult } from "../store/renderer-store";
 import { useRendererStore } from "../store/renderer-store-context";
 import { useEditorDnd } from "../interactions/editor-dnd-context";
 import { quantizeToFrame, timelineSnapCandidates } from "../interactions/timeline-geometry";
 import { TimelineFilmstrip } from "./timeline-filmstrip";
 import { TimelineWaveform } from "./timeline-waveform";
-
-const BASE_PIXELS_PER_SECOND = 86;
-
-function timelineContentDurationUs(sequenceDuration: number, zoom: number): number {
-  return Math.max(sequenceDuration + 5_000_000, 30_000_000 / zoom);
-}
 
 interface TimelineProps {
   project: Project;
@@ -581,12 +582,15 @@ export function Timeline({ project, onCommand, onSeek }: TimelineProps) {
   const snappingEnabled = useRendererStore((state) => state.snappingEnabled);
   const toggleSnapping = useRendererStore((state) => state.toggleSnapping);
   const derived = useRendererStore((state) => state.derivedMedia);
+  const [timelineViewportWidth, setTimelineViewportWidth] = useState(0);
   const headerScrollRef = useRef<HTMLDivElement>(null);
   const timelineScrollRef = useRef<HTMLDivElement>(null);
   const sequence = getSequence(project);
-  const pixelsPerUs = (BASE_PIXELS_PER_SECOND * zoom) / 1_000_000;
-  const contentDurationUs = timelineContentDurationUs(sequenceDurationUs(sequence), zoom);
-  const contentWidth = Math.round(contentDurationUs * pixelsPerUs);
+  const sequenceDuration = sequenceDurationUs(sequence);
+  const minimumZoom = timelineFitZoom(sequenceDuration, timelineViewportWidth);
+  const pixelsPerUs = (BASE_TIMELINE_PIXELS_PER_SECOND * zoom) / 1_000_000;
+  const contentDurationUs = timelineContentDurationUs(sequenceDuration);
+  const contentWidth = Math.max(timelineViewportWidth, Math.round(contentDurationUs * pixelsPerUs));
   const assets = useMemo(
     () => new Map(project.assets.map((asset) => [asset.id, asset])),
     [project.assets],
@@ -595,6 +599,20 @@ export function Timeline({ project, onCommand, onSeek }: TimelineProps) {
     ? sequence.tracks.flatMap((track) => track.clips).find((clip) => clip.id === selectedClipId)
     : undefined;
   const canSplitSelection = Boolean(selectedClip && canSplitClipAt(selectedClip, playheadUs));
+
+  useEffect(() => {
+    const viewport = timelineScrollRef.current;
+    if (!viewport) return;
+    const measure = () => setTimelineViewportWidth(viewport.clientWidth);
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(viewport);
+    return () => observer.disconnect();
+  }, []);
+
+  useEffect(() => {
+    if (zoom < minimumZoom) setZoom(minimumZoom);
+  }, [minimumZoom, setZoom, zoom]);
 
   function rulerSeek(event: React.PointerEvent<HTMLDivElement>) {
     const bounds = event.currentTarget.getBoundingClientRect();
@@ -613,7 +631,7 @@ export function Timeline({ project, onCommand, onSeek }: TimelineProps) {
     onSeek?.(timeUs);
   }
 
-  const majorSecondStep = zoom < 0.6 ? 5 : zoom < 1.5 ? 2 : 1;
+  const majorSecondStep = timelineMajorSecondStep(zoom);
   const tickCount = Math.ceil(contentDurationUs / 1_000_000 / majorSecondStep);
 
   return (
@@ -753,7 +771,8 @@ export function Timeline({ project, onCommand, onSeek }: TimelineProps) {
           size="icon"
           variant="ghost"
           aria-label="Zoom out"
-          onClick={() => setZoom(zoom / 1.25)}
+          disabled={zoom <= minimumZoom + Number.EPSILON}
+          onClick={() => setZoom(Math.max(minimumZoom, zoom / 1.25))}
         >
           <ZoomOut size={13} />
         </Button>
@@ -761,9 +780,9 @@ export function Timeline({ project, onCommand, onSeek }: TimelineProps) {
           aria-label="Timeline zoom"
           className="h-1 w-20 accent-accent"
           type="range"
-          min="0.25"
-          max="4"
-          step="0.05"
+          min={minimumZoom}
+          max={MAX_TIMELINE_ZOOM}
+          step="any"
           value={zoom}
           onChange={(event) => setZoom(Number(event.target.value))}
         />

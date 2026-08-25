@@ -11,6 +11,7 @@ import type {
   EditorLayoutState,
   ElectronHealthSnapshot,
 } from "../../shared/api";
+import { clampTimelineZoom } from "../lib/timeline-scale";
 
 export type Destination = "home" | "project" | "settings";
 export type ProjectSection = "media" | "edit";
@@ -477,8 +478,7 @@ export function createRendererStore({ api, storage }: RendererStoreDependencies)
         });
       },
       selectClip: (selectedClipId) => set({ selectedClipId }),
-      setTimelineZoom: (timelineZoom) =>
-        set({ timelineZoom: Math.min(4, Math.max(0.25, timelineZoom)) }),
+      setTimelineZoom: (timelineZoom) => set({ timelineZoom: clampTimelineZoom(timelineZoom) }),
       setTimelineTrackHeight: (timelineTrackHeight) =>
         set({ timelineTrackHeight: Math.min(112, Math.max(40, Math.round(timelineTrackHeight))) }),
       setTimelineDragging: (timelineDragging) => set({ timelineDragging }),
