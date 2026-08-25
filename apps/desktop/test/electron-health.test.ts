@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ProcessMetric } from "electron";
-import { electronHealthSnapshot } from "../src/main/electron-health";
+import { electronHealthSnapshot } from "../src/main/app/health";
 
 function metric(
   type: ProcessMetric["type"],

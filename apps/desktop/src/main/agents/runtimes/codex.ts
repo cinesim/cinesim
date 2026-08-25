@@ -4,8 +4,8 @@ import type {
   AgentProviderRuntime,
   AgentRuntimeCallbacks,
   AgentRuntimeLaunchOptions,
-} from "./agent-runtime";
-import { asRecord, stringValue } from "./agent-runtime";
+} from "./types";
+import { asRecord, stringValue } from "./types";
 
 interface PendingRequest {
   resolve(value: unknown): void;

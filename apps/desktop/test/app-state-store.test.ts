@@ -2,7 +2,7 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { DesktopAppStateStore } from "../src/main/app-state-store";
+import { DesktopAppStateStore } from "../src/main/state/app-state-store";
 
 const temporaryDirectories: string[] = [];
 

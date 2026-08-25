@@ -3,9 +3,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import type { AgentTokenUsage } from "../src/shared/api";
-import type { AgentRuntimeCallbacks, AgentRuntimeEvent } from "../src/main/agent-runtime";
-import { ClaudeRuntime } from "../src/main/claude-runtime";
-import { CodexRuntime } from "../src/main/codex-runtime";
+import type { AgentRuntimeCallbacks, AgentRuntimeEvent } from "../src/main/agents/runtimes/types";
+import { ClaudeRuntime } from "../src/main/agents/runtimes/claude";
+import { CodexRuntime } from "../src/main/agents/runtimes/codex";
 
 const temporaryDirectories: string[] = [];
 

@@ -1,5 +1,3 @@
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
-import { dirname } from "node:path";
 import type {
   AgentCheckpoint,
   AgentCreateInput,
@@ -9,14 +7,14 @@ import type {
   AgentSessionUpdate,
   AgentTokenUsage,
   AgentTurnContext,
-} from "../shared/api";
-import { AgentCheckpointStore } from "./agent-checkpoints";
-import { AgentMcpServer, type AgentToolHooks } from "./agent-mcp-server";
-import type { AgentProviderRuntime, AgentRuntimeEvent } from "./agent-runtime";
-import { ClaudeRuntime } from "./claude-runtime";
-import { CodexRuntime } from "./codex-runtime";
-import type { AgentSettingsStore } from "./agent-settings-store";
-import type { DesktopProjectStore } from "./project-store";
+} from "../../shared/api";
+import { AgentCheckpointStore } from "./checkpoints";
+import { AgentMcpServer, type AgentToolHooks } from "./mcp/server";
+import type { AgentProviderRuntime, AgentRuntimeEvent } from "./runtimes/types";
+import { createAgentRuntime } from "./runtimes/factory";
+import { AgentSessionStore } from "./session-store";
+import type { AgentSettingsStore } from "./settings-store";
+import type { DesktopProjectStore } from "../projects/project-store";
 
 interface PersistedAgentState {
   version: 1;
@@ -69,22 +67,23 @@ export class AgentManager implements AgentToolHooks {
   #pendingApprovals = new Map<string, PendingApproval>();
   #checkpointStores = new Map<string, AgentCheckpointStore>();
   #saveTimer: NodeJS.Timeout | null = null;
-  #writeQueue: Promise<void> = Promise.resolve();
+  #sessionStore: AgentSessionStore;
   readonly mcpServer: AgentMcpServer;
 
   constructor(
-    private readonly path: string,
+    path: string,
     private readonly settingsStore: AgentSettingsStore,
     private readonly projectStore: DesktopProjectStore,
     private readonly onChanged: (snapshot: AgentProjectSnapshot) => void,
     private readonly notifyProjectChanged: () => void,
   ) {
+    this.#sessionStore = new AgentSessionStore(path);
     this.mcpServer = new AgentMcpServer(projectStore, this);
   }
 
   async load(): Promise<void> {
     try {
-      const candidate = JSON.parse(await readFile(this.path, "utf8")) as unknown;
+      const candidate = await this.#sessionStore.read();
       if (typeof candidate !== "object" || candidate === null || Array.isArray(candidate))
         throw new Error("Invalid agent state");
       const record = candidate as Record<string, unknown>;
@@ -473,10 +472,7 @@ export class AgentManager implements AgentToolHooks {
       mcpToken: credential.token,
       instructions: this.#instructions(),
     };
-    const runtime =
-      session.provider === "claude"
-        ? new ClaudeRuntime(launchOptions, callbacks)
-        : new CodexRuntime(launchOptions, callbacks);
+    const runtime = createAgentRuntime(session.provider, launchOptions, callbacks);
     this.#runtimes.set(session.id, runtime);
     try {
       await runtime.start();
@@ -656,17 +652,7 @@ export class AgentManager implements AgentToolHooks {
   }
 
   async #save(): Promise<void> {
-    const contents = `${JSON.stringify(this.#state, null, 2)}\n`;
-    const write = this.#writeQueue
-      .catch(() => undefined)
-      .then(async () => {
-        await mkdir(dirname(this.path), { recursive: true });
-        const temporaryPath = `${this.path}.tmp`;
-        await writeFile(temporaryPath, contents, "utf8");
-        await rename(temporaryPath, this.path);
-      });
-    this.#writeQueue = write;
-    await write;
+    await this.#sessionStore.write(this.#state);
   }
 
   #instructions(): string {
