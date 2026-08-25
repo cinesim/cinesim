@@ -34,26 +34,26 @@ import {
 } from "@cinesim/ui";
 import { canSplitClipAt, clipDurationUs, getSequence, sequenceDurationUs } from "@cinesim/core";
 import type { Asset, Clip, EditorCommand, Project, Track } from "@cinesim/core";
-import type { DerivedAssetSnapshot, DerivedMediaSnapshot } from "../../shared/api";
+import type { DerivedAssetSnapshot, DerivedMediaSnapshot } from "../../../shared/api";
 import {
   IDLE_TRIM_GESTURE,
   trimPreviewClip,
   trimPreviewRange,
   transitionTrimGesture,
   type TrimGestureState,
-} from "../interactions/trim-gesture";
-import { formatTimecode } from "../lib/format";
+} from "../../lib/trim-gesture";
+import { formatTimecode } from "../../lib/format";
 import {
   BASE_TIMELINE_PIXELS_PER_SECOND,
   MAX_TIMELINE_ZOOM,
   timelineContentDurationUs,
   timelineFitZoom,
   timelineMajorSecondStep,
-} from "../lib/timeline-scale";
-import type { ActionResult } from "../store/renderer-store";
-import { useRendererStore } from "../store/renderer-store-context";
-import { useEditorDnd } from "../interactions/editor-dnd-context";
-import { quantizeToFrame, timelineSnapCandidates } from "../interactions/timeline-geometry";
+} from "../../lib/timeline-scale";
+import { quantizeToFrame, timelineSnapCandidates } from "../../lib/timeline-geometry";
+import type { ActionResult } from "../../store/renderer-store";
+import { useRendererStore } from "../../store/renderer-store-context";
+import { useEditorDnd } from "../workspace/editor-dnd-context";
 import { TimelineFilmstrip } from "./timeline-filmstrip";
 import { TimelineWaveform } from "./timeline-waveform";
 

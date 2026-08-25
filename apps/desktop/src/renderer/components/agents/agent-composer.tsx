@@ -12,14 +12,14 @@ import type {
   AgentSessionSnapshot,
   AgentSessionUpdate,
   AgentTokenUsage,
-} from "../../shared/api";
+} from "../../../shared/api";
 import {
   AGENT_EFFORTS,
   AGENT_PROVIDER_CATALOG,
   effortLabel,
   providerLabel,
-} from "./provider-catalog";
-import { ProviderIcon } from "../components/provider-icon";
+} from "../../lib/agent-provider-catalog";
+import { ProviderIcon } from "./provider-icon";
 
 interface AgentComposerProps {
   session: AgentSessionSnapshot;

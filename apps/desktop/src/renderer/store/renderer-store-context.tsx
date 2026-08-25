@@ -1,7 +1,7 @@
 import { createContext, useContext, useEffect, useRef, useState } from "react";
 import { useStore } from "zustand";
 import type { DesktopApi } from "../../shared/api";
-import { MediaJobCoordinator } from "../media/media-job-coordinator";
+import { MediaJobCoordinator } from "../lib/media-job-coordinator";
 import {
   createRendererStore,
   sessionFromLifecycle,

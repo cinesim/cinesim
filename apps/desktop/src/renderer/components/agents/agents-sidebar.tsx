@@ -30,12 +30,12 @@ import type {
   AgentProviderStatus,
   AgentSessionSnapshot,
   DesktopProjectSession,
-} from "../../shared/api";
-import { formatTimecode } from "../lib/format";
-import { AGENT_PROVIDER_KINDS, providerLabel } from "../agents/provider-catalog";
-import { AgentComposer } from "../agents/agent-composer";
-import { AgentConversation } from "../agents/agent-conversation";
-import { useAgentProjectController } from "../agents/use-agent-project-controller";
+} from "../../../shared/api";
+import { useAgentProjectController } from "../../hooks/use-agent-project-controller";
+import { formatTimecode } from "../../lib/format";
+import { AGENT_PROVIDER_KINDS, providerLabel } from "../../lib/agent-provider-catalog";
+import { AgentComposer } from "./agent-composer";
+import { AgentConversation } from "./agent-conversation";
 import { ProviderIcon } from "./provider-icon";
 
 interface AgentsSidebarProps {

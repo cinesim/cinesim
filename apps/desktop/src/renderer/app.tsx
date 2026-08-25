@@ -1,13 +1,13 @@
 import { Library, SlidersHorizontal, StickyNote } from "lucide-react";
 import { Button, TooltipProvider } from "@cinesim/ui";
-import { AgentsSidebar } from "./components/agents-sidebar";
-import { AppShell, toggleAuxiliaryMode } from "./components/app-shell";
-import { MetricsSidebar } from "./components/metrics-sidebar";
-import { ProjectLoadingState } from "./components/project-loading-state";
-import { Settings } from "./components/settings";
-import { TopBar } from "./components/top-bar";
-import { Welcome } from "./components/welcome";
-import { Workspace } from "./components/workspace";
+import { AgentsSidebar } from "./components/agents/agents-sidebar";
+import { ProjectLoadingState } from "./components/home/project-loading-state";
+import { Welcome } from "./components/home/welcome";
+import { MetricsSidebar } from "./components/metrics/metrics-sidebar";
+import { Settings } from "./components/settings/settings";
+import { AppShell, toggleAuxiliaryMode } from "./components/shell/app-shell";
+import { TopBar } from "./components/shell/top-bar";
+import { Workspace } from "./components/workspace/workspace";
 import { editorLayoutFromState, sessionFromLifecycle } from "./store/renderer-store";
 import { useRendererStore } from "./store/renderer-store-context";
 

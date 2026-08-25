@@ -2,18 +2,18 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { cn } from "@cinesim/ui";
 import { canSplitClipAt, findClip } from "@cinesim/core";
 import type { Asset, EditorCommand, SequenceId } from "@cinesim/core";
-import { EDITOR_LAYOUT_LIMITS } from "../../shared/api";
-import type { DesktopProjectSession, EditorLayoutState } from "../../shared/api";
-import { EditMediaPool } from "./edit-media-pool";
+import { EDITOR_LAYOUT_LIMITS } from "../../../shared/api";
+import type { DesktopProjectSession, EditorLayoutState } from "../../../shared/api";
+import { editShortcutAction } from "../../lib/edit-shortcuts";
+import { useRendererStore } from "../../store/renderer-store-context";
+import { EditMediaPool } from "../media/edit-media-pool";
+import { MediaBin } from "../media/media-bin";
+import { Timeline } from "../timeline/timeline";
+import { Viewer } from "../viewer/viewer";
+import type { ViewerController } from "../viewer/viewer";
+import { EditorDndProvider } from "./editor-dnd-context";
 import { Inspector } from "./inspector";
-import { MediaBin } from "./media-bin";
 import { NotesPanel } from "./notes-panel";
-import { Timeline } from "./timeline";
-import { Viewer } from "./viewer";
-import type { ViewerController } from "./viewer";
-import { useRendererStore } from "../store/renderer-store-context";
-import { EditorDndProvider } from "../interactions/editor-dnd-context";
-import { editShortcutAction } from "../interactions/edit-shortcuts";
 
 interface WorkspaceProps {
   session: DesktopProjectSession;

@@ -17,11 +17,7 @@ import type {
 import { getSequence } from "@cinesim/core";
 import type { EditorCommand, Project, TrackId } from "@cinesim/core";
 import { cn } from "@cinesim/ui";
-import { formatDuration } from "../lib/format";
-import { BASE_TIMELINE_PIXELS_PER_SECOND } from "../lib/timeline-scale";
-import { useRendererStore } from "../store/renderer-store-context";
-import type { ActionResult } from "../store/renderer-store";
-import { MediaSkimSurface } from "../components/media-skim-surface";
+import { formatDuration } from "../../lib/format";
 import {
   commandForTimelineDrop,
   proposeAssetDrop,
@@ -29,7 +25,11 @@ import {
   timelineSnapCandidates,
   type TimelineDropProposal,
   type TimelineDragInput,
-} from "./timeline-geometry";
+} from "../../lib/timeline-geometry";
+import { BASE_TIMELINE_PIXELS_PER_SECOND } from "../../lib/timeline-scale";
+import type { ActionResult } from "../../store/renderer-store";
+import { useRendererStore } from "../../store/renderer-store-context";
+import { MediaSkimSurface } from "../media/media-skim-surface";
 
 export type EditorDragData = TimelineDragInput;
 

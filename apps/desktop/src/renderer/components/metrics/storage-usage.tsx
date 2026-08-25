@@ -1,7 +1,7 @@
 import { Database } from "lucide-react";
 import { DefinitionRow, SectionHeading } from "@cinesim/ui";
-import type { DerivedMediaSnapshot } from "../../shared/api";
-import { formatByteCount } from "../lib/format";
+import type { DerivedMediaSnapshot } from "../../../shared/api";
+import { formatByteCount } from "../../lib/format";
 
 type StorageSnapshot = DerivedMediaSnapshot["storage"];
 

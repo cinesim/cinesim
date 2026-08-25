@@ -27,12 +27,12 @@ import {
 } from "@cinesim/ui";
 import { getSequence, sequenceDurationUs } from "@cinesim/core";
 import type { Project } from "@cinesim/core";
-import type { DerivedProjectScope } from "../../shared/api";
+import type { DerivedProjectScope } from "../../../shared/api";
 import { PlaybackRuntime, WebGpuCompositor } from "@cinesim/engine";
 import type { PreviewMode } from "@cinesim/engine";
-import { formatTimecode } from "../lib/format";
-import { useRendererStore, useRendererStoreApi } from "../store/renderer-store-context";
-import { AdaptiveSourceResolver } from "../media/adaptive-source-resolver";
+import { formatTimecode } from "../../lib/format";
+import { AdaptiveSourceResolver } from "../../lib/adaptive-source-resolver";
+import { useRendererStore, useRendererStoreApi } from "../../store/renderer-store-context";
 
 export interface ViewerController {
   seekTimeline(timeUs: number): Promise<void>;

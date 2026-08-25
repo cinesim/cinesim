@@ -5,8 +5,8 @@ import {
   filmstripPresentationReady,
   skimPositionPercent,
   thumbnailPresentation,
-} from "../src/renderer/components/media-skim-surface";
-import { derivedArtifactUrl } from "../src/renderer/media/media-url";
+} from "../src/renderer/components/media/media-skim-surface";
+import { derivedArtifactUrl } from "../src/renderer/lib/media-url";
 
 const projectScope = {
   cacheKey: "aaaaaaaaaaaaaaaaaaaaaaaa",

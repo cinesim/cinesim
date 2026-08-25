@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildAgentTurnContext } from "../src/renderer/agents/use-agent-project-controller";
+import { buildAgentTurnContext } from "../src/renderer/hooks/use-agent-project-controller";
 import {
   clampSidebarWidth,
   readPersistentSidebarWidth,

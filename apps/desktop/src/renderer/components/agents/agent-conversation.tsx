@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import type { AgentSessionSnapshot } from "../../shared/api";
+import type { AgentSessionSnapshot } from "../../../shared/api";
 import { AgentEventView } from "./agent-event-view";
 
 interface AgentConversationProps {

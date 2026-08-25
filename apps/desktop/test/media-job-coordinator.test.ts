@@ -5,8 +5,8 @@ import type { DerivedMediaSnapshot, DesktopApi, FinalizeDerivedWrite } from "../
 import type {
   DerivedWorkerRequest,
   DerivedWorkerResponse,
-} from "../src/renderer/media/derived-worker-api";
-import { MediaJobCoordinator } from "../src/renderer/media/media-job-coordinator";
+} from "../src/renderer/lib/derived-worker-api";
+import { MediaJobCoordinator } from "../src/renderer/lib/media-job-coordinator";
 
 const projectScope = {
   cacheKey: "aaaaaaaaaaaaaaaaaaaaaaaa",

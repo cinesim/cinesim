@@ -1,4 +1,4 @@
-import type { AgentProviderKind } from "../../shared/api";
+import type { AgentProviderKind } from "../../../shared/api";
 
 interface ProviderIconProps {
   provider: AgentProviderKind;

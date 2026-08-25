@@ -3,9 +3,9 @@ import { Clock3, Film } from "lucide-react";
 import { Button, Kbd, PaneHeader, PreviewCard, SearchField } from "@cinesim/ui";
 import { sequenceDurationUs } from "@cinesim/core";
 import type { Asset, Project } from "@cinesim/core";
-import { formatDuration } from "../lib/format";
-import { useRendererStore } from "../store/renderer-store-context";
-import { LibraryGrid } from "./library-card";
+import { formatDuration } from "../../lib/format";
+import { useRendererStore } from "../../store/renderer-store-context";
+import { LibraryGrid } from "../shared/library-card";
 import { MediaSkimSurface } from "./media-skim-surface";
 
 interface MediaBinProps {

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { DerivedMediaSnapshot } from "../src/shared/api";
-import { AdaptiveSourceResolver } from "../src/renderer/media/adaptive-source-resolver";
+import { AdaptiveSourceResolver } from "../src/renderer/lib/adaptive-source-resolver";
 
 const projectScope = {
   cacheKey: "aaaaaaaaaaaaaaaaaaaaaaaa",

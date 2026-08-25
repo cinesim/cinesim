@@ -2,9 +2,9 @@ import { useState } from "react";
 import { AlertTriangle, Film, Image as ImageIcon, LoaderCircle, Music2 } from "lucide-react";
 import { nearestSampleIndex, pointerSourceTimeUs } from "@cinesim/engine";
 import type { Asset } from "@cinesim/core";
-import type { DerivedAssetSnapshot } from "../../shared/api";
-import { useRendererStore } from "../store/renderer-store-context";
-import { derivedArtifactUrl } from "../media/media-url";
+import type { DerivedAssetSnapshot } from "../../../shared/api";
+import { derivedArtifactUrl } from "../../lib/media-url";
+import { useRendererStore } from "../../store/renderer-store-context";
 
 interface MediaSkimSurfaceProps {
   asset: Asset;

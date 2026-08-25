@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { editShortcutAction } from "../src/renderer/interactions/edit-shortcuts";
+import { editShortcutAction } from "../src/renderer/lib/edit-shortcuts";
 
 describe("edit shortcuts", () => {
   it.each([
