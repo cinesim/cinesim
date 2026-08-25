@@ -11,6 +11,7 @@ interface MediaSkimSurfaceProps {
   className?: string;
   onPreviewTime?: (sourceTimeUs: number) => void;
   onPreviewEnd?: () => void;
+  disabled?: boolean;
 }
 
 function Placeholder({ asset }: { asset: Asset }) {
@@ -57,6 +58,7 @@ export function MediaSkimSurface({
   className,
   onPreviewTime,
   onPreviewEnd,
+  disabled = false,
 }: MediaSkimSurfaceProps) {
   const [skimTimeUs, setSkimTimeUs] = useState<number | null>(null);
   const derived = useRendererStore((state) => state.derivedMedia);
@@ -74,7 +76,7 @@ export function MediaSkimSurface({
   const skimPosition = skimPositionPercent(skimTimeUs, asset.durationUs);
 
   function move(event: React.PointerEvent<HTMLDivElement>): void {
-    if (asset.kind !== "video") return;
+    if (disabled || asset.kind !== "video") return;
     const bounds = event.currentTarget.getBoundingClientRect();
     const sourceTimeUs = pointerSourceTimeUs(
       event.clientX,

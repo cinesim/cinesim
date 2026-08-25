@@ -31,6 +31,10 @@ export interface Asset {
 export interface Clip {
   id: ClipId;
   assetId: AssetId;
+  /** Identifies the source component represented by this canonical clip. */
+  mediaKind: "video" | "audio";
+  /** Reciprocal link to the other component of an imported A/V clip. */
+  linkedClipId?: ClipId;
   timelineStartUs: TimeUs;
   sourceStartUs: TimeUs;
   sourceEndUs: TimeUs;
@@ -44,6 +48,34 @@ export interface Track {
   muted: boolean;
   locked: boolean;
   clips: Clip[];
+}
+
+/**
+ * Returns whether an asset's primary component can be represented by a track.
+ */
+export function isAssetCompatibleWithTrack(
+  assetKind: Asset["kind"],
+  trackKind: Track["kind"],
+): boolean {
+  return assetKind === "audio" ? trackKind === "audio" : trackKind !== "audio";
+}
+
+export function isAssetMediaCompatibleWithTrack(
+  asset: Asset,
+  mediaKind: NonNullable<Clip["mediaKind"]>,
+  trackKind: Track["kind"],
+): boolean {
+  if (mediaKind === "audio")
+    return trackKind === "audio" && (asset.kind === "audio" || asset.hasAudio === true);
+  return trackKind !== "audio" && asset.kind !== "audio";
+}
+
+export function clipCarriesAudio(asset: Asset, clip: Clip, track: Track): boolean {
+  return (
+    track.kind === "audio" &&
+    clip.mediaKind === "audio" &&
+    (asset.kind === "audio" || asset.hasAudio === true)
+  );
 }
 
 export interface Sequence {
@@ -95,6 +127,10 @@ export function clipDurationUs(clip: Clip): TimeUs {
 
 export function clipEndUs(clip: Clip): TimeUs {
   return clip.timelineStartUs + clipDurationUs(clip);
+}
+
+export function canSplitClipAt(clip: Clip, atUs: TimeUs): boolean {
+  return Number.isSafeInteger(atUs) && atUs > clip.timelineStartUs && atUs < clipEndUs(clip);
 }
 
 export function sequenceDurationUs(sequence: Sequence): TimeUs {

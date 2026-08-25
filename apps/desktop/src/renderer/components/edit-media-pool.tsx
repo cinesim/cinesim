@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { useDraggable } from "@dnd-kit/core";
 import { Film, Plus } from "lucide-react";
 import {
   Button,
@@ -14,6 +15,7 @@ import {
 import type { Asset, Project } from "@cinesim/core";
 import { formatDuration } from "../lib/format";
 import { MediaSkimSurface } from "./media-skim-surface";
+import { useEditorDnd } from "../interactions/editor-dnd-context";
 
 interface EditMediaPoolProps {
   project: Project;
@@ -53,44 +55,13 @@ export function EditMediaPool({
         {assets.length > 0 ? (
           <div className="grid grid-cols-[repeat(auto-fit,minmax(104px,1fr))] gap-2">
             {assets.map((asset) => (
-              <PreviewCard
+              <DraggableAssetCard
                 key={asset.id}
-                badge={asset.kind}
-                ariaLabel={`Add ${asset.name} to the active timeline`}
-                title="Double-click to add to the active timeline"
-                size="compact"
-                previewClassName="media-thumbnail"
-                preview={
-                  <MediaSkimSurface
-                    asset={asset}
-                    onPreviewTime={(sourceTimeUs) => onPreviewAsset(asset, sourceTimeUs)}
-                    onPreviewEnd={onPreviewEnd}
-                  />
-                }
-                bottomCorner={
-                  <span className="rounded bg-panel/90 px-1 py-0.5 text-[10px] tabular-nums text-secondary">
-                    {formatDuration(asset.durationUs)}
-                  </span>
-                }
-                action={
-                  <Button
-                    className="opacity-80 transition-opacity hover:opacity-100"
-                    size="icon"
-                    variant="ghost"
-                    aria-label={`Add ${asset.name} to the active timeline`}
-                    title="Add to active timeline"
-                    onClick={() => void onAddAsset(asset)}
-                  >
-                    <Plus size={13} />
-                  </Button>
-                }
-                onDoubleClick={() => void onAddAsset(asset)}
-              >
-                <p className="truncate text-ui-xs font-medium text-primary" title={asset.name}>
-                  {asset.name}
-                </p>
-                <p className="mt-0.5 truncate text-[10px] text-muted tabular-nums">{asset.id}</p>
-              </PreviewCard>
+                asset={asset}
+                onAddAsset={onAddAsset}
+                onPreviewAsset={onPreviewAsset}
+                onPreviewEnd={onPreviewEnd}
+              />
             ))}
           </div>
         ) : normalizedQuery ? (
@@ -114,5 +85,71 @@ export function EditMediaPool({
         </Button>
       </div>
     </aside>
+  );
+}
+
+function DraggableAssetCard({
+  asset,
+  onAddAsset,
+  onPreviewAsset,
+  onPreviewEnd,
+}: {
+  asset: Asset;
+  onAddAsset: (asset: Asset) => Promise<unknown>;
+  onPreviewAsset: (asset: Asset, sourceTimeUs: number) => void;
+  onPreviewEnd: () => void;
+}) {
+  const editorDrag = useEditorDnd();
+  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
+    id: `asset:${asset.id}`,
+    data: { kind: "asset", assetId: asset.id },
+  });
+
+  return (
+    <div
+      ref={setNodeRef}
+      {...attributes}
+      {...listeners}
+      className={isDragging ? "opacity-45" : undefined}
+    >
+      <PreviewCard
+        badge={asset.kind}
+        ariaLabel={`Add ${asset.name} to the active timeline`}
+        title="Double-click to add to the active timeline"
+        size="compact"
+        previewClassName="media-thumbnail"
+        preview={
+          <MediaSkimSurface
+            asset={asset}
+            disabled={editorDrag.dragging}
+            onPreviewTime={(sourceTimeUs) => onPreviewAsset(asset, sourceTimeUs)}
+            onPreviewEnd={onPreviewEnd}
+          />
+        }
+        bottomCorner={
+          <span className="rounded bg-panel/90 px-1 py-0.5 text-[10px] tabular-nums text-secondary">
+            {formatDuration(asset.durationUs)}
+          </span>
+        }
+        action={
+          <Button
+            className="opacity-80 transition-opacity hover:opacity-100"
+            size="icon"
+            variant="ghost"
+            aria-label={`Add ${asset.name} to the active timeline`}
+            title="Add to active timeline"
+            onClick={() => void onAddAsset(asset)}
+          >
+            <Plus size={13} />
+          </Button>
+        }
+        onDoubleClick={() => void onAddAsset(asset)}
+      >
+        <p className="truncate text-ui-xs font-medium text-primary" title={asset.name}>
+          {asset.name}
+        </p>
+        <p className="mt-0.5 truncate text-[10px] text-muted tabular-nums">{asset.id}</p>
+      </PreviewCard>
+    </div>
   );
 }

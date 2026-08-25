@@ -33,6 +33,10 @@ export class AdaptiveSourceResolver implements MediaSourceResolver {
         ),
       };
     }
+    return this.resolveOriginal(assetId);
+  }
+
+  resolveOriginal(assetId: AssetId): MediaSourceDescriptor {
     return {
       assetId,
       kind: "original",

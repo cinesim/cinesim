@@ -11,7 +11,7 @@ function snapshot(proxyState: "ready" | "failed"): DerivedMediaSnapshot {
   const artifact = { state: "missing" as const };
   return {
     version: 1,
-    generatorVersion: "2",
+    generatorVersion: "3",
     projectScope,
     assets: {
       asset_fixture: {
@@ -19,6 +19,7 @@ function snapshot(proxyState: "ready" | "failed"): DerivedMediaSnapshot {
         fingerprintStatus: "current",
         thumbnail: artifact,
         filmstrip: artifact,
+        waveform: { state: "missing" },
         proxy:
           proxyState === "ready"
             ? {
@@ -47,6 +48,7 @@ function snapshot(proxyState: "ready" | "failed"): DerivedMediaSnapshot {
       safetyReserveBytes: 100,
       thumbnailBytes: 0,
       filmstripBytes: 0,
+      waveformBytes: 0,
       proxyBytes: 100,
       evictionCount: 0,
     },
@@ -71,13 +73,25 @@ describe("AdaptiveSourceResolver", () => {
     ).toEqual({
       assetId: "asset_fixture",
       kind: "proxy",
-      url: "cinesim-media://proxy/aaaaaaaaaaaaaaaaaaaaaaaa/asset_fixture?epoch=00000000-0000-4000-8000-000000000001&v=2&revision=proxy-revision&profile=edit-1280",
+      url: "cinesim-media://proxy/aaaaaaaaaaaaaaaaaaaaaaaa/asset_fixture?epoch=00000000-0000-4000-8000-000000000001&v=3&revision=proxy-revision&profile=edit-1280",
     });
   });
 
   it("falls back to the original after proxy failure", () => {
     expect(
       new AdaptiveSourceResolver(projectScope, () => snapshot("failed")).resolve("asset_fixture"),
+    ).toEqual({
+      assetId: "asset_fixture",
+      kind: "original",
+      url: "cinesim-media://asset/aaaaaaaaaaaaaaaaaaaaaaaa/asset_fixture?epoch=00000000-0000-4000-8000-000000000001",
+    });
+  });
+
+  it("resolves the scoped original explicitly when audio cannot use the video-only proxy", () => {
+    expect(
+      new AdaptiveSourceResolver(projectScope, () => snapshot("ready")).resolveOriginal(
+        "asset_fixture",
+      ),
     ).toEqual({
       assetId: "asset_fixture",
       kind: "original",

@@ -47,9 +47,10 @@ function RendererControllerEffects({ api, store }: { api: DesktopApi; store: Ren
     store,
     (state) => sessionFromLifecycle(state.project)?.derivedScope.epoch ?? null,
   );
-  const foregroundPressure = useStore(
-    store,
-    (state) => state.playbackRuntime?.snapshot.foregroundPressure ?? "idle",
+  const foregroundPressure = useStore(store, (state) =>
+    state.timelineDragging
+      ? "dragging"
+      : (state.playbackRuntime?.snapshot.foregroundPressure ?? "idle"),
   );
   const mediaJobsRef = useRef<MediaJobCoordinator | null>(null);
   const projectRef = useRef(project);

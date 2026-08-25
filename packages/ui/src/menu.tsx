@@ -85,6 +85,10 @@ export function MenuItem({ className, ...props }: MenuItemProps) {
   );
 }
 
+export function MenuGroup({ ...props }: ComponentProps<typeof BaseMenu.Group>) {
+  return <BaseMenu.Group data-slot="menu-group" {...props} />;
+}
+
 export interface MenuLabelProps extends Omit<
   ComponentProps<typeof BaseMenu.GroupLabel>,
   "className"

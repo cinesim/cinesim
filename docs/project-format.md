@@ -19,3 +19,18 @@
 `.cinesim/assets.json` and `.cinesim/timeline.json` are deterministic machine-edited canonical files. `.cinesim/settings.toml` is canonical and intentionally comfortable to edit by hand. All carry `version = 1` semantics and future versions are rejected until a migration exists.
 
 `.video/` is local derived state. It is ignored in the project-level `.gitignore` created by Cinesim and can always be deleted and regenerated. Master media remains at its imported path; Cinesim never moves or mutates it.
+
+## Timeline ordering and compatibility
+
+Sequence track order is authored canonical state, not an incidental JSON order. It is preserved across save/load and matches the timeline UI: index `0` is the uppermost track. Upper visual tracks composite over lower video and overlay tracks. Track reordering uses a zero-based destination index within the track's existing sequence.
+
+Every canonical clip declares a `mediaKind` of `video` or `audio`; playback and presentation never infer embedded audio from a visual clip. Audio-only assets may be placed only on audio tracks, while video and image components may be placed on video or overlay tracks. Adding a video asset with audio atomically creates reciprocal linked video and audio clips. The command chooses an available audio track or creates one when necessary, and linked move, trim, split, and remove edits remain one command and one undo step. Pre-component project files are deterministically upgraded to this representation during load. Loading a project or applying a clip command rejects incompatible placements and malformed links.
+
+Tracks are changed through the shared command pathway:
+
+- `track.add` takes `sequenceId`, `kind`, and an optional `name`. Core allocates the next project-wide stable track ID. Video and overlay tracks enter at the top of the visual stack; audio tracks enter at the bottom of the audio stack.
+- `track.update` takes `trackId` and at least one of `name`, `muted`, or `locked`. Names are trimmed and may not be empty.
+- `track.reorder` takes `trackId` and a zero-based `index`. Locked tracks cannot be reordered.
+- `track.remove` takes `trackId`. Removal is intentionally safe: the track must be unlocked and empty.
+
+CLI and MCP operations are adapters for these commands; they do not implement separate editing behavior.

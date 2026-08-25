@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { cn } from "@cinesim/ui";
+import { canSplitClipAt, findClip } from "@cinesim/core";
 import type { Asset, EditorCommand, SequenceId } from "@cinesim/core";
 import { EDITOR_LAYOUT_LIMITS } from "../../shared/api";
 import type { DesktopProjectSession, EditorLayoutState } from "../../shared/api";
@@ -11,6 +12,8 @@ import { Timeline } from "./timeline";
 import { Viewer } from "./viewer";
 import type { ViewerController } from "./viewer";
 import { useRendererStore } from "../store/renderer-store-context";
+import { EditorDndProvider } from "../interactions/editor-dnd-context";
+import { editShortcutAction } from "../interactions/edit-shortcuts";
 
 interface WorkspaceProps {
   session: DesktopProjectSession;
@@ -31,6 +34,13 @@ const MIN_VIEWER_HEIGHT = 220;
 
 function clamp(value: number, minimum: number, maximum: number): number {
   return Math.min(Math.max(value, minimum), Math.max(minimum, maximum));
+}
+
+function isEditableTarget(target: EventTarget | null): boolean {
+  return (
+    target instanceof HTMLElement &&
+    (target.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName))
+  );
 }
 
 function fitLayout(
@@ -147,7 +157,11 @@ export function Workspace({
   const appendAsset = useRendererStore((state) => state.appendAsset);
   const saveEditorLayout = useRendererStore((state) => state.saveEditorLayout);
   const selectClip = useRendererStore((state) => state.selectClip);
+  const selectedClipId = useRendererStore((state) => state.selectedClipId);
+  const playheadUs = useRendererStore((state) => state.playheadUs);
   const setPlayheadUs = useRendererStore((state) => state.setPlayheadUs);
+  const setTool = useRendererStore((state) => state.setTool);
+  const toggleSnapping = useRendererStore((state) => state.toggleSnapping);
   const activeSequence =
     session.project.sequences.find((sequence) => sequence.id === activeSequenceId) ??
     session.project.sequences.find(
@@ -187,6 +201,44 @@ export function Workspace({
     selectClip(null);
     setPlayheadUs(0);
   }, [activeSequence?.id, selectClip, setPlayheadUs]);
+
+  useEffect(() => {
+    if (section !== "edit") return;
+    function shortcut(event: KeyboardEvent): void {
+      if (event.defaultPrevented || event.repeat || isEditableTarget(event.target)) return;
+      const action = editShortcutAction(event);
+      if (!action) return;
+      event.preventDefault();
+      if (action === "select-tool") setTool("select");
+      else if (action === "trim-tool") setTool("trim");
+      else if (action === "blade-tool") setTool("blade");
+      else if (action === "toggle-snapping") toggleSnapping();
+      else if (action === "delete-selection" && selectedClipId) {
+        void execute({ type: "clip.remove", clipId: selectedClipId }).then((result) => {
+          if (result.ok) selectClip(null);
+        });
+      } else if (action === "split-selection" && selectedClipId) {
+        try {
+          const { clip } = findClip(editorProject, selectedClipId);
+          if (canSplitClipAt(clip, playheadUs))
+            void execute({ type: "clip.split", clipId: selectedClipId, atUs: playheadUs });
+        } catch {
+          // Selection reconciliation will clear a clip that no longer exists.
+        }
+      }
+    }
+    window.addEventListener("keydown", shortcut);
+    return () => window.removeEventListener("keydown", shortcut);
+  }, [
+    editorProject,
+    execute,
+    playheadUs,
+    section,
+    selectClip,
+    selectedClipId,
+    setTool,
+    toggleSnapping,
+  ]);
 
   function applyTransientLayout(next: EditorLayoutState): void {
     const fitted = fitLayout(next, layoutBounds, mediaPoolOpen, inspectorOpen, notesOpen);
@@ -275,95 +327,101 @@ export function Workspace({
       {section === "media" ? (
         <MediaBin project={session.project} onOpenTimeline={onOpenTimeline} />
       ) : activeSequence ? (
-        <div
-          ref={layoutRootRef}
-          className="grid h-full min-h-0"
-          style={{
-            gridTemplateRows: `minmax(${MIN_VIEWER_HEIGHT}px, 1fr) ${SPLITTER_SIZE}px ${fittedLayout.timelineHeight}px`,
-          }}
+        <EditorDndProvider
+          project={editorProject}
+          onCommand={command}
+          onAssetDragStart={() => void viewerControllerRef.current?.exitAssetPreview()}
         >
           <div
-            ref={upperPanelsRef}
-            className="grid min-h-0"
+            ref={layoutRootRef}
+            className="grid h-full min-h-0"
             style={{
-              gridTemplateColumns: upperGridTemplate(
-                fittedLayout,
-                mediaPoolOpen,
-                inspectorOpen,
-                notesOpen,
-              ),
+              gridTemplateRows: `minmax(${MIN_VIEWER_HEIGHT}px, 1fr) ${SPLITTER_SIZE}px ${fittedLayout.timelineHeight}px`,
             }}
           >
-            {mediaPoolOpen && (
-              <>
-                <EditMediaPool
-                  project={editorProject}
-                  onAddAsset={addAsset}
-                  onImport={importMedia}
-                  onPreviewAsset={(asset, sourceTimeUs) =>
-                    viewerControllerRef.current?.enterAssetPreview(asset.id, sourceTimeUs)
-                  }
-                  onPreviewEnd={() => void viewerControllerRef.current?.exitAssetPreview()}
-                />
-                <PanelResizeHandle
-                  orientation="vertical"
-                  label="Resize Media Pool"
-                  onPointerDown={(event) => startResize("mediaPool", event)}
-                  onPointerMove={(event) => moveResize("mediaPool", event)}
-                  onPointerUp={(event) => finishResize("mediaPool", event)}
-                  onPointerCancel={(event) => cancelResize("mediaPool", event)}
-                />
-              </>
-            )}
-            <Viewer
-              key={activeSequence.id}
-              project={editorProject}
-              projectDirectory={session.directory}
-              derivedScope={session.derivedScope}
-              sequenceId={activeSequence.id}
-              onController={setViewerController}
+            <div
+              ref={upperPanelsRef}
+              className="grid min-h-0"
+              style={{
+                gridTemplateColumns: upperGridTemplate(
+                  fittedLayout,
+                  mediaPoolOpen,
+                  inspectorOpen,
+                  notesOpen,
+                ),
+              }}
+            >
+              {mediaPoolOpen && (
+                <>
+                  <EditMediaPool
+                    project={editorProject}
+                    onAddAsset={addAsset}
+                    onImport={importMedia}
+                    onPreviewAsset={(asset, sourceTimeUs) =>
+                      viewerControllerRef.current?.enterAssetPreview(asset.id, sourceTimeUs)
+                    }
+                    onPreviewEnd={() => void viewerControllerRef.current?.exitAssetPreview()}
+                  />
+                  <PanelResizeHandle
+                    orientation="vertical"
+                    label="Resize Media Pool"
+                    onPointerDown={(event) => startResize("mediaPool", event)}
+                    onPointerMove={(event) => moveResize("mediaPool", event)}
+                    onPointerUp={(event) => finishResize("mediaPool", event)}
+                    onPointerCancel={(event) => cancelResize("mediaPool", event)}
+                  />
+                </>
+              )}
+              <Viewer
+                key={activeSequence.id}
+                project={editorProject}
+                projectDirectory={session.directory}
+                derivedScope={session.derivedScope}
+                sequenceId={activeSequence.id}
+                onController={setViewerController}
+              />
+              {inspectorOpen && (
+                <>
+                  <PanelResizeHandle
+                    orientation="vertical"
+                    label="Resize Inspector"
+                    onPointerDown={(event) => startResize("inspector", event)}
+                    onPointerMove={(event) => moveResize("inspector", event)}
+                    onPointerUp={(event) => finishResize("inspector", event)}
+                    onPointerCancel={(event) => cancelResize("inspector", event)}
+                  />
+                  <Inspector project={editorProject} />
+                </>
+              )}
+              {notesOpen && (
+                <>
+                  <PanelResizeHandle
+                    orientation="vertical"
+                    label="Resize Notes"
+                    onPointerDown={(event) => startResize("notes", event)}
+                    onPointerMove={(event) => moveResize("notes", event)}
+                    onPointerUp={(event) => finishResize("notes", event)}
+                    onPointerCancel={(event) => cancelResize("notes", event)}
+                  />
+                  <NotesPanel />
+                </>
+              )}
+            </div>
+            <PanelResizeHandle
+              orientation="horizontal"
+              label="Resize Timeline"
+              onPointerDown={(event) => startResize("timeline", event)}
+              onPointerMove={(event) => moveResize("timeline", event)}
+              onPointerUp={(event) => finishResize("timeline", event)}
+              onPointerCancel={(event) => cancelResize("timeline", event)}
             />
-            {inspectorOpen && (
-              <>
-                <PanelResizeHandle
-                  orientation="vertical"
-                  label="Resize Inspector"
-                  onPointerDown={(event) => startResize("inspector", event)}
-                  onPointerMove={(event) => moveResize("inspector", event)}
-                  onPointerUp={(event) => finishResize("inspector", event)}
-                  onPointerCancel={(event) => cancelResize("inspector", event)}
-                />
-                <Inspector project={editorProject} />
-              </>
-            )}
-            {notesOpen && (
-              <>
-                <PanelResizeHandle
-                  orientation="vertical"
-                  label="Resize Notes"
-                  onPointerDown={(event) => startResize("notes", event)}
-                  onPointerMove={(event) => moveResize("notes", event)}
-                  onPointerUp={(event) => finishResize("notes", event)}
-                  onPointerCancel={(event) => cancelResize("notes", event)}
-                />
-                <NotesPanel />
-              </>
-            )}
+            <Timeline
+              project={editorProject}
+              onCommand={command}
+              onSeek={(timeUs) => void viewerControllerRef.current?.seekTimeline(timeUs)}
+            />
           </div>
-          <PanelResizeHandle
-            orientation="horizontal"
-            label="Resize Timeline"
-            onPointerDown={(event) => startResize("timeline", event)}
-            onPointerMove={(event) => moveResize("timeline", event)}
-            onPointerUp={(event) => finishResize("timeline", event)}
-            onPointerCancel={(event) => cancelResize("timeline", event)}
-          />
-          <Timeline
-            project={editorProject}
-            onCommand={command}
-            onSeek={(timeUs) => void viewerControllerRef.current?.seekTimeline(timeUs)}
-          />
-        </div>
+        </EditorDndProvider>
       ) : null}
 
       {error && (

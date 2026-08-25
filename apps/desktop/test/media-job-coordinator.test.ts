@@ -54,12 +54,13 @@ function project(): Project {
 function snapshot(
   thumbnail: "queued" | "ready" = "queued",
   filmstrip: "queued" | "ready" = "queued",
+  waveform: "missing" | "queued" | "ready" = "missing",
 ): DerivedMediaSnapshot {
   const state = (value: "queued" | "ready") =>
     value === "ready" ? ({ state: value, bytes: 100 } as const) : ({ state: value } as const);
   return {
     version: 1,
-    generatorVersion: "2",
+    generatorVersion: "3",
     projectScope,
     assets: {
       asset_fixture: {
@@ -68,6 +69,7 @@ function snapshot(
         thumbnail:
           thumbnail === "ready" ? { ...state(thumbnail), sourceTimeUs: 500_000 } : state(thumbnail),
         filmstrip: state(filmstrip),
+        waveform: waveform === "missing" ? { state: "missing" } : state(waveform),
         proxy: { state: "missing" },
         performance: {
           original: {
@@ -88,6 +90,7 @@ function snapshot(
       safetyReserveBytes: 100,
       thumbnailBytes: 0,
       filmstripBytes: 0,
+      waveformBytes: 0,
       proxyBytes: 0,
       evictionCount: 0,
     },
@@ -109,6 +112,7 @@ function setup(initial: DerivedMediaSnapshot) {
   const current = structuredClone(initial);
   let derivedMediaListener: ((snapshot: DerivedMediaSnapshot) => void) | null = null;
   const finalized: { writerId: string; result: FinalizeDerivedWrite }[] = [];
+  const begun: { assetId: string; kind: string; expectedBytes?: number }[] = [];
   const canceled: { writerId: string; failureCode?: string; detail?: string }[] = [];
   const api = {
     getDerivedMediaSnapshot: vi.fn(async () => current),
@@ -119,13 +123,20 @@ function setup(initial: DerivedMediaSnapshot) {
         derivedMediaListener = null;
       };
     }),
-    beginDerivedWrite: vi.fn(async (_scope, { kind }: { kind: string }) => ({
-      writerId: `${kind}-writer`,
-    })),
+    beginDerivedWrite: vi.fn(
+      async (_scope, input: { assetId: string; kind: string; expectedBytes?: number }) => {
+        begun.push(input);
+        return { writerId: `${input.kind}-writer` };
+      },
+    ),
     writeDerivedChunk: vi.fn(async () => undefined),
     finalizeDerivedWrite: vi.fn(async (writerId: string, result: FinalizeDerivedWrite) => {
       finalized.push({ writerId, result });
-      const kind = writerId.startsWith("thumbnail") ? "thumbnail" : "filmstrip";
+      const kind = writerId.startsWith("thumbnail")
+        ? "thumbnail"
+        : writerId.startsWith("filmstrip")
+          ? "filmstrip"
+          : "waveform";
       current.assets.asset_fixture![kind] = { state: "ready", bytes: result.bytes };
     }),
     cancelDerivedWrite: vi.fn(async (writerId: string, failureCode?: string, detail?: string) => {
@@ -134,7 +145,11 @@ function setup(initial: DerivedMediaSnapshot) {
         ...(failureCode ? { failureCode } : {}),
         ...(detail ? { detail } : {}),
       });
-      const kind = writerId.startsWith("thumbnail") ? "thumbnail" : "filmstrip";
+      const kind = writerId.startsWith("thumbnail")
+        ? "thumbnail"
+        : writerId.startsWith("filmstrip")
+          ? "filmstrip"
+          : "waveform";
       current.assets.asset_fixture![kind] = failureCode
         ? { state: "failed", failureCode }
         : { state: "queued" };
@@ -147,6 +162,7 @@ function setup(initial: DerivedMediaSnapshot) {
   vi.stubGlobal("Worker", FakeWorker);
   return {
     api,
+    begun,
     finalized,
     canceled,
     emitDerivedMedia: (next: DerivedMediaSnapshot) => derivedMediaListener?.(next),
@@ -248,6 +264,48 @@ describe("MediaJobCoordinator", () => {
       kinds: ["filmstrip"],
       thumbnailSourceTimeUs: 500_000,
     });
+    await coordinator.destroy();
+  });
+
+  it("publishes a bounded waveform for video with embedded audio", async () => {
+    const withAudio = project();
+    withAudio.assets[0]!.hasAudio = true;
+    const { begun, finalized } = setup(snapshot("ready", "ready", "queued"));
+    const coordinator = new MediaJobCoordinator(withAudio, projectScope, () => undefined);
+    await coordinator.start();
+    await vi.waitFor(() => expect(FakeWorker.instance?.sent).toHaveLength(1));
+    const request = FakeWorker.instance!.sent[0]!;
+    expect(request).toMatchObject({ type: "generate", kinds: ["waveform"] });
+    expect(begun).toContainEqual({
+      assetId: "asset_fixture",
+      kind: "waveform",
+      expectedBytes: 176,
+    });
+
+    FakeWorker.instance!.emit({
+      type: "waveform-complete",
+      jobId: request.jobId,
+      waveform: new ArrayBuffer(176),
+      peakCount: 40,
+      waveformFormatVersion: 1,
+    });
+    await vi.waitFor(() => expect(finalized).toHaveLength(1));
+    expect(finalized[0]).toEqual({
+      writerId: "waveform-writer",
+      result: { bytes: 176, peakCount: 40, waveformFormatVersion: 1 },
+    });
+    await coordinator.destroy();
+  });
+
+  it("defers derived decoding while foreground playback has priority", async () => {
+    setup(snapshot());
+    const coordinator = new MediaJobCoordinator(project(), projectScope, () => undefined);
+    coordinator.setForegroundPressure("playing");
+    await coordinator.start();
+    expect(FakeWorker.instance?.sent).toHaveLength(0);
+
+    coordinator.setForegroundPressure("idle");
+    await vi.waitFor(() => expect(FakeWorker.instance?.sent).toHaveLength(1));
     await coordinator.destroy();
   });
 

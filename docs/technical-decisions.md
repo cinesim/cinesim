@@ -10,7 +10,7 @@ We do not use `electron-vite`. Current Electron builds are straightforward Vite 
 
 `cinesim.json` is the stable project entry point. Complex canonical collections live in deterministic JSON under `.cinesim/`; human-edited preferences live in `.cinesim/settings.toml`. The generated `.video/` tree contains only caches, proxies, perception artifacts, and runtime scratch data and is ignored as a unit.
 
-Core uses integer microseconds. IDs are stable, prefixed strings. Arrays are sorted before serialization. Unknown schema versions are rejected. Disk adapters use temp-file-plus-rename atomic replacement; core itself has no filesystem dependency.
+Core uses integer microseconds. IDs are stable, prefixed strings. Unordered collections are sorted before serialization, while sequence track arrays preserve authored layer order. Unknown schema versions are rejected. Disk adapters use temp-file-plus-rename atomic replacement; core itself has no filesystem dependency.
 
 Undo/redo stores immutable project snapshots per committed command. This is the simplest correct V1 behavior and naturally makes a completed drag one undo step while ephemeral pointer previews remain UI-only.
 
@@ -22,7 +22,7 @@ React, CLI, and MCP submit the same Zod-validated protocol commands. Protocol di
 
 Mediabunny 1.55 is used, unmodified, as an MPL-2.0 runtime dependency. Main-process metadata inspection uses `FilePathSource`, which performs lazy random access. Renderer playback uses `UrlSource` against an asset-ID-only custom Electron protocol with byte-range responses; raw paths are never exposed by preload.
 
-`VideoSampleSink` supplies decoded samples backed by WebCodecs. The runtime maps monotonic clock time to timeline microseconds, resolves active clips, and uses a latest-only executor with one in-flight operation plus one replaceable pending request. Side effects are generation-gated and obsolete `VideoFrame` objects close before composition. Temporary asset preview is separate from timeline transport, and React receives throttled snapshots and intents rather than frame objects.
+`VideoSampleSink` supplies decoded samples backed by WebCodecs. The runtime maps monotonic clock time to sequence-frame timestamps and resolves active clips. Forward transport uses bounded sequential cursors and admits one playback frame operation at a time, preventing display-refresh callbacks from repeatedly obsoleting slow decodes. Reverse playback and explicit seek/preview requests retain latest-only random access. Side effects are generation-gated and obsolete `VideoFrame` objects close before composition. Temporary asset preview is separate from timeline transport, and React receives throttled snapshots and intents rather than frame objects.
 
 Audio uses Mediabunny's `AudioBufferSink` and Web Audio scheduling. V1 treats `AudioContext.currentTime` as the audio scheduling reference when audio is active, but transport time still comes from the replaceable clock abstraction. An AudioWorklet is intentionally deferred until profiling demonstrates that buffered main-thread scheduling is insufficient.
 
@@ -34,9 +34,9 @@ Canvas2D is limited to filmstrip/thumbnail generation, where a CPU-readable imag
 
 ## Workers and proxies
 
-Decode-heavy derived work runs in one dedicated renderer worker. Sparse Mediabunny canvas sinks and OffscreenCanvas create bounded thumbnails and filmstrip contact sheets. The same worker uses Mediabunny conversion for video-only editing proxies, selecting a supported MP4 codec at runtime and streaming bounded chunks with renderer-to-main acknowledgements so encoder backpressure reaches the filesystem writer. Foreground playback, seeks, and hover preview pause proxy conversion; idle grace resumes it.
+Decode-heavy derived work runs in one dedicated renderer worker. Sparse Mediabunny canvas sinks and OffscreenCanvas create bounded thumbnails and filmstrip contact sheets. Sequential Mediabunny audio buffers are reduced to a deterministic mono min/max envelope with at most 4,096 peaks; the versioned little-endian `CSWF` artifact is at most 16,400 bytes and retains no decoded audio. The same worker uses Mediabunny conversion for video-only editing proxies, selecting a supported MP4 codec at runtime and streaming bounded chunks with renderer-to-main acknowledgements so encoder backpressure reaches the filesystem writer. Foreground playback, seeks, hover preview, and timeline dragging defer new derived jobs and pause active decode/conversion work between bounded units; idle grace resumes it.
 
-Derived state is disposable and noncanonical under `.video/`. Main owns source fingerprints, validated contained paths, atomic writer sessions, artifact serving, storage budgets, recovery, and eviction. A pure closed-loop policy chooses the original or queues a proxy from observed warmed-seek latency, deadline misses, and request coalescing. Valid proxies have hysteresis and are selected automatically; failures fall back to the original. No FFmpeg-backed Mediabunny codec extension is included, so footage Chromium cannot decode cannot be proxied by this path.
+Derived state is disposable and noncanonical under `.video/`. Main owns source fingerprints, validated contained paths, atomic writer sessions, artifact serving, storage budgets, recovery, and eviction. Waveform writers must declare the exact duration-derived byte bound, and publication validates the format version, peak count, and final size. A pure closed-loop policy chooses the original or queues a proxy from observed warmed-seek latency, deadline misses, and request coalescing. Valid proxies have hysteresis and are selected automatically; failures fall back to the original. No FFmpeg-backed Mediabunny codec extension is included, so footage Chromium cannot decode cannot be proxied by this path.
 
 ## Security
 

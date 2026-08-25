@@ -12,11 +12,16 @@ export function resolveScene(project: Project, timelineTimeUs: TimeUs): Resolved
   const sequence = getSequence(project);
   const assets = new Map(project.assets.map((asset) => [asset.id, asset]));
   const layers: ResolvedLayer[] = [];
-  for (const track of sequence.tracks) {
+  // Canonical track order matches the timeline UI: index 0 is the uppermost
+  // track. The compositor blends later draws over earlier ones, so resolve
+  // visual tracks from bottom to top.
+  for (const track of sequence.tracks.toReversed()) {
     if (track.muted || track.kind === "audio") continue;
     const clip = track.clips.find(
       (candidate) =>
-        timelineTimeUs >= candidate.timelineStartUs && timelineTimeUs < clipEndUs(candidate),
+        candidate.mediaKind !== "audio" &&
+        timelineTimeUs >= candidate.timelineStartUs &&
+        timelineTimeUs < clipEndUs(candidate),
     );
     if (!clip) continue;
     const asset = assets.get(clip.assetId);
@@ -40,11 +45,14 @@ export function findUpcomingLayers(
   const assets = new Map(project.assets.map((asset) => [asset.id, asset]));
   const end = timelineTimeUs + lookAheadUs;
   return sequence.tracks.flatMap((track) =>
-    track.clips
-      .filter((clip) => clip.timelineStartUs > timelineTimeUs && clip.timelineStartUs <= end)
-      .flatMap((clip) => {
-        const asset = assets.get(clip.assetId);
-        return asset ? [{ asset, clip, track, sourceTimeUs: clip.sourceStartUs }] : [];
-      }),
+    track.kind === "audio" || track.muted
+      ? []
+      : track.clips
+          .filter((clip) => clip.mediaKind !== "audio")
+          .filter((clip) => clip.timelineStartUs > timelineTimeUs && clip.timelineStartUs <= end)
+          .flatMap((clip) => {
+            const asset = assets.get(clip.assetId);
+            return asset ? [{ asset, clip, track, sourceTimeUs: clip.sourceStartUs }] : [];
+          }),
   );
 }

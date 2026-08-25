@@ -15,7 +15,7 @@ export interface DerivedProjectScope {
   epoch: string;
 }
 
-export type DerivedArtifactKind = "thumbnail" | "filmstrip" | "proxy";
+export type DerivedArtifactKind = "thumbnail" | "filmstrip" | "waveform" | "proxy";
 export type DerivedArtifactState = "missing" | "queued" | "running" | "ready" | "failed";
 
 export interface SourceFingerprint {
@@ -37,6 +37,8 @@ export interface DerivedArtifactSnapshot {
   rows?: number;
   tileWidth?: number;
   tileHeight?: number;
+  peakCount?: number;
+  waveformFormatVersion?: number;
   profileId?: string;
 }
 
@@ -56,6 +58,7 @@ export interface DerivedAssetSnapshot {
   fingerprintStatus: "current" | "stale" | "missing";
   thumbnail: DerivedArtifactSnapshot;
   filmstrip: DerivedArtifactSnapshot;
+  waveform: DerivedArtifactSnapshot;
   proxy: DerivedArtifactSnapshot;
   performance: {
     original: SourcePerformanceSnapshot;
@@ -84,6 +87,9 @@ export type DerivedWorkerStage =
   | "filmstrip-sampling"
   | "filmstrip-encoding"
   | "filmstrip-ready"
+  | "waveform-decoding"
+  | "waveform-encoding"
+  | "waveform-ready"
   | "proxy-converting"
   | "completed"
   | "failed";
@@ -144,6 +150,7 @@ export interface DerivedMediaSnapshot {
     safetyReserveBytes: number;
     thumbnailBytes: number;
     filmstripBytes: number;
+    waveformBytes: number;
     proxyBytes: number;
     evictionCount: number;
     lastEvictionReason?: string;
@@ -173,6 +180,8 @@ export interface FinalizeDerivedWrite {
   rows?: number;
   tileWidth?: number;
   tileHeight?: number;
+  peakCount?: number;
+  waveformFormatVersion?: number;
 }
 
 export interface DerivedPerformanceObservation {

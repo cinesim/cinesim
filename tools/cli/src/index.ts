@@ -2,7 +2,7 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { Command } from "commander";
-import type { AssetId, ClipId } from "@cinesim/core";
+import type { AssetId, ClipId, SequenceId, Track, TrackId } from "@cinesim/core";
 import { createCinesimLogger } from "@cinesim/logging";
 import { inspectAsset, inspectProject, inspectTimeline, listAssets } from "@cinesim/protocol";
 import { DiskProjectStore } from "./project-store";
@@ -30,6 +30,20 @@ function output(value: unknown, asJson = false): void {
   if (asJson) process.stdout.write(`${JSON.stringify(value, null, 2)}\n`);
   else if (typeof value === "string") process.stdout.write(`${value}\n`);
   else process.stdout.write(`${JSON.stringify(value, null, 2)}\n`);
+}
+
+function parseBoolean(value: string): boolean {
+  if (value === "true") return true;
+  if (value === "false") return false;
+  throw new Error(`Invalid boolean: ${value}. Use true or false.`);
+}
+
+function parseIndex(value: string): number {
+  const index = Number(value);
+  if (!Number.isSafeInteger(index) || index < 0) {
+    throw new Error(`Invalid track index: ${value}. Use a non-negative integer.`);
+  }
+  return index;
 }
 
 const project = program.command("project").description("Project operations");
@@ -72,6 +86,68 @@ timeline
     output(inspectTimeline(loaded.project), options.json);
   });
 
+const track = program.command("track").description("Deterministic track edits");
+track
+  .command("add")
+  .argument("<kind>", "video, audio, or overlay")
+  .option("--sequence <sequence-id>", "Target sequence; defaults to the active sequence")
+  .option("--name <name>")
+  .option("--json")
+  .action(async (kind, options) => {
+    const loaded = await store();
+    const result = await loaded.execute({
+      type: "track.add",
+      sequenceId: (options.sequence ?? loaded.project.activeSequenceId) as SequenceId,
+      kind: kind as Track["kind"],
+      ...(options.name === undefined ? {} : { name: options.name }),
+    });
+    output({ summary: result.summary, createdIds: result.createdIds }, options.json);
+  });
+track
+  .command("update")
+  .argument("<track-id>")
+  .option("--name <name>")
+  .option("--muted <boolean>", "Set mute state", parseBoolean)
+  .option("--locked <boolean>", "Set lock state", parseBoolean)
+  .option("--json")
+  .action(async (trackId, options) => {
+    const loaded = await store();
+    const result = await loaded.execute({
+      type: "track.update",
+      trackId: trackId as TrackId,
+      ...(options.name === undefined ? {} : { name: options.name }),
+      ...(options.muted === undefined ? {} : { muted: options.muted }),
+      ...(options.locked === undefined ? {} : { locked: options.locked }),
+    });
+    output({ summary: result.summary, changedIds: result.changedIds }, options.json);
+  });
+track
+  .command("reorder")
+  .argument("<track-id>")
+  .requiredOption("--index <index>", "Zero-based destination index", parseIndex)
+  .option("--json")
+  .action(async (trackId, options) => {
+    const loaded = await store();
+    const result = await loaded.execute({
+      type: "track.reorder",
+      trackId: trackId as TrackId,
+      index: options.index,
+    });
+    output({ summary: result.summary, changedIds: result.changedIds }, options.json);
+  });
+track
+  .command("delete")
+  .argument("<track-id>")
+  .option("--json")
+  .action(async (trackId, options) => {
+    const loaded = await store();
+    const result = await loaded.execute({
+      type: "track.remove",
+      trackId: trackId as TrackId,
+    });
+    output({ summary: result.summary, changedIds: result.changedIds }, options.json);
+  });
+
 const clip = program.command("clip").description("Deterministic clip edits");
 clip
   .command("split")
@@ -91,6 +167,7 @@ clip
   .command("move")
   .argument("<clip-id>")
   .requiredOption("--to <time>")
+  .option("--track <track-id>", "Move to another compatible track")
   .option("--json")
   .action(async (clipId, options) => {
     const loaded = await store();
@@ -98,6 +175,7 @@ clip
       type: "clip.move",
       clipId: clipId as ClipId,
       timelineStartUs: parseTime(options.to),
+      ...(options.track === undefined ? {} : { trackId: options.track as TrackId }),
     });
     output({ summary: result.summary, changedIds: result.changedIds }, options.json);
   });

@@ -10,6 +10,7 @@ import {
   TabsTrigger,
 } from "@cinesim/ui";
 import { formatByteCount, formatDiagnosticDurationMs, formatTimecode } from "../lib/format";
+import { sessionFromLifecycle } from "../store/renderer-store";
 import { useRendererStore } from "../store/renderer-store-context";
 import { LiveMetricChart, type LiveMetricValues, useLiveMetricHistory } from "./live-metric-chart";
 import { StorageUsage } from "./storage-usage";
@@ -54,6 +55,8 @@ export function MetricsSidebar() {
   const [activeTab, setActiveTab] = useState<MetricsTab>("overview");
   const metrics = useRendererStore((state) => state.playbackRuntime?.snapshot ?? null);
   const derived = useRendererStore((state) => state.derivedMedia);
+  const project = useRendererStore((state) => sessionFromLifecycle(state.project)?.project ?? null);
+  const projectAssets = project?.assets ?? [];
   const electronHealth = useRendererStore((state) => state.electronHealth);
   const artifacts = derived ? Object.values(derived.assets) : [];
   const background = derived?.runtime;
@@ -61,8 +64,19 @@ export function MetricsSidebar() {
   const activeDerived = metrics?.activeAssetId ? derived?.assets[metrics.activeAssetId] : undefined;
   const decisionLogRef = useRef<HTMLOListElement>(null);
   const latestDecisionAt = derived?.decisionLog.at(-1)?.at;
-  const readyCount = (kind: "thumbnail" | "filmstrip" | "proxy") =>
-    artifacts.filter((asset) => asset[kind].state === "ready").length;
+  const artifactCount = (kind: "thumbnail" | "filmstrip" | "waveform" | "proxy") => {
+    const eligibleIds = new Set<string>(
+      projectAssets
+        .filter((asset) =>
+          kind === "waveform"
+            ? asset.kind === "audio" || asset.hasAudio === true
+            : asset.kind === "video",
+        )
+        .map((asset) => asset.id),
+    );
+    const eligible = artifacts.filter((asset) => eligibleIds.has(asset.assetId));
+    return `${eligible.filter((asset) => asset[kind].state === "ready").length}/${eligible.length}`;
+  };
   const liveSample = useMemo<LiveMetricValues | null>(() => {
     if (!metrics && !background && !electronHealth) return null;
     const healthProcesses = electronHealth?.processes;
@@ -162,15 +176,10 @@ export function MetricsSidebar() {
                       : `${electronHealth.rendererEventLoopLagMs.toFixed(1)} ms`
                   }
                 />
-                <MetricRow
-                  label="Thumbnails"
-                  value={`${readyCount("thumbnail")}/${artifacts.length}`}
-                />
-                <MetricRow
-                  label="Filmstrips"
-                  value={`${readyCount("filmstrip")}/${artifacts.length}`}
-                />
-                <MetricRow label="Proxies" value={`${readyCount("proxy")}/${artifacts.length}`} />
+                <MetricRow label="Thumbnails" value={artifactCount("thumbnail")} />
+                <MetricRow label="Filmstrips" value={artifactCount("filmstrip")} />
+                <MetricRow label="Waveforms" value={artifactCount("waveform")} />
+                <MetricRow label="Proxies" value={artifactCount("proxy")} />
                 <MetricRow label="Dropped frames" value={metrics?.droppedFrames ?? 0} />
                 <MetricRow label="Protocol errors" value={background?.protocol.errors ?? 0} />
                 <MetricRow label="Derived bytes" value={formatBytes(derived?.storage.totalBytes)} />
@@ -309,15 +318,10 @@ export function MetricsSidebar() {
                 <MetricRow label="Errors" value={background?.protocol.errors ?? 0} />
               </Section>
               <Section icon={<Image size={13} />} title="Derived artifacts">
-                <MetricRow
-                  label="Thumbnails"
-                  value={`${readyCount("thumbnail")}/${artifacts.length}`}
-                />
-                <MetricRow
-                  label="Filmstrips"
-                  value={`${readyCount("filmstrip")}/${artifacts.length}`}
-                />
-                <MetricRow label="Proxies" value={`${readyCount("proxy")}/${artifacts.length}`} />
+                <MetricRow label="Thumbnails" value={artifactCount("thumbnail")} />
+                <MetricRow label="Filmstrips" value={artifactCount("filmstrip")} />
+                <MetricRow label="Waveforms" value={artifactCount("waveform")} />
+                <MetricRow label="Proxies" value={artifactCount("proxy")} />
                 <MetricRow
                   label="Jobs"
                   value={

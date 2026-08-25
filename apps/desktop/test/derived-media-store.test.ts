@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { applyCommand, createProject } from "@cinesim/core";
 import type { Project } from "@cinesim/core";
 import { DerivedMediaStore } from "../src/main/derived-media-store";
+import { encodeWaveformEnvelope, WAVEFORM_FORMAT_VERSION } from "../src/shared/waveform-format";
 
 const temporaryDirectories: string[] = [];
 
@@ -23,6 +24,7 @@ async function fixture(name: string): Promise<{ directory: string; project: Proj
       durationUs: 1_000_000,
       width: 1280,
       height: 720,
+      hasAudio: true,
     },
   }).project;
   return { directory, project };
@@ -151,6 +153,101 @@ describe("DerivedMediaStore", () => {
       columns: 2,
       rows: 2,
     });
+  });
+
+  it("queues and atomically publishes bounded waveforms for embedded and audio-only media", async () => {
+    const { directory, project: videoProject } = await fixture("waveform");
+    const sourcePath = join(directory, "source.mp4");
+    const project = applyCommand(videoProject, {
+      type: "asset.import",
+      asset: {
+        id: "asset_audio",
+        kind: "audio",
+        name: "source.mp4",
+        source: { kind: "local", path: sourcePath },
+        durationUs: 1_000_000,
+      },
+    }).project;
+    const store = new DerivedMediaStore();
+    await store.setProject(directory, project);
+    const scope = store.scope();
+    const queued = await store.requestJobs(scope, ["asset_fixture", "asset_audio"]);
+    expect(queued.assets.asset_fixture?.waveform.state).toBe("queued");
+    expect(queued.assets.asset_audio?.waveform.state).toBe("queued");
+    expect(queued.assets.asset_audio?.thumbnail.state).toBe("missing");
+    await expect(
+      store.beginWrite(scope, {
+        assetId: "asset_audio",
+        kind: "waveform",
+        expectedBytes: 20,
+      }),
+    ).rejects.toThrow("exact bounded artifact size");
+
+    const minima = new Float32Array(20);
+    const maxima = new Float32Array(20);
+    minima[0] = -0.5;
+    minima[19] = -1;
+    maxima[0] = 0.25;
+    maxima[19] = 1;
+    const waveform = encodeWaveformEnvelope(minima, maxima);
+    const { writerId } = await store.beginWrite(scope, {
+      assetId: "asset_audio",
+      kind: "waveform",
+      expectedBytes: waveform.byteLength,
+    });
+    await store.writeChunk(writerId, 0, new Uint8Array(waveform));
+    await store.finalizeWrite(writerId, {
+      bytes: waveform.byteLength,
+      peakCount: 20,
+      waveformFormatVersion: WAVEFORM_FORMAT_VERSION,
+    });
+
+    const ready = store.snapshot().assets.asset_audio!.waveform;
+    expect(ready).toMatchObject({
+      state: "ready",
+      bytes: waveform.byteLength,
+      peakCount: 20,
+      waveformFormatVersion: WAVEFORM_FORMAT_VERSION,
+    });
+    const artifact = await store.artifactFile(
+      scope,
+      "waveform",
+      "asset_audio",
+      undefined,
+      ready.updatedAt,
+    );
+    expect(artifact).toMatchObject({
+      size: waveform.byteLength,
+      mimeType: "application/vnd.cinesim.waveform",
+    });
+  });
+
+  it("rejects an exact-size waveform whose binary envelope is invalid", async () => {
+    const { directory, project } = await fixture("waveform-invalid");
+    const store = new DerivedMediaStore();
+    await store.setProject(directory, project);
+    const scope = store.scope();
+    const peakCount = 20;
+    const expectedBytes = 16 + peakCount * 4;
+    const { writerId } = await store.beginWrite(scope, {
+      assetId: "asset_fixture",
+      kind: "waveform",
+      expectedBytes,
+    });
+    await store.writeChunk(writerId, 0, new Uint8Array(expectedBytes));
+
+    await expect(
+      store.finalizeWrite(writerId, {
+        bytes: expectedBytes,
+        peakCount,
+        waveformFormatVersion: WAVEFORM_FORMAT_VERSION,
+      }),
+    ).rejects.toThrow("Unknown waveform artifact");
+    await store.cancelWrite(writerId, "invalid-waveform");
+    expect(store.snapshot().assets.asset_fixture?.waveform.state).toBe("failed");
+
+    await store.requestJobs(scope, ["asset_fixture"]);
+    expect(store.snapshot().assets.asset_fixture?.waveform.state).toBe("failed");
   });
 
   it("rejects stale project work even when projects reuse the same IDs", async () => {

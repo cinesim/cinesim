@@ -1,7 +1,20 @@
 import type { TimeUs } from "@cinesim/core";
 import type { AudioSource } from "../media/video-source";
 
-export class WebAudioScheduler {
+export interface PlaybackAudioScheduler {
+  startTransport(timelineUs: TimeUs): void;
+  schedule(
+    source: AudioSource,
+    sourceFromUs: TimeUs,
+    timelineFromUs: TimeUs,
+    durationUs?: TimeUs,
+  ): Promise<void>;
+  resume(): Promise<void>;
+  stop(): void;
+  destroy(): Promise<void>;
+}
+
+export class WebAudioScheduler implements PlaybackAudioScheduler {
   readonly #context: AudioContext;
   #scheduled = new Set<AudioBufferSourceNode>();
   #generation = 0;

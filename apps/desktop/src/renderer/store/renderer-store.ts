@@ -1,5 +1,5 @@
 import { createStore } from "zustand/vanilla";
-import { sequenceDurationUs } from "@cinesim/core";
+import { isAssetCompatibleWithTrack, sequenceDurationUs } from "@cinesim/core";
 import type { ClipId, EditorCommand, Sequence, TimeUs } from "@cinesim/core";
 import type { RuntimeSnapshot } from "@cinesim/engine";
 import { DEFAULT_EDITOR_LAYOUT } from "../../shared/api";
@@ -11,12 +11,13 @@ import type {
   EditorLayoutState,
   ElectronHealthSnapshot,
 } from "../../shared/api";
+import { clampTimelineZoom } from "../lib/timeline-scale";
 
 export type Destination = "home" | "project" | "settings";
 export type ProjectSection = "media" | "edit";
 export type SettingsSection = "general" | "agents";
 export type AuxiliarySidebarMode = "agents" | "metrics" | null;
-export type EditTool = "select" | "blade";
+export type EditTool = "select" | "trim" | "blade";
 export type PanelKind = "mediaPool" | "inspector" | "notes";
 
 export type ActionResult<T> = { ok: true; value: T } | { ok: false; error: string };
@@ -58,6 +59,9 @@ export interface RendererState {
   operationError: string | null;
   selectedClipId: ClipId | null;
   timelineZoom: number;
+  timelineTrackHeight: number;
+  timelineDragging: boolean;
+  snappingEnabled: boolean;
   tool: EditTool;
   playheadUs: TimeUs;
   playbackRuntime: PlaybackRuntimeState | null;
@@ -88,6 +92,9 @@ export interface RendererState {
   clearError: () => void;
   selectClip: (id: ClipId | null) => void;
   setTimelineZoom: (zoom: number) => void;
+  setTimelineTrackHeight: (height: number) => void;
+  setTimelineDragging: (dragging: boolean) => void;
+  toggleSnapping: () => void;
   setTool: (tool: EditTool) => void;
   setPlayheadUs: (timeUs: TimeUs) => void;
   setPlaybackRuntime: (
@@ -160,6 +167,7 @@ function hydratedProjectState(
     notesOpen: appState.notesOpenByProject[session.directory] ?? true,
     operationError: null,
     selectedClipId: null,
+    timelineDragging: false,
     playheadUs: 0,
     playbackRuntime: null,
     derivedMedia: null,
@@ -276,6 +284,9 @@ export function createRendererStore({ api, storage }: RendererStoreDependencies)
       operationError: null,
       selectedClipId: null,
       timelineZoom: 1,
+      timelineTrackHeight: 56,
+      timelineDragging: false,
+      snappingEnabled: true,
       tool: "select",
       playheadUs: 0,
       playbackRuntime: null,
@@ -362,18 +373,25 @@ export function createRendererStore({ api, storage }: RendererStoreDependencies)
           set({ operationError: error });
           return { ok: false, error };
         }
-        const kind = asset.kind === "audio" ? "audio" : "video";
-        const track = sequence.tracks.find((candidate) => candidate.kind === kind);
+        const track = sequence.tracks.find(
+          (candidate) =>
+            !candidate.locked && isAssetCompatibleWithTrack(asset.kind, candidate.kind),
+        );
         if (!track) {
-          const error = `The timeline has no ${kind} track`;
+          const error = `The timeline has no unlocked track compatible with ${asset.kind} media`;
           set({ operationError: error });
           return { ok: false, error };
         }
+        const audioTrack =
+          asset.kind === "video" && asset.hasAudio === true
+            ? sequence.tracks.find((candidate) => candidate.kind === "audio" && !candidate.locked)
+            : null;
         return get().execute({
           type: "clip.add",
           trackId: track.id,
           assetId: asset.id,
           timelineStartUs: sequenceDurationUs(sequence),
+          ...(audioTrack ? { audioTrackId: audioTrack.id } : {}),
         });
       },
 
@@ -460,8 +478,11 @@ export function createRendererStore({ api, storage }: RendererStoreDependencies)
         });
       },
       selectClip: (selectedClipId) => set({ selectedClipId }),
-      setTimelineZoom: (timelineZoom) =>
-        set({ timelineZoom: Math.min(4, Math.max(0.25, timelineZoom)) }),
+      setTimelineZoom: (timelineZoom) => set({ timelineZoom: clampTimelineZoom(timelineZoom) }),
+      setTimelineTrackHeight: (timelineTrackHeight) =>
+        set({ timelineTrackHeight: Math.min(112, Math.max(40, Math.round(timelineTrackHeight))) }),
+      setTimelineDragging: (timelineDragging) => set({ timelineDragging }),
+      toggleSnapping: () => set((state) => ({ snappingEnabled: !state.snappingEnabled })),
       setTool: (tool) => set({ tool }),
       setPlayheadUs: (playheadUs) => set({ playheadUs }),
       setPlaybackRuntime: (projectDirectory, sequenceId, snapshot) => {

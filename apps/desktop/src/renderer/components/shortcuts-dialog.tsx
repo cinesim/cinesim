@@ -47,6 +47,26 @@ export function ShortcutsDialog({ open, isMac, onClose }: ShortcutsDialogProps) 
       title: "Media",
       shortcuts: [{ label: "Import media", keys: `${command}I`, scope: "Media" }],
     },
+    {
+      title: "Edit tools",
+      shortcuts: [
+        { label: "Selection tool", keys: "A", scope: "Edit" },
+        { label: "Trim tool", keys: "T", scope: "Edit" },
+        { label: "Blade tool", keys: "B", scope: "Edit" },
+        { label: "Toggle snapping", keys: "S", scope: "Edit" },
+        { label: "Split selected clip", keys: `${command}\\`, scope: "Edit" },
+        { label: "Delete selected clip", keys: "⌫", scope: "Edit" },
+      ],
+    },
+    {
+      title: "Viewer transport",
+      shortcuts: [
+        { label: "Play or pause", keys: "Space", scope: "Edit" },
+        { label: "Reverse / pause / forward", keys: "J  K  L", scope: "Edit" },
+        { label: "Previous / next frame", keys: "←  →", scope: "Edit" },
+        { label: "Go to beginning", keys: "Home", scope: "Edit" },
+      ],
+    },
   ];
 
   return (

@@ -50,6 +50,9 @@ const DERIVED_WORKER_STAGES = new Set<DerivedWorkerStage>([
   "filmstrip-sampling",
   "filmstrip-encoding",
   "filmstrip-ready",
+  "waveform-decoding",
+  "waveform-encoding",
+  "waveform-ready",
   "proxy-converting",
   "completed",
   "failed",
@@ -376,8 +379,13 @@ async function registerMediaProtocol(): Promise<void> {
     try {
       const url = new URL(request.url);
       const derivedKind = (
-        { thumbnail: "thumbnail", filmstrip: "filmstrip", proxy: "proxy" } as const
-      )[url.hostname as "thumbnail" | "filmstrip" | "proxy"];
+        {
+          thumbnail: "thumbnail",
+          filmstrip: "filmstrip",
+          waveform: "waveform",
+          proxy: "proxy",
+        } as const
+      )[url.hostname as "thumbnail" | "filmstrip" | "waveform" | "proxy"];
       if (url.hostname !== "asset" && !derivedKind)
         return new Response("Not found", { status: 404 });
       const pathParts = url.pathname.split("/").filter(Boolean);
