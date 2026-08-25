@@ -12,10 +12,21 @@ import {
 import { formatByteCount, formatDiagnosticDurationMs, formatTimecode } from "../../lib/format";
 import { sessionFromLifecycle } from "../../store/renderer-store";
 import { useRendererStore } from "../../store/renderer-store-context";
-import { LiveMetricChart, type LiveMetricValues, useLiveMetricHistory } from "./live-metric-chart";
+import {
+  LiveMetricChart,
+  type LiveMetricRateKey,
+  type LiveMetricValues,
+  useLiveMetricHistory,
+} from "./live-metric-chart";
 import { StorageUsage } from "./storage-usage";
 
 type MetricsTab = "overview" | "playback" | "media" | "system";
+const PLAYBACK_RATE_KEYS: LiveMetricRateKey[] = [
+  "droppedFramesPerSecond",
+  "requestsPerSecond",
+  "framesPresentedPerSecond",
+  "requestsCoalescedPerSecond",
+];
 
 const METRICS_TABS: ReadonlyArray<{ id: MetricsTab; label: string }> = [
   { id: "overview", label: "Overview" },
@@ -84,6 +95,14 @@ export function MetricsSidebar() {
       renderFps: metrics?.renderFps ?? 0,
       targetFps: metrics?.targetFps ?? 0,
       seekLatencyMs: metrics?.seekLatencyMs ?? 0,
+      droppedFrames: metrics?.droppedFrames ?? 0,
+      requestsReceived: metrics?.requestsReceived ?? 0,
+      framesPresented: metrics?.framesPresented ?? 0,
+      requestsCoalesced: metrics?.requestsCoalesced ?? 0,
+      droppedFramesPerSecond: 0,
+      requestsPerSecond: 0,
+      framesPresentedPerSecond: 0,
+      requestsCoalescedPerSecond: 0,
       gpuSubmitCpuMs: metrics?.gpuSubmitCpuMs ?? 0,
       protocolLatencyMs: background?.protocol.lastLatencyMs ?? 0,
       mainCpuPercent: healthProcesses?.main.cpuPercent ?? 0,
@@ -99,7 +118,7 @@ export function MetricsSidebar() {
       eventLoopBudgetMs: 16.7,
     };
   }, [background, electronHealth, metrics]);
-  const liveHistory = useLiveMetricHistory(liveSample);
+  const liveHistory = useLiveMetricHistory(liveSample, PLAYBACK_RATE_KEYS);
 
   useEffect(() => {
     const log = decisionLogRef.current;
@@ -214,40 +233,71 @@ export function MetricsSidebar() {
                   samples={liveHistory}
                   series={[{ key: "seekLatencyMs", label: "Latency", color: "var(--ui-text)" }]}
                 />
+                <LiveMetricChart
+                  title="Playback activity"
+                  description="Dropped frames, requests, presented frames, and coalesced requests per second."
+                  unit="/s"
+                  minimumMaximum={60}
+                  samples={liveHistory}
+                  series={[
+                    {
+                      key: "droppedFramesPerSecond",
+                      label: "Dropped frames",
+                      color: "var(--metric-amber)",
+                    },
+                    {
+                      key: "requestsPerSecond",
+                      label: "Requests",
+                      color: "var(--metric-blue)",
+                    },
+                    {
+                      key: "framesPresentedPerSecond",
+                      label: "Presented",
+                      color: "var(--metric-green)",
+                    },
+                    {
+                      key: "requestsCoalescedPerSecond",
+                      label: "Coalesced",
+                      color: "var(--metric-violet)",
+                    },
+                  ]}
+                />
               </ChartSection>
-              <Section icon={<Activity size={13} />} title="Request totals">
-                <MetricRow
-                  label="Original seek p95"
-                  value={
-                    activeDerived?.performance.original.warmSeekP95Ms === undefined
-                      ? unavailable
-                      : `${activeDerived.performance.original.warmSeekP95Ms.toFixed(1)} ms`
-                  }
-                />
-                <MetricRow
-                  label="Proxy seek p95"
-                  value={
-                    activeDerived?.performance.proxy?.warmSeekP95Ms === undefined
-                      ? unavailable
-                      : `${activeDerived.performance.proxy.warmSeekP95Ms.toFixed(1)} ms`
-                  }
-                />
-                <MetricRow label="Dropped frames" value={metrics?.droppedFrames ?? 0} />
-                <MetricRow label="Requests" value={metrics?.requestsReceived ?? 0} />
-                <MetricRow label="Coalesced" value={metrics?.requestsCoalesced ?? 0} />
-                <MetricRow label="Presented" value={metrics?.framesPresented ?? 0} />
-                <MetricRow label="Obsolete" value={metrics?.framesObsolete ?? 0} />
-                <MetricRow label="In flight" value={metrics?.frameOperationsInFlight ?? 0} />
-                <MetricRow
-                  label="Newest pending"
-                  value={metrics?.newestRequestPending ? "Yes" : "No"}
-                />
-                <MetricRow label="Active sources" value={metrics?.activeSources ?? 0} />
-                <MetricRow
-                  label="Takeover suppressed"
-                  value={metrics?.sourcePreviewSuppressions ?? 0}
-                />
-              </Section>
+              <section className="border-b border-border px-3 py-3">
+                <dl>
+                  <MetricRow
+                    label="Original seek p95"
+                    value={
+                      activeDerived?.performance.original.warmSeekP95Ms === undefined
+                        ? unavailable
+                        : `${activeDerived.performance.original.warmSeekP95Ms.toFixed(1)} ms`
+                    }
+                  />
+                  <MetricRow
+                    label="Proxy seek p95"
+                    value={
+                      activeDerived?.performance.proxy?.warmSeekP95Ms === undefined
+                        ? unavailable
+                        : `${activeDerived.performance.proxy.warmSeekP95Ms.toFixed(1)} ms`
+                    }
+                  />
+                  <MetricRow label="Dropped frames" value={metrics?.droppedFrames ?? 0} />
+                  <MetricRow label="Requests" value={metrics?.requestsReceived ?? 0} />
+                  <MetricRow label="Coalesced" value={metrics?.requestsCoalesced ?? 0} />
+                  <MetricRow label="Presented" value={metrics?.framesPresented ?? 0} />
+                  <MetricRow label="Obsolete" value={metrics?.framesObsolete ?? 0} />
+                  <MetricRow label="In flight" value={metrics?.frameOperationsInFlight ?? 0} />
+                  <MetricRow
+                    label="Newest pending"
+                    value={metrics?.newestRequestPending ? "Yes" : "No"}
+                  />
+                  <MetricRow label="Active sources" value={metrics?.activeSources ?? 0} />
+                  <MetricRow
+                    label="Takeover suppressed"
+                    value={metrics?.sourcePreviewSuppressions ?? 0}
+                  />
+                </dl>
+              </section>
             </>
           )}
 
@@ -432,10 +482,11 @@ export function MetricsSidebar() {
                 />
                 <LiveMetricChart
                   title="Memory by process"
-                  description="Physical working-set memory held by each Electron process group."
+                  description="Total physical working-set memory, split by Electron process group."
                   unit="MB"
                   minimumMaximum={512}
                   samples={liveHistory}
+                  stacked
                   series={[
                     {
                       key: "rendererMemoryMb",

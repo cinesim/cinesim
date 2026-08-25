@@ -34,15 +34,7 @@ function projectSizeLabel(size: number | null | undefined): string {
 }
 
 function Shortcut({ children, dark = false }: { children: React.ReactNode; dark?: boolean }) {
-  return (
-    <Kbd
-      className={
-        dark ? "border-white/20 bg-black/20 text-white/80 shadow-none backdrop-blur-sm" : undefined
-      }
-    >
-      {children}
-    </Kbd>
-  );
+  return <Kbd className={dark ? "text-white/80" : undefined}>{children}</Kbd>;
 }
 
 export function Welcome({
