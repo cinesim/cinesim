@@ -304,19 +304,27 @@ export function AppShell({
 
       <div className="relative flex min-w-0 flex-1 flex-col">
         <header className="app-drag relative flex h-12 shrink-0 items-center justify-center border-b border-border bg-panel px-3">
-          <Button
-            className={cn(
-              "no-drag absolute top-2",
-              sidebarOpen ? "left-2" : isMac ? "left-[76px]" : "left-2",
-            )}
-            size="icon"
-            variant="ghost"
-            aria-label={sidebarOpen ? "Collapse sidebar" : "Open sidebar"}
-            title={`${sidebarOpen ? "Collapse" : "Open"} sidebar (${isMac ? "⌘B" : "Ctrl+B"})`}
-            onClick={() => setSidebarOpen((open) => !open)}
-          >
-            {sidebarOpen ? <ChevronLeft size={17} /> : <ChevronRight size={17} />}
-          </Button>
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <Button
+                  className={cn(
+                    "no-drag absolute top-2",
+                    sidebarOpen ? "left-2" : isMac ? "left-[76px]" : "left-2",
+                  )}
+                  size="icon"
+                  variant="ghost"
+                  aria-label={sidebarOpen ? "Collapse sidebar" : "Open sidebar"}
+                  onClick={() => setSidebarOpen((open) => !open)}
+                />
+              }
+            >
+              {sidebarOpen ? <ChevronLeft size={17} /> : <ChevronRight size={17} />}
+            </TooltipTrigger>
+            <TooltipContent>
+              {sidebarOpen ? "Collapse" : "Open"} sidebar ({isMac ? "⌘B" : "Ctrl+B"})
+            </TooltipContent>
+          </Tooltip>
           {leadingToolbar && (
             <div
               className={cn(

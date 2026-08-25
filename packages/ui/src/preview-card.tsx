@@ -69,7 +69,7 @@ export function PreviewCard({
     <article
       data-slot="preview-card"
       className={cn(
-        "group relative min-w-0 overflow-hidden rounded-xl border border-border bg-panel text-left shadow-sm transition",
+        "group relative min-w-0 overflow-hidden border border-border bg-panel text-left shadow-sm transition",
         interactive &&
           "hover:-translate-y-0.5 hover:border-border-strong hover:shadow-lg hover:shadow-black/10",
       )}
@@ -77,7 +77,7 @@ export function PreviewCard({
       {interactive ? (
         <button
           type="button"
-          className="block w-full rounded-xl text-left outline-none focus-visible:ring-2 focus-visible:ring-focus"
+          className="block w-full text-left outline-none focus-visible:ring-2 focus-visible:ring-focus"
           aria-label={ariaLabel}
           title={title}
           disabled={disabled}

@@ -29,6 +29,7 @@ const api: DesktopApi = {
   save: () => ipcRenderer.invoke("project:save"),
   revealProject: () => ipcRenderer.invoke("project:reveal"),
   getSession: () => ipcRenderer.invoke("project:session"),
+  getRecentProjectSizes: () => ipcRenderer.invoke("project:recent-sizes"),
   getAppState: () => ipcRenderer.invoke("app-state:get"),
   getElectronHealthSnapshot: () => ipcRenderer.invoke("app:health"),
   setProjectMediaPoolOpen: (open) => ipcRenderer.invoke("app-state:set-media-pool-open", open),

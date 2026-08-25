@@ -42,7 +42,6 @@ import {
   transitionTrimGesture,
   type TrimGestureState,
 } from "../../lib/trim-gesture";
-import { formatTimecode } from "../../lib/format";
 import {
   BASE_TIMELINE_PIXELS_PER_SECOND,
   MAX_TIMELINE_ZOOM,
@@ -189,7 +188,7 @@ function ClipBlock({
     <div
       ref={setNodeRef}
       className={cn(
-        "absolute top-1 overflow-hidden rounded-md border text-left shadow-sm outline-none transition-[border-color,filter]",
+        "absolute top-0 overflow-hidden border text-left shadow-sm outline-none transition-[border-color,filter]",
         track.kind === "audio"
           ? "border-clip-border bg-clip-audio"
           : "border-clip-border bg-clip-video",
@@ -201,7 +200,7 @@ function ClipBlock({
       style={{
         left,
         width,
-        height: Math.max(32, trackHeight - 8),
+        height: trackHeight,
       }}
     >
       {asset?.kind === "video" && !isAudioComponent && derived && derivedAsset && (
@@ -211,7 +210,7 @@ function ClipBlock({
           record={derivedAsset}
           derived={derived}
           width={width}
-          height={Math.max(32, trackHeight - 8)}
+          height={trackHeight}
         />
       )}
       {asset &&
@@ -240,12 +239,6 @@ function ClipBlock({
             asset?.kind === "video" && !isAudioComponent ? "opacity-15" : "opacity-40",
           )}
         />
-        <span className="relative ml-1.5 mt-1 block w-fit max-w-[75%] truncate rounded-sm bg-black/35 px-1.5 py-0.5 text-ui-xs font-medium text-white shadow-sm">
-          {name}
-        </span>
-        <span className="relative ml-1.5 mt-0.5 block w-fit rounded-sm bg-black/25 px-1 text-ui-xs text-white/75 tabular-nums">
-          {clip.id}
-        </span>
         {preparationLabel && (
           <span className="absolute right-1.5 top-1 rounded bg-black/35 px-1 py-0.5 text-[9px] font-medium text-white/85">
             {preparationLabel}
@@ -388,7 +381,7 @@ function TimelineTrackRow({
       {trackProposal && (
         <div
           className={cn(
-            "pointer-events-none absolute top-1 z-40 overflow-hidden rounded-md border-2 px-2 py-1 shadow-lg",
+            "pointer-events-none absolute top-0 z-40 overflow-hidden border-2 px-2 py-1 shadow-lg",
             trackProposal.valid
               ? "border-primary bg-selection/80 text-primary"
               : "border-red-500/80 bg-red-500/15 text-red-700 dark:text-red-300",
@@ -396,7 +389,7 @@ function TimelineTrackRow({
           style={{
             left: trackProposal.timelineStartUs * pixelsPerUs,
             width: proposalWidth,
-            height: Math.max(32, trackHeight - 8),
+            height: trackHeight,
           }}
         >
           {proposalAsset?.kind === "video" &&
@@ -408,7 +401,7 @@ function TimelineTrackRow({
                 record={derived.assets[proposalAsset.id]!}
                 derived={derived}
                 width={proposalWidth}
-                height={Math.max(32, trackHeight - 8)}
+                height={trackHeight}
               />
             )}
           {proposalAsset &&
@@ -764,10 +757,8 @@ export function Timeline({ project, onCommand, onSeek }: TimelineProps) {
         >
           <Trash2 size={14} />
         </Button>
-        <span className="ml-auto text-ui-xs text-muted tabular-nums">
-          {formatTimecode(playheadUs, sequence.frameRate)}
-        </span>
         <Button
+          className="ml-auto"
           size="icon"
           variant="ghost"
           aria-label="Zoom out"
@@ -864,7 +855,7 @@ export function Timeline({ project, onCommand, onSeek }: TimelineProps) {
               />
             ))}
             <div
-              className="pointer-events-none absolute bottom-0 top-0 z-10 w-px bg-playhead"
+              className="pointer-events-none absolute bottom-0 top-0 z-30 w-px bg-playhead"
               style={{ left: playheadUs * pixelsPerUs }}
             >
               <div className="-ml-1 h-2 w-2 rounded-b-sm bg-playhead" />

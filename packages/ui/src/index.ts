@@ -2,6 +2,7 @@ export * from "./button";
 export * from "./cn";
 export * from "./definition-row";
 export * from "./dialog";
+export * from "./dropdown-select";
 export * from "./empty";
 export * from "./field";
 export * from "./input";

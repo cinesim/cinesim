@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { DesktopProjectStore } from "../src/main/projects/project-store";
+import { canonicalProjectSizeBytes } from "../src/main/projects/project-size";
 
 const temporaryDirectories: string[] = [];
 
@@ -39,6 +40,22 @@ afterEach(async () => {
 });
 
 describe("DesktopProjectStore", () => {
+  it("measures canonical project files without counting disposable video output", async () => {
+    const parentDirectory = await mkdtemp(join(tmpdir(), "cinesim-size-test-"));
+    temporaryDirectories.push(parentDirectory);
+    const store = new DesktopProjectStore();
+    const session = await store.create(parentDirectory, "Size fixture");
+
+    const canonicalSize = await canonicalProjectSizeBytes(session.directory);
+    await writeFile(
+      join(session.directory, ".video", "cache", "preview.bin"),
+      new Uint8Array(1024),
+    );
+
+    expect(canonicalSize).toBeGreaterThan(0);
+    await expect(canonicalProjectSizeBytes(session.directory)).resolves.toBe(canonicalSize);
+  });
+
   it("inspects a filesystem-backed audio file through Mediabunny", async () => {
     const parentDirectory = await mkdtemp(join(tmpdir(), "cinesim-import-test-"));
     temporaryDirectories.push(parentDirectory);

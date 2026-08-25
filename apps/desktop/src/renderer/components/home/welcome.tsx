@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
-import { ArrowRight, Clapperboard, Plus } from "lucide-react";
+import { ArrowRight, Plus } from "lucide-react";
 import { Button, Input, Kbd, Notice, PreviewCard, Skeleton } from "@cinesim/ui";
 import type { DesktopAppState, DesktopProjectSession } from "../../../shared/api";
+import { formatByteCount } from "../../lib/format";
 import type { ActionResult } from "../../store/renderer-store";
 import { LibraryGrid } from "../shared/library-card";
 
@@ -26,6 +27,12 @@ function projectGradient(key: string): React.CSSProperties {
   };
 }
 
+function projectSizeLabel(size: number | null | undefined): string {
+  if (size === undefined) return "Calculating project size…";
+  if (size === null) return "Project size unavailable";
+  return `${formatByteCount(size)} project files`;
+}
+
 function Shortcut({ children, dark = false }: { children: React.ReactNode; dark?: boolean }) {
   return (
     <Kbd
@@ -48,6 +55,7 @@ export function Welcome({
   onOpenRecent,
 }: WelcomeProps) {
   const [name, setName] = useState("");
+  const [projectSizes, setProjectSizes] = useState<Record<string, number | null>>({});
   const modifier = window.cinesim.platform === "darwin" ? "⌘" : "Ctrl+";
 
   async function create() {
@@ -88,6 +96,21 @@ export function Welcome({
     return () => window.removeEventListener("keydown", shortcut);
   }, [appState.recentProjects, open, openRecent]);
 
+  useEffect(() => {
+    let active = true;
+    void window.cinesim
+      .getRecentProjectSizes()
+      .then((sizes) => {
+        if (active) setProjectSizes(sizes);
+      })
+      .catch(() => {
+        if (active) setProjectSizes({});
+      });
+    return () => {
+      active = false;
+    };
+  }, [appState.recentProjects]);
+
   if (loading) return <WelcomeLoadingState />;
 
   return (
@@ -106,7 +129,6 @@ export function Welcome({
 
         <LibraryGrid>
           <PreviewCard
-            badge="New project"
             previewClassName="media-thumbnail text-secondary"
             preview={
               <span className="grid size-12 place-items-center rounded-xl bg-accent text-on-accent shadow-sm">
@@ -153,13 +175,15 @@ export function Welcome({
                 <>
                   <span className="absolute -bottom-16 -right-8 size-40 rounded-full border border-white/20" />
                   <span className="absolute -left-10 -top-16 size-40 rounded-full bg-white/10" />
-                  <Clapperboard className="relative drop-shadow-md" size={25} strokeWidth={1.6} />
                 </>
               }
               onClick={() => void openRecent(project.directory)}
             >
               <p className="truncate text-ui font-medium text-primary">{project.name}</p>
               <p className="mt-1 truncate text-ui-xs text-muted">{project.directory}</p>
+              <p className="mt-0.5 text-ui-xs text-muted tabular-nums">
+                {projectSizeLabel(projectSizes[project.directory])}
+              </p>
             </PreviewCard>
           ))}
         </LibraryGrid>
