@@ -28,7 +28,7 @@ Every canonical clip declares a `mediaKind` of `video` or `audio`; playback and 
 
 Tracks are changed through the shared command pathway:
 
-- `track.add` takes `sequenceId`, `kind`, and an optional `name`. Core allocates the next project-wide stable track ID and appends the track.
+- `track.add` takes `sequenceId`, `kind`, and an optional `name`. Core allocates the next project-wide stable track ID. Video and overlay tracks enter at the top of the visual stack; audio tracks enter at the bottom of the audio stack.
 - `track.update` takes `trackId` and at least one of `name`, `muted`, or `locked`. Names are trimmed and may not be empty.
 - `track.reorder` takes `trackId` and a zero-based `index`. Locked tracks cannot be reordered.
 - `track.remove` takes `trackId`. Removal is intentionally safe: the track must be unlocked and empty.

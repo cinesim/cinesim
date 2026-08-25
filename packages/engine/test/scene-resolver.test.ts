@@ -36,8 +36,8 @@ describe("timeline visual layer order", () => {
     }).project;
 
     expect(resolveScene(project, 500_000).map((layer) => layer.track.id)).toEqual([
-      "track_000003",
       "track_000001",
+      "track_000003",
     ]);
   });
 });

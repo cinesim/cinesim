@@ -44,7 +44,7 @@ describe("editing commands", () => {
     const sequenceId = initial.activeSequenceId;
     let result = applyCommand(initial, { type: "track.add", sequenceId, kind: "video" });
     expect(result.createdIds).toEqual(["track_000003"]);
-    expect(result.project.sequences[0]!.tracks[2]).toMatchObject({
+    expect(result.project.sequences[0]!.tracks[0]).toMatchObject({
       id: "track_000003",
       name: "Video 2",
       kind: "video",
@@ -60,7 +60,7 @@ describe("editing commands", () => {
       muted: true,
       locked: true,
     });
-    expect(result.project.sequences[0]!.tracks[2]).toMatchObject({
+    expect(result.project.sequences[0]!.tracks[0]).toMatchObject({
       name: "B-roll",
       muted: true,
       locked: true,
@@ -74,11 +74,11 @@ describe("editing commands", () => {
     result = applyCommand(result.project, {
       type: "track.reorder",
       trackId: "track_000003",
-      index: 0,
+      index: 1,
     });
     expect(result.project.sequences[0]!.tracks.map((track) => track.id)).toEqual([
-      "track_000003",
       "track_000001",
+      "track_000003",
       "track_000002",
     ]);
 
@@ -86,6 +86,26 @@ describe("editing commands", () => {
     expect(result.project.sequences[0]!.tracks.map((track) => track.id)).toEqual([
       "track_000001",
       "track_000002",
+    ]);
+  });
+
+  it("inserts visual tracks above and audio tracks below the existing stacks", () => {
+    const project = seededProject();
+    const withAudio = applyCommand(project, {
+      type: "track.add",
+      sequenceId: project.activeSequenceId,
+      kind: "audio",
+    }).project;
+    const withOverlay = applyCommand(withAudio, {
+      type: "track.add",
+      sequenceId: project.activeSequenceId,
+      kind: "overlay",
+    }).project;
+    expect(withOverlay.sequences[0]!.tracks.map((track) => [track.name, track.kind])).toEqual([
+      ["Overlay 1", "overlay"],
+      ["Video 1", "video"],
+      ["Audio 1", "audio"],
+      ["Audio 2", "audio"],
     ]);
   });
 

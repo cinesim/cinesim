@@ -59,13 +59,13 @@ describe("canonical serialization", () => {
     project = applyCommand(project, {
       type: "track.reorder",
       trackId: "track_000003",
-      index: 0,
+      index: 1,
     }).project;
 
     const files = splitProjectFiles(project);
     expect(files.timeline.sequences[0]!.tracks.map((track) => track.id)).toEqual([
-      "track_000003",
       "track_000001",
+      "track_000003",
       "track_000002",
     ]);
     expect(joinProjectFiles(files.manifest, files.assets, files.timeline)).toEqual(project);

@@ -13,7 +13,7 @@ describe("protocol command dispatch", () => {
     });
     expect(added.ok).toBe(true);
     if (!added.ok) return;
-    expect(added.value.project.sequences[0]!.tracks[2]).toMatchObject({
+    expect(added.value.project.sequences[0]!.tracks[0]).toMatchObject({
       id: "track_000003",
       name: "Titles",
       kind: "overlay",
@@ -22,7 +22,7 @@ describe("protocol command dispatch", () => {
     const reordered = dispatchCommand(added.value.project, {
       type: "track.reorder",
       trackId: "track_000003",
-      index: 0,
+      index: 1,
     });
     expect(reordered.ok).toBe(true);
   });

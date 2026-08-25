@@ -95,6 +95,10 @@ function defaultTrackName(sequence: Sequence, kind: Track["kind"]): string {
   return `${label} ${highestOrdinal + 1}`;
 }
 
+function trackInsertionIndex(sequence: Sequence, kind: Track["kind"]): number {
+  return kind === "audio" ? sequence.tracks.length : 0;
+}
+
 function assertAssetTrackCompatibility(
   asset: Asset,
   track: Track,
@@ -161,7 +165,7 @@ export function applyCommand(inputProject: Project, command: EditorCommand): Com
         locked: false,
         clips: [],
       };
-      sequence.tracks.push(track);
+      sequence.tracks.splice(trackInsertionIndex(sequence, track.kind), 0, track);
       return result(project, command, `Added ${track.name}`, [sequence.id, id], [id]);
     }
 
