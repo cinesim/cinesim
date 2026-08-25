@@ -54,4 +54,20 @@ describe("protocol command dispatch", () => {
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.error.message).toMatch(/not found/);
   });
+
+  it("validates collection edit commands before dispatch", () => {
+    const emptySelection = dispatchCommand(createProject({ name: "Protocol" }), {
+      type: "sequence.createFromAssets",
+      assetIds: [],
+    });
+    expect(emptySelection.ok).toBe(false);
+    if (!emptySelection.ok) expect(emptySelection.error.code).toBe("INVALID_COMMAND");
+
+    const malformedRemoval = dispatchCommand(createProject({ name: "Protocol" }), {
+      type: "asset.remove",
+      assetIds: ["not-an-asset"],
+    });
+    expect(malformedRemoval.ok).toBe(false);
+    if (!malformedRemoval.ok) expect(malformedRemoval.error.code).toBe("INVALID_COMMAND");
+  });
 });

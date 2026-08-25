@@ -102,6 +102,33 @@ describe("DesktopAppStateStore", () => {
     });
   });
 
+  it("forgets a project and all directory-scoped UI preferences", async () => {
+    const { path } = await stateFixture();
+    const store = new DesktopAppStateStore(path);
+    await store.load();
+    await store.rememberProject({ name: "First", directory: "/films/first" });
+    await store.setMediaPoolOpen("/films/first", false);
+    await store.setInspectorOpen("/films/first", false);
+    await store.setNotesOpen("/films/first", false);
+    await store.setEditorLayout("/films/first", {
+      mediaPoolWidth: 300,
+      inspectorWidth: 300,
+      notesWidth: 300,
+      timelineHeight: 300,
+    });
+
+    await store.forgetProject("/films/first");
+
+    expect(store.snapshot()).toEqual({
+      version: 1,
+      recentProjects: [],
+      mediaPoolOpenByProject: {},
+      inspectorOpenByProject: {},
+      notesOpenByProject: {},
+      editorLayoutsByProject: {},
+    });
+  });
+
   it("persists the Inspector state per project", async () => {
     const { path } = await stateFixture();
     const store = new DesktopAppStateStore(path);

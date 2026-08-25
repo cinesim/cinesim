@@ -3,6 +3,16 @@ import type { Asset, TimeUs, Track, Transform } from "../project/types";
 
 export type EditorCommand =
   | { type: "asset.import"; asset: Asset }
+  | { type: "asset.remove"; assetIds: AssetId[] }
+  | {
+      type: "sequence.createFromAssets";
+      assetIds: AssetId[];
+      name?: string;
+      width?: number;
+      height?: number;
+      frameRate?: number;
+    }
+  | { type: "sequence.remove"; sequenceId: SequenceId }
   | {
       type: "track.add";
       sequenceId: SequenceId;

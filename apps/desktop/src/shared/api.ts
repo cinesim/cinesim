@@ -411,6 +411,8 @@ export interface DesktopApi {
   redo(): Promise<DesktopProjectSession>;
   save(): Promise<DesktopProjectSession>;
   revealProject(): Promise<void>;
+  forgetProject(directory: string): Promise<DesktopAppState>;
+  trashProject(directory: string): Promise<DesktopAppState>;
   getSession(): Promise<DesktopProjectSession | null>;
   getRecentProjectSizes(): Promise<Record<string, number | null>>;
   getAppState(): Promise<DesktopAppState>;

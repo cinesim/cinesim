@@ -363,4 +363,104 @@ describe("editing commands", () => {
     expect(history.undo().sequences[0]!.tracks[0]!.clips).toHaveLength(0);
     expect(history.redo().sequences[0]!.tracks[0]!.clips).toHaveLength(1);
   });
+
+  it("creates a timeline from ordered assets as one deterministic command", () => {
+    let project = applyCommand(createProject({ name: "Assembly" }), {
+      type: "asset.import",
+      asset: avAsset,
+    }).project;
+    project = applyCommand(project, { type: "asset.import", asset: audioAsset }).project;
+
+    const created = applyCommand(project, {
+      type: "sequence.createFromAssets",
+      assetIds: [audioAsset.id, avAsset.id],
+      name: "Selects",
+    });
+    const sequence = created.project.sequences.find(
+      (candidate) => candidate.id === created.project.activeSequenceId,
+    )!;
+
+    expect(sequence).toMatchObject({
+      id: "sequence_000002",
+      name: "Selects",
+      width: 1920,
+      height: 1080,
+      frameRate: 30,
+    });
+    expect(sequence.tracks.map((track) => [track.id, track.kind])).toEqual([
+      ["track_000003", "video"],
+      ["track_000004", "audio"],
+    ]);
+    expect(sequence.tracks[0]!.clips).toMatchObject([
+      {
+        id: "clip_000002",
+        assetId: avAsset.id,
+        timelineStartUs: audioAsset.durationUs,
+        linkedClipId: "clip_000003",
+      },
+    ]);
+    expect(sequence.tracks[1]!.clips).toMatchObject([
+      { id: "clip_000001", assetId: audioAsset.id, timelineStartUs: 0 },
+      {
+        id: "clip_000003",
+        assetId: avAsset.id,
+        timelineStartUs: audioAsset.durationUs,
+        linkedClipId: "clip_000002",
+      },
+    ]);
+    expect(created.createdIds).toEqual([
+      "sequence_000002",
+      "track_000003",
+      "track_000004",
+      "clip_000001",
+      "clip_000002",
+      "clip_000003",
+    ]);
+  });
+
+  it("removes assets and every usage in one undoable command", () => {
+    const history = new ProjectHistory(withClip());
+
+    history.commit({ type: "asset.remove", assetIds: [asset.id] });
+    expect(history.project.assets).toHaveLength(0);
+    expect(history.project.sequences[0]!.tracks[0]!.clips).toHaveLength(0);
+
+    const restored = history.undo();
+    expect(restored.assets).toEqual([asset]);
+    expect(restored.sequences[0]!.tracks[0]!.clips).toHaveLength(1);
+  });
+
+  it("protects asset usages on locked tracks", () => {
+    const locked = applyCommand(withClip(), {
+      type: "track.update",
+      trackId: "track_000001",
+      locked: true,
+    }).project;
+
+    expect(() => applyCommand(locked, { type: "asset.remove", assetIds: [asset.id] })).toThrow(
+      /locked track/,
+    );
+  });
+
+  it("removes timelines with a deterministic active fallback and protects the last timeline", () => {
+    const history = new ProjectHistory(seededProject());
+    const added = history.commit({
+      type: "sequence.createFromAssets",
+      assetIds: [asset.id],
+      name: "Second",
+    });
+    const removedId = added.project.activeSequenceId;
+
+    history.commit({ type: "sequence.remove", sequenceId: removedId });
+    expect(history.project.sequences.map((sequence) => sequence.id)).toEqual(["sequence_000001"]);
+    expect(history.project.activeSequenceId).toBe("sequence_000001");
+    expect(() =>
+      applyCommand(history.project, {
+        type: "sequence.remove",
+        sequenceId: "sequence_000001",
+      }),
+    ).toThrow(/at least one timeline/);
+
+    expect(history.undo().sequences).toHaveLength(2);
+  });
 });

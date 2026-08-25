@@ -218,6 +218,27 @@ export class AgentMcpServer {
         })),
     );
     server.registerTool(
+      "asset_delete",
+      {
+        title: "Remove assets",
+        description: "Remove assets and every referencing clip without deleting source media.",
+        inputSchema: {
+          assetIds: z
+            .array(z.string().regex(/^asset_/))
+            .min(1)
+            .max(500),
+        },
+        annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true },
+      },
+      ({ assetIds }) =>
+        perform(
+          "asset_delete",
+          `Remove ${assetIds.length} assets`,
+          () => execute({ type: "asset.remove", assetIds: assetIds as AssetId[] }),
+          true,
+        ),
+    );
+    server.registerTool(
       "timeline_inspect",
       {
         title: "Inspect active timeline",
@@ -227,6 +248,49 @@ export class AgentMcpServer {
       () =>
         perform("timeline_inspect", "Inspect active timeline", () =>
           inspectTimeline(requireProject()),
+        ),
+    );
+    server.registerTool(
+      "timeline_create_from_assets",
+      {
+        title: "Create timeline from assets",
+        description: "Create a timeline and place ordered assets sequentially in one command.",
+        inputSchema: {
+          assetIds: z
+            .array(z.string().regex(/^asset_/))
+            .min(1)
+            .max(500),
+          name: z.string().trim().min(1).max(120).optional(),
+        },
+        annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
+      },
+      ({ assetIds, name }) =>
+        perform(
+          "timeline_create_from_assets",
+          `Create timeline from ${assetIds.length} assets`,
+          () =>
+            execute({
+              type: "sequence.createFromAssets",
+              assetIds: assetIds as AssetId[],
+              ...(name === undefined ? {} : { name }),
+            }),
+          true,
+        ),
+    );
+    server.registerTool(
+      "timeline_delete",
+      {
+        title: "Delete timeline",
+        description: "Delete an unlocked timeline while preserving its source assets.",
+        inputSchema: { sequenceId: z.string().regex(/^sequence_/) },
+        annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true },
+      },
+      ({ sequenceId }) =>
+        perform(
+          "timeline_delete",
+          `Delete ${sequenceId}`,
+          () => execute({ type: "sequence.remove", sequenceId: sequenceId as SequenceId }),
+          true,
         ),
     );
     server.registerTool(

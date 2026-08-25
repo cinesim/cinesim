@@ -125,6 +125,17 @@ export class DesktopAppStateStore {
     await this.#queueSave();
   }
 
+  async forgetProject(directory: string): Promise<void> {
+    this.#state.recentProjects = this.#state.recentProjects.filter(
+      (project) => project.directory !== directory,
+    );
+    delete this.#state.mediaPoolOpenByProject[directory];
+    delete this.#state.inspectorOpenByProject[directory];
+    delete this.#state.notesOpenByProject[directory];
+    delete this.#state.editorLayoutsByProject[directory];
+    await this.#queueSave();
+  }
+
   async setMediaPoolOpen(directory: string, open: boolean): Promise<void> {
     this.#state.mediaPoolOpenByProject[directory] = open;
     await this.#queueSave();

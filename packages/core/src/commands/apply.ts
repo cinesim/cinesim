@@ -1,5 +1,5 @@
 import { nextId } from "../ids";
-import type { ClipId, SequenceId, TrackId } from "../ids";
+import type { AssetId, ClipId, SequenceId, TrackId } from "../ids";
 import {
   canSplitClipAt,
   clipEndUs,
@@ -61,6 +61,41 @@ function allClipIds(project: Project): string[] {
 
 function allTrackIds(project: Project): string[] {
   return project.sequences.flatMap((sequence) => sequence.tracks.map((track) => track.id));
+}
+
+function allSequenceIds(project: Project): string[] {
+  return project.sequences.map((sequence) => sequence.id);
+}
+
+function assertUniqueAssetIds(assetIds: readonly AssetId[]): void {
+  if (assetIds.length === 0)
+    throw new CommandError("EMPTY_ASSET_SELECTION", "Select at least one asset");
+  if (new Set(assetIds).size !== assetIds.length)
+    throw new CommandError("DUPLICATE_ASSET_ID", "Asset selection contains duplicate IDs");
+}
+
+function requireAssets(project: Project, assetIds: readonly AssetId[]): Asset[] {
+  assertUniqueAssetIds(assetIds);
+  return assetIds.map((assetId) => {
+    const asset = project.assets.find((candidate) => candidate.id === assetId);
+    if (!asset) throw new CommandError("ASSET_NOT_FOUND", `Asset not found: ${assetId}`);
+    return asset;
+  });
+}
+
+function assertSequenceName(name: string): string {
+  const normalized = name.trim();
+  if (!normalized) throw new CommandError("INVALID_SEQUENCE_NAME", "Timeline name cannot be empty");
+  return normalized;
+}
+
+function defaultSequenceName(project: Project): string {
+  const pattern = /^Timeline (\d+)$/;
+  const highestOrdinal = project.sequences.reduce((highest, sequence) => {
+    const match = pattern.exec(sequence.name);
+    return match ? Math.max(highest, Number(match[1])) : highest;
+  }, 1);
+  return `Timeline ${highestOrdinal + 1}`;
 }
 
 function requireSequence(project: Project, sequenceId: SequenceId): Sequence {
@@ -149,6 +184,167 @@ export function applyCommand(inputProject: Project, command: EditorCommand): Com
         [command.asset.id],
         [command.asset.id],
       );
+    }
+
+    case "asset.remove": {
+      const assets = requireAssets(project, command.assetIds);
+      const selected = new Set(command.assetIds);
+      const affected = project.sequences.flatMap((sequence) =>
+        sequence.tracks.flatMap((track) => {
+          const clips = track.clips.filter((clip) => selected.has(clip.assetId));
+          if (clips.length > 0 && track.locked)
+            throw new CommandError(
+              "TRACK_LOCKED",
+              `Asset is used on locked track ${track.id}: ${track.name}`,
+            );
+          return clips.length > 0 ? [{ sequence, track, clips }] : [];
+        }),
+      );
+      for (const { track, clips } of affected) {
+        const removed = new Set(clips.map((clip) => clip.id));
+        track.clips = track.clips.filter((clip) => !removed.has(clip.id));
+      }
+      project.assets = project.assets.filter((asset) => !selected.has(asset.id));
+      const clipIds = affected.flatMap(({ clips }) => clips.map((clip) => clip.id));
+      const trackIds = affected.map(({ track }) => track.id);
+      const sequenceIds = affected.map(({ sequence }) => sequence.id);
+      return result(
+        project,
+        command,
+        `Removed ${assets.length} ${assets.length === 1 ? "asset" : "assets"}`,
+        [...new Set([...command.assetIds, ...sequenceIds, ...trackIds, ...clipIds])],
+      );
+    }
+
+    case "sequence.createFromAssets": {
+      const assets = requireAssets(project, command.assetIds);
+      const template = requireSequence(project, project.activeSequenceId);
+      const width = command.width ?? template.width;
+      const height = command.height ?? template.height;
+      const frameRate = command.frameRate ?? template.frameRate;
+      if (!Number.isSafeInteger(width) || width <= 0)
+        throw new CommandError(
+          "INVALID_SEQUENCE_FORMAT",
+          "Timeline width must be a positive integer",
+        );
+      if (!Number.isSafeInteger(height) || height <= 0)
+        throw new CommandError(
+          "INVALID_SEQUENCE_FORMAT",
+          "Timeline height must be a positive integer",
+        );
+      if (!Number.isFinite(frameRate) || frameRate <= 0)
+        throw new CommandError("INVALID_SEQUENCE_FORMAT", "Timeline frame rate must be positive");
+      for (const asset of assets) {
+        if (!Number.isSafeInteger(asset.durationUs) || asset.durationUs <= 0)
+          throw new CommandError(
+            "INVALID_SOURCE_RANGE",
+            `Asset must have a positive duration: ${asset.id}`,
+          );
+      }
+
+      const sequenceId = nextId("sequence", allSequenceIds(project));
+      const existingTrackIds = allTrackIds(project);
+      const videoTrackId = nextId("track", existingTrackIds);
+      const audioTrackId = nextId("track", [...existingTrackIds, videoTrackId]);
+      const videoTrack: Track = {
+        id: videoTrackId,
+        name: "Video 1",
+        kind: "video",
+        muted: false,
+        locked: false,
+        clips: [],
+      };
+      const audioTrack: Track = {
+        id: audioTrackId,
+        name: "Audio 1",
+        kind: "audio",
+        muted: false,
+        locked: false,
+        clips: [],
+      };
+      const existingClipIds = allClipIds(project);
+      const createdClipIds: ClipId[] = [];
+      let timelineStartUs = 0;
+      for (const asset of assets) {
+        const primaryTrack = asset.kind === "audio" ? audioTrack : videoTrack;
+        const primaryId = nextId("clip", [...existingClipIds, ...createdClipIds]);
+        const linkedAudioId =
+          asset.kind === "video" && asset.hasAudio === true
+            ? nextId("clip", [...existingClipIds, ...createdClipIds, primaryId])
+            : null;
+        primaryTrack.clips.push({
+          id: primaryId,
+          assetId: asset.id,
+          mediaKind: asset.kind === "audio" ? "audio" : "video",
+          ...(linkedAudioId ? { linkedClipId: linkedAudioId } : {}),
+          timelineStartUs,
+          sourceStartUs: 0,
+          sourceEndUs: asset.durationUs,
+          transform: { ...DEFAULT_TRANSFORM },
+        });
+        createdClipIds.push(primaryId);
+        if (linkedAudioId) {
+          audioTrack.clips.push({
+            id: linkedAudioId,
+            assetId: asset.id,
+            mediaKind: "audio",
+            linkedClipId: primaryId,
+            timelineStartUs,
+            sourceStartUs: 0,
+            sourceEndUs: asset.durationUs,
+            transform: { ...DEFAULT_TRANSFORM },
+          });
+          createdClipIds.push(linkedAudioId);
+        }
+        timelineStartUs += asset.durationUs;
+      }
+      const sequence: Sequence = {
+        id: sequenceId,
+        name:
+          command.name === undefined
+            ? defaultSequenceName(project)
+            : assertSequenceName(command.name),
+        width,
+        height,
+        frameRate,
+        tracks: [videoTrack, audioTrack],
+      };
+      project.sequences.push(sequence);
+      project.activeSequenceId = sequence.id;
+      return result(
+        project,
+        command,
+        `Created ${sequence.name} from ${assets.length} ${assets.length === 1 ? "asset" : "assets"}`,
+        [project.id, sequence.id, videoTrack.id, audioTrack.id, ...createdClipIds],
+        [sequence.id, videoTrack.id, audioTrack.id, ...createdClipIds],
+      );
+    }
+
+    case "sequence.remove": {
+      const sequenceIndex = project.sequences.findIndex(
+        (sequence) => sequence.id === command.sequenceId,
+      );
+      const sequence = project.sequences[sequenceIndex];
+      if (!sequence)
+        throw new CommandError("SEQUENCE_NOT_FOUND", `Sequence not found: ${command.sequenceId}`);
+      if (project.sequences.length === 1)
+        throw new CommandError("LAST_SEQUENCE", "A project must contain at least one timeline");
+      const locked = sequence.tracks.find((track) => track.locked);
+      if (locked)
+        throw new CommandError(
+          "TRACK_LOCKED",
+          `Unlock ${locked.name} before deleting this timeline`,
+        );
+      const removedIds = [
+        sequence.id,
+        ...sequence.tracks.flatMap((track) => [track.id, ...track.clips.map((clip) => clip.id)]),
+      ];
+      project.sequences.splice(sequenceIndex, 1);
+      if (project.activeSequenceId === sequence.id)
+        project.activeSequenceId = project.sequences.toSorted((left, right) =>
+          left.id.localeCompare(right.id),
+        )[0]!.id;
+      return result(project, command, `Removed ${sequence.name}`, [project.id, ...removedIds]);
     }
 
     case "track.add": {

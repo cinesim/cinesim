@@ -82,6 +82,8 @@ export interface RendererState {
   redo: () => Promise<ActionResult<DesktopProjectSession>>;
   save: () => Promise<ActionResult<DesktopProjectSession>>;
   revealProject: () => Promise<ActionResult<void>>;
+  forgetProject: (directory: string) => Promise<ActionResult<DesktopAppState>>;
+  trashProject: (directory: string) => Promise<ActionResult<DesktopAppState>>;
   navigate: (destination: Destination) => void;
   showProjectSection: (section: ProjectSection) => void;
   showTimeline: (sequenceId: string) => void;
@@ -404,6 +406,51 @@ export function createRendererStore({ api, storage }: RendererStoreDependencies)
           return { ok: true, value: undefined };
         } catch (error) {
           const message = messageFrom(error, "The project could not be revealed");
+          set({ operationError: message });
+          return { ok: false, error: message };
+        }
+      },
+      forgetProject: async (directory) => {
+        try {
+          const appState = await api.forgetProject(directory);
+          set({ appState, operationError: null });
+          return { ok: true, value: appState };
+        } catch (error) {
+          const message = messageFrom(error, "The project could not be forgotten");
+          set({ operationError: message });
+          return { ok: false, error: message };
+        }
+      },
+      trashProject: async (directory) => {
+        const current = get();
+        const session = sessionFromLifecycle(current.project);
+        const deletingCurrent = session?.directory === directory;
+        if (deletingCurrent) {
+          set({
+            project: { status: "idle" },
+            destination: "home",
+            activeSequenceId: null,
+            selectedClipId: null,
+            playbackRuntime: null,
+            derivedMedia: null,
+            operationError: null,
+          });
+          await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+        }
+        try {
+          const appState = await api.trashProject(directory);
+          set({ appState, operationError: null });
+          return { ok: true, value: appState };
+        } catch (error) {
+          const message = messageFrom(error, "The project could not be moved to Trash");
+          if (deletingCurrent) {
+            try {
+              const reopened = await api.openRecentProject(directory);
+              set(hydratedProjectState(reopened, get().appState));
+            } catch {
+              // The project remains closed if recovery also fails.
+            }
+          }
           set({ operationError: message });
           return { ok: false, error: message };
         }

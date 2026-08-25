@@ -1,5 +1,8 @@
+import { lstat, readFile, realpath } from "node:fs/promises";
+import { parse, resolve } from "node:path";
 import { dialog, ipcMain, shell } from "electron";
 import type { EditorCommand } from "@cinesim/core";
+import type { AgentManager } from "../agents/manager";
 import type { DesktopAppStateStore } from "../state/app-state-store";
 import type { DesktopProjectStore } from "./project-store";
 import { canonicalProjectSizeBytes } from "./project-size";
@@ -7,6 +10,7 @@ import { canonicalProjectSizeBytes } from "./project-size";
 export function registerProjectIpc(
   store: DesktopProjectStore,
   appState: DesktopAppStateStore,
+  agents: AgentManager,
 ): void {
   ipcMain.handle("project:create", async (_event, name: unknown) => {
     if (typeof name !== "string" || name.trim().length === 0 || name.length > 120)
@@ -56,6 +60,43 @@ export function registerProjectIpc(
   ipcMain.handle("project:reveal", () =>
     store.directory ? shell.openPath(store.directory) : undefined,
   );
+  ipcMain.handle("project:forget", async (_event, directory: unknown) => {
+    if (
+      typeof directory !== "string" ||
+      (!appState.hasRecent(directory) && store.directory !== directory)
+    )
+      throw new Error("Project is not known to Cinesim");
+    await appState.forgetProject(directory);
+    return appState.snapshot();
+  });
+  ipcMain.handle("project:trash", async (_event, directory: unknown) => {
+    if (
+      typeof directory !== "string" ||
+      (!appState.hasRecent(directory) && store.directory !== directory)
+    )
+      throw new Error("Project is not known to Cinesim");
+    const requested = resolve(directory);
+    if (requested === parse(requested).root) throw new Error("Cannot trash a filesystem root");
+    if ((await lstat(requested)).isSymbolicLink())
+      throw new Error("Open the project at its real location before moving it to Trash");
+    const canonical = await realpath(requested);
+    const manifest = JSON.parse(await readFile(resolve(canonical, "cinesim.json"), "utf8")) as {
+      version?: unknown;
+      id?: unknown;
+    };
+    if (
+      manifest.version !== 1 ||
+      typeof manifest.id !== "string" ||
+      !manifest.id.startsWith("project_")
+    )
+      throw new Error("The selected folder is not a recognized Cinesim project");
+    await agents.stopProject(directory);
+    if (store.directory === directory) await store.close();
+    await shell.trashItem(canonical);
+    await agents.removeProject(directory);
+    await appState.forgetProject(directory);
+    return appState.snapshot();
+  });
   ipcMain.handle("media:import", async () => {
     if (!store.project) throw new Error("Open a project before importing media");
     const selection = await dialog.showOpenDialog({
