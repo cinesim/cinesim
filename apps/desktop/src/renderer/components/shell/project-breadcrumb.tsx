@@ -1,4 +1,4 @@
-import { Check, ChevronRight, Clapperboard, Film, FolderOpen } from "lucide-react";
+import { Check, ChevronRight, Clapperboard, Film, FolderOpen } from "@cinesim/ui";
 import { cn, Menu, MenuContent, MenuItem, MenuSeparator, MenuTrigger } from "@cinesim/ui";
 import { sequenceDurationUs } from "@cinesim/core";
 import type { DesktopAppState, DesktopProjectSession } from "../../../shared/api";

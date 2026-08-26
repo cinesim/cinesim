@@ -1,4 +1,4 @@
-import { Search } from "lucide-react";
+import { Search } from "./icons";
 import { forwardRef, type ComponentProps } from "react";
 import { cn } from "./cn";
 

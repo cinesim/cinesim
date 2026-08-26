@@ -1,13 +1,4 @@
-import {
-  ArrowUp,
-  Bot,
-  Check,
-  ChevronDown,
-  CircleAlert,
-  Plus,
-  Settings,
-  Trash2,
-} from "lucide-react";
+import { ArrowUp, Bot, Check, ChevronDown, CircleAlert, Plus, Settings, Trash2 } from "@cinesim/ui";
 import {
   cn,
   Empty,

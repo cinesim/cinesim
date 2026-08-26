@@ -1,4 +1,4 @@
-import { Database } from "lucide-react";
+import { Database } from "@cinesim/ui";
 import { DefinitionRow, SectionHeading } from "@cinesim/ui";
 import type { DerivedMediaSnapshot } from "../../../shared/api";
 import { formatByteCount } from "../../lib/format";

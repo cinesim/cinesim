@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { useDraggable } from "@dnd-kit/core";
-import { Film, Plus } from "lucide-react";
+import { Film, Plus } from "@cinesim/ui";
 import {
   Button,
   Empty,

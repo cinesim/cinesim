@@ -6,6 +6,7 @@ export * from "./dropdown-select";
 export * from "./empty";
 export * from "./field";
 export * from "./input";
+export * from "./icons";
 export * from "./kbd";
 export * from "./menu";
 export * from "./notice";

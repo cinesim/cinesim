@@ -7,7 +7,7 @@ import {
   RefreshCw,
   Settings as SettingsIcon,
   Terminal,
-} from "lucide-react";
+} from "@cinesim/ui";
 import {
   cn,
   Field,

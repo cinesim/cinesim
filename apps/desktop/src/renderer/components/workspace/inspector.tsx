@@ -1,4 +1,4 @@
-import { SlidersHorizontal } from "lucide-react";
+import { SlidersHorizontal } from "@cinesim/ui";
 import {
   Empty,
   EmptyDescription,

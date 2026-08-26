@@ -1,4 +1,4 @@
-import { Bug, FolderOpen, Redo2, Save, Sparkles, Undo2 } from "lucide-react";
+import { Bug, FolderOpen, Redo2, Save, Sparkles, Undo2 } from "@cinesim/ui";
 import { Button, Tooltip, TooltipContent, TooltipTrigger } from "@cinesim/ui";
 import { sessionFromLifecycle } from "../../store/renderer-store";
 import { useRendererStore } from "../../store/renderer-store-context";

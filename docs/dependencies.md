@@ -13,7 +13,7 @@ Runtime dependencies:
 | Base UI                             | Accessible headless primitives       | MIT          |
 | class-variance-authority            | Component variants                   | Apache-2.0   |
 | tailwind-merge                      | Tailwind class composition           | MIT          |
-| Lucide React                        | Icons                                | ISC          |
+| Hugeicons Free / React              | Free icon data and React renderer    | MIT          |
 | dnd-kit                             | Timeline drag/drop                   | MIT          |
 | Zustand                             | Ephemeral renderer state             | MIT          |
 | TanStack Router                     | Renderer routing                     | MIT          |
