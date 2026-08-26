@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { ArrowRight, FolderX, Plus, Trash2 } from "lucide-react";
+import { ArrowRight, FolderX, Plus, Trash2 } from "@cinesim/ui";
 import {
   Button,
   Dialog,

@@ -1,4 +1,4 @@
-import { Activity, Cpu, Gauge, Image, Sparkles } from "lucide-react";
+import { Activity, Cpu, Gauge, Image, Sparkles } from "@cinesim/ui";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   DefinitionRow,

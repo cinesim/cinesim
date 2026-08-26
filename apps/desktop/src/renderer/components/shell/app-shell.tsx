@@ -9,7 +9,7 @@ import {
   Scissors,
   SlidersHorizontal,
   Settings as SettingsIcon,
-} from "lucide-react";
+} from "@cinesim/ui";
 import { Button, cn, Separator, Tooltip, TooltipContent, TooltipTrigger } from "@cinesim/ui";
 import type { DesktopAppState, DesktopProjectSession } from "../../../shared/api";
 import { usePersistentSidebarWidth } from "../../hooks/use-persistent-sidebar-width";

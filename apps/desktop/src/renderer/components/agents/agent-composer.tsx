@@ -5,7 +5,7 @@ import {
   ChevronDown,
   Settings,
   Square,
-} from "lucide-react";
+} from "@cinesim/ui";
 import { cn, Menu, MenuContent, MenuGroup, MenuItem, MenuLabel, MenuTrigger } from "@cinesim/ui";
 import type {
   AgentEffort,

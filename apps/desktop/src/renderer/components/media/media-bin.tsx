@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Check, Clock3, Film, ListPlus, Trash2, X } from "lucide-react";
+import { Check, Clock3, Film, ListPlus, Trash2, X } from "@cinesim/ui";
 import {
   Button,
   Dialog,

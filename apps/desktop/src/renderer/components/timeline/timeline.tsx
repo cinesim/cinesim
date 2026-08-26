@@ -9,7 +9,7 @@ import {
   Lock,
   LockOpen,
   Magnet,
-  Menu as MenuIcon,
+  MenuIcon,
   MoveHorizontal,
   Plus,
   ChevronUp,
@@ -19,7 +19,7 @@ import {
   Layers,
   Volume2,
   VolumeX,
-} from "lucide-react";
+} from "@cinesim/ui";
 import {
   Button,
   cn,

@@ -18,7 +18,7 @@ import {
   Terminal,
   Trash2,
   Wrench,
-} from "lucide-react";
+} from "@cinesim/ui";
 import ReactMarkdown from "react-markdown";
 import { cn, Notice } from "@cinesim/ui";
 import type { AgentEvent, AgentSessionSnapshot } from "../../../shared/api";

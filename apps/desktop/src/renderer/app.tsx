@@ -1,4 +1,4 @@
-import { Library, SlidersHorizontal, StickyNote } from "lucide-react";
+import { Library, SlidersHorizontal, StickyNote } from "@cinesim/ui";
 import { Button, TooltipProvider } from "@cinesim/ui";
 import { AgentsSidebar } from "./components/agents/agents-sidebar";
 import { ProjectLoadingState } from "./components/home/project-loading-state";

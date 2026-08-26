@@ -8,7 +8,7 @@ import {
   SkipBack,
   StepBack,
   StepForward,
-} from "lucide-react";
+} from "@cinesim/ui";
 import {
   Button,
   cn,

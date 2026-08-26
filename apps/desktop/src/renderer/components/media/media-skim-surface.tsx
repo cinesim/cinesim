@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { AlertTriangle, Film, Image as ImageIcon, LoaderCircle, Music2 } from "lucide-react";
+import { AlertTriangle, Film, Image as ImageIcon, LoaderCircle, Music2 } from "@cinesim/ui";
 import { nearestSampleIndex, pointerSourceTimeUs } from "@cinesim/engine";
 import type { Asset } from "@cinesim/core";
 import type { DerivedAssetSnapshot } from "../../../shared/api";
