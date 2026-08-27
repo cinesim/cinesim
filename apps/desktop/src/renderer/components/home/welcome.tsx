@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { ArrowRight, FolderX, Plus, Trash2 } from "@cinesim/ui";
+import { ArrowRight, FolderX, Trash2 } from "@cinesim/ui";
 import {
   Button,
   Dialog,
@@ -36,9 +36,8 @@ function projectGradient(key: string): React.CSSProperties {
   for (const character of key) hash = Math.imul(hash ^ character.charCodeAt(0), 16_777_619);
   const hue = Math.abs(hash) % 360;
   const secondHue = (hue + 42 + ((hash >>> 8) % 74)) % 360;
-  const angle = 115 + ((hash >>> 16) % 70);
   return {
-    backgroundImage: `radial-gradient(circle at 24% 18%, hsla(${secondHue}, 92%, 76%, 0.7), transparent 38%), linear-gradient(${angle}deg, hsl(${hue}, 68%, 48%), hsl(${secondHue}, 68%, 27%))`,
+    backgroundImage: `linear-gradient(to bottom, hsl(${hue}, 68%, 48%), hsl(${secondHue}, 68%, 27%))`,
   };
 }
 
@@ -156,14 +155,7 @@ export function Welcome({
         </div>
 
         <LibraryGrid>
-          <PreviewCard
-            previewClassName="media-thumbnail text-secondary"
-            preview={
-              <span className="grid size-12 place-items-center rounded-xl bg-accent text-on-accent shadow-sm">
-                <Plus size={21} />
-              </span>
-            }
-          >
+          <PreviewCard previewClassName="media-thumbnail text-secondary" preview={null}>
             <div className="flex min-h-11 items-center gap-2">
               <label className="min-w-0 flex-1" htmlFor="new-project-name">
                 <span className="sr-only">Project name</span>
@@ -199,12 +191,7 @@ export function Welcome({
               previewClassName="text-white"
               previewStyle={projectGradient(`${project.name}:${project.directory}`)}
               corner={index < 9 ? <Shortcut dark>{`${modifier}${index + 1}`}</Shortcut> : undefined}
-              preview={
-                <>
-                  <span className="absolute -bottom-16 -right-8 size-40 rounded-full border border-white/20" />
-                  <span className="absolute -left-10 -top-16 size-40 rounded-full bg-white/10" />
-                </>
-              }
+              preview={null}
               onClick={() => void openRecent(project.directory)}
               onContextMenu={(event) => {
                 event.preventDefault();
@@ -301,7 +288,7 @@ export function Welcome({
   );
 }
 
-function WelcomeLoadingState() {
+export function WelcomeLoadingState() {
   return (
     <section
       className="h-full overflow-y-auto bg-canvas px-5 py-6"

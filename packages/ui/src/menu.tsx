@@ -2,8 +2,10 @@ import { Menu as BaseMenu } from "@base-ui/react/menu";
 import type { ComponentProps, ReactNode } from "react";
 import { cn } from "./cn";
 
-export function Menu({ ...props }: ComponentProps<typeof BaseMenu.Root>) {
-  return <BaseMenu.Root data-slot="menu" {...props} />;
+export function Menu({ modal = false, ...props }: ComponentProps<typeof BaseMenu.Root>) {
+  // The desktop shell already owns scrolling. Base UI's modal menu adds a full-window
+  // interaction backdrop and scroll lock that delay popup transitions in dense editor views.
+  return <BaseMenu.Root data-slot="menu" modal={modal} {...props} />;
 }
 
 export interface MenuTriggerProps extends Omit<
@@ -56,7 +58,7 @@ export function MenuContent({
         <BaseMenu.Popup
           data-slot="menu-content"
           className={cn(
-            "origin-[var(--transform-origin)] max-h-[var(--available-height)] overflow-x-hidden overflow-y-auto rounded-xl border border-border-strong bg-panel p-1.5 text-primary shadow-2xl shadow-black/30 outline-none transition-[transform,opacity] duration-100 data-[ending-style]:scale-95 data-[ending-style]:opacity-0 data-[starting-style]:scale-95 data-[starting-style]:opacity-0",
+            "origin-[var(--transform-origin)] max-h-[var(--available-height)] scale-100 overflow-x-hidden overflow-y-auto rounded-xl border border-border-strong bg-panel p-1.5 text-primary opacity-100 shadow-2xl shadow-black/30 outline-none transition-[scale,opacity] duration-100 ease-out will-change-[scale,opacity] data-[ending-style]:scale-[0.98] data-[ending-style]:opacity-0 data-[starting-style]:scale-[0.98] data-[starting-style]:opacity-0 motion-reduce:transition-none",
             className,
           )}
           {...props}

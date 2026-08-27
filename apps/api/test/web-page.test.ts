@@ -26,6 +26,8 @@ describe("authentication page", () => {
     expect(page).toContain('id="forgot-password"');
     expect(page).toContain('id="confirm-password"');
     expect(page).toContain('id="back-to-sign-in"');
+    expect(page).toContain('<svg viewBox="0 0 24 24"');
+    expect(page).not.toContain('aria-hidden="true">✓');
     expect(page.indexOf('id="notice"')).toBeGreaterThan(page.indexOf("</section>"));
     expect(page).not.toContain('id="form-error"');
     expect(page).not.toContain(config.authSecret);

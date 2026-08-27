@@ -277,6 +277,7 @@ async function returnToDesktop(providedCode?: string): Promise<void> {
   authContent.hidden = true;
   authenticated.hidden = false;
   returnStatus.textContent = "Reopening Cinesim…";
+  returnStatus.hidden = false;
   openCinesim.disabled = true;
   try {
     if (localCallback) {
@@ -289,7 +290,8 @@ async function returnToDesktop(providedCode?: string): Promise<void> {
       clearAuthorizationCode();
       pendingAuthorizationCode = null;
       returned = true;
-      returnStatus.textContent = "Cinesim is ready. You can close this window.";
+      returnStatus.textContent = "";
+      returnStatus.hidden = true;
       openCinesim.hidden = true;
       return;
     }
@@ -298,6 +300,7 @@ async function returnToDesktop(providedCode?: string): Promise<void> {
     returned = true;
     window.location.replace(`${scheme}://auth/callback#token=${code}`);
   } catch {
+    returnStatus.hidden = false;
     returnStatus.textContent =
       "Cinesim couldn’t be reached. Make sure the desktop app is open, then try again.";
     openCinesim.textContent = "Try again";

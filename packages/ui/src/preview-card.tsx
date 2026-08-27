@@ -73,7 +73,7 @@ export function PreviewCard({
     <article
       data-slot="preview-card"
       className={cn(
-        "group relative min-w-0 overflow-hidden rounded-xs border border-border bg-panel text-left shadow-sm transition",
+        "group relative min-w-0 overflow-hidden rounded-md border border-border bg-panel text-left shadow-sm transition",
         interactive && "hover:border-border-strong hover:shadow-lg hover:shadow-black/10",
         selected && "border-accent ring-2 ring-accent/70",
       )}

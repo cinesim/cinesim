@@ -9,6 +9,14 @@ import type {
   DesktopProjectSession,
 } from "../../shared/api";
 import { useRendererStore } from "../store/renderer-store-context";
+import {
+  cacheAgentProject,
+  cacheAgentProviders,
+  cacheAgentSettings,
+  cachedAgentProject,
+  cachedAgentProviders,
+  cachedAgentSettings,
+} from "../lib/agent-presentation-cache";
 
 function messageFrom(error: unknown, fallback: string): string {
   return error instanceof Error ? error.message : fallback;
@@ -27,9 +35,11 @@ export function buildAgentTurnContext(
 }
 
 export function useAgentProjectController(session: DesktopProjectSession) {
-  const [snapshot, setSnapshot] = useState<AgentProjectSnapshot | null>(null);
-  const [settings, setSettings] = useState<AgentSettings | null>(null);
-  const [providers, setProviders] = useState<AgentProviderStatus[]>([]);
+  const [snapshot, setSnapshot] = useState<AgentProjectSnapshot | null>(() =>
+    cachedAgentProject(session.directory),
+  );
+  const [settings, setSettings] = useState<AgentSettings | null>(() => cachedAgentSettings());
+  const [providers, setProviders] = useState<AgentProviderStatus[]>(() => cachedAgentProviders());
   const [composer, setComposer] = useState("");
   const [creating, setCreating] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -41,42 +51,78 @@ export function useAgentProjectController(session: DesktopProjectSession) {
 
   useEffect(() => {
     let active = true;
-    setSnapshot(null);
-    setSettings(null);
-    setProviders([]);
+    setSnapshot(cachedAgentProject(session.directory));
+    setSettings(cachedAgentSettings());
+    setProviders(cachedAgentProviders());
     setError(null);
-    void Promise.all([
-      window.cinesim.getAgents(session.directory),
-      window.cinesim.getAgentSettings(),
-      window.cinesim.refreshAgentProviders(),
-    ])
-      .then(async ([agentSnapshot, agentSettings, providerStatuses]) => {
-        if (!active) return;
-        setSettings(agentSettings);
-        setProviders(providerStatuses);
-        let nextSnapshot = agentSnapshot;
-        if (agentSnapshot.sessions.length === 0) {
-          const connected = providerStatuses.filter((status) => status.state === "connected");
-          const preferred =
-            connected.find((status) => status.provider === agentSettings.defaultProvider) ??
-            connected[0];
-          if (preferred) {
-            try {
-              nextSnapshot = await window.cinesim.ensureAgent({
-                projectDirectory: session.directory,
-                provider: preferred.provider,
-              });
-            } catch (caught) {
-              if (active) setError(messageFrom(caught, "Could not prepare a project agent"));
-            }
+
+    async function loadSnapshot(): Promise<AgentProjectSnapshot | null> {
+      try {
+        const next = await window.cinesim.getAgents(session.directory);
+        cacheAgentProject(next);
+        if (active) setSnapshot(next);
+        return next;
+      } catch (caught) {
+        if (active) setError(messageFrom(caught, "Could not load agents"));
+        return null;
+      }
+    }
+
+    async function loadSettings(): Promise<AgentSettings | null> {
+      try {
+        const next = await window.cinesim.getAgentSettings();
+        cacheAgentSettings(next);
+        if (active) setSettings(next);
+        return next;
+      } catch (caught) {
+        if (active) setError(messageFrom(caught, "Could not load agent settings"));
+        return null;
+      }
+    }
+
+    async function loadProviders(): Promise<AgentProviderStatus[] | null> {
+      try {
+        const next = await window.cinesim.refreshAgentProviders();
+        cacheAgentProviders(next);
+        if (active) setProviders(next);
+        return next;
+      } catch (caught) {
+        if (active) setError(messageFrom(caught, "Could not inspect local agents"));
+        return null;
+      }
+    }
+
+    void (async () => {
+      const [agentSnapshot, agentSettings, providerStatuses] = await Promise.all([
+        loadSnapshot(),
+        loadSettings(),
+        loadProviders(),
+      ]);
+      if (!active || !agentSnapshot || !agentSettings || !providerStatuses) return;
+      let nextSnapshot = agentSnapshot;
+      if (agentSnapshot.sessions.length === 0) {
+        const connected = providerStatuses.filter((status) => status.state === "connected");
+        const preferred =
+          connected.find((status) => status.provider === agentSettings.defaultProvider) ??
+          connected[0];
+        if (preferred) {
+          try {
+            nextSnapshot = await window.cinesim.ensureAgent({
+              projectDirectory: session.directory,
+              provider: preferred.provider,
+            });
+          } catch (caught) {
+            if (active) setError(messageFrom(caught, "Could not prepare a project agent"));
           }
         }
-        if (active) setSnapshot(nextSnapshot);
-      })
-      .catch((caught) => {
-        if (active) setError(messageFrom(caught, "Could not load agents"));
-      });
+      }
+      if (active) {
+        cacheAgentProject(nextSnapshot);
+        setSnapshot(nextSnapshot);
+      }
+    })();
     const unsubscribe = window.cinesim.onAgentsChanged((next) => {
+      cacheAgentProject(next);
       if (next.projectDirectory === session.directory) setSnapshot(next);
     });
     return () => {
@@ -99,7 +145,9 @@ export function useAgentProjectController(session: DesktopProjectSession) {
     setBusy(true);
     setError(null);
     try {
-      setSnapshot(await operation());
+      const next = await operation();
+      cacheAgentProject(next);
+      setSnapshot(next);
       busyRef.current = false;
       setBusy(false);
       return true;
@@ -158,6 +206,7 @@ export function useAgentProjectController(session: DesktopProjectSession) {
     setCreating,
     busy,
     error,
+    clearError: () => setError(null),
     create,
     sendMessage,
     updateActiveSession,

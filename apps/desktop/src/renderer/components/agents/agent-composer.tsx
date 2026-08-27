@@ -73,7 +73,7 @@ export function AgentComposer({
           }}
         />
         <div className="mt-2 flex min-w-0 items-center justify-between gap-2">
-          <div className="flex min-w-0 items-center gap-0.5">
+          <div className="flex min-w-0 flex-1 items-center gap-0.5">
             <ModelMenu
               session={session}
               defaultModel={defaultModel}
@@ -115,9 +115,6 @@ export function AgentComposer({
           </div>
         </div>
       </div>
-      <p className="mt-1.5 text-center text-[10px] leading-3 text-disabled">
-        Agents can make mistakes. Review checkpoint changes before continuing.
-      </p>
     </div>
   );
 }
@@ -135,7 +132,7 @@ function EffortMenu({
     <Menu disabled={disabled}>
       <MenuTrigger
         className={cn(
-          "flex h-7 items-center gap-1 rounded-md px-1.5 text-ui-xs text-muted hover:bg-surface hover:text-primary data-[disabled]:opacity-50",
+          "flex h-7 shrink-0 items-center gap-1 rounded-md px-1.5 text-ui-xs text-muted hover:bg-surface hover:text-primary data-[disabled]:opacity-50",
         )}
         aria-label="Change agent reasoning effort"
         title="Reasoning effort"
@@ -196,7 +193,7 @@ function ModelMenu({
     <Menu disabled={disabled}>
       <MenuTrigger
         className={cn(
-          "group flex h-7 max-w-24 items-center gap-1 rounded-md px-1.5 text-ui-xs text-secondary hover:bg-surface hover:text-primary data-[disabled]:opacity-50",
+          "group flex h-7 min-w-0 max-w-44 flex-1 items-center gap-1 rounded-md px-1.5 text-ui-xs text-secondary hover:bg-surface hover:text-primary data-[disabled]:opacity-50",
         )}
         title={`${providerLabel(session.provider)} model`}
       >
@@ -235,10 +232,11 @@ function ModelMenu({
           </div>
         </MenuGroup>
         <MenuItem
-          className="mt-1 flex w-full items-center gap-2 border-t border-border px-2 py-2 text-left text-ui-xs text-muted hover:text-primary"
+          className="mt-1 flex w-full items-center gap-2 border-t border-border px-2 py-2 text-left text-ui text-muted hover:text-primary"
           onClick={onConfigure}
         >
-          <Settings size={12} /> Custom model in Settings…
+          <Settings size={12} className="shrink-0" />
+          <span className="whitespace-nowrap">Agent settings</span>
         </MenuItem>
       </MenuContent>
     </Menu>
