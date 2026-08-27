@@ -27,7 +27,10 @@ export function DialogContent({
     <BaseDialog.Portal>
       <BaseDialog.Backdrop
         data-slot="dialog-backdrop"
-        className={cn("fixed inset-0 z-[100] bg-black/55 backdrop-blur-[4px]", backdropClassName)}
+        className={cn(
+          "fixed inset-0 z-[100] bg-black/55 opacity-100 transition-opacity duration-150 data-[ending-style]:opacity-0 data-[starting-style]:opacity-0 motion-reduce:transition-none",
+          backdropClassName,
+        )}
       />
       <BaseDialog.Viewport
         data-slot="dialog-viewport"
@@ -36,7 +39,7 @@ export function DialogContent({
         <BaseDialog.Popup
           data-slot="dialog-content"
           className={cn(
-            "relative m-0 w-full origin-center scale-100 overflow-hidden rounded-xl border border-border-strong bg-panel p-0 text-primary shadow-2xl shadow-black/40 outline-none transition-transform duration-150 ease-[cubic-bezier(0.16,1,0.3,1)] data-[starting-style]:scale-90 motion-reduce:transition-none",
+            "relative m-0 w-full origin-center scale-100 overflow-hidden rounded-xl border border-border-strong bg-panel p-0 text-primary opacity-100 shadow-2xl shadow-black/40 outline-none transition-[scale,opacity] duration-100 ease-out will-change-[scale,opacity] data-[ending-style]:scale-[0.98] data-[ending-style]:opacity-0 data-[starting-style]:scale-[0.98] data-[starting-style]:opacity-0 motion-reduce:transition-none",
             className,
           )}
           {...props}

@@ -6,6 +6,8 @@ import {
   House,
   Keyboard,
   Library,
+  LoaderCircle,
+  LogOut,
   Scissors,
   SlidersHorizontal,
   Settings as SettingsIcon,
@@ -17,7 +19,6 @@ import {
   Menu,
   MenuContent,
   MenuItem,
-  MenuSeparator,
   MenuTrigger,
   Separator,
   Tooltip,
@@ -38,6 +39,8 @@ interface AppShellProps {
   activeSequenceId: string | null;
   settingsSection: "general" | "account" | "agents";
   account: AccountSnapshot;
+  accountHydrated: boolean;
+  interactionLocked: boolean;
   title: string;
   leadingToolbar?: React.ReactNode;
   toolbar: React.ReactNode;
@@ -122,6 +125,8 @@ export function AppShell({
   activeSequenceId,
   settingsSection,
   account,
+  accountHydrated,
+  interactionLocked,
   title,
   leadingToolbar,
   toolbar,
@@ -236,7 +241,10 @@ export function AppShell({
   ]);
 
   return (
-    <main className="flex h-screen overflow-hidden bg-canvas text-primary">
+    <main
+      className="flex h-screen overflow-hidden bg-canvas text-primary"
+      inert={interactionLocked || undefined}
+    >
       <aside
         className={cn(
           "relative z-30 flex h-screen shrink-0 flex-col overflow-hidden border-r border-border bg-panel",
@@ -335,9 +343,11 @@ export function AppShell({
               )}
               aria-label="Account menu"
             >
-              <AccountAvatar user={account.user} />
-              <span className="min-w-0 flex-1 truncate">{accountDisplayName(account)}</span>
-              {account.status === "offline" && account.user && (
+              <AccountAvatar user={accountHydrated ? account.user : null} />
+              <span className="min-w-0 flex-1 truncate">
+                {accountHydrated ? accountDisplayName(account) : "Account"}
+              </span>
+              {accountHydrated && account.status === "offline" && account.user && (
                 <span className="shrink-0 text-ui-xs text-amber-500">Offline</span>
               )}
             </MenuTrigger>
@@ -348,22 +358,34 @@ export function AppShell({
               className="p-2"
               style={{ width: sidebarWidth.width - 16 }}
             >
-              {account.status === "signed-in" && account.user ? (
-                <>
-                  <div className="flex items-center gap-3 px-2 py-2">
-                    <AccountAvatar user={account.user} size="md" />
-                    <div className="min-w-0">
-                      <p className="truncate text-ui font-semibold text-primary">
-                        {account.user.name}
-                      </p>
-                      <p className="truncate text-ui-xs text-muted">{account.user.email}</p>
-                    </div>
+              {!accountHydrated ? (
+                <div className="flex items-center gap-3 px-2 py-2" aria-busy="true">
+                  <AccountAvatar user={null} size="md" />
+                  <p className="text-ui text-muted">Checking account…</p>
+                </div>
+              ) : account.status === "signed-in" && account.user ? (
+                <div className="flex items-center gap-3 px-2 py-2">
+                  <AccountAvatar user={account.user} size="md" />
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-ui font-semibold text-primary">
+                      {account.user.name}
+                    </p>
+                    <p className="truncate text-ui-xs text-muted">{account.user.email}</p>
                   </div>
-                  <MenuSeparator />
-                  <MenuItem disabled={accountBusy !== null} onClick={() => void signOutAccount()}>
-                    {accountBusy === "sign-out" ? "Signing out…" : "Sign out"}
+                  <MenuItem
+                    aria-label={accountBusy === "sign-out" ? "Signing out" : "Sign out"}
+                    title={accountBusy === "sign-out" ? "Signing out…" : "Sign out"}
+                    className="ml-auto size-8 min-h-0 shrink-0 justify-center p-0 text-muted"
+                    disabled={accountBusy !== null}
+                    onClick={() => void signOutAccount()}
+                  >
+                    {accountBusy === "sign-out" ? (
+                      <LoaderCircle className="animate-spin" size={15} />
+                    ) : (
+                      <LogOut size={15} />
+                    )}
                   </MenuItem>
-                </>
+                </div>
               ) : (
                 <>
                   <div className="px-2 py-2">
@@ -505,7 +527,10 @@ export function AppShell({
           inert={auxiliaryMode === null}
         >
           <div className="min-w-[260px] min-h-0 flex-1 overflow-y-auto">
-            {auxiliaryMode === "metrics" ? metricsSidebar : agentsSidebar}
+            <div className={cn("h-full", auxiliaryMode === "metrics" && "hidden")}>
+              {agentsSidebar}
+            </div>
+            {auxiliaryMode === "metrics" && metricsSidebar}
           </div>
 
           <div

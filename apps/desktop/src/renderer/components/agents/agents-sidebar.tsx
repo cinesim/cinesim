@@ -1,6 +1,14 @@
+import { useState } from "react";
 import { ArrowUp, Bot, Check, ChevronDown, CircleAlert, Plus, Settings, Trash2 } from "@cinesim/ui";
 import {
+  Button,
   cn,
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
   Empty,
   EmptyActions,
   EmptyDescription,
@@ -23,6 +31,7 @@ import type {
   DesktopProjectSession,
 } from "../../../shared/api";
 import { useAgentProjectController } from "../../hooks/use-agent-project-controller";
+import { useDelayedBusy } from "../../hooks/use-delayed-busy";
 import { formatTimecode } from "../../lib/format";
 import { AGENT_PROVIDER_KINDS, providerLabel } from "../../lib/agent-provider-catalog";
 import { AgentComposer } from "./agent-composer";
@@ -35,6 +44,7 @@ interface AgentsSidebarProps {
 }
 
 export function AgentsSidebar({ session, onConfigure }: AgentsSidebarProps) {
+  const [deleteTarget, setDeleteTarget] = useState<{ id: string; title: string } | null>(null);
   const {
     snapshot,
     settings,
@@ -48,6 +58,7 @@ export function AgentsSidebar({ session, onConfigure }: AgentsSidebarProps) {
     setCreating,
     busy,
     error,
+    clearError,
     create,
     sendMessage,
     updateActiveSession,
@@ -58,11 +69,23 @@ export function AgentsSidebar({ session, onConfigure }: AgentsSidebarProps) {
     revertTurn,
   } = useAgentProjectController(session);
   const availableProviders = providers.filter((provider) => provider.state === "connected");
-  if (!snapshot || !settings) return <AgentsLoadingState error={error} />;
+  const awaitingInitialState = !snapshot || !settings;
+  const showLoading = useDelayedBusy(awaitingInitialState);
+  if (awaitingInitialState)
+    return error || showLoading ? (
+      <AgentsLoadingState error={error} />
+    ) : (
+      <div className="h-full bg-panel" aria-busy="true" aria-label="Loading agents" />
+    );
   const agentRunning =
     activeSession?.status === "starting" ||
     activeSession?.status === "working" ||
     activeSession?.status === "waiting";
+
+  async function confirmDelete(): Promise<void> {
+    if (!deleteTarget) return;
+    if (await deleteAgent(deleteTarget.id)) setDeleteTarget(null);
+  }
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -104,8 +127,8 @@ export function AgentsSidebar({ session, onConfigure }: AgentsSidebarProps) {
             aria-label="Delete agent"
             title="Delete agent"
             onClick={() => {
-              if (!window.confirm(`Delete “${activeSession.title}”?`)) return;
-              void deleteAgent(activeSession.id);
+              clearError();
+              setDeleteTarget({ id: activeSession.id, title: activeSession.title });
             }}
           >
             <Trash2 size={13} />
@@ -192,6 +215,37 @@ export function AgentsSidebar({ session, onConfigure }: AgentsSidebarProps) {
           />
         </>
       )}
+
+      <Dialog
+        open={deleteTarget !== null}
+        onOpenChange={(open) => {
+          if (!open && !busy) setDeleteTarget(null);
+        }}
+      >
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Delete agent conversation?</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3 p-4">
+            <DialogDescription>
+              Delete “{deleteTarget?.title ?? "this conversation"}”? This cannot be undone.
+            </DialogDescription>
+            {error && <Notice size="default">{error}</Notice>}
+          </div>
+          <DialogFooter className="border-t border-border p-4">
+            <Button variant="ghost" disabled={busy} onClick={() => setDeleteTarget(null)}>
+              Cancel
+            </Button>
+            <Button
+              variant="danger"
+              disabled={busy || !deleteTarget}
+              onClick={() => void confirmDelete()}
+            >
+              {busy ? "Deleting…" : "Delete conversation"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
@@ -250,9 +304,6 @@ function AgentsLoadingState({ error }: { error: string | null }) {
             </div>
           </div>
         </div>
-        <p className="mt-1.5 text-center text-[10px] leading-3 text-disabled">
-          Agents can make mistakes. Review checkpoint changes before continuing.
-        </p>
       </div>
     </div>
   );

@@ -1,13 +1,13 @@
 import { Library, SlidersHorizontal, StickyNote } from "@cinesim/ui";
 import { Button, TooltipProvider } from "@cinesim/ui";
 import { AgentsSidebar } from "./components/agents/agents-sidebar";
-import { ProjectLoadingState } from "./components/home/project-loading-state";
-import { Welcome } from "./components/home/welcome";
+import { Welcome, WelcomeLoadingState } from "./components/home/welcome";
 import { MetricsSidebar } from "./components/metrics/metrics-sidebar";
 import { Settings } from "./components/settings/settings";
 import { AppShell, toggleAuxiliaryMode } from "./components/shell/app-shell";
 import { TopBar } from "./components/shell/top-bar";
 import { Workspace } from "./components/workspace/workspace";
+import { useDelayedBusy } from "./hooks/use-delayed-busy";
 import { editorLayoutFromState, sessionFromLifecycle } from "./store/renderer-store";
 import { useRendererStore } from "./store/renderer-store-context";
 
@@ -23,6 +23,7 @@ export function App() {
   const notesOpen = useRendererStore((state) => state.notesOpen);
   const settingsSection = useRendererStore((state) => state.settingsSection);
   const account = useRendererStore((state) => state.account);
+  const accountHydrated = useRendererStore((state) => state.accountHydrated);
   const auxiliaryMode = useRendererStore((state) => state.auxiliaryMode);
   const error = useRendererStore((state) => state.operationError);
   const editorLayout = useRendererStore(editorLayoutFromState);
@@ -41,6 +42,8 @@ export function App() {
   const trashProject = useRendererStore((state) => state.trashProject);
   const loading = project.status === "booting";
   const openingProject = project.status === "opening";
+  const showStartupLoading = useDelayedBusy(loading);
+  const showProjectOpening = useDelayedBusy(openingProject);
 
   const title =
     destination === "settings"
@@ -59,6 +62,8 @@ export function App() {
         activeSequenceId={activeSequenceId}
         settingsSection={settingsSection}
         account={account}
+        accountHydrated={accountHydrated}
+        interactionLocked={openingProject}
         title={title}
         leadingToolbar={
           destination === "project" && session && projectSection === "edit" ? (
@@ -135,35 +140,47 @@ export function App() {
         auxiliaryMode={destination === "project" ? auxiliaryMode : null}
         onAuxiliaryMode={setAuxiliaryMode}
       >
-        {openingProject ? (
-          <ProjectLoadingState />
-        ) : destination === "settings" ? (
-          <Settings section={settingsSection} />
-        ) : destination === "project" && session ? (
-          <Workspace
-            key={session.directory}
-            session={session}
-            section={projectSection}
-            activeSequenceId={activeSequenceId ?? session.project.activeSequenceId}
-            mediaPoolOpen={mediaPoolOpen}
-            inspectorOpen={inspectorOpen}
-            notesOpen={notesOpen}
-            editorLayout={editorLayout}
-            onOpenTimeline={showTimeline}
-          />
-        ) : (
-          <Welcome
-            appState={appState}
-            error={error}
-            loading={loading}
-            opening={openingProject}
-            onCreate={createProject}
-            onOpen={openProject}
-            onOpenRecent={openRecentProject}
-            onForgetProject={forgetProject}
-            onTrashProject={trashProject}
-          />
-        )}
+        <div className="relative h-full" aria-busy={loading || openingProject}>
+          {loading ? (
+            showStartupLoading ? (
+              <WelcomeLoadingState />
+            ) : (
+              <section className="h-full bg-canvas" aria-label="Starting Cinesim" />
+            )
+          ) : destination === "settings" ? (
+            <Settings section={settingsSection} />
+          ) : destination === "project" && session ? (
+            <Workspace
+              key={session.directory}
+              session={session}
+              section={projectSection}
+              activeSequenceId={activeSequenceId ?? session.project.activeSequenceId}
+              mediaPoolOpen={mediaPoolOpen}
+              inspectorOpen={inspectorOpen}
+              notesOpen={notesOpen}
+              editorLayout={editorLayout}
+              onOpenTimeline={showTimeline}
+            />
+          ) : (
+            <Welcome
+              appState={appState}
+              error={error}
+              loading={false}
+              opening={openingProject}
+              onCreate={createProject}
+              onOpen={openProject}
+              onOpenRecent={openRecentProject}
+              onForgetProject={forgetProject}
+              onTrashProject={trashProject}
+            />
+          )}
+          {showProjectOpening && (
+            <output className="pointer-events-none absolute right-3 top-3 z-50 flex items-center gap-2 rounded-md border border-border-strong bg-panel/95 px-2.5 py-1.5 text-ui-xs text-muted shadow-lg shadow-black/15">
+              <span className="size-1.5 animate-pulse rounded-full bg-primary" />
+              Opening project…
+            </output>
+          )}
+        </div>
       </AppShell>
     </TooltipProvider>
   );

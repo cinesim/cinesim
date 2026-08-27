@@ -35,6 +35,7 @@ import {
   ListTree as ListTreeData,
   ListVideo as ListVideoData,
   LoaderCircle as LoaderCircleData,
+  LogOutIcon as LogOutData,
   Lock as LockData,
   LockOpen as LockOpenData,
   Magnet as MagnetData,
@@ -125,6 +126,7 @@ export const ListPlus = createIcon(ListPlusData, "ListPlus");
 export const ListTree = createIcon(ListTreeData, "ListTree");
 export const ListVideo = createIcon(ListVideoData, "ListVideo");
 export const LoaderCircle = createIcon(LoaderCircleData, "LoaderCircle");
+export const LogOut = createIcon(LogOutData, "LogOut");
 export const Lock = createIcon(LockData, "Lock");
 export const LockOpen = createIcon(LockOpenData, "LockOpen");
 export const Magnet = createIcon(MagnetData, "Magnet");

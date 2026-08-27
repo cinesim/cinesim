@@ -30,7 +30,11 @@ export function authPage(config: ServerConfig): string {
       <div class="auth-stack">
         <section class="auth-card" aria-label="Cinesim authentication">
           <div id="authenticated" class="auth-state" aria-labelledby="authenticated-title" hidden>
-            <div class="success-mark" aria-hidden="true">✓</div>
+            <div class="success-mark" aria-hidden="true">
+              <svg viewBox="0 0 24 24" width="20" height="20" fill="none">
+                <path d="m6.75 12.25 3.5 3.5 7-8" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+            </div>
             <h1 id="authenticated-title">You’re signed in</h1>
             <p id="return-status">Reopening Cinesim…</p>
             <button id="open-cinesim" class="primary-button" type="button">Open Cinesim</button>

@@ -40,6 +40,14 @@ function apiFixture(overrides: Partial<DesktopApi> = {}): DesktopApi {
   } as DesktopApi;
 }
 
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((next) => {
+    resolve = next;
+  });
+  return { promise, resolve };
+}
+
 function runtimeFixture(timeUs: number): RuntimeSnapshot {
   return {
     mode: { kind: "timeline", timeUs },
@@ -72,6 +80,68 @@ function runtimeFixture(timeUs: number): RuntimeSnapshot {
 }
 
 describe("renderer project controller", () => {
+  it("hydrates local project state without waiting for account networking", async () => {
+    const session = sessionFixture();
+    const account = deferred<typeof INITIAL_ACCOUNT_STATE>();
+    const getSession = vi.fn(async () => session);
+    const getAppState = vi.fn(async () => EMPTY_APP_STATE);
+    const getAccountSnapshot = vi.fn(() => account.promise);
+    const store = createRendererStore({
+      api: apiFixture({ getSession, getAppState, getAccountSnapshot }),
+    });
+
+    const firstInitialization = store.getState().initialize();
+    const secondInitialization = store.getState().initialize();
+
+    await vi.waitFor(() => expect(store.getState().project.status).toBe("ready"));
+    expect(store.getState().accountHydrated).toBe(false);
+    expect(getSession).toHaveBeenCalledOnce();
+    expect(getAppState).toHaveBeenCalledOnce();
+    expect(getAccountSnapshot).toHaveBeenCalledOnce();
+
+    account.resolve(INITIAL_ACCOUNT_STATE);
+    await Promise.all([firstInitialization, secondInitialization]);
+    expect(store.getState().accountHydrated).toBe(true);
+  });
+
+  it("keeps the previous project visible while opening and avoids a second preferences fetch", async () => {
+    const previous = sessionFixture("/projects/previous");
+    const next = sessionFixture("/projects/next");
+    const opening = deferred<DesktopProjectSession>();
+    const getAppState = vi.fn(async () => EMPTY_APP_STATE);
+    const save = vi.fn(async () => previous);
+    const store = createRendererStore({
+      api: apiFixture({
+        getSession: async () => previous,
+        getAppState,
+        openRecentProject: () => opening.promise,
+        save,
+      }),
+    });
+    await store.getState().initialize();
+
+    const result = store.getState().openRecentProject(next.directory);
+    expect(store.getState().project).toMatchObject({
+      status: "opening",
+      previousSession: previous,
+    });
+    await expect(store.getState().save()).resolves.toEqual({
+      ok: false,
+      error: "Wait for the project to finish opening",
+    });
+    expect(save).not.toHaveBeenCalled();
+
+    opening.resolve(next);
+    await result;
+
+    expect(getAppState).toHaveBeenCalledOnce();
+    expect(store.getState().project).toEqual({ status: "ready", session: next });
+    expect(store.getState().appState.recentProjects[0]).toEqual({
+      name: next.project.name,
+      directory: next.directory,
+    });
+  });
+
   it("opens the canonical session even when optional app preferences cannot load", async () => {
     const session = sessionFixture();
     const store = createRendererStore({

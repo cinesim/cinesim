@@ -38,6 +38,13 @@ import {
   providerLabel,
 } from "../../lib/agent-provider-catalog";
 import { useRendererStore } from "../../store/renderer-store-context";
+import { useDelayedBusy } from "../../hooks/use-delayed-busy";
+import {
+  cacheAgentProviders,
+  cacheAgentSettings,
+  cachedAgentProviders,
+  cachedAgentSettings,
+} from "../../lib/agent-presentation-cache";
 import { AccountAvatar, GoogleMark } from "../account/account-ui";
 
 interface SettingsProps {
@@ -62,11 +69,13 @@ export function Settings({ section }: SettingsProps) {
 
 function AccountSettings() {
   const account = useRendererStore((state) => state.account);
+  const accountHydrated = useRendererStore((state) => state.accountHydrated);
   const beginSignIn = useRendererStore((state) => state.beginAccountSignIn);
   const signOut = useRendererStore((state) => state.signOutAccount);
   const refresh = useRendererStore((state) => state.refreshAccount);
   const [busy, setBusy] = useState<"email" | "google" | "sign-out" | "refresh" | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  const showLoading = useDelayedBusy(!accountHydrated);
 
   async function startSignIn(method: "email" | "google"): Promise<void> {
     setBusy(method);
@@ -89,6 +98,13 @@ function AccountSettings() {
     await refresh();
     setBusy(null);
   }
+
+  if (!accountHydrated)
+    return (
+      <div className="min-h-40" aria-busy="true">
+        {showLoading && <Skeleton className="h-32 rounded-xl border border-border bg-panel" />}
+      </div>
+    );
 
   return (
     <div className="max-w-xl">
@@ -141,10 +157,6 @@ function AccountSettings() {
       ) : (
         <div className="rounded-xl border border-border bg-panel p-6">
           <p className="text-ui font-semibold text-primary">Sign in to Cinesim</p>
-          <p className="mt-1 max-w-md text-ui leading-5 text-muted">
-            Connect an account to use online features as they become available.
-          </p>
-
           <div className="mt-6 space-y-2">
             {account.googleSignIn && (
               <button
@@ -169,10 +181,6 @@ function AccountSettings() {
               {busy === "email" ? "Opening browser…" : "Sign in with email"}
             </button>
           </div>
-          <p className="mt-4 text-ui-xs leading-5 text-muted">
-            Your existing projects remain on this computer unless you explicitly choose a future
-            cloud feature.
-          </p>
         </div>
       )}
 
@@ -205,19 +213,26 @@ function GeneralSettings() {
 }
 
 function AgentSettings() {
-  const [settings, setSettings] = useState<AgentSettings | null>(null);
-  const [statuses, setStatuses] = useState<AgentProviderStatus[]>([]);
-  const [provider, setProvider] = useState<AgentProviderKind>("claude");
+  const cachedSettings = cachedAgentSettings();
+  const [settings, setSettings] = useState<AgentSettings | null>(cachedSettings);
+  const [statuses, setStatuses] = useState<AgentProviderStatus[]>(() => cachedAgentProviders());
+  const [provider, setProvider] = useState<AgentProviderKind>(
+    cachedSettings?.defaultProvider ?? "claude",
+  );
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
+  const showLoading = useDelayedBusy(!settings);
 
   async function refresh(): Promise<void> {
     setBusy(true);
     setNotice(null);
     try {
       const nextStatuses = await window.cinesim.refreshAgentProviders();
+      cacheAgentProviders(nextStatuses);
       setStatuses(nextStatuses);
-      setSettings(await window.cinesim.getAgentSettings());
+      const nextSettings = await window.cinesim.getAgentSettings();
+      cacheAgentSettings(nextSettings);
+      setSettings(nextSettings);
     } catch (error) {
       setNotice(error instanceof Error ? error.message : "Could not inspect local agents");
     }
@@ -225,11 +240,13 @@ function AgentSettings() {
   }
 
   useEffect(() => {
-    void window.cinesim.getAgentSettings().then((value) => {
+    void (async () => {
+      const value = await window.cinesim.getAgentSettings();
+      cacheAgentSettings(value);
       setSettings(value);
       setProvider(value.defaultProvider);
-      void refresh();
-    });
+      await refresh();
+    })();
   }, []);
 
   async function updateProvider(input: {
@@ -239,19 +256,33 @@ function AgentSettings() {
     permissionMode?: AgentPermissionMode;
   }): Promise<void> {
     const next = await window.cinesim.updateAgentSettings({ provider, ...input });
+    cacheAgentSettings(next);
     setSettings(next);
   }
 
   async function chooseExecutable(): Promise<void> {
     const next = await window.cinesim.chooseAgentExecutable(provider);
     if (next) {
+      cacheAgentSettings(next);
       setSettings(next);
       await refresh();
     }
   }
 
+  async function makeDefaultProvider(): Promise<void> {
+    const next = await window.cinesim.updateAgentSettings({ defaultProvider: provider });
+    cacheAgentSettings(next);
+    setSettings(next);
+  }
+
   if (!settings)
-    return <p className="py-20 text-center text-ui text-muted">Inspecting local agents…</p>;
+    return (
+      <div className="min-h-40" aria-busy="true">
+        {showLoading && (
+          <p className="py-20 text-center text-ui text-muted">Inspecting local agents…</p>
+        )}
+      </div>
+    );
 
   const configured = settings.providers[provider];
   const status = statuses.find((candidate) => candidate.provider === provider);
@@ -395,11 +426,7 @@ function AgentSettings() {
                     ? "border-border-strong bg-surface text-primary"
                     : "border-border bg-canvas text-secondary hover:bg-surface",
                 )}
-                onClick={() =>
-                  void window.cinesim
-                    .updateAgentSettings({ defaultProvider: provider })
-                    .then(setSettings)
-                }
+                onClick={() => void makeDefaultProvider()}
               >
                 {settings.defaultProvider === provider ? "Current default" : "Make default"}
                 {settings.defaultProvider === provider && <Check size={14} />}

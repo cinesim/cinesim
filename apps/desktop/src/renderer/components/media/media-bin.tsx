@@ -326,7 +326,7 @@ export function MediaBin({ project, onOpenTimeline }: MediaBinProps) {
               ariaLabel={`Open ${sequence.name}`}
               title="Double-click to open timeline"
               previewClassName="timeline-thumbnail"
-              preview={<Film size={25} strokeWidth={1.5} />}
+              preview={null}
               bottomCorner={
                 <span className="rounded bg-panel/90 px-1.5 py-0.5 text-ui-xs tabular-nums text-secondary">
                   {formatDuration(sequenceDurationUs(sequence))}

@@ -69,6 +69,7 @@ export interface RendererState {
   derivedMedia: DerivedMediaSnapshot | null;
   electronHealth: ElectronHealthSnapshot | null;
   account: AccountSnapshot;
+  accountHydrated: boolean;
   initialize: () => Promise<void>;
   receiveExternalSession: (session: DesktopProjectSession) => Promise<void>;
   createProject: (name: string) => Promise<ActionResult<DesktopProjectSession | null>>;
@@ -191,12 +192,32 @@ function hydratedProjectState(
   };
 }
 
+function appStateWithRememberedProject(
+  appState: DesktopAppState,
+  session: DesktopProjectSession,
+): DesktopAppState {
+  return {
+    ...appState,
+    recentProjects: [
+      { name: session.project.name, directory: session.directory },
+      ...appState.recentProjects.filter((project) => project.directory !== session.directory),
+    ].slice(0, 12),
+  };
+}
+
 export type RendererStoreApi = ReturnType<typeof createRendererStore>;
 
 export function createRendererStore({ api, storage }: RendererStoreDependencies) {
   let nextRequestId = 0;
+  let initialization: Promise<void> | null = null;
 
   return createStore<RendererState>()((set, get) => {
+    function blockedByProjectOpening<T>(): ActionResult<T> | null {
+      return get().project.status === "opening"
+        ? { ok: false, error: "Wait for the project to finish opening" }
+        : null;
+    }
+
     function acceptMutationSession(session: DesktopProjectSession): void {
       const current = get();
       const previous = sessionFromLifecycle(current.project);
@@ -249,12 +270,7 @@ export function createRendererStore({ api, storage }: RendererStoreDependencies)
           });
           return { ok: true, value: session };
         }
-        let appState = get().appState;
-        try {
-          appState = await api.getAppState();
-        } catch {
-          // Opening the canonical project succeeded; stale UI preferences are safe defaults.
-        }
+        const appState = appStateWithRememberedProject(get().appState, session);
         set(hydratedProjectState(session, appState));
         return { ok: true, value: session };
       } catch (error) {
@@ -272,6 +288,8 @@ export function createRendererStore({ api, storage }: RendererStoreDependencies)
       invoke: () => Promise<DesktopProjectSession>,
       fallback: string,
     ): Promise<ActionResult<DesktopProjectSession>> {
+      const blocked = blockedByProjectOpening<DesktopProjectSession>();
+      if (blocked) return blocked;
       set({ operationError: null });
       try {
         const session = await invoke();
@@ -310,29 +328,38 @@ export function createRendererStore({ api, storage }: RendererStoreDependencies)
       derivedMedia: null,
       electronHealth: null,
       account: INITIAL_ACCOUNT_STATE,
+      accountHydrated: false,
 
-      initialize: async () => {
-        const [sessionResult, appStateResult, accountResult] = await Promise.allSettled([
-          api.getSession(),
-          api.getAppState(),
-          api.getAccountSnapshot(),
-        ]);
-        if (get().project.status !== "booting") return;
-        if (sessionResult.status === "rejected") {
-          const message = messageFrom(sessionResult.reason, "Cinesim could not start");
-          set({
-            project: { status: "failed", previousSession: null, error: message },
-            operationError: message,
-          });
-          return;
-        }
-        const appState =
-          appStateResult.status === "fulfilled" ? appStateResult.value : EMPTY_APP_STATE;
-        const account =
-          accountResult.status === "fulfilled" ? accountResult.value : INITIAL_ACCOUNT_STATE;
-        if (sessionResult.value)
-          set({ ...hydratedProjectState(sessionResult.value, appState), account });
-        else set({ project: { status: "idle" }, appState, account });
+      initialize: () => {
+        if (initialization) return initialization;
+        if (get().project.status !== "booting") return Promise.resolve();
+
+        initialization = (async () => {
+          const accountRequest = api.getAccountSnapshot().catch(() => INITIAL_ACCOUNT_STATE);
+          const [sessionResult, appStateResult] = await Promise.allSettled([
+            api.getSession(),
+            api.getAppState(),
+          ]);
+
+          if (get().project.status === "booting") {
+            if (sessionResult.status === "rejected") {
+              const message = messageFrom(sessionResult.reason, "Cinesim could not start");
+              set({
+                project: { status: "failed", previousSession: null, error: message },
+                operationError: message,
+              });
+            } else {
+              const appState =
+                appStateResult.status === "fulfilled" ? appStateResult.value : EMPTY_APP_STATE;
+              if (sessionResult.value) set(hydratedProjectState(sessionResult.value, appState));
+              else set({ project: { status: "idle" }, appState });
+            }
+          }
+
+          const account = await accountRequest;
+          if (!get().accountHydrated) set({ account, accountHydrated: true });
+        })();
+        return initialization;
       },
 
       receiveExternalSession: async (session) => {
@@ -359,6 +386,8 @@ export function createRendererStore({ api, storage }: RendererStoreDependencies)
         runProjectOperation("open-recent", () => api.openRecentProject(directory)),
 
       importMedia: async () => {
+        const blocked = blockedByProjectOpening<DesktopProjectSession | null>();
+        if (blocked) return blocked;
         set({ operationError: null });
         try {
           const session = await api.importMedia();
@@ -372,6 +401,8 @@ export function createRendererStore({ api, storage }: RendererStoreDependencies)
       },
 
       execute: async (command) => {
+        const blocked = blockedByProjectOpening<DesktopProjectSession>();
+        if (blocked) return blocked;
         set({ operationError: null });
         try {
           const response = await api.execute(command);
@@ -421,6 +452,8 @@ export function createRendererStore({ api, storage }: RendererStoreDependencies)
       redo: () => runSessionAction(() => api.redo(), "The edit could not be redone"),
       save: () => runSessionAction(() => api.save(), "The project could not be saved"),
       revealProject: async () => {
+        const blocked = blockedByProjectOpening<void>();
+        if (blocked) return blocked;
         try {
           await api.revealProject();
           return { ok: true, value: undefined };
@@ -500,6 +533,8 @@ export function createRendererStore({ api, storage }: RendererStoreDependencies)
       },
 
       togglePanel: async (panel) => {
+        const blocked = blockedByProjectOpening<DesktopAppState>();
+        if (blocked) return blocked;
         const key = `${panel}Open` as "mediaPoolOpen" | "inspectorOpen" | "notesOpen";
         const previous = get()[key];
         const next = !previous;
@@ -521,6 +556,8 @@ export function createRendererStore({ api, storage }: RendererStoreDependencies)
       },
 
       saveEditorLayout: async (layout) => {
+        const blocked = blockedByProjectOpening<DesktopAppState>();
+        if (blocked) return blocked;
         try {
           const appState = await api.setProjectEditorLayout(layout);
           set({ appState });
@@ -574,10 +611,10 @@ export function createRendererStore({ api, storage }: RendererStoreDependencies)
         set({ derivedMedia });
       },
       setElectronHealth: (electronHealth) => set({ electronHealth }),
-      setAccount: (account) => set({ account }),
+      setAccount: (account) => set({ account, accountHydrated: true }),
       refreshAccount: async () => {
         try {
-          set({ account: await api.getAccountSnapshot() });
+          set({ account: await api.getAccountSnapshot(), accountHydrated: true });
         } catch {
           set({
             account: {
@@ -586,6 +623,7 @@ export function createRendererStore({ api, storage }: RendererStoreDependencies)
               serviceAvailable: false,
               detail: "The authentication service is unavailable. Local editing still works.",
             },
+            accountHydrated: true,
           });
         }
       },
@@ -600,7 +638,7 @@ export function createRendererStore({ api, storage }: RendererStoreDependencies)
       signOutAccount: async () => {
         try {
           const account = await api.signOutAccount();
-          set({ account });
+          set({ account, accountHydrated: true });
           return { ok: true, value: account };
         } catch (error) {
           return { ok: false, error: messageFrom(error, "Could not sign out") };

@@ -4,6 +4,7 @@ import { nearestSampleIndex, pointerSourceTimeUs } from "@cinesim/engine";
 import type { Asset } from "@cinesim/core";
 import type { DerivedAssetSnapshot } from "../../../shared/api";
 import { derivedArtifactUrl } from "../../lib/media-url";
+import { useDelayedBusy } from "../../hooks/use-delayed-busy";
 import { useRendererStore } from "../../store/renderer-store-context";
 
 interface MediaSkimSurfaceProps {
@@ -64,6 +65,7 @@ export function MediaSkimSurface({
   const derived = useRendererStore((state) => state.derivedMedia);
   const record = derived?.assets[asset.id];
   const thumbnailState = thumbnailPresentation(record);
+  const showThumbnailPending = useDelayedBusy(thumbnailState === "pending");
   const filmstrip = record?.filmstrip;
   const filmstripReady = filmstripPresentationReady(record);
   const tileTimesUs = filmstripReady ? (filmstrip?.tileTimesUs ?? []) : [];
@@ -127,7 +129,7 @@ export function MediaSkimSurface({
           draggable={false}
           className="absolute inset-0 h-full w-full object-cover"
         />
-      ) : thumbnailState === "pending" ? (
+      ) : thumbnailState === "pending" && showThumbnailPending ? (
         <LoaderCircle aria-label="Generating thumbnail" className="animate-spin" size={18} />
       ) : thumbnailState === "failed" ? (
         <AlertTriangle aria-label="Thumbnail generation failed" size={18} />

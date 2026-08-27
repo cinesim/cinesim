@@ -273,7 +273,6 @@ input:focus {
   border-radius: 50%;
   background: var(--ui-accent);
   color: var(--ui-on-accent);
-  font-size: var(--ui-font-size-heading);
 }
 
 @media (prefers-color-scheme: dark) {
