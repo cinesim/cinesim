@@ -64,4 +64,28 @@ describe("CloudMediaManager transfer journal", () => {
 
     expect(manager.snapshots()).toEqual([]);
   });
+
+  it("rejects download URLs outside the private R2 endpoint", async () => {
+    const account = {
+      authenticatedFetch: async () =>
+        new Response(JSON.stringify({ url: "https://example.com/original", bytes: 10 })),
+    };
+    const manager = new CloudMediaManager("/unused", account as never, {} as never);
+
+    await expect(
+      manager.readOriginal(
+        "cloud_asset_fixture00000001",
+        new Request("cinesim-media://asset/scope/asset_fixture"),
+      ),
+    ).rejects.toThrow("invalid signed URL");
+  });
+
+  it("validates account usage before exposing it to the renderer", async () => {
+    const account = {
+      authenticatedFetch: async () => new Response(JSON.stringify({ usedBytes: -1 })),
+    };
+    const manager = new CloudMediaManager("/unused", account as never, {} as never);
+
+    await expect(manager.usage()).rejects.toThrow();
+  });
 });

@@ -35,14 +35,63 @@ const transferRecordSchema = z.object({
 type TransferRecord = z.infer<typeof transferRecordSchema>;
 
 const uploadSchema = z.object({
-  id: z.string(),
-  cloudAssetId: z.string(),
+  id: z.string().regex(/^cloud_upload_[a-zA-Z0-9][a-zA-Z0-9_-]{7,127}$/),
+  cloudAssetId: z.string().regex(/^cloud_asset_[a-zA-Z0-9][a-zA-Z0-9_-]{7,127}$/),
   partSize: z.number().int().positive(),
   bytes: z.number().int().positive(),
   parts: z.array(
     z.object({ partNumber: z.number().int().positive(), etag: z.string(), bytes: z.number() }),
   ),
 });
+
+const bytesSchema = z.number().int().nonnegative().safe();
+const cloudStorageUsageSchema = z.object({
+  includedBytes: bytesSchema,
+  addonBytes: bytesSchema,
+  usedBytes: bytesSchema,
+  reservedBytes: bytesSchema,
+  addonOptionsBytes: z.array(bytesSchema).max(32),
+  projects: z.array(
+    z.object({
+      id: z.string().regex(/^cloud_project_[a-zA-Z0-9][a-zA-Z0-9_-]{7,127}$/),
+      clientProjectId: z.string(),
+      name: z.string(),
+      usedBytes: bytesSchema,
+      reservedBytes: bytesSchema,
+      assets: z.array(
+        z.object({
+          id: z.string().regex(/^cloud_asset_[a-zA-Z0-9][a-zA-Z0-9_-]{7,127}$/),
+          clientAssetId: z.string(),
+          name: z.string(),
+          kind: z.enum(["video", "audio", "image"]),
+          bytes: bytesSchema,
+          state: z.enum(["preparing", "uploading", "ready", "failed", "trashed"]),
+          trashedAt: z.string().nullable(),
+        }),
+      ),
+    }),
+  ),
+});
+
+const cloudProjectSchema = z.object({
+  id: z.string().regex(/^cloud_project_[a-zA-Z0-9][a-zA-Z0-9_-]{7,127}$/),
+});
+
+const signedR2UrlSchema = z.url().refine((value) => {
+  const url = new URL(value);
+  return url.protocol === "https:" && url.hostname.endsWith(".r2.cloudflarestorage.com");
+}, "Cloud storage returned an invalid signed URL");
+
+const signedPartsSchema = z.object({
+  parts: z.array(
+    z.object({
+      partNumber: z.number().int().positive(),
+      url: signedR2UrlSchema,
+    }),
+  ),
+});
+
+const downloadSchema = z.object({ url: signedR2UrlSchema, bytes: bytesSchema });
 
 function contentType(path: string): string {
   const extension = extname(path).toLowerCase();
@@ -122,28 +171,34 @@ export class CloudMediaManager {
   }
 
   async usage(): Promise<CloudStorageUsage> {
-    return json<CloudStorageUsage>(await this.account.authenticatedFetch("/api/v1/cloud/usage"));
+    return cloudStorageUsageSchema.parse(
+      await json<unknown>(await this.account.authenticatedFetch("/api/v1/cloud/usage")),
+    );
   }
 
   async configureAddon(addonBytes: number): Promise<CloudStorageUsage> {
     if (!Number.isSafeInteger(addonBytes) || addonBytes < 0)
       throw new Error("Invalid storage allowance");
-    return json<CloudStorageUsage>(
-      await this.account.authenticatedFetch("/api/v1/cloud/usage", {
-        method: "PATCH",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ addonBytes }),
-      }),
+    return cloudStorageUsageSchema.parse(
+      await json<unknown>(
+        await this.account.authenticatedFetch("/api/v1/cloud/usage", {
+          method: "PATCH",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ addonBytes }),
+        }),
+      ),
     );
   }
 
   async readOriginal(cloudAssetId: string, request: Request): Promise<Response> {
     let signed = this.#downloadUrls.get(cloudAssetId);
     if (!signed || signed.expiresAt <= Date.now()) {
-      const value = await json<{ url: string; bytes: number }>(
-        await this.account.authenticatedFetch(
-          `/api/v1/cloud/assets/${encodeURIComponent(cloudAssetId)}/download`,
-          { method: "POST" },
+      const value = downloadSchema.parse(
+        await json<unknown>(
+          await this.account.authenticatedFetch(
+            `/api/v1/cloud/assets/${encodeURIComponent(cloudAssetId)}/download`,
+            { method: "POST" },
+          ),
         ),
       );
       signed = { ...value, expiresAt: Date.now() + 4 * 60_000 };
@@ -331,16 +386,18 @@ export class CloudMediaManager {
     record.sourceFingerprint = fingerprint;
     record.checksumSha256 = checksum;
 
-    const cloudProject = await json<{ id: string }>(
-      await this.account.authenticatedFetch("/api/v1/cloud/projects", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          ...(project.cloudProjectId ? { cloudProjectId: project.cloudProjectId } : {}),
-          clientProjectId: project.id,
-          name: project.name,
+    const cloudProject = cloudProjectSchema.parse(
+      await json<unknown>(
+        await this.account.authenticatedFetch("/api/v1/cloud/projects", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            ...(project.cloudProjectId ? { cloudProjectId: project.cloudProjectId } : {}),
+            clientProjectId: project.id,
+            name: project.name,
+          }),
         }),
-      }),
+      ),
     );
     if (!project.cloudProjectId) {
       await this.projects.execute({
@@ -396,15 +453,17 @@ export class CloudMediaManager {
           (_, index) => first + index,
         ).filter((partNumber) => !completeParts.has(partNumber));
         if (partNumbers.length === 0) continue;
-        const signed = await json<{ parts: { partNumber: number; url: string }[] }>(
-          await this.account.authenticatedFetch(
-            `/api/v1/cloud/uploads/${encodeURIComponent(upload.id)}/parts/sign`,
-            {
-              method: "POST",
-              headers: { "content-type": "application/json" },
-              body: JSON.stringify({ partNumbers }),
-              signal,
-            },
+        const signed = signedPartsSchema.parse(
+          await json<unknown>(
+            await this.account.authenticatedFetch(
+              `/api/v1/cloud/uploads/${encodeURIComponent(upload.id)}/parts/sign`,
+              {
+                method: "POST",
+                headers: { "content-type": "application/json" },
+                body: JSON.stringify({ partNumbers }),
+                signal,
+              },
+            ),
           ),
         );
         await Promise.all(
