@@ -170,6 +170,16 @@ export function applyCommand(inputProject: Project, command: EditorCommand): Com
   const project = clone(inputProject);
 
   switch (command.type) {
+    case "project.attachCloud": {
+      if (project.cloudProjectId && project.cloudProjectId !== command.cloudProjectId)
+        throw new CommandError(
+          "PROJECT_ALREADY_CLOUD_LINKED",
+          "This project is already linked to a different cloud project",
+        );
+      project.cloudProjectId = command.cloudProjectId;
+      return result(project, command, "Linked project to Cinesim Cloud", [project.id]);
+    }
+
     case "asset.import": {
       if (project.assets.some((asset) => asset.id === command.asset.id)) {
         throw new CommandError("DUPLICATE_ID", `Asset already exists: ${command.asset.id}`);
@@ -184,6 +194,13 @@ export function applyCommand(inputProject: Project, command: EditorCommand): Com
         [command.asset.id],
         [command.asset.id],
       );
+    }
+
+    case "asset.setSource": {
+      const asset = project.assets.find((candidate) => candidate.id === command.assetId);
+      if (!asset) throw new CommandError("ASSET_NOT_FOUND", `Asset not found: ${command.assetId}`);
+      asset.source = structuredClone(command.source);
+      return result(project, command, `Updated source for ${asset.name}`, [asset.id]);
     }
 
     case "asset.remove": {

@@ -277,7 +277,8 @@ export class DesktopProjectStore {
   }
 
   assetPath(assetId: string): string | null {
-    return this.project?.assets.find((asset) => asset.id === assetId)?.source.path ?? null;
+    const source = this.project?.assets.find((asset) => asset.id === assetId)?.source;
+    return source?.kind === "local" ? source.path : null;
   }
 
   async close(): Promise<void> {

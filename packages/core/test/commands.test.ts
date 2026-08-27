@@ -39,6 +39,32 @@ function withClip(): Project {
 }
 
 describe("editing commands", () => {
+  it("links a project and switches asset sources only through commands", () => {
+    let project = seededProject();
+    project = applyCommand(project, {
+      type: "project.attachCloud",
+      cloudProjectId: "cloud_project_01hzy3w3fq1h7z6y7rj3a2bcde",
+    }).project;
+    expect(project.cloudProjectId).toBe("cloud_project_01hzy3w3fq1h7z6y7rj3a2bcde");
+
+    project = applyCommand(project, {
+      type: "asset.setSource",
+      assetId: asset.id,
+      source: { kind: "cloud", cloudAssetId: "cloud_asset_01hzy3w3fq1h7z6y7rj3a2bcde" },
+    }).project;
+    expect(project.assets[0]!.source).toEqual({
+      kind: "cloud",
+      cloudAssetId: "cloud_asset_01hzy3w3fq1h7z6y7rj3a2bcde",
+    });
+
+    expect(() =>
+      applyCommand(project, {
+        type: "project.attachCloud",
+        cloudProjectId: "cloud_project_01hzy3w3fq1h7z6y7rj3a2other",
+      }),
+    ).toThrow(/already linked/);
+  });
+
   it("adds, updates, reorders, and removes tracks through deterministic commands", () => {
     const initial = seededProject();
     const sequenceId = initial.activeSequenceId;

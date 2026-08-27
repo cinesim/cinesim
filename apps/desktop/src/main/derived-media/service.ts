@@ -573,7 +573,10 @@ export class DerivedMediaStore {
   }
 
   async #ensureAsset(asset: Asset): Promise<PersistedAsset> {
-    const fingerprint = await fingerprintSource(asset.source.path);
+    const fingerprint =
+      asset.source.kind === "local"
+        ? await fingerprintSource(asset.source.path)
+        : { size: 0, mtimeMs: 0, edgeHash: asset.source.cloudAssetId };
     const current = this.#index.assets[asset.id];
     if (current && fingerprintsEqual(current.sourceFingerprint, fingerprint)) return current;
     if (current) {

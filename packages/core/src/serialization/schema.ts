@@ -13,11 +13,21 @@ export const transformSchema = z.object({
   fit: z.enum(["contain", "cover", "fill"]),
 });
 
+export const cloudProjectIdSchema = z
+  .string()
+  .regex(/^cloud_project_[a-zA-Z0-9][a-zA-Z0-9_-]{7,127}$/);
+export const cloudAssetIdSchema = z.string().regex(/^cloud_asset_[a-zA-Z0-9][a-zA-Z0-9_-]{7,127}$/);
+
+export const assetSourceSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("local"), path: z.string().min(1) }),
+  z.object({ kind: z.literal("cloud"), cloudAssetId: cloudAssetIdSchema }),
+]);
+
 export const assetSchema = z.object({
   id: persistentId("asset"),
   kind: z.enum(["video", "audio", "image"]),
   name: z.string().min(1),
-  source: z.object({ kind: z.literal("local"), path: z.string().min(1) }),
+  source: assetSourceSchema,
   durationUs: timeUs,
   width: z.number().int().positive().optional(),
   height: z.number().int().positive().optional(),
@@ -57,6 +67,7 @@ export const sequenceSchema = z.object({
 export const projectSchema = z.object({
   version: z.literal(1),
   id: persistentId("project"),
+  cloudProjectId: cloudProjectIdSchema.optional(),
   name: z.string().min(1),
   activeSequenceId: persistentId("sequence"),
   assets: z.array(assetSchema),
@@ -69,4 +80,9 @@ export const settingsSchema = z.object({
   defaultFilmstripIntervalSeconds: z.number().positive(),
   previewQuality: z.enum(["full", "half", "quarter"]),
   backgroundColor: z.string().regex(/^#[0-9a-fA-F]{6}$/),
+  proxyGeneration: z.enum(["automatic", "manual"]),
+  proxyProfile: z.enum(["space-saver", "balanced", "high-quality", "custom"]),
+  proxyMaxLongEdge: z.number().int().min(320).max(7680),
+  proxyFrameRateCap: z.union([z.literal(30), z.literal(60)]),
+  proxyQuality: z.enum(["low", "medium", "high"]),
 });

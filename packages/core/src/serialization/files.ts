@@ -14,6 +14,10 @@ export const PROJECT_FILES = {
 const manifestSchema = z.object({
   version: z.literal(1),
   id: z.string().regex(/^project_/),
+  cloudProjectId: z
+    .string()
+    .regex(/^cloud_project_[a-zA-Z0-9][a-zA-Z0-9_-]{7,127}$/)
+    .optional(),
   name: z.string().min(1),
   activeSequenceId: z.string().regex(/^sequence_/),
   files: z.object({
@@ -109,6 +113,7 @@ function migrateExplicitMediaComponents(
 export interface ProjectManifest {
   version: 1;
   id: Project["id"];
+  cloudProjectId?: Project["cloudProjectId"];
   name: string;
   activeSequenceId: Project["activeSequenceId"];
   files: {
@@ -138,6 +143,7 @@ export function splitProjectFiles(project: Project): {
     manifest: {
       version: 1,
       id: canonical.id,
+      ...(canonical.cloudProjectId ? { cloudProjectId: canonical.cloudProjectId } : {}),
       name: canonical.name,
       activeSequenceId: canonical.activeSequenceId,
       files: {
@@ -219,6 +225,9 @@ export function joinProjectFiles(
   return canonicalizeProject({
     version: 1,
     id: manifest.id as Project["id"],
+    ...(manifest.cloudProjectId
+      ? { cloudProjectId: manifest.cloudProjectId as NonNullable<Project["cloudProjectId"]> }
+      : {}),
     name: manifest.name,
     activeSequenceId: manifest.activeSequenceId as Project["activeSequenceId"],
     assets: assets.assets as Asset[],
