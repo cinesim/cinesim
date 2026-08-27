@@ -2,6 +2,17 @@
 
 This report distinguishes implemented behavior from code paths that require interactive Electron/media testing. The repository was built without launching Electron at the user's request.
 
+## Optional local authentication
+
+The repository includes a local Better Auth slice with Hono, PostgreSQL, Drizzle migrations, Mailpit
+email verification, conditional Google OAuth, and Better Auth's Electron PKCE integration. Local
+development uses a loopback-only callback because macOS custom protocols require a packaged app;
+packaged builds retain the declared custom-protocol callback.
+The renderer exposes only account snapshots and sign-in/sign-out intents; OS-backed Electron
+`safeStorage` encrypts persisted cookies. Settings and the sidebar represent local, offline, and
+signed-in states without coupling authentication to project editing. Interactive browser, email, and
+custom-protocol behavior still requires the requested user-run Electron test.
+
 ## Monorepo
 
 ```text
@@ -88,7 +99,7 @@ The MCP stdio server exposes project/asset/timeline inspection, asset removal, t
 
 - TypeScript whole-repository check: passed
 - Vite+ format and lint check: passed with no warnings
-- All 126 semantic tests in 26 files, including frame-cadenced playback, overlapping seek/audio isolation, source-preview restoration, waveform bounds/serving/render geometry, adaptive policy, derived storage/writers, canonical track operations/layering, timeline interaction geometry, source resolution, agent integration, and shortcuts: passed
+- All 176 semantic tests in 37 files, including authentication boundaries and account presentation, frame-cadenced playback, overlapping seek/audio isolation, source-preview restoration, waveform bounds/serving/render geometry, adaptive policy, derived storage/writers, canonical track operations/layering, timeline interaction geometry, source resolution, agent integration, and shortcuts: passed
 - Vite production builds for main, preload, and renderer: passed
 - CLI help smoke check: passed
 - Electron application launch: intentionally not run

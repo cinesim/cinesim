@@ -1,0 +1,2 @@
+export const LOCAL_DESKTOP_CALLBACK_ORIGIN = "http://127.0.0.1:8788";
+export const LOCAL_DESKTOP_CALLBACK_URL = `${LOCAL_DESKTOP_CALLBACK_ORIGIN}/auth/callback`;

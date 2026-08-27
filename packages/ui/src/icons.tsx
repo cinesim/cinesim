@@ -14,6 +14,7 @@ import {
   ChevronUp as ChevronUpData,
   CircleAlert as CircleAlertData,
   Clapperboard as ClapperboardData,
+  CloudIcon as CloudData,
   Clock03Icon as Clock3Data,
   Cpu as CpuData,
   Database as DatabaseData,
@@ -68,6 +69,7 @@ import {
   VolumeX as VolumeXData,
   Wrench as WrenchData,
   X as XData,
+  UserIcon as UserData,
   ZoomIn as ZoomInData,
   ZoomOut as ZoomOutData,
 } from "@hugeicons/core-free-icons";
@@ -102,6 +104,7 @@ export const ChevronRight = createIcon(ChevronRightData, "ChevronRight");
 export const ChevronUp = createIcon(ChevronUpData, "ChevronUp");
 export const CircleAlert = createIcon(CircleAlertData, "CircleAlert");
 export const Clapperboard = createIcon(ClapperboardData, "Clapperboard");
+export const Cloud = createIcon(CloudData, "Cloud");
 export const Clock3 = createIcon(Clock3Data, "Clock3");
 export const Cpu = createIcon(CpuData, "Cpu");
 export const Database = createIcon(DatabaseData, "Database");
@@ -151,6 +154,7 @@ export const StickyNote = createIcon(StickyNoteData, "StickyNote");
 export const Terminal = createIcon(TerminalData, "Terminal");
 export const Trash2 = createIcon(Trash2Data, "Trash2");
 export const Undo2 = createIcon(Undo2Data, "Undo2");
+export const User = createIcon(UserData, "User");
 export const Video = createIcon(VideoData, "Video");
 export const Volume2 = createIcon(Volume2Data, "Volume2");
 export const VolumeX = createIcon(VolumeXData, "VolumeX");

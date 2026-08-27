@@ -9,10 +9,24 @@ import {
   Scissors,
   SlidersHorizontal,
   Settings as SettingsIcon,
+  User,
 } from "@cinesim/ui";
-import { Button, cn, Separator, Tooltip, TooltipContent, TooltipTrigger } from "@cinesim/ui";
-import type { DesktopAppState, DesktopProjectSession } from "../../../shared/api";
+import {
+  Button,
+  cn,
+  Menu,
+  MenuContent,
+  MenuItem,
+  MenuSeparator,
+  MenuTrigger,
+  Separator,
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@cinesim/ui";
+import type { AccountSnapshot, DesktopAppState, DesktopProjectSession } from "../../../shared/api";
 import { usePersistentSidebarWidth } from "../../hooks/use-persistent-sidebar-width";
+import { AccountAvatar, accountDisplayName, GoogleMark } from "../account/account-ui";
 import { ProjectBreadcrumb } from "./project-breadcrumb";
 import { ShortcutHint, ShortcutsDialog } from "./shortcuts-dialog";
 
@@ -22,7 +36,8 @@ interface AppShellProps {
   destination: "home" | "project" | "settings";
   projectSection: "media" | "edit";
   activeSequenceId: string | null;
-  settingsSection: "general" | "agents";
+  settingsSection: "general" | "account" | "agents";
+  account: AccountSnapshot;
   title: string;
   leadingToolbar?: React.ReactNode;
   toolbar: React.ReactNode;
@@ -30,7 +45,9 @@ interface AppShellProps {
   onProjectSection: (section: "media" | "edit") => void;
   onTimeline: (sequenceId: string) => void;
   onSettings: () => void;
-  onSettingsSection: (section: "general" | "agents") => void;
+  onSettingsSection: (section: "general" | "account" | "agents") => void;
+  onAccountSignIn: (method: "email" | "google") => Promise<AccountActionResult>;
+  onAccountSignOut: () => Promise<AccountActionResult>;
   onOpenRecent: (directory: string) => void;
   onOpenProject: () => void;
   agentsSidebar?: React.ReactNode;
@@ -41,6 +58,7 @@ interface AppShellProps {
 }
 
 export type AuxiliarySidebarMode = "agents" | "metrics" | null;
+type AccountActionResult = { ok: true } | { ok: false; error: string };
 
 export function toggleAuxiliaryMode(
   current: AuxiliarySidebarMode,
@@ -103,6 +121,7 @@ export function AppShell({
   projectSection,
   activeSequenceId,
   settingsSection,
+  account,
   title,
   leadingToolbar,
   toolbar,
@@ -111,6 +130,8 @@ export function AppShell({
   onTimeline,
   onSettings,
   onSettingsSection,
+  onAccountSignIn,
+  onAccountSignOut,
   onOpenRecent,
   onOpenProject,
   agentsSidebar,
@@ -123,6 +144,9 @@ export function AppShell({
     initialSidebarOpen(SIDEBAR_OPEN_STORAGE_KEY),
   );
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
+  const [accountMenuOpen, setAccountMenuOpen] = useState(false);
+  const [accountBusy, setAccountBusy] = useState<"email" | "google" | "sign-out" | null>(null);
+  const [accountMessage, setAccountMessage] = useState<string | null>(null);
   const sidebarWidthOptions = useMemo(
     () => ({
       storageKey: "cinesim.sidebarWidth",
@@ -147,6 +171,24 @@ export function AppShell({
   const auxiliaryWidth = usePersistentSidebarWidth(auxiliaryWidthOptions);
   const isMac = window.cinesim.platform === "darwin";
   const agentsSidebarAvailable = Boolean(agentsSidebar);
+
+  async function startAccountSignIn(method: "email" | "google"): Promise<void> {
+    setAccountBusy(method);
+    setAccountMessage(null);
+    const result = await onAccountSignIn(method);
+    setAccountBusy(null);
+    if (result.ok) setAccountMenuOpen(false);
+    else setAccountMessage(result.error);
+  }
+
+  async function signOutAccount(): Promise<void> {
+    setAccountBusy("sign-out");
+    setAccountMessage(null);
+    const result = await onAccountSignOut();
+    setAccountBusy(null);
+    if (result.ok) setAccountMenuOpen(false);
+    else setAccountMessage(result.error);
+  }
 
   useEffect(() => {
     localStorage.setItem(SIDEBAR_OPEN_STORAGE_KEY, String(sidebarOpen));
@@ -227,6 +269,12 @@ export function AppShell({
                 <SlidersHorizontal size={15} /> General
               </SidebarButton>
               <SidebarButton
+                active={settingsSection === "account"}
+                onClick={() => onSettingsSection("account")}
+              >
+                <User size={15} /> Account
+              </SidebarButton>
+              <SidebarButton
                 active={settingsSection === "agents"}
                 onClick={() => onSettingsSection("agents")}
               >
@@ -272,12 +320,92 @@ export function AppShell({
           )}
         </div>
 
-        <div className="flex min-w-[220px] gap-1 p-2">
-          <div className="min-w-0 flex-1">
-            <SidebarButton active={destination === "settings"} onClick={onSettings}>
-              <SettingsIcon size={15} /> Settings
-            </SidebarButton>
-          </div>
+        <div className="flex min-w-[220px] items-center gap-1 p-2">
+          <Menu
+            open={accountMenuOpen}
+            onOpenChange={(open) => {
+              setAccountMenuOpen(open);
+              if (!open) setAccountMessage(null);
+            }}
+          >
+            <MenuTrigger
+              className={cn(
+                "flex h-9 min-w-0 flex-1 items-center gap-2 rounded-md px-2.5 text-left text-ui text-secondary transition-colors hover:bg-surface hover:text-primary",
+                accountMenuOpen && "bg-surface text-primary",
+              )}
+              aria-label="Account menu"
+            >
+              <AccountAvatar user={account.user} />
+              <span className="min-w-0 flex-1 truncate">{accountDisplayName(account)}</span>
+              {account.status === "offline" && account.user && (
+                <span className="shrink-0 text-ui-xs text-amber-500">Offline</span>
+              )}
+            </MenuTrigger>
+            <MenuContent
+              side="top"
+              align="start"
+              sideOffset={8}
+              className="p-2"
+              style={{ width: sidebarWidth.width - 16 }}
+            >
+              {account.status === "signed-in" && account.user ? (
+                <>
+                  <div className="flex items-center gap-3 px-2 py-2">
+                    <AccountAvatar user={account.user} size="md" />
+                    <div className="min-w-0">
+                      <p className="truncate text-ui font-semibold text-primary">
+                        {account.user.name}
+                      </p>
+                      <p className="truncate text-ui-xs text-muted">{account.user.email}</p>
+                    </div>
+                  </div>
+                  <p className="px-2 pb-2 pt-1 text-ui-xs leading-5 text-muted">
+                    Projects and media are currently stored on this computer.
+                  </p>
+                  <MenuSeparator />
+                  <MenuItem disabled={accountBusy !== null} onClick={() => void signOutAccount()}>
+                    {accountBusy === "sign-out" ? "Signing out…" : "Sign out"}
+                  </MenuItem>
+                </>
+              ) : (
+                <>
+                  <div className="px-2 pb-3 pt-2">
+                    <p className="text-ui font-semibold text-primary">Local workspace</p>
+                    <p className="mt-1 text-ui-xs leading-5 text-muted">
+                      You’re using Cinesim without an account. Projects remain on this computer.
+                    </p>
+                  </div>
+                  <div className="space-y-2 px-1 pb-1">
+                    <Button
+                      className="w-full"
+                      variant="primary"
+                      disabled={!account.googleSignIn || accountBusy !== null}
+                      onClick={() => void startAccountSignIn("google")}
+                    >
+                      <GoogleMark className="size-4" />
+                      {accountBusy === "google" ? "Opening Google…" : "Continue with Google"}
+                    </Button>
+                    <Button
+                      className="w-full"
+                      variant="secondary"
+                      disabled={!account.serviceAvailable || accountBusy !== null}
+                      onClick={() => void startAccountSignIn("email")}
+                    >
+                      {accountBusy === "email" ? "Opening browser…" : "Sign in with email"}
+                    </Button>
+                  </div>
+                  {accountMessage && (
+                    <p className="px-2 pt-2 text-ui-xs leading-5 text-red-400">{accountMessage}</p>
+                  )}
+                  {!account.serviceAvailable && !accountMessage && (
+                    <p className="px-2 pt-2 text-ui-xs leading-5 text-amber-500">
+                      {account.detail ?? "The account service is unavailable."}
+                    </p>
+                  )}
+                </>
+              )}
+            </MenuContent>
+          </Menu>
           <Tooltip>
             <TooltipTrigger
               render={
@@ -293,6 +421,22 @@ export function AppShell({
               <Keyboard size={15} />
             </TooltipTrigger>
             <TooltipContent>Keyboard shortcuts ({isMac ? "⌘/" : "Ctrl+/"})</TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <Button
+                  className="shrink-0"
+                  size="icon-lg"
+                  variant={destination === "settings" ? "secondary" : "ghost"}
+                  aria-label="Settings"
+                  onClick={onSettings}
+                />
+              }
+            >
+              <SettingsIcon size={15} />
+            </TooltipTrigger>
+            <TooltipContent>Settings</TooltipContent>
           </Tooltip>
         </div>
 

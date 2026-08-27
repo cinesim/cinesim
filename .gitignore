@@ -7,6 +7,10 @@ coverage/
 *.tsbuildinfo
 .vite/
 .vite-hooks/_/
+.env
+.env.*
+!.env.example
+apps/api/public/auth-ui/
 
 # Cinesim project runtime/derived media. Canonical project state lives in
 # cinesim.json and .cinesim/; this directory is always disposable.

@@ -1,0 +1,33 @@
+name: cinesim-local
+
+services:
+  postgres:
+    image: postgres:17.11-alpine3.24
+    environment:
+      POSTGRES_DB: cinesim
+      POSTGRES_PASSWORD: cinesim-local
+      POSTGRES_USER: cinesim
+    ports:
+      - "127.0.0.1:54329:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U cinesim -d cinesim"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+    volumes:
+      - cinesim-postgres:/var/lib/postgresql/data
+
+  mailpit:
+    image: axllent/mailpit:v1.30.0
+    environment:
+      MP_DATABASE: /data/mailpit.db
+      MP_MAX_MESSAGES: "500"
+    ports:
+      - "127.0.0.1:1025:1025"
+      - "127.0.0.1:8025:8025"
+    volumes:
+      - cinesim-mailpit:/data
+
+volumes:
+  cinesim-postgres:
+  cinesim-mailpit:

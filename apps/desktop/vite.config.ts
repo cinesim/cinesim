@@ -21,6 +21,9 @@ const rootDirectory = fileURLToPath(new URL(".", import.meta.url));
 export default defineConfig(({ mode }) => {
   if (mode === "main") {
     return {
+      define: {
+        __CINESIM_CLOUD_ORIGIN__: JSON.stringify(process.env.CINESIM_CLOUD_ORIGIN ?? ""),
+      },
       // Electron main runs in Node. Do not let packages with a `browser` field
       // (for example Pino) resolve to browser shims during bundling.
       resolve: {

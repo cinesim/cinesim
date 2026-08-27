@@ -1,0 +1,243 @@
+@import "@fontsource-variable/geist/wght.css";
+@import "../../../../packages/ui/src/tokens.css";
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  min-width: 320px;
+  min-height: 100vh;
+  margin: 0;
+  background: var(--ui-canvas);
+  color: var(--ui-text);
+}
+
+button,
+input {
+  font: inherit;
+}
+
+button {
+  cursor: pointer;
+}
+
+button:focus-visible,
+input:focus-visible {
+  outline: 2px solid var(--ui-focus);
+  outline-offset: 2px;
+}
+
+[hidden] {
+  display: none !important;
+}
+
+.auth-shell {
+  display: grid;
+  min-height: 100vh;
+  place-content: center;
+  padding: 24px 16px;
+}
+
+.auth-card {
+  width: min(380px, calc(100vw - 32px));
+  border: 1px solid var(--ui-border);
+  border-radius: 12px;
+  background: var(--ui-panel);
+  box-shadow: 0 18px 50px rgb(0 0 0 / 0.14);
+  padding: 24px;
+}
+
+.heading h1,
+.auth-state h1 {
+  margin: 0;
+  font-size: var(--ui-font-size-heading);
+  font-weight: 600;
+  line-height: 24px;
+  letter-spacing: -0.015em;
+}
+
+.heading h1 {
+  margin-bottom: 20px;
+}
+
+.auth-state p {
+  margin: 6px 0 20px;
+  color: var(--ui-text-muted);
+  font-size: var(--ui-font-size-body);
+  line-height: 18px;
+}
+
+.notice {
+  margin-bottom: 14px;
+  border: 1px solid var(--ui-border);
+  border-radius: 6px;
+  background: var(--ui-panel-muted);
+  padding: 8px 10px;
+  color: var(--ui-text-secondary);
+  font-size: var(--ui-font-size-compact);
+  line-height: 16px;
+}
+
+.notice[data-kind="error"] {
+  border-color: #b42318;
+  background: color-mix(in srgb, #b42318 10%, var(--ui-panel));
+  color: #d92d20;
+}
+
+.google-button,
+.primary-button {
+  display: flex;
+  width: 100%;
+  height: 36px;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border-radius: 6px;
+  font-size: var(--ui-font-size-body);
+  font-weight: 500;
+  transition: background-color 100ms ease;
+}
+
+.google-button,
+.primary-button {
+  border: 1px solid var(--ui-accent);
+  background: var(--ui-accent);
+  color: var(--ui-on-accent);
+}
+
+.google-button:hover:not(:disabled),
+.primary-button:hover:not(:disabled) {
+  background: var(--ui-accent-hover);
+}
+
+.google-button:disabled,
+.primary-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.4;
+}
+
+.provider-help {
+  margin: 7px 0 0;
+  color: var(--ui-text-muted);
+  font-size: var(--ui-font-size-compact);
+  line-height: 16px;
+  text-align: center;
+}
+
+.divider {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 18px 0 14px;
+  color: var(--ui-text-muted);
+  font-size: var(--ui-font-size-compact);
+}
+
+.divider::before,
+.divider::after {
+  height: 1px;
+  flex: 1;
+  background: var(--ui-border);
+  content: "";
+}
+
+.mode-switch {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  margin-bottom: 16px;
+  border-bottom: 1px solid var(--ui-border);
+}
+
+.mode-switch button {
+  position: relative;
+  height: 36px;
+  border: 0;
+  background: transparent;
+  color: var(--ui-text-secondary);
+  font-size: var(--ui-font-size-body);
+}
+
+.mode-switch button:hover:not(:disabled) {
+  color: var(--ui-text);
+}
+
+.mode-switch button[aria-selected="true"] {
+  color: var(--ui-text);
+  font-weight: 500;
+}
+
+.mode-switch button[aria-selected="true"]::after {
+  position: absolute;
+  right: 8px;
+  bottom: -1px;
+  left: 8px;
+  height: 1px;
+  background: var(--ui-text);
+  content: "";
+}
+
+form {
+  display: grid;
+  gap: 12px;
+}
+
+label {
+  display: grid;
+  gap: 5px;
+  color: var(--ui-text-secondary);
+  font-size: var(--ui-font-size-compact);
+  font-weight: 500;
+}
+
+input {
+  width: 100%;
+  height: 36px;
+  border: 1px solid var(--ui-border);
+  border-radius: 6px;
+  outline: none;
+  background: var(--ui-canvas);
+  padding: 0 10px;
+  color: var(--ui-text);
+  font-size: var(--ui-font-size-body);
+}
+
+input:focus {
+  border-color: var(--ui-border-strong);
+}
+
+.primary-button {
+  margin-top: 2px;
+}
+
+.privacy-note {
+  margin: 16px 8px 0;
+  color: var(--ui-text-muted);
+  font-size: var(--ui-font-size-compact);
+  line-height: 16px;
+  text-align: center;
+}
+
+.auth-state {
+  padding: 20px 0 4px;
+  text-align: center;
+}
+
+.success-mark {
+  display: grid;
+  width: 40px;
+  height: 40px;
+  margin: 0 auto 16px;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--ui-accent);
+  color: var(--ui-on-accent);
+  font-size: var(--ui-font-size-heading);
+}
+
+@media (prefers-color-scheme: dark) {
+  .notice[data-kind="error"] {
+    border-color: #7a271a;
+    color: #f97066;
+  }
+}

@@ -7,11 +7,17 @@ const port = Number(
     5173,
 );
 const url = `http://127.0.0.1:${port}`;
+const workspaceDirectory = fileURLToPath(new URL("../../../", import.meta.url));
 const logDirectory = fileURLToPath(new URL("../../../.context/logs/", import.meta.url));
 const children = [];
 
 function run(command, args, options = {}) {
-  const child = spawn(command, args, { stdio: "inherit", env: process.env, ...options });
+  const child = spawn(command, args, {
+    cwd: workspaceDirectory,
+    stdio: "inherit",
+    env: process.env,
+    ...options,
+  });
   children.push(child);
   child.on("exit", (code) => {
     if (code && !stopping) shutdown(code);

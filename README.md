@@ -19,6 +19,18 @@ vp install
 vp run desktop:dev
 ```
 
+The ordinary desktop command remains local-only and does not require an account. To develop the
+optional account flow, install Docker Desktop and run:
+
+```bash
+pnpm auth:setup
+pnpm dev:local
+```
+
+The setup creates an ignored local secret, starts PostgreSQL and Mailpit, and applies committed auth
+migrations. See [local authentication](docs/authentication.md) for email verification, Google OAuth,
+service addresses, and the production mapping.
+
 `vp install` also installs the repository's Vite+ pre-commit hook. The hook runs formatting,
 linting, and type-aware checks against staged files and applies safe fixes before the commit.
 

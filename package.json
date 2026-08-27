@@ -8,6 +8,10 @@
   "scripts": {
     "prepare": "vp config --no-agent",
     "dev": "vp run desktop:dev",
+    "dev:local": "node tools/dev-local.mjs",
+    "auth:setup": "pnpm --filter @cinesim/api local:setup",
+    "auth:down": "docker compose -f compose.yaml down",
+    "auth:logs": "docker compose -f compose.yaml logs --tail=100 postgres mailpit",
     "build": "vp run desktop:build",
     "check": "vp check",
     "test": "vp test --run",
