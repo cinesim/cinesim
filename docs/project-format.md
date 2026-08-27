@@ -18,7 +18,17 @@
 
 `.cinesim/assets.json` and `.cinesim/timeline.json` are deterministic machine-edited canonical files. `.cinesim/settings.toml` is canonical and intentionally comfortable to edit by hand. All carry `version = 1` semantics and future versions are rejected until a migration exists.
 
-`.video/` is local derived state. It is ignored in the project-level `.gitignore` created by Cinesim and can always be deleted and regenerated. A newly imported original remains at its source path before, during, and after private cloud upload; Cinesim never moves or deletes that user-owned file. Once the cloud object and local edit proxy are verified, Cinesim commits an opaque cloud source through `asset.setSource`. An explicit **Keep downloaded** action streams a disposable copy to `.video/originals/<asset-id>` without changing canonical state.
+`.video/` is local generated state and is ignored in the project-level `.gitignore` created by
+Cinesim. Ordinary local-project imports reference their selected source path in place. Because
+Apple Photos can provide a temporary picker export instead of a durable path, that specific local
+import is copied to `.video/originals/<asset-id>` and depends on the managed copy until re-linked.
+
+Cloud-project imports retain an ordinary user-owned source before, during, and after private cloud
+upload; Cinesim never moves or deletes it. A temporary macOS picker export is the exception: Cinesim
+copies it into `.video/originals/` for stable upload staging, then removes only that managed copy
+after the cloud object and local proxy are verified. Cinesim commits an opaque cloud source through
+`asset.setSource`. An explicit **Keep downloaded** action streams a disposable copy to
+`.video/originals/<asset-id>` without changing canonical state.
 
 ## Timeline ordering and compatibility
 

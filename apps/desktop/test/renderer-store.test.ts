@@ -55,6 +55,12 @@ const SIGNED_IN_ACCOUNT: AccountSnapshot = {
   },
 };
 
+const SIGNED_OUT_ACCOUNT: AccountSnapshot = {
+  ...INITIAL_ACCOUNT_STATE,
+  status: "signed-out",
+  serviceAvailable: true,
+};
+
 function deferred<T>() {
   let resolve!: (value: T) => void;
   const promise = new Promise<T>((next) => {
@@ -119,6 +125,35 @@ describe("renderer project controller", () => {
     await Promise.all([firstInitialization, secondInitialization]);
     expect(store.getState().project.status).toBe("ready");
     expect(store.getState().accountHydrated).toBe(true);
+  });
+
+  it("keeps a local project open after sign-out", async () => {
+    const session = sessionFixture();
+    const store = createRendererStore({
+      api: apiFixture({ getSession: async () => session }),
+    });
+    await store.getState().initialize();
+
+    store.getState().setAccount(SIGNED_OUT_ACCOUNT);
+
+    expect(store.getState().project).toEqual({ status: "ready", session });
+  });
+
+  it("closes a cloud project view after sign-out", async () => {
+    const session = sessionFixture();
+    session.project = createProject({
+      name: "Cloud fixture",
+      cloudProjectId: "cloud_project_fixture0000001",
+    });
+    const store = createRendererStore({
+      api: apiFixture({ getSession: async () => session }),
+    });
+    await store.getState().initialize();
+
+    store.getState().setAccount(SIGNED_OUT_ACCOUNT);
+
+    expect(store.getState().project).toEqual({ status: "idle" });
+    expect(store.getState().destination).toBe("home");
   });
 
   it("hydrates and updates disposable cloud-original downloads", async () => {

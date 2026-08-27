@@ -1,8 +1,12 @@
 # Cloud originals
 
-Cinesim requires an account and prefers cloud storage for original media whenever the configured
-service is available. The canonical project remains local, portable, and inspectable; a
-cloud-backed asset stores only an opaque
+Cinesim offers separate, immutable **Cloud** and **Local** project kinds. The Home page lists Cloud
+above Local and explains the distinction without blocking signed-out use. Local projects never
+require an account. Creating or opening a cloud project requires the owning account, and every
+supported original imported into that project is queued for private cloud storage. Project kinds
+cannot be converted or mixed.
+
+The canonical project remains local, portable, and inspectable; a cloud-backed asset stores only an opaque
 `cloud_asset_…` locator. Credentials, bucket names, object keys, upload URLs, and account cookies
 never enter canonical project files or the renderer.
 
@@ -22,8 +26,9 @@ never enter canonical project files or the renderer.
 
 ## Upload and offload lifecycle
 
-1. Import commits the local asset and automatically queues its original for the signed-in account.
-   Opening a project also reconciles any eligible local originals that were waiting while offline.
+1. Import into a cloud project commits the local asset and automatically queues its original for
+   the signed-in account. Opening a cloud project also reconciles eligible originals that were
+   waiting while offline. Local-project imports never enter the cloud queue.
 2. Cinesim queues the configured local edit proxy, fingerprints the source edges, and streams a
    full SHA-256 calculation.
 3. The API reserves the source byte count under an account row lock before it creates a private R2
@@ -35,6 +40,13 @@ never enter canonical project files or the renderer.
    bytes to used bytes.
 6. Only after both the cloud original and local proxy are ready does Cinesim commit
    `asset.setSource`. The file originally selected by the user is never moved, renamed, or deleted.
+
+Normal local imports reference the selected filesystem path in place. macOS may export selections
+from Apple Photos through its temporary directory; for those selections only, Cinesim first makes a
+verified managed copy at `.video/originals/<asset-id>`. A local project keeps that path as its source
+because the picker export can disappear. A cloud project uses the copy as resumable upload staging
+and removes only that Cinesim-owned copy after upload and proxy finalization. The Photos export
+itself is never modified.
 
 A cloud-backed asset offers **Keep downloaded** in its Media Bin context menu. This streams a
 verified disposable copy to `.video/originals/<asset-id>` and changes the action to **Remove
@@ -98,8 +110,10 @@ the bucket private and never put R2 credentials into desktop build-time variable
 
 ## End-to-end checklist
 
-1. Start the API and confirm the desktop gates project access until sign-in succeeds.
-2. Confirm **Cloud storage** is present after sign-in and that offline reopening retains the cached
+1. Start signed out. Confirm local create/open/edit and local agents work, while a cloud create asks
+   for sign-in inline rather than replacing the Home screen.
+2. Sign in, confirm Cloud and Local remain separate collapsible Home sections, then confirm **Cloud
+   storage** is present and offline reopening retains the cached
    account identity.
 3. Import a video with audio and confirm upload starts without a per-asset prompt. Confirm card
    progress survives closing and reopening the app as a paused, retryable transfer.
@@ -115,6 +129,9 @@ the bucket private and never put R2 credentials into desktop build-time variable
    original bytes should report that cloud storage is unavailable without corrupting the project.
 9. Choose **Keep downloaded**, confirm `.video/originals/<asset-id>` is used offline, then choose
    **Remove download** and confirm only that disposable copy is removed.
+10. Import ordinary filesystem media into a local project and confirm it remains an in-place
+    reference. Import from Apple Photos and confirm the local project instead references its managed
+    `.video/originals/<asset-id>` copy.
 
 Still-image import is not currently exposed by the desktop media picker; cloud offload therefore
 accepts the editor's supported video and audio originals.

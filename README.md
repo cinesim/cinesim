@@ -81,10 +81,11 @@ my-project/
     └── runtime/
 ```
 
-Local source media is referenced in place and is never moved or deleted by cloud upload. Supported
-originals are automatically stored privately after a local edit proxy is ready. Users can
-explicitly keep a disposable copy under `.video/originals/`; deleting `.video/` remains safe and
-cloud-backed originals and proxies can be downloaded or regenerated while online.
+Local projects work without an account and reference ordinary source media in place. Temporary
+Apple Photos picker exports receive a managed copy under `.video/originals/` so they do not vanish.
+Cloud projects require sign-in and automatically store supported originals privately after a local
+edit proxy is ready. Users can explicitly keep or remove a disposable downloaded original under
+`.video/originals/`; external source files are never moved or deleted.
 
 See [technical decisions](docs/technical-decisions.md), [project format](docs/project-format.md),
 [cloud originals](docs/cloud-storage.md), and [dependency licenses](docs/dependencies.md).

@@ -2,6 +2,9 @@
 
 Cinesim authentication is optional and does not participate in canonical project editing. The
 desktop remains fully usable in local mode when the API, database, or network is unavailable.
+Local projects are device-wide and can be created, opened, edited, and used with local agents while
+signed out. Authentication is requested only when the user creates or opens a cloud project, views
+cloud storage, or performs another cloud-only action.
 
 ## Components
 

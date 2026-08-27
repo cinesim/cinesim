@@ -14,6 +14,99 @@ afterEach(async () => {
   );
 });
 
+async function completeUpload(managedSource: boolean) {
+  const directory = await mkdtemp(join(tmpdir(), "cinesim-cloud-source-"));
+  temporaryDirectories.push(directory);
+  if (managedSource) await mkdir(join(directory, ".video", "originals"), { recursive: true });
+  const sourcePath = managedSource
+    ? join(directory, ".video", "originals", "asset_fixture")
+    : join(directory, "source.mov");
+  const sourceBytes = new Uint8Array([1, 2, 3]);
+  await writeFile(sourcePath, sourceBytes);
+  let project = createProject({
+    name: "Fixture",
+    cloudProjectId: "cloud_project_fixture0000001",
+  });
+  project = applyCommand(project, {
+    type: "asset.import",
+    asset: {
+      id: "asset_fixture",
+      name: "source.mov",
+      kind: "video",
+      source: { kind: "local", path: sourcePath },
+      durationUs: 1_000_000,
+    },
+  }).project;
+  const account = {
+    cachedUser: () => ({ id: "user_fixture" }),
+    requireCachedUser: () => ({ id: "user_fixture" }),
+    snapshot: async () => ({
+      status: "signed-in",
+      cloudStorage: true,
+      user: { id: "user_fixture" },
+    }),
+    registerProject: async () => ({ id: "cloud_project_fixture0000001" }),
+    authenticatedFetch: async (path: string) => {
+      if (path === "/api/v1/cloud/uploads")
+        return new Response(
+          JSON.stringify({
+            id: "cloud_upload_fixture0000001",
+            cloudAssetId: "cloud_asset_fixture00000001",
+            partSize: 64,
+            bytes: sourceBytes.byteLength,
+            parts: [],
+          }),
+        );
+      if (path.endsWith("/parts/sign"))
+        return new Response(
+          JSON.stringify({
+            parts: [
+              {
+                partNumber: 1,
+                url: "https://fixture.r2.cloudflarestorage.com/upload-part",
+              },
+            ],
+          }),
+        );
+      return new Response(JSON.stringify({}));
+    },
+  };
+  const projectStore = {
+    directory,
+    project,
+    derivedMedia: {
+      queueProxy: async () => undefined,
+      waitForProxy: async () => undefined,
+    },
+    execute: async (command: Parameters<typeof applyCommand>[1]) => {
+      projectStore.project = applyCommand(projectStore.project, command).project;
+      return projectStore.session();
+    },
+    session: () => ({ project: projectStore.project, directory }),
+  };
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () =>
+      Promise.resolve(
+        new Response(null, {
+          status: 200,
+          headers: { etag: '"0123456789abcdef0123456789abcdef"' },
+        }),
+      ),
+    ),
+  );
+  const manager = new CloudMediaManager(
+    join(directory, "transfers.json"),
+    account as never,
+    projectStore as never,
+  );
+
+  await manager.queue(["asset_fixture"], managedSource ? ["asset_fixture"] : []);
+  await vi.waitFor(() => expect(projectStore.project.assets[0]?.source.kind).toBe("cloud"));
+  await vi.waitFor(() => expect(manager.snapshots()[0]?.state).toBe("complete"));
+  return { projectStore, sourceBytes, sourcePath };
+}
+
 describe("CloudMediaManager transfer journal", () => {
   it("loads interrupted work as paused and keeps completed part progress", async () => {
     const directory = await mkdtemp(join(tmpdir(), "cinesim-cloud-journal-"));
@@ -146,100 +239,19 @@ describe("CloudMediaManager transfer journal", () => {
   });
 
   it("keeps the user-owned import in place after cloud upload finalization", async () => {
-    const directory = await mkdtemp(join(tmpdir(), "cinesim-cloud-source-"));
-    temporaryDirectories.push(directory);
-    const sourcePath = join(directory, "source.mov");
-    const sourceBytes = new Uint8Array([1, 2, 3]);
-    await writeFile(sourcePath, sourceBytes);
-    let project = createProject({
-      name: "Fixture",
-      cloudProjectId: "cloud_project_fixture0000001",
-    });
-    project = applyCommand(project, {
-      type: "asset.import",
-      asset: {
-        id: "asset_fixture",
-        name: "source.mov",
-        kind: "video",
-        source: { kind: "local", path: sourcePath },
-        durationUs: 1_000_000,
-      },
-    }).project;
-    const account = {
-      cachedUser: () => ({ id: "user_fixture" }),
-      requireCachedUser: () => ({ id: "user_fixture" }),
-      snapshot: async () => ({
-        status: "signed-in",
-        cloudStorage: true,
-        user: { id: "user_fixture" },
-      }),
-      registerProject: async () => ({ id: "cloud_project_fixture0000001" }),
-      authenticatedFetch: async (path: string) => {
-        if (path === "/api/v1/cloud/uploads")
-          return new Response(
-            JSON.stringify({
-              id: "cloud_upload_fixture0000001",
-              cloudAssetId: "cloud_asset_fixture00000001",
-              partSize: 64,
-              bytes: sourceBytes.byteLength,
-              parts: [],
-            }),
-          );
-        if (path.endsWith("/parts/sign"))
-          return new Response(
-            JSON.stringify({
-              parts: [
-                {
-                  partNumber: 1,
-                  url: "https://fixture.r2.cloudflarestorage.com/upload-part",
-                },
-              ],
-            }),
-          );
-        return new Response(JSON.stringify({}));
-      },
-    };
-    const projectStore = {
-      directory,
-      project,
-      derivedMedia: {
-        queueProxy: async () => undefined,
-        waitForProxy: async () => undefined,
-      },
-      execute: async (command: Parameters<typeof applyCommand>[1]) => {
-        projectStore.project = applyCommand(projectStore.project, command).project;
-        return projectStore.session();
-      },
-      session: () => ({ project: projectStore.project, directory }),
-    };
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async () =>
-        Promise.resolve(
-          new Response(null, {
-            status: 200,
-            headers: { etag: '"0123456789abcdef0123456789abcdef"' },
-          }),
-        ),
-      ),
-    );
-    const manager = new CloudMediaManager(
-      join(directory, "transfers.json"),
-      account as never,
-      projectStore as never,
-    );
-
-    await manager.queue(["asset_fixture"]);
-    for (let attempt = 0; attempt < 100; attempt += 1) {
-      if (projectStore.project.assets[0]?.source.kind === "cloud") break;
-      await new Promise((resolve) => setTimeout(resolve, 5));
-    }
+    const { projectStore, sourceBytes, sourcePath } = await completeUpload(false);
 
     expect(projectStore.project.assets[0]?.source).toEqual({
       kind: "cloud",
       cloudAssetId: "cloud_asset_fixture00000001",
     });
     await expect(readFile(sourcePath)).resolves.toEqual(Buffer.from(sourceBytes));
+  });
+
+  it("removes only a managed temporary staging copy after cloud upload", async () => {
+    const { sourcePath } = await completeUpload(true);
+
+    await expect(readFile(sourcePath)).rejects.toThrow();
   });
 
   it("keeps and removes only the disposable downloaded original", async () => {

@@ -223,7 +223,7 @@ export class DesktopAccountService {
         user,
         detail: user
           ? "Cinesim is offline. Local projects remain available and cloud work will resume automatically."
-          : "The authentication service is unavailable. Connect to sign in before using Cinesim.",
+          : "The authentication service is unavailable. Local projects remain available without signing in.",
       });
     }
   }
@@ -254,7 +254,7 @@ export class DesktopAccountService {
 
   requireCachedUser(): AccountUser {
     const user = this.cachedUser();
-    if (!user) throw new Error("Sign in before accessing Cinesim projects");
+    if (!user) throw new Error("Sign in before accessing cloud projects");
     return user;
   }
 

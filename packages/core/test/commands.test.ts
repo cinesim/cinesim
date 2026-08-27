@@ -68,6 +68,14 @@ describe("editing commands", () => {
     expect(() => applyCommand(project, { type: "asset.import", asset: cloudAsset })).toThrow(
       "Cloud-backed media can only be used in a cloud project",
     );
+    const imported = applyCommand(project, { type: "asset.import", asset }).project;
+    expect(() =>
+      applyCommand(imported, {
+        type: "asset.setSource",
+        assetId: asset.id,
+        source: cloudAsset.source,
+      }),
+    ).toThrow("Cloud-backed media can only be used in a cloud project");
   });
 
   it("adds, updates, reorders, and removes tracks through deterministic commands", () => {

@@ -64,7 +64,7 @@ export function registerProjectIpc(
       return;
     }
     if (accountSnapshot.status !== "signed-in")
-      throw new Error("Sign in before accessing Cinesim projects");
+      throw new Error("Sign in before accessing cloud projects");
     await account.registerProject({
       cloudProjectId: manifest.cloudProjectId,
       clientProjectId: manifest.id,
@@ -85,6 +85,12 @@ export function registerProjectIpc(
     if (typeof name !== "string" || name.trim().length === 0 || name.length > 120)
       throw new Error("Invalid project name");
     if (kind !== "local" && kind !== "cloud") throw new Error("Invalid project kind");
+    if (kind === "cloud") {
+      const accountSnapshot = await account.snapshot();
+      if (accountSnapshot.status !== "signed-in" || !accountSnapshot.user)
+        throw new Error("Sign in before creating a cloud project");
+      appState.setAccount(accountSnapshot.user.id);
+    }
     const selection = await dialog.showOpenDialog({
       title: "Choose a parent folder for the new Cinesim project",
       buttonLabel: "Create here",
@@ -94,10 +100,6 @@ export function registerProjectIpc(
     const projectId = `project_${randomUUID().replaceAll("-", "")}` as ProjectId;
     let cloudProjectId: CloudProjectId | undefined;
     if (kind === "cloud") {
-      const accountSnapshot = await account.snapshot();
-      if (accountSnapshot.status !== "signed-in" || !accountSnapshot.user)
-        throw new Error("Sign in before creating a cloud project");
-      appState.setAccount(accountSnapshot.user.id);
       const registration = await account.registerProject({ clientProjectId: projectId, name });
       cloudProjectId = registration.id as CloudProjectId;
     }
