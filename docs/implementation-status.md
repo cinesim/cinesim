@@ -2,16 +2,18 @@
 
 This report distinguishes implemented behavior from code paths that require interactive Electron/media testing. The repository was built without launching Electron at the user's request.
 
-## Optional local authentication
+## Account-backed local projects
 
-The repository includes a local Better Auth slice with Hono, PostgreSQL, Drizzle migrations, Mailpit
+The repository includes a Better Auth slice with Hono, PostgreSQL, Drizzle migrations, Mailpit
 email verification, conditional Google OAuth, and Better Auth's Electron PKCE integration. Local
 development uses a loopback-only callback because macOS custom protocols require a packaged app;
 packaged builds retain the declared custom-protocol callback.
 The renderer exposes only account snapshots and sign-in/sign-out intents; OS-backed Electron
-`safeStorage` encrypts persisted cookies. Settings and the sidebar represent local, offline, and
-signed-in states without coupling authentication to project editing. Interactive browser, email, and
-custom-protocol behavior still requires the requested user-run Electron test.
+`safeStorage` encrypts persisted cookies. First use is account-gated. A cached account identity
+allows its already-registered local projects to reopen offline, while project paths, UI state, and
+resumable media transfers remain isolated by account. PostgreSQL stores the account-owned project
+catalog and cloud media control plane; canonical editing files remain local. Interactive browser,
+email, and custom-protocol behavior still requires the requested user-run Electron test.
 
 ## Monorepo
 

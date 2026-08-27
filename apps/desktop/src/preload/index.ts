@@ -10,7 +10,6 @@ const api: DesktopApi = {
   configureCloudStorageAddon: (addonBytes) =>
     ipcRenderer.invoke("cloud:configure-addon", addonBytes),
   getCloudTransfers: () => ipcRenderer.invoke("cloud:transfers"),
-  storeAssetsInCloud: (assetIds) => ipcRenderer.invoke("cloud:store-assets", assetIds),
   retryCloudTransfer: (assetId) => ipcRenderer.invoke("cloud:retry", assetId),
   cancelCloudTransfer: (assetId) => ipcRenderer.invoke("cloud:cancel", assetId),
   trashCloudAssets: (cloudAssetIds) => ipcRenderer.invoke("cloud:trash-assets", cloudAssetIds),

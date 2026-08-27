@@ -96,68 +96,79 @@ function parseState(value: unknown): DesktopAppState {
 }
 
 export class DesktopAppStateStore {
-  #state: DesktopAppState = structuredClone(EMPTY_STATE);
+  #accounts: Record<string, DesktopAppState> = {};
+  #accountId: string | null = null;
   #writeQueue: Promise<void> = Promise.resolve();
 
   constructor(private readonly path: string) {}
 
   async load(): Promise<void> {
     try {
-      this.#state = parseState(JSON.parse(await readFile(this.path, "utf8")) as unknown);
+      const parsed = JSON.parse(await readFile(this.path, "utf8")) as unknown;
+      if (!isRecord(parsed) || parsed.version !== 2 || !isRecord(parsed.accounts)) return;
+      for (const [accountId, state] of Object.entries(parsed.accounts)) {
+        if (accountId) this.#accounts[accountId] = parseState(state);
+      }
     } catch {
-      this.#state = structuredClone(EMPTY_STATE);
+      this.#accounts = {};
     }
   }
 
+  setAccount(accountId: string | null): void {
+    this.#accountId = accountId;
+  }
+
   snapshot(): DesktopAppState {
-    return structuredClone(this.#state);
+    return structuredClone(this.#current());
   }
 
   hasRecent(directory: string): boolean {
-    return this.#state.recentProjects.some((project) => project.directory === directory);
+    return this.#current().recentProjects.some((project) => project.directory === directory);
   }
 
   async rememberProject(project: RecentProject): Promise<void> {
-    this.#state.recentProjects = [
+    const state = this.#requireCurrent();
+    state.recentProjects = [
       project,
-      ...this.#state.recentProjects.filter((recent) => recent.directory !== project.directory),
+      ...state.recentProjects.filter((recent) => recent.directory !== project.directory),
     ].slice(0, 12);
     await this.#queueSave();
   }
 
   async forgetProject(directory: string): Promise<void> {
-    this.#state.recentProjects = this.#state.recentProjects.filter(
+    const state = this.#requireCurrent();
+    state.recentProjects = state.recentProjects.filter(
       (project) => project.directory !== directory,
     );
-    delete this.#state.mediaPoolOpenByProject[directory];
-    delete this.#state.inspectorOpenByProject[directory];
-    delete this.#state.notesOpenByProject[directory];
-    delete this.#state.editorLayoutsByProject[directory];
+    delete state.mediaPoolOpenByProject[directory];
+    delete state.inspectorOpenByProject[directory];
+    delete state.notesOpenByProject[directory];
+    delete state.editorLayoutsByProject[directory];
     await this.#queueSave();
   }
 
   async setMediaPoolOpen(directory: string, open: boolean): Promise<void> {
-    this.#state.mediaPoolOpenByProject[directory] = open;
+    this.#requireCurrent().mediaPoolOpenByProject[directory] = open;
     await this.#queueSave();
   }
 
   async setInspectorOpen(directory: string, open: boolean): Promise<void> {
-    this.#state.inspectorOpenByProject[directory] = open;
+    this.#requireCurrent().inspectorOpenByProject[directory] = open;
     await this.#queueSave();
   }
 
   async setNotesOpen(directory: string, open: boolean): Promise<void> {
-    this.#state.notesOpenByProject[directory] = open;
+    this.#requireCurrent().notesOpenByProject[directory] = open;
     await this.#queueSave();
   }
 
   async setEditorLayout(directory: string, layout: EditorLayoutState): Promise<void> {
-    this.#state.editorLayoutsByProject[directory] = structuredClone(layout);
+    this.#requireCurrent().editorLayoutsByProject[directory] = structuredClone(layout);
     await this.#queueSave();
   }
 
   async #queueSave(): Promise<void> {
-    const contents = `${JSON.stringify(this.#state, null, 2)}\n`;
+    const contents = `${JSON.stringify({ version: 2, accounts: this.#accounts }, null, 2)}\n`;
     const write = this.#writeQueue.catch(() => undefined).then(() => this.#save(contents));
     this.#writeQueue = write;
     await write;
@@ -168,5 +179,15 @@ export class DesktopAppStateStore {
     await mkdir(dirname(this.path), { recursive: true });
     await writeFile(temporaryPath, contents, "utf8");
     await rename(temporaryPath, this.path);
+  }
+
+  #current(): DesktopAppState {
+    if (!this.#accountId) return structuredClone(EMPTY_STATE);
+    return (this.#accounts[this.#accountId] ??= structuredClone(EMPTY_STATE));
+  }
+
+  #requireCurrent(): DesktopAppState {
+    if (!this.#accountId) throw new Error("Sign in before changing local project state");
+    return (this.#accounts[this.#accountId] ??= structuredClone(EMPTY_STATE));
   }
 }

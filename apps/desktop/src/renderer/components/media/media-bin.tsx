@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Check,
+  CircleAlert,
   Clock3,
   Cloud,
   Film,
   ListPlus,
   LoaderCircle,
+  Pause,
   RotateCcw,
   Trash2,
   X,
@@ -114,13 +116,15 @@ export function MediaBin({ project, onOpenTimeline }: MediaBinProps) {
   const appendAsset = useRendererStore((state) => state.appendAsset);
   const execute = useRendererStore((state) => state.execute);
   const activeSequenceId = useRendererStore((state) => state.activeSequenceId);
-  const account = useRendererStore((state) => state.account);
   const cloudTransfers = useRendererStore((state) => state.cloudTransfers);
-  const storeAssetsInCloud = useRendererStore((state) => state.storeAssetsInCloud);
   const retryCloudTransfer = useRendererStore((state) => state.retryCloudTransfer);
   const derivedScope = useRendererStore((state) =>
     state.project.status === "ready" ? state.project.session.derivedScope : null,
   );
+  const selectedTransfer =
+    selectedAssets.length === 1
+      ? cloudTransfers.find((transfer) => transfer.assetId === selectedAssets[0]?.id)
+      : undefined;
   const importMedia = useCallback(async () => importProjectMedia(), [importProjectMedia]);
 
   useEffect(() => {
@@ -298,14 +302,6 @@ export function MediaBin({ project, onOpenTimeline }: MediaBinProps) {
     if (result.ok) setPendingDialog(null);
   }
 
-  async function storeSelectedInCloud(): Promise<void> {
-    const localIds = selectedAssets
-      .filter((asset) => asset.source.kind === "local")
-      .map((asset) => asset.id);
-    if (localIds.length > 0) await storeAssetsInCloud(localIds);
-    setContextMenu(null);
-  }
-
   async function generateSelectedProxies(): Promise<void> {
     const mediaIds = selectedAssets
       .filter((asset) => asset.kind === "video" || asset.kind === "audio")
@@ -384,16 +380,34 @@ export function MediaBin({ project, onOpenTimeline }: MediaBinProps) {
           {assets.map((asset) => {
             const selected = selectedAssetIds.has(asset.id);
             const transfer = cloudTransfers.find((candidate) => candidate.assetId === asset.id);
-            const cloudLabel =
+            const storageState =
               asset.source.kind === "cloud"
-                ? "Cloud original"
-                : transfer?.state === "failed"
-                  ? "Cloud upload failed"
-                  : transfer
-                    ? transfer.state === "waiting-for-proxy"
-                      ? "Cloud ready · finishing proxy"
-                      : `${Math.round((transfer.uploadedBytes / Math.max(1, transfer.bytes)) * 100)}% uploaded`
-                    : null;
+                ? { label: "Cloud original", icon: <Cloud size={10} /> }
+                : transfer?.state === "waiting-for-cloud"
+                  ? { label: "Waiting for cloud", icon: <Pause size={10} /> }
+                  : transfer?.state === "failed"
+                    ? {
+                        label: "Cloud upload failed",
+                        icon: <CircleAlert size={10} className="text-red-400" />,
+                      }
+                    : transfer?.state === "paused"
+                      ? { label: "Cloud upload paused", icon: <Pause size={10} /> }
+                      : transfer?.state === "waiting-for-proxy"
+                        ? {
+                            label: "Cloud ready · finishing proxy",
+                            icon: <LoaderCircle size={10} className="animate-spin" />,
+                          }
+                        : transfer?.state === "preparing"
+                          ? {
+                              label: "Preparing cloud upload",
+                              icon: <LoaderCircle size={10} className="animate-spin" />,
+                            }
+                          : transfer?.state === "uploading"
+                            ? {
+                                label: `${Math.round((transfer.uploadedBytes / Math.max(1, transfer.bytes)) * 100)}% uploaded`,
+                                icon: <LoaderCircle size={10} className="animate-spin" />,
+                              }
+                            : { label: "Local original", icon: <Film size={10} /> };
             return (
               <div key={asset.id} data-asset-id={asset.id}>
                 <PreviewCard
@@ -411,16 +425,13 @@ export function MediaBin({ project, onOpenTimeline }: MediaBinProps) {
                   }
                   bottomCorner={
                     <div className="flex items-center gap-1.5">
-                      {cloudLabel && (
-                        <span className="flex items-center gap-1 rounded bg-panel/90 px-1.5 py-0.5 text-ui-xs text-secondary">
-                          {transfer && transfer.state !== "failed" ? (
-                            <LoaderCircle size={10} className="animate-spin" />
-                          ) : (
-                            <Cloud size={10} />
-                          )}
-                          {cloudLabel}
-                        </span>
-                      )}
+                      <span
+                        className="flex items-center gap-1 rounded bg-panel/90 px-1.5 py-0.5 text-ui-xs text-secondary"
+                        title={transfer?.error ?? storageState.label}
+                      >
+                        {storageState.icon}
+                        {storageState.label}
+                      </span>
                       <span className="rounded bg-panel/90 px-1.5 py-0.5 text-ui-xs tabular-nums text-secondary">
                         {formatDuration(asset.durationUs)}
                       </span>
@@ -478,17 +489,6 @@ export function MediaBin({ project, onOpenTimeline }: MediaBinProps) {
                 <ListPlus size={14} /> Create Timeline from {selectedCount}{" "}
                 {selectedCount === 1 ? "Asset" : "Assets"}
               </button>
-              {account.status === "signed-in" &&
-                account.cloudStorage === true &&
-                selectedAssets.some((asset) => asset.source.kind === "local") && (
-                  <button
-                    role="menuitem"
-                    className="flex min-h-10 w-full items-center gap-2 rounded-lg px-2.5 text-left text-ui hover:bg-surface"
-                    onClick={() => void storeSelectedInCloud()}
-                  >
-                    <Cloud size={14} /> Move original{selectedCount === 1 ? "" : "s"} to cloud
-                  </button>
-                )}
               {selectedAssets.some((asset) => asset.kind === "video" || asset.kind === "audio") && (
                 <button
                   role="menuitem"
@@ -498,9 +498,8 @@ export function MediaBin({ project, onOpenTimeline }: MediaBinProps) {
                   <Film size={14} /> Generate edit {selectedCount === 1 ? "proxy" : "proxies"}
                 </button>
               )}
-              {selectedAssets.length === 1 &&
-                cloudTransfers.find((transfer) => transfer.assetId === selectedAssets[0]?.id)
-                  ?.state === "failed" && (
+              {selectedTransfer &&
+                ["waiting-for-cloud", "paused", "failed"].includes(selectedTransfer.state) && (
                   <button
                     role="menuitem"
                     className="flex min-h-10 w-full items-center gap-2 rounded-lg px-2.5 text-left text-ui hover:bg-surface"

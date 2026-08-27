@@ -1,7 +1,9 @@
 import { nextId } from "../ids";
+import type { ProjectId } from "../ids";
 import type { Project } from "./types";
 
 export interface CreateProjectOptions {
+  id?: ProjectId;
   name: string;
   width?: number;
   height?: number;
@@ -16,7 +18,7 @@ export function createProject(options: CreateProjectOptions): Project {
 
   return {
     version: 1,
-    id: projectId,
+    id: options.id ?? projectId,
     name: options.name.trim() || "Untitled project",
     activeSequenceId: sequenceId,
     assets: [],

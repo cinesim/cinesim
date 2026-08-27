@@ -116,7 +116,6 @@ export interface RendererState {
   beginAccountSignIn: (method: "email" | "google") => Promise<ActionResult<void>>;
   signOutAccount: () => Promise<ActionResult<AccountSnapshot>>;
   setCloudTransfers: (snapshot: CloudTransferSnapshot[]) => void;
-  storeAssetsInCloud: (assetIds: string[]) => Promise<ActionResult<CloudTransferSnapshot[]>>;
   retryCloudTransfer: (assetId: string) => Promise<ActionResult<CloudTransferSnapshot[]>>;
   cancelCloudTransfer: (assetId: string) => Promise<ActionResult<CloudTransferSnapshot[]>>;
   updateProjectSettings: (
@@ -134,7 +133,7 @@ export const EMPTY_APP_STATE: DesktopAppState = {
 };
 
 export const INITIAL_ACCOUNT_STATE: AccountSnapshot = {
-  status: "local",
+  status: "signed-out",
   cloudOrigin: null,
   serviceAvailable: false,
   googleSignIn: false,
@@ -312,6 +311,30 @@ export function createRendererStore({ api, storage }: RendererStoreDependencies)
       }
     }
 
+    async function hydrateAccountWorkspace(): Promise<void> {
+      const [sessionResult, appStateResult, transfersResult] = await Promise.allSettled([
+        api.getSession(),
+        api.getAppState(),
+        api.getCloudTransfers?.() ?? Promise.resolve([]),
+      ]);
+      if (sessionResult.status === "rejected") {
+        const message = messageFrom(sessionResult.reason, "Cinesim could not load your projects");
+        set({
+          project: { status: "failed", previousSession: null, error: message },
+          appState: EMPTY_APP_STATE,
+          cloudTransfers: [],
+          operationError: message,
+        });
+        return;
+      }
+      const appState =
+        appStateResult.status === "fulfilled" ? appStateResult.value : EMPTY_APP_STATE;
+      const cloudTransfers = transfersResult.status === "fulfilled" ? transfersResult.value : [];
+      if (sessionResult.value)
+        set({ ...hydratedProjectState(sessionResult.value, appState), cloudTransfers });
+      else set({ project: { status: "idle" }, appState, cloudTransfers });
+    }
+
     const initialAuxiliaryMode =
       storage?.getItem("cinesim.agentsSidebarOpen") === "true" ? "agents" : null;
 
@@ -346,33 +369,10 @@ export function createRendererStore({ api, storage }: RendererStoreDependencies)
         if (get().project.status !== "booting") return Promise.resolve();
 
         initialization = (async () => {
-          const accountRequest = api.getAccountSnapshot().catch(() => INITIAL_ACCOUNT_STATE);
-          const transfersRequest = (api.getCloudTransfers?.() ?? Promise.resolve([])).catch(
-            () => [],
-          );
-          const [sessionResult, appStateResult] = await Promise.allSettled([
-            api.getSession(),
-            api.getAppState(),
-          ]);
-
-          if (get().project.status === "booting") {
-            if (sessionResult.status === "rejected") {
-              const message = messageFrom(sessionResult.reason, "Cinesim could not start");
-              set({
-                project: { status: "failed", previousSession: null, error: message },
-                operationError: message,
-              });
-            } else {
-              const appState =
-                appStateResult.status === "fulfilled" ? appStateResult.value : EMPTY_APP_STATE;
-              if (sessionResult.value) set(hydratedProjectState(sessionResult.value, appState));
-              else set({ project: { status: "idle" }, appState });
-            }
-          }
-
-          const account = await accountRequest;
-          if (!get().accountHydrated) set({ account, accountHydrated: true });
-          set({ cloudTransfers: await transfersRequest });
+          const account = await api.getAccountSnapshot().catch(() => INITIAL_ACCOUNT_STATE);
+          set({ account, accountHydrated: true });
+          if (account.user) await hydrateAccountWorkspace();
+          else set({ project: { status: "idle" }, appState: EMPTY_APP_STATE, cloudTransfers: [] });
         })();
         return initialization;
       },
@@ -626,7 +626,21 @@ export function createRendererStore({ api, storage }: RendererStoreDependencies)
         set({ derivedMedia });
       },
       setElectronHealth: (electronHealth) => set({ electronHealth }),
-      setAccount: (account) => set({ account, accountHydrated: true }),
+      setAccount: (account) => {
+        const previousUserId = get().account.user?.id ?? null;
+        set({ account, accountHydrated: true });
+        if (!account.user) {
+          set({
+            project: { status: "idle" },
+            appState: EMPTY_APP_STATE,
+            destination: "home",
+            cloudTransfers: [],
+          });
+        } else if (account.user.id !== previousUserId) {
+          set({ project: { status: "booting" }, appState: EMPTY_APP_STATE, cloudTransfers: [] });
+          void hydrateAccountWorkspace();
+        }
+      },
       refreshAccount: async () => {
         try {
           set({ account: await api.getAccountSnapshot(), accountHydrated: true });
@@ -634,7 +648,7 @@ export function createRendererStore({ api, storage }: RendererStoreDependencies)
           set({
             account: {
               ...get().account,
-              status: get().account.user ? "offline" : "local",
+              status: get().account.user ? "offline" : "signed-out",
               serviceAvailable: false,
               detail: "The authentication service is unavailable. Local editing still works.",
             },
@@ -653,24 +667,13 @@ export function createRendererStore({ api, storage }: RendererStoreDependencies)
       signOutAccount: async () => {
         try {
           const account = await api.signOutAccount();
-          set({ account, accountHydrated: true });
+          get().setAccount(account);
           return { ok: true, value: account };
         } catch (error) {
           return { ok: false, error: messageFrom(error, "Could not sign out") };
         }
       },
       setCloudTransfers: (cloudTransfers) => set({ cloudTransfers }),
-      storeAssetsInCloud: async (assetIds) => {
-        try {
-          const cloudTransfers = await api.storeAssetsInCloud(assetIds);
-          set({ cloudTransfers, operationError: null });
-          return { ok: true, value: cloudTransfers };
-        } catch (error) {
-          const message = messageFrom(error, "The media could not be queued for cloud storage");
-          set({ operationError: message });
-          return { ok: false, error: message };
-        }
-      },
       retryCloudTransfer: async (assetId) => {
         try {
           const cloudTransfers = await api.retryCloudTransfer(assetId);

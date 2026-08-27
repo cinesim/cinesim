@@ -10,6 +10,7 @@ import {
 } from "@cinesim/core";
 import type { RuntimeSnapshot } from "@cinesim/engine";
 import type { DesktopApi, DesktopProjectSession } from "../src/shared/api";
+import type { AccountSnapshot } from "../src/shared/api";
 import {
   createRendererStore,
   EMPTY_APP_STATE,
@@ -35,10 +36,24 @@ function apiFixture(overrides: Partial<DesktopApi> = {}): DesktopApi {
   return {
     getSession: async () => null,
     getAppState: async () => EMPTY_APP_STATE,
-    getAccountSnapshot: async () => INITIAL_ACCOUNT_STATE,
+    getAccountSnapshot: async () => SIGNED_IN_ACCOUNT,
     ...overrides,
   } as DesktopApi;
 }
+
+const SIGNED_IN_ACCOUNT: AccountSnapshot = {
+  ...INITIAL_ACCOUNT_STATE,
+  status: "signed-in",
+  serviceAvailable: true,
+  cloudStorage: true,
+  user: {
+    id: "user_fixture",
+    name: "Cine Sim",
+    email: "cine@example.com",
+    emailVerified: true,
+    image: null,
+  },
+};
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -80,9 +95,9 @@ function runtimeFixture(timeUs: number): RuntimeSnapshot {
 }
 
 describe("renderer project controller", () => {
-  it("hydrates local project state without waiting for account networking", async () => {
+  it("waits for account identity before hydrating account-owned projects", async () => {
     const session = sessionFixture();
-    const account = deferred<typeof INITIAL_ACCOUNT_STATE>();
+    const account = deferred<AccountSnapshot>();
     const getSession = vi.fn(async () => session);
     const getAppState = vi.fn(async () => EMPTY_APP_STATE);
     const getAccountSnapshot = vi.fn(() => account.promise);
@@ -93,15 +108,19 @@ describe("renderer project controller", () => {
     const firstInitialization = store.getState().initialize();
     const secondInitialization = store.getState().initialize();
 
-    await vi.waitFor(() => expect(store.getState().project.status).toBe("ready"));
+    await Promise.resolve();
+    expect(store.getState().project.status).toBe("booting");
     expect(store.getState().accountHydrated).toBe(false);
-    expect(getSession).toHaveBeenCalledOnce();
-    expect(getAppState).toHaveBeenCalledOnce();
+    expect(getSession).not.toHaveBeenCalled();
+    expect(getAppState).not.toHaveBeenCalled();
     expect(getAccountSnapshot).toHaveBeenCalledOnce();
 
-    account.resolve(INITIAL_ACCOUNT_STATE);
+    account.resolve(SIGNED_IN_ACCOUNT);
     await Promise.all([firstInitialization, secondInitialization]);
+    expect(store.getState().project.status).toBe("ready");
     expect(store.getState().accountHydrated).toBe(true);
+    expect(getSession).toHaveBeenCalledOnce();
+    expect(getAppState).toHaveBeenCalledOnce();
   });
 
   it("keeps the previous project visible while opening and avoids a second preferences fetch", async () => {

@@ -1,7 +1,8 @@
 # Cloud originals
 
-Cinesim Cloud originals are an optional, signed-in extension of the local-first project format.
-The canonical project remains portable and inspectable; a cloud-backed asset stores only an opaque
+Cinesim requires an account and prefers cloud storage for original media whenever the configured
+service is available. The canonical project remains local, portable, and inspectable; a
+cloud-backed asset stores only an opaque
 `cloud_asset_…` locator. Credentials, bucket names, object keys, upload URLs, and account cookies
 never enter canonical project files or the renderer.
 
@@ -14,15 +15,15 @@ never enter canonical project files or the renderer.
   project and asset IDs are metadata, not authorization boundaries.
 - Every cloud API route resolves the Better Auth session and scopes database reads to that user.
 - Electron main performs bounded file reads and direct signed R2 requests. The sandboxed renderer
-  can only queue, retry, cancel, and inspect typed transfer snapshots through preload IPC.
+  can only retry, cancel, and inspect typed transfer snapshots through preload IPC.
 - The `cinesim-media://` protocol serves local proxies first. If an operation explicitly needs a
   cloud original, Electron main obtains a five-minute download URL and streams ranges without
   revealing the URL to the renderer.
 
 ## Upload and offload lifecycle
 
-1. The user selects **Move original to cloud** from a media card. This action is only present for a
-   signed-in account.
+1. Import commits the local asset and automatically queues its original for the signed-in account.
+   Opening a project also reconciles any eligible local originals that were waiting while offline.
 2. Cinesim queues the configured local edit proxy, fingerprints the source edges, and streams a
    full SHA-256 calculation.
 3. The API reserves the source byte count under an account row lock before it creates a private R2
@@ -36,7 +37,9 @@ never enter canonical project files or the renderer.
    `asset.setSource`. It then moves the former local original to the system Trash. A Trash failure
    leaves the redundant local file in place and does not invalidate the cloud-backed project.
 
-Interrupted `preparing`, `uploading`, or `waiting-for-proxy` work reopens as **Paused**. Retry first
+Transfers are scoped by account, project directory, and asset ID. An unavailable service produces
+**Waiting for cloud** while leaving the original in place. Interrupted `preparing`, `uploading`, or
+`waiting-for-proxy` work reopens as **Paused**. Retry first
 checks source size, modification time, edge hash, and full SHA-256, then asks the server which parts
 already exist. Completed cloud uploads can therefore resume proxy finalization without reuploading.
 
@@ -90,10 +93,11 @@ the bucket private and never put R2 credentials into desktop build-time variable
 
 ## End-to-end checklist
 
-1. Start the API and sign into the desktop account.
-2. Confirm **Cloud storage** is absent while signed out and present after sign-in.
-3. Import a video with audio, choose **Store original in cloud**, and confirm card progress survives
-   closing and reopening the app as a paused, retryable transfer.
+1. Start the API and confirm the desktop gates project access until sign-in succeeds.
+2. Confirm **Cloud storage** is present after sign-in and that offline reopening retains the cached
+   account identity.
+3. Import a video with audio and confirm upload starts without a per-asset prompt. Confirm card
+   progress survives closing and reopening the app as a paused, retryable transfer.
 4. After completion, confirm the card says **Cloud original**, the viewer says **Proxy**, the local
    source moved to system Trash, and seeking still works.
 5. Delete the `.video/` proxy while online, reopen the project, and confirm the required proxy is

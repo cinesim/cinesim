@@ -3,7 +3,7 @@ import { createReadStream } from "node:fs";
 import { mkdir, open, readFile, rename, stat, writeFile } from "node:fs/promises";
 import { dirname, extname } from "node:path";
 import { BrowserWindow, shell } from "electron";
-import type { AssetId, CloudAssetId, CloudProjectId } from "@cinesim/core";
+import type { AssetId, CloudAssetId } from "@cinesim/core";
 import { createCinesimLogger } from "@cinesim/logging";
 import { z } from "zod";
 import type { CloudStorageUsage, CloudTransferSnapshot } from "../../shared/api";
@@ -16,6 +16,8 @@ const MAX_QUEUED_ASSETS = 100;
 const PART_CONCURRENCY = 3;
 
 const transferRecordSchema = z.object({
+  userId: z.string().min(1),
+  cloudProjectId: z.string().regex(/^cloud_project_[a-zA-Z0-9][a-zA-Z0-9_-]{7,127}$/),
   assetId: z.string(),
   cloudAssetId: z.string().nullable(),
   uploadId: z.string().nullable(),
@@ -24,7 +26,15 @@ const transferRecordSchema = z.object({
   name: z.string(),
   bytes: z.number().int().positive(),
   uploadedBytes: z.number().int().nonnegative(),
-  state: z.enum(["preparing", "uploading", "waiting-for-proxy", "paused", "failed", "complete"]),
+  state: z.enum([
+    "waiting-for-cloud",
+    "preparing",
+    "uploading",
+    "waiting-for-proxy",
+    "paused",
+    "failed",
+    "complete",
+  ]),
   error: z.string().nullable(),
   checksumSha256: z.string().nullable(),
   sourceFingerprint: z
@@ -145,7 +155,7 @@ export class CloudMediaManager {
       return;
     }
     for (const record of parsed.data)
-      this.#records.set(record.assetId, {
+      this.#records.set(this.#recordKey(record), {
         ...record,
         state:
           record.state === "preparing" ||
@@ -157,7 +167,10 @@ export class CloudMediaManager {
   }
 
   snapshots(): CloudTransferSnapshot[] {
+    const userId = this.account.cachedUser()?.id;
+    const projectDirectory = this.projects.directory;
     return [...this.#records.values()]
+      .filter((record) => record.userId === userId && record.projectDirectory === projectDirectory)
       .map(({ assetId, cloudAssetId, name, bytes, uploadedBytes, state, error }) => ({
         assetId,
         cloudAssetId,
@@ -239,6 +252,10 @@ export class CloudMediaManager {
     const project = this.projects.project;
     const directory = this.projects.directory;
     if (!project || !directory) throw new Error("Open a project before storing media in cloud");
+    if (!project.cloudProjectId) throw new Error("This project is not registered to an account");
+    const user = this.account.requireCachedUser();
+    const account = await this.account.snapshot();
+    const cloudAvailable = account.status === "signed-in" && account.cloudStorage === true;
     const assets = [...new Set(assetIds)].map((assetId) => {
       const asset = project.assets.find((candidate) => candidate.id === assetId);
       if (!asset) throw new Error("The selected media is no longer in this project");
@@ -248,17 +265,29 @@ export class CloudMediaManager {
     });
     for (const asset of assets) {
       if (asset.source.kind === "cloud") continue;
-      if (this.#running.has(asset.id)) continue;
-      const existing = this.#records.get(asset.id);
-      if (existing && (existing.state === "paused" || existing.state === "failed")) {
-        existing.state = "preparing";
+      const key = this.#recordKey({
+        userId: user.id,
+        projectDirectory: directory,
+        assetId: asset.id,
+      });
+      if (this.#running.has(key)) continue;
+      const existing = this.#records.get(key);
+      if (
+        existing &&
+        (existing.state === "waiting-for-cloud" ||
+          existing.state === "paused" ||
+          existing.state === "failed")
+      ) {
+        existing.state = cloudAvailable ? "preparing" : "waiting-for-cloud";
         existing.error = null;
-        this.#start(asset.id);
+        if (cloudAvailable) this.#start(key);
         continue;
       }
       const info = await stat(asset.source.path);
       if (!info.isFile() || info.size <= 0) throw new Error(`${asset.name} is unavailable`);
-      this.#records.set(asset.id, {
+      this.#records.set(key, {
+        userId: user.id,
+        cloudProjectId: project.cloudProjectId,
         assetId: asset.id,
         cloudAssetId: null,
         uploadId: null,
@@ -267,12 +296,12 @@ export class CloudMediaManager {
         name: asset.name,
         bytes: info.size,
         uploadedBytes: 0,
-        state: "preparing",
+        state: cloudAvailable ? "preparing" : "waiting-for-cloud",
         error: null,
         checksumSha256: null,
         sourceFingerprint: null,
       });
-      this.#start(asset.id);
+      if (cloudAvailable) this.#start(key);
     }
     await this.#persist();
     this.#emit();
@@ -280,22 +309,34 @@ export class CloudMediaManager {
   }
 
   async retry(assetId: string): Promise<CloudTransferSnapshot[]> {
-    const record = this.#records.get(assetId);
-    if (!record || (record.state !== "paused" && record.state !== "failed"))
+    const [key, record] = this.#activeRecord(assetId);
+    if (
+      !record ||
+      (record.state !== "waiting-for-cloud" &&
+        record.state !== "paused" &&
+        record.state !== "failed")
+    )
       throw new Error("This cloud transfer cannot be retried");
-    if (this.#running.has(assetId)) return this.snapshots();
+    if (this.#running.has(key)) return this.snapshots();
+    const account = await this.account.snapshot();
+    if (account.status !== "signed-in" || account.cloudStorage !== true) {
+      record.state = "waiting-for-cloud";
+      record.error = null;
+      await this.#persistAndEmit();
+      return this.snapshots();
+    }
     record.state = "preparing";
     record.error = null;
-    this.#start(assetId);
+    this.#start(key);
     await this.#persist();
     this.#emit();
     return this.snapshots();
   }
 
   async cancel(assetId: string): Promise<CloudTransferSnapshot[]> {
-    const record = this.#records.get(assetId);
+    const [key, record] = this.#activeRecord(assetId);
     if (!record) return this.snapshots();
-    this.#running.get(assetId)?.abort();
+    this.#running.get(key)?.abort();
     if (record.uploadId && record.uploadedBytes < record.bytes)
       await this.account
         .authenticatedFetch(`/api/v1/cloud/uploads/${encodeURIComponent(record.uploadId)}`, {
@@ -338,27 +379,58 @@ export class CloudMediaManager {
     );
   }
 
-  #start(assetId: string): void {
+  async resumeAvailable(): Promise<void> {
+    const account = await this.account.snapshot();
+    if (account.status !== "signed-in" || !account.user || account.cloudStorage !== true) return;
+    for (const [key, record] of this.#records) {
+      if (
+        record.userId === account.user.id &&
+        record.projectDirectory === this.projects.directory &&
+        (record.state === "waiting-for-cloud" || record.state === "paused") &&
+        !this.#running.has(key)
+      ) {
+        record.state = "preparing";
+        record.error = null;
+        this.#start(key);
+      }
+    }
+    await this.#persistAndEmit();
+  }
+
+  #start(key: string): void {
     const controller = new AbortController();
-    this.#running.set(assetId, controller);
-    void this.#run(assetId, controller.signal)
+    this.#running.set(key, controller);
+    void this.#run(key, controller.signal)
       .catch(async (error: unknown) => {
-        const record = this.#records.get(assetId);
+        const record = this.#records.get(key);
         if (!record) return;
         if (controller.signal.aborted) return;
-        record.state = "failed";
-        record.error = error instanceof Error ? error.message : "Cloud upload failed";
+        const account = await this.account.snapshot();
+        const unavailable = account.status !== "signed-in" || account.cloudStorage !== true;
+        record.state = unavailable ? "waiting-for-cloud" : "failed";
+        record.error = unavailable
+          ? null
+          : error instanceof Error
+            ? error.message
+            : "Cloud upload failed";
         await this.#persist();
         this.#emit();
-        log.error({ err: error, operation: "upload", assetId }, "Cloud media upload failed");
+        if (!unavailable)
+          log.error(
+            { err: error, operation: "upload", assetId: record.assetId },
+            "Cloud media upload failed",
+          );
       })
       .finally(() => {
-        if (this.#running.get(assetId) === controller) this.#running.delete(assetId);
+        if (this.#running.get(key) === controller) this.#running.delete(key);
       });
   }
 
-  async #run(assetId: string, signal: AbortSignal): Promise<void> {
-    const record = this.#records.get(assetId)!;
+  async #run(key: string, signal: AbortSignal): Promise<void> {
+    const record = this.#records.get(key)!;
+    const assetId = record.assetId;
+    if (this.account.requireCachedUser().id !== record.userId)
+      throw new Error("Sign in to the account that owns this transfer");
     if (this.projects.directory !== record.projectDirectory)
       throw new Error("Open the source project to resume this upload");
     const project = this.projects.project!;
@@ -386,26 +458,15 @@ export class CloudMediaManager {
     record.sourceFingerprint = fingerprint;
     record.checksumSha256 = checksum;
 
+    if (project.cloudProjectId !== record.cloudProjectId)
+      throw new Error("The project account registration changed after this upload was queued");
     const cloudProject = cloudProjectSchema.parse(
-      await json<unknown>(
-        await this.account.authenticatedFetch("/api/v1/cloud/projects", {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({
-            ...(project.cloudProjectId ? { cloudProjectId: project.cloudProjectId } : {}),
-            clientProjectId: project.id,
-            name: project.name,
-          }),
-        }),
-      ),
+      await this.account.registerProject({
+        cloudProjectId: record.cloudProjectId,
+        clientProjectId: project.id,
+        name: project.name,
+      }),
     );
-    if (!project.cloudProjectId) {
-      await this.projects.execute({
-        type: "project.attachCloud",
-        cloudProjectId: cloudProject.id as CloudProjectId,
-      });
-      this.#emitProject();
-    }
 
     let resumeResponse: Response | null = null;
     if (record.uploadId)
@@ -550,13 +611,25 @@ export class CloudMediaManager {
 
   #emit(): void {
     const snapshot = this.snapshots();
-    for (const target of BrowserWindow.getAllWindows())
+    for (const target of BrowserWindow?.getAllWindows?.() ?? [])
       target.webContents.send("cloud:transfers-changed", snapshot);
   }
 
   #emitProject(): void {
     const session = this.projects.session();
-    for (const target of BrowserWindow.getAllWindows())
+    for (const target of BrowserWindow?.getAllWindows?.() ?? [])
       target.webContents.send("project:changed", session);
+  }
+
+  #recordKey(record: { userId: string; projectDirectory: string; assetId: string }): string {
+    return `${record.userId}\u0000${record.projectDirectory}\u0000${record.assetId}`;
+  }
+
+  #activeRecord(assetId: string): [string, TransferRecord | undefined] {
+    const userId = this.account.requireCachedUser().id;
+    const projectDirectory = this.projects.directory;
+    if (!projectDirectory) throw new Error("Open a project before managing cloud transfers");
+    const key = this.#recordKey({ userId, projectDirectory, assetId });
+    return [key, this.#records.get(key)];
   }
 }

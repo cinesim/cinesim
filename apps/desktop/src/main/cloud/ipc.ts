@@ -20,10 +20,6 @@ export function registerCloudIpc(manager: CloudMediaManager): void {
     return manager.configureAddon(value);
   });
   ipcMain.handle("cloud:transfers", () => manager.snapshots());
-  ipcMain.handle("cloud:store-assets", (_event, value: unknown) => {
-    if (!Array.isArray(value)) throw new Error("Invalid cloud storage request");
-    return manager.queue(value.map(assetId));
-  });
   ipcMain.handle("cloud:retry", (_event, value: unknown) => manager.retry(assetId(value)));
   ipcMain.handle("cloud:cancel", (_event, value: unknown) => manager.cancel(assetId(value)));
   ipcMain.handle("cloud:trash-assets", (_event, value: unknown) => {

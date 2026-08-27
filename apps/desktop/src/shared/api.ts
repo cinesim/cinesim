@@ -390,7 +390,7 @@ export interface AccountUser {
   image: string | null;
 }
 
-export type AccountStatus = "local" | "signed-in" | "offline";
+export type AccountStatus = "signed-out" | "signed-in" | "offline";
 export type SignInMethod = "email" | "google";
 
 export interface AccountSnapshot {
@@ -403,7 +403,14 @@ export interface AccountSnapshot {
   detail: string | null;
 }
 
+export interface RegisteredProject {
+  id: string;
+  clientProjectId: string;
+  name: string;
+}
+
 export type CloudTransferState =
+  | "waiting-for-cloud"
   | "preparing"
   | "uploading"
   | "waiting-for-proxy"
@@ -456,7 +463,6 @@ export interface DesktopApi {
   getCloudStorageUsage(): Promise<CloudStorageUsage>;
   configureCloudStorageAddon(addonBytes: number): Promise<CloudStorageUsage>;
   getCloudTransfers(): Promise<CloudTransferSnapshot[]>;
-  storeAssetsInCloud(assetIds: string[]): Promise<CloudTransferSnapshot[]>;
   retryCloudTransfer(assetId: string): Promise<CloudTransferSnapshot[]>;
   cancelCloudTransfer(assetId: string): Promise<CloudTransferSnapshot[]>;
   trashCloudAssets(cloudAssetIds: string[]): Promise<void>;

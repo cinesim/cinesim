@@ -1,6 +1,7 @@
 import { Library, SlidersHorizontal, StickyNote } from "@cinesim/ui";
 import { Button, TooltipProvider } from "@cinesim/ui";
 import { AgentsSidebar } from "./components/agents/agents-sidebar";
+import { AccountGate } from "./components/account/account-gate";
 import { Welcome, WelcomeLoadingState } from "./components/home/welcome";
 import { MetricsSidebar } from "./components/metrics/metrics-sidebar";
 import { Settings } from "./components/settings/settings";
@@ -51,6 +52,10 @@ export function App() {
       : destination === "project" && session
         ? session.project.name
         : "Home";
+
+  if (!accountHydrated)
+    return <section className="h-screen bg-canvas" aria-label="Checking Cinesim account" />;
+  if (!account.user) return <AccountGate account={account} onSignIn={beginAccountSignIn} />;
 
   return (
     <TooltipProvider>

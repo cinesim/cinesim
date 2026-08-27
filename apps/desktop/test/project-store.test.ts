@@ -40,6 +40,30 @@ afterEach(async () => {
 });
 
 describe("DesktopProjectStore", () => {
+  it("creates an account-registered canonical project", async () => {
+    const parentDirectory = await mkdtemp(join(tmpdir(), "cinesim-account-project-test-"));
+    temporaryDirectories.push(parentDirectory);
+    const store = new DesktopProjectStore();
+    const session = await store.create(parentDirectory, {
+      name: "Account fixture",
+      projectId: "project_fixture_unique",
+      cloudProjectId: "cloud_project_fixture0000001",
+    });
+
+    expect(session.project).toMatchObject({
+      id: "project_fixture_unique",
+      cloudProjectId: "cloud_project_fixture0000001",
+      name: "Account fixture",
+    });
+    const reopened = new DesktopProjectStore();
+    await expect(reopened.open(session.directory)).resolves.toMatchObject({
+      project: {
+        id: "project_fixture_unique",
+        cloudProjectId: "cloud_project_fixture0000001",
+      },
+    });
+  });
+
   it("measures canonical project files without counting disposable video output", async () => {
     const parentDirectory = await mkdtemp(join(tmpdir(), "cinesim-size-test-"));
     temporaryDirectories.push(parentDirectory);

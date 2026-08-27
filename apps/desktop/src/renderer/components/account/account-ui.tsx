@@ -3,7 +3,7 @@ import { cn } from "@cinesim/ui";
 import type { AccountSnapshot, AccountUser } from "../../../shared/api";
 
 export function accountDisplayName(account: AccountSnapshot): string {
-  if (!account.user) return account.status === "offline" ? "Offline" : "Local";
+  if (!account.user) return account.status === "offline" ? "Offline" : "Sign in";
   const firstName = account.user.name.trim().split(/\s+/)[0];
   return firstName || account.user.email;
 }

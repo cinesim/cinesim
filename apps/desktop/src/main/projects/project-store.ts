@@ -13,6 +13,8 @@ import {
   stableJson,
 } from "@cinesim/core";
 import type { EditorCommand, Project, ProjectSettings } from "@cinesim/core";
+import type { CloudProjectId, ProjectId } from "@cinesim/core";
+import { applyCommand } from "@cinesim/core";
 import { createCinesimLogger } from "@cinesim/logging";
 import { dispatchCommand } from "@cinesim/protocol";
 import type { DesktopProjectSession } from "../../shared/api";
@@ -30,7 +32,8 @@ This is a Cinesim video editing project.
 - Human-readable settings are in \`.cinesim/settings.toml\`.
 - \`.video/\` contains generated caches, proxies, perception artifacts, and runtime files.
 - Derived files may be deleted and regenerated. Do not edit them manually.
-- Source media is referenced in place and must not be moved or modified without user direction.
+- Cinesim may offload originals under the signed-in account's storage policy. Agents must not move
+  or modify source media directly.
 
 Add creative direction below this line.
 `;
@@ -74,8 +77,12 @@ export class DesktopProjectStore {
     return this.#history?.project ?? null;
   }
 
-  async create(parentDirectory: string, name: string): Promise<DesktopProjectSession> {
+  async create(
+    parentDirectory: string,
+    input: string | { name: string; projectId: ProjectId; cloudProjectId: CloudProjectId },
+  ): Promise<DesktopProjectSession> {
     return this.#serialize(async () => {
+      const name = typeof input === "string" ? input : input.name;
       const slug =
         name
           .trim()
@@ -84,7 +91,17 @@ export class DesktopProjectStore {
           .replace(/^-|-$/g, "") || "untitled-project";
       const directory = join(parentDirectory, slug);
       await mkdir(directory, { recursive: false });
-      const project = createProject({ name });
+      const localProject = createProject({
+        ...(typeof input === "string" ? {} : { id: input.projectId }),
+        name,
+      });
+      const project =
+        typeof input === "string"
+          ? localProject
+          : applyCommand(localProject, {
+              type: "project.attachCloud",
+              cloudProjectId: input.cloudProjectId,
+            }).project;
       this.#directory = directory;
       this.#history = new ProjectHistory(project);
       this.#settings = DEFAULT_SETTINGS;

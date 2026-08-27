@@ -43,6 +43,12 @@ export class DesktopApplication implements ApplicationLifecycle {
       this.projectStore,
     );
     await cloudMedia.load();
+    const unsubscribeAccount = this.accountService.subscribe((snapshot) => {
+      appState.setAccount(snapshot.user?.id ?? null);
+      if (snapshot.status === "signed-in" && snapshot.cloudStorage === true)
+        void cloudMedia.resumeAvailable();
+    });
+    app.once("will-quit", unsubscribeAccount);
 
     const diagnosticProject = process.env.CINESIM_DIAGNOSTIC_PROJECT;
     if (
@@ -81,12 +87,16 @@ export class DesktopApplication implements ApplicationLifecycle {
     this.#agents = agents;
     await agents.load();
 
-    registerProjectIpc(this.projectStore, appState, agents);
+    registerProjectIpc(this.projectStore, appState, agents, this.accountService, cloudMedia);
     registerDerivedMediaIpc(this.projectStore.derivedMedia);
-    registerAppStateIpc(appState, this.projectStore);
+    registerAppStateIpc(appState, this.projectStore, this.accountService);
     registerAgentIpc(agents, agentSettings);
     registerAppIpc(log, this.#eventLoopMonitor);
-    registerAccountIpc(this.accountService);
+    registerAccountIpc(this.accountService, async () => {
+      appState.setAccount(null);
+      if (this.projectStore.directory) await agents.stopProject(this.projectStore.directory);
+      if (this.projectStore.project) await this.projectStore.close();
+    });
     registerCloudIpc(cloudMedia);
 
     this.#openWindow();
