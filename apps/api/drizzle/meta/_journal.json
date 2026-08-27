@@ -8,6 +8,13 @@
       "when": 1787778886596,
       "tag": "0000_complete_iron_fist",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1787861569988,
+      "tag": "0001_warm_mantis",
+      "breakpoints": true
     }
   ]
 }

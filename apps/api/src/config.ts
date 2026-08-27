@@ -26,6 +26,16 @@ const environmentSchema = z
     EMAIL_FROM: z.string().min(3),
     GOOGLE_CLIENT_ID: z.string().optional(),
     GOOGLE_CLIENT_SECRET: z.string().optional(),
+    CLOUDFLARE_R2_ACCOUNT_ID: z.string().min(1).optional(),
+    CLOUDFLARE_R2_BUCKET: z.string().min(1).optional(),
+    CLOUDFLARE_R2_ACCESS_KEY_ID: z.string().min(1).optional(),
+    CLOUDFLARE_R2_SECRET_ACCESS_KEY: z.string().min(1).optional(),
+    CINESIM_CLOUD_INCLUDED_BYTES: z.coerce
+      .number()
+      .int()
+      .positive()
+      .safe()
+      .default(10 * 1024 ** 3),
   })
   .superRefine((value, context) => {
     const hasGoogleId = Boolean(value.GOOGLE_CLIENT_ID);
@@ -35,6 +45,18 @@ const environmentSchema = z
         code: "custom",
         path: [hasGoogleId ? "GOOGLE_CLIENT_SECRET" : "GOOGLE_CLIENT_ID"],
         message: "Google OAuth requires both GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET",
+      });
+    const r2Values = [
+      value.CLOUDFLARE_R2_ACCOUNT_ID,
+      value.CLOUDFLARE_R2_BUCKET,
+      value.CLOUDFLARE_R2_ACCESS_KEY_ID,
+      value.CLOUDFLARE_R2_SECRET_ACCESS_KEY,
+    ];
+    if (r2Values.some(Boolean) && !r2Values.every(Boolean))
+      context.addIssue({
+        code: "custom",
+        path: ["CLOUDFLARE_R2_ACCOUNT_ID"],
+        message: "R2 storage requires account ID, bucket, access key ID, and secret access key",
       });
     const authUrl = new URL(value.BETTER_AUTH_URL);
     if (
@@ -60,6 +82,13 @@ export interface ServerConfig {
   smtpUrl: string;
   emailFrom: string;
   google: { clientId: string; clientSecret: string } | null;
+  r2: {
+    accountId: string;
+    bucket: string;
+    accessKeyId: string;
+    secretAccessKey: string;
+  } | null;
+  cloudIncludedBytes: number;
 }
 
 let cachedConfig: ServerConfig | null = null;
@@ -87,6 +116,19 @@ export function readServerConfig(environment: NodeJS.ProcessEnv): ServerConfig {
       value.GOOGLE_CLIENT_ID && value.GOOGLE_CLIENT_SECRET
         ? { clientId: value.GOOGLE_CLIENT_ID, clientSecret: value.GOOGLE_CLIENT_SECRET }
         : null,
+    r2:
+      value.CLOUDFLARE_R2_ACCOUNT_ID &&
+      value.CLOUDFLARE_R2_BUCKET &&
+      value.CLOUDFLARE_R2_ACCESS_KEY_ID &&
+      value.CLOUDFLARE_R2_SECRET_ACCESS_KEY
+        ? {
+            accountId: value.CLOUDFLARE_R2_ACCOUNT_ID,
+            bucket: value.CLOUDFLARE_R2_BUCKET,
+            accessKeyId: value.CLOUDFLARE_R2_ACCESS_KEY_ID,
+            secretAccessKey: value.CLOUDFLARE_R2_SECRET_ACCESS_KEY,
+          }
+        : null,
+    cloudIncludedBytes: value.CINESIM_CLOUD_INCLUDED_BYTES,
   };
 }
 

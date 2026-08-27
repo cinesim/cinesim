@@ -30,6 +30,7 @@ describe("Hono authentication surface", () => {
       ok: true,
       environment: "test",
       googleSignIn: false,
+      cloudStorage: false,
     });
     expect(response.headers.get("cache-control")).toBe("no-store");
   });

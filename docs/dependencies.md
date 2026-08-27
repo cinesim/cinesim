@@ -29,6 +29,7 @@ Runtime dependencies:
 | Drizzle ORM                         | Typed PostgreSQL queries             | Apache-2.0   |
 | node-postgres (`pg`)                | PostgreSQL connection pooling        | MIT          |
 | Nodemailer                          | Verification email over SMTP         | MIT-0        |
+| aws4fetch                           | AWS Signature V4 for private R2 I/O  | MIT          |
 
 Development services:
 
