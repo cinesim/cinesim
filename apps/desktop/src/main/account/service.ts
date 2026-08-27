@@ -215,6 +215,34 @@ export class DesktopAccountService {
     return this.snapshot();
   }
 
+  async authenticatedFetch(path: string, init: RequestInit = {}): Promise<Response> {
+    if (!path.startsWith("/api/v1/cloud/")) throw new Error("Invalid cloud API path");
+    if (!this.#origin || !this.#client)
+      throw new Error("Cloud storage is not configured in this build");
+    const cookie = this.#client.getCookie();
+    if (!cookie) throw new Error("Sign in to use Cinesim Cloud storage");
+    const headers = new Headers(init.headers);
+    headers.set("cookie", cookie);
+    const response = await fetch(`${this.#origin}${path}`, {
+      ...init,
+      headers,
+      signal: init.signal ?? AbortSignal.timeout(30_000),
+    });
+    if (response.status === 401) throw new Error("Sign in to use Cinesim Cloud storage");
+    if (!response.ok) {
+      const payload = (await response.json().catch(() => null)) as {
+        message?: unknown;
+        error?: unknown;
+      } | null;
+      throw new Error(
+        typeof payload?.message === "string"
+          ? payload.message
+          : `Cloud storage request failed (${response.status})`,
+      );
+    }
+    return response;
+  }
+
   async #health(): Promise<{ googleSignIn: boolean }> {
     if (!this.#origin) return { googleSignIn: false };
     const response = await fetch(`${this.#origin}/health`, {

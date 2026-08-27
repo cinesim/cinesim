@@ -6,6 +6,14 @@ const api: DesktopApi = {
   getAccountSnapshot: () => ipcRenderer.invoke("account:get"),
   beginAccountSignIn: (method) => ipcRenderer.invoke("account:sign-in", method),
   signOutAccount: () => ipcRenderer.invoke("account:sign-out"),
+  getCloudStorageUsage: () => ipcRenderer.invoke("cloud:usage"),
+  getCloudTransfers: () => ipcRenderer.invoke("cloud:transfers"),
+  storeAssetsInCloud: (assetIds) => ipcRenderer.invoke("cloud:store-assets", assetIds),
+  retryCloudTransfer: (assetId) => ipcRenderer.invoke("cloud:retry", assetId),
+  cancelCloudTransfer: (assetId) => ipcRenderer.invoke("cloud:cancel", assetId),
+  trashCloudAssets: (cloudAssetIds) => ipcRenderer.invoke("cloud:trash-assets", cloudAssetIds),
+  restoreCloudAsset: (cloudAssetId) => ipcRenderer.invoke("cloud:restore-asset", cloudAssetId),
+  deleteCloudAsset: (cloudAssetId) => ipcRenderer.invoke("cloud:delete-asset", cloudAssetId),
   createProject: (name) => ipcRenderer.invoke("project:create", name),
   openProject: () => ipcRenderer.invoke("project:open"),
   openRecentProject: (directory) => ipcRenderer.invoke("project:open-recent", directory),
@@ -30,6 +38,7 @@ const api: DesktopApi = {
   undo: () => ipcRenderer.invoke("project:undo"),
   redo: () => ipcRenderer.invoke("project:redo"),
   save: () => ipcRenderer.invoke("project:save"),
+  updateProjectSettings: (update) => ipcRenderer.invoke("project:settings:update", update),
   revealProject: () => ipcRenderer.invoke("project:reveal"),
   forgetProject: (directory) => ipcRenderer.invoke("project:forget", directory),
   trashProject: (directory) => ipcRenderer.invoke("project:trash", directory),
@@ -104,6 +113,14 @@ const api: DesktopApi = {
       ipcRenderer.removeListener("cinesim-auth:user-updated", refresh);
       ipcRenderer.removeListener("cinesim-auth:error", refresh);
     };
+  },
+  onCloudTransfersChanged: (callback) => {
+    const listener = (
+      _event: Electron.IpcRendererEvent,
+      snapshot: Parameters<typeof callback>[0],
+    ) => callback(snapshot);
+    ipcRenderer.on("cloud:transfers-changed", listener);
+    return () => ipcRenderer.removeListener("cloud:transfers-changed", listener);
   },
   platform: process.platform,
 };

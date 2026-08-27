@@ -16,6 +16,8 @@ import { registerAppIpc } from "./ipc";
 import type { ApplicationLifecycle } from "./lifecycle";
 import { registerAccountIpc } from "../account/ipc";
 import type { DesktopAccountService } from "../account/service";
+import { registerCloudIpc } from "../cloud/ipc";
+import { CloudMediaManager } from "../cloud/manager";
 
 const log = createCinesimLogger({ service: "desktop" });
 
@@ -35,6 +37,12 @@ export class DesktopApplication implements ApplicationLifecycle {
       join(app.getPath("userData"), "agent-settings.json"),
     );
     await Promise.all([appState.load(), agentSettings.load()]);
+    const cloudMedia = new CloudMediaManager(
+      join(app.getPath("userData"), "cloud-transfers.json"),
+      this.accountService,
+      this.projectStore,
+    );
+    await cloudMedia.load();
 
     const diagnosticProject = process.env.CINESIM_DIAGNOSTIC_PROJECT;
     if (
@@ -49,7 +57,7 @@ export class DesktopApplication implements ApplicationLifecycle {
       );
     }
 
-    await registerMediaProtocol(this.projectStore);
+    await registerMediaProtocol(this.projectStore, cloudMedia);
     this.projectStore.derivedMedia.subscribe((snapshot) => {
       for (const target of BrowserWindow.getAllWindows())
         target.webContents.send("derived:changed", snapshot);
@@ -79,6 +87,7 @@ export class DesktopApplication implements ApplicationLifecycle {
     registerAgentIpc(agents, agentSettings);
     registerAppIpc(log, this.#eventLoopMonitor);
     registerAccountIpc(this.accountService);
+    registerCloudIpc(cloudMedia);
 
     this.#openWindow();
     app.on("activate", () => {

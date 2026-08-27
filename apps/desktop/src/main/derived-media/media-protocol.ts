@@ -4,6 +4,7 @@ import { Readable } from "node:stream";
 import { protocol } from "electron";
 import type { DerivedArtifactKind, DerivedProjectScope } from "../../shared/api";
 import type { DesktopProjectStore } from "../projects/project-store";
+import type { CloudMediaManager } from "../cloud/manager";
 import { parseDerivedProjectScope } from "./ipc-validation";
 import { DERIVED_GENERATOR_VERSION } from "./service";
 
@@ -82,7 +83,10 @@ function streamedMediaResponse(
   });
 }
 
-export async function registerMediaProtocol(store: DesktopProjectStore): Promise<void> {
+export async function registerMediaProtocol(
+  store: DesktopProjectStore,
+  cloudMedia: CloudMediaManager,
+): Promise<void> {
   protocol.handle("cinesim-media", async (request) => {
     const requestStarted = performance.now();
     let diagnosticAssetId: string | undefined;
@@ -162,8 +166,11 @@ export async function registerMediaProtocol(store: DesktopProjectStore): Promise
           requestStarted,
         });
       }
-      const path = store.assetPath(assetId);
-      if (!path) return new Response("Unknown asset", { status: 404 });
+      const asset = store.project?.assets.find((candidate) => candidate.id === assetId);
+      if (!asset) return new Response("Unknown asset", { status: 404 });
+      if (asset.source.kind === "cloud")
+        return cloudMedia.readOriginal(asset.source.cloudAssetId, request);
+      const path = asset.source.path;
       const size = (await stat(path)).size;
       if (request.method === "HEAD") {
         store.derivedMedia.recordProtocolRead({

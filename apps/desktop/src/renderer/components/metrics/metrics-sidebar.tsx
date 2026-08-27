@@ -162,14 +162,6 @@ export function MetricsSidebar() {
                 <MetricRow label="Active asset" value={metrics?.activeAssetId ?? "None"} />
                 <MetricRow label="Source" value={metrics?.activeSourceKind ?? unavailable} />
                 <MetricRow
-                  label="Adaptive decision"
-                  value={activeDerived?.performance.decision ?? unavailable}
-                />
-                <MetricRow
-                  label="Decision reason"
-                  value={activeDerived?.performance.reasons.join(", ") || unavailable}
-                />
-                <MetricRow
                   label="Background job"
                   value={derived?.jobs.running ? "Running" : "None"}
                 />
@@ -382,11 +374,15 @@ export function MetricsSidebar() {
                 />
                 <MetricRow label="Failed" value={derived?.jobs.failed ?? 0} />
               </Section>
-              <Section icon={<Sparkles size={13} />} title="Decision log" definitionList={false}>
+              <Section
+                icon={<Sparkles size={13} />}
+                title="Derived media log"
+                definitionList={false}
+              >
                 <ol
                   ref={decisionLogRef}
                   role="log"
-                  aria-label="Adaptive media decisions"
+                  aria-label="Derived media activity"
                   className="h-44 overflow-y-auto rounded-md border border-border bg-panel-muted p-2 text-[10px] leading-4 tabular-nums"
                 >
                   {derived?.decisionLog.length ? (
@@ -401,7 +397,7 @@ export function MetricsSidebar() {
                       </li>
                     ))
                   ) : (
-                    <li className="text-muted">Waiting for adaptive media decisions…</li>
+                    <li className="text-muted">Waiting for derived media activity…</li>
                   )}
                 </ol>
               </Section>

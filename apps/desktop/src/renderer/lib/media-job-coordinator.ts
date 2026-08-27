@@ -1,4 +1,5 @@
-import type { Asset, Project } from "@cinesim/core";
+import type { Asset, Project, ProjectSettings } from "@cinesim/core";
+import { DEFAULT_SETTINGS } from "@cinesim/core";
 import type {
   DerivedArtifactKind,
   DerivedMediaSnapshot,
@@ -20,6 +21,7 @@ const WORKER_INACTIVITY_TIMEOUT_MS = 120_000;
 
 export class MediaJobCoordinator {
   #project: Project;
+  #settings: ProjectSettings;
   readonly #projectScope: DerivedProjectScope;
   #snapshot: DerivedMediaSnapshot | null = null;
   #worker: Worker | null = null;
@@ -36,8 +38,10 @@ export class MediaJobCoordinator {
     project: Project,
     projectScope: DerivedProjectScope,
     onSnapshot: (snapshot: DerivedMediaSnapshot) => void,
+    settings: ProjectSettings = DEFAULT_SETTINGS,
   ) {
     this.#project = project;
+    this.#settings = settings;
     this.#projectScope = projectScope;
     this.#onSnapshot = onSnapshot;
   }
@@ -74,8 +78,9 @@ export class MediaJobCoordinator {
     };
   }
 
-  async updateProject(project: Project): Promise<void> {
+  async updateProject(project: Project, settings: ProjectSettings = this.#settings): Promise<void> {
     this.#project = project;
+    this.#settings = settings;
     if (this.#destroyed) return;
     const mediaIds = project.assets
       .filter((asset) => asset.kind === "video" || asset.kind === "audio")
@@ -174,7 +179,7 @@ export class MediaJobCoordinator {
     if (!asset) {
       const proxyAsset = this.#project.assets.find(
         (candidate) =>
-          candidate.kind === "video" &&
+          (candidate.kind === "video" || candidate.kind === "audio") &&
           this.#snapshot!.assets[candidate.id]?.proxy.state === "queued",
       );
       if (proxyAsset) await this.#startProxy(proxyAsset);
@@ -249,7 +254,9 @@ export class MediaJobCoordinator {
       const writer = await window.cinesim.beginDerivedWrite(this.#projectScope, {
         assetId: asset.id,
         kind: "proxy",
-        profileId: "edit-1280",
+        ...(this.#snapshot?.assets[asset.id]?.proxy.profileId
+          ? { profileId: this.#snapshot.assets[asset.id]!.proxy.profileId }
+          : {}),
       });
       active.writers.proxy = writer.writerId;
       await window.cinesim.reportDerivedActivity(this.#projectScope, {
@@ -267,6 +274,10 @@ export class MediaJobCoordinator {
         width: asset.width ?? 1280,
         height: asset.height ?? 720,
         ...(asset.frameRate ? { frameRate: asset.frameRate } : {}),
+        assetKind: asset.kind as "video" | "audio",
+        maxLongEdge: this.#settings.proxyMaxLongEdge,
+        frameRateCap: this.#settings.proxyFrameRateCap,
+        quality: this.#settings.proxyQuality,
       } satisfies DerivedWorkerRequest);
       this.#armWorkerInactivityTimer(jobId);
       this.setForegroundPressure(this.#foregroundPressure);

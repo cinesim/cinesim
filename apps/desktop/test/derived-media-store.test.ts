@@ -403,29 +403,13 @@ describe("DerivedMediaStore", () => {
     expect(reopened.snapshot().decisionLog.at(-1)?.kind).toBe("jobs-recovered");
   });
 
-  it("queues a proxy only after repeated unhealthy warmed seeks", async () => {
-    const { directory, project } = await fixture("adaptive");
+  it("queues a proxy from the explicit automatic project setting", async () => {
+    const { directory, project } = await fixture("automatic-proxy");
     const store = new DerivedMediaStore({
       diskSpace: { capacityBytes: 100 * 1024 ** 3, availableBytes: 50 * 1024 ** 3 },
     });
     await store.setProject(directory, project);
-    const scope = store.scope();
-    for (let index = 0; index < 5; index += 1) {
-      await store.reportPerformance(scope, {
-        assetId: "asset_fixture",
-        sourceKind: "original",
-        operation: "hover-seek",
-        latencyMs: 180 + index,
-        requestsReceived: 1,
-      });
-    }
-    expect(store.snapshot().assets.asset_fixture).toMatchObject({
-      proxy: { state: "queued" },
-      performance: {
-        decision: "proxy-queued",
-        reasons: ["warm-seek-p95-over-budget"],
-      },
-    });
+    expect(store.snapshot().assets.asset_fixture?.proxy.state).toBe("queued");
   });
 
   it("reports bounded worker and protocol runtime metrics", async () => {

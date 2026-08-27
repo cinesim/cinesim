@@ -1,5 +1,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Check, Clock3, Film, ListPlus, Trash2, X } from "@cinesim/ui";
+import {
+  Check,
+  Clock3,
+  Cloud,
+  Film,
+  ListPlus,
+  LoaderCircle,
+  RotateCcw,
+  Trash2,
+  X,
+} from "@cinesim/ui";
 import {
   Button,
   Dialog,
@@ -104,6 +114,10 @@ export function MediaBin({ project, onOpenTimeline }: MediaBinProps) {
   const appendAsset = useRendererStore((state) => state.appendAsset);
   const execute = useRendererStore((state) => state.execute);
   const activeSequenceId = useRendererStore((state) => state.activeSequenceId);
+  const account = useRendererStore((state) => state.account);
+  const cloudTransfers = useRendererStore((state) => state.cloudTransfers);
+  const storeAssetsInCloud = useRendererStore((state) => state.storeAssetsInCloud);
+  const retryCloudTransfer = useRendererStore((state) => state.retryCloudTransfer);
   const importMedia = useCallback(async () => importProjectMedia(), [importProjectMedia]);
 
   useEffect(() => {
@@ -261,11 +275,15 @@ export function MediaBin({ project, onOpenTimeline }: MediaBinProps) {
 
   async function removeAssets() {
     if (selectedAssets.length === 0 || lockedUsage) return;
+    const cloudAssetIds = selectedAssets.flatMap((asset) =>
+      asset.source.kind === "cloud" ? [asset.source.cloudAssetId] : [],
+    );
     const result = await execute({
       type: "asset.remove",
       assetIds: selectedAssets.map((asset) => asset.id),
     });
     if (!result.ok) return;
+    if (cloudAssetIds.length > 0) await window.cinesim.trashCloudAssets(cloudAssetIds);
     setPendingDialog(null);
     setSelectedAssetIds(new Set());
     setSelectionAnchor(null);
@@ -274,6 +292,14 @@ export function MediaBin({ project, onOpenTimeline }: MediaBinProps) {
   async function removeSequence(sequence: Sequence) {
     const result = await execute({ type: "sequence.remove", sequenceId: sequence.id });
     if (result.ok) setPendingDialog(null);
+  }
+
+  async function storeSelectedInCloud(): Promise<void> {
+    const localIds = selectedAssets
+      .filter((asset) => asset.source.kind === "local")
+      .map((asset) => asset.id);
+    if (localIds.length > 0) await storeAssetsInCloud(localIds);
+    setContextMenu(null);
   }
 
   return (
@@ -344,6 +370,17 @@ export function MediaBin({ project, onOpenTimeline }: MediaBinProps) {
 
           {assets.map((asset) => {
             const selected = selectedAssetIds.has(asset.id);
+            const transfer = cloudTransfers.find((candidate) => candidate.assetId === asset.id);
+            const cloudLabel =
+              asset.source.kind === "cloud"
+                ? "Cloud original"
+                : transfer?.state === "failed"
+                  ? "Cloud upload failed"
+                  : transfer
+                    ? transfer.state === "waiting-for-proxy"
+                      ? "Cloud ready · finishing proxy"
+                      : `${Math.round((transfer.uploadedBytes / Math.max(1, transfer.bytes)) * 100)}% uploaded`
+                    : null;
             return (
               <div key={asset.id} data-asset-id={asset.id}>
                 <PreviewCard
@@ -360,9 +397,21 @@ export function MediaBin({ project, onOpenTimeline }: MediaBinProps) {
                     ) : undefined
                   }
                   bottomCorner={
-                    <span className="rounded bg-panel/90 px-1.5 py-0.5 text-ui-xs tabular-nums text-secondary">
-                      {formatDuration(asset.durationUs)}
-                    </span>
+                    <div className="flex items-center gap-1.5">
+                      {cloudLabel && (
+                        <span className="flex items-center gap-1 rounded bg-panel/90 px-1.5 py-0.5 text-ui-xs text-secondary">
+                          {transfer && transfer.state !== "failed" ? (
+                            <LoaderCircle size={10} className="animate-spin" />
+                          ) : (
+                            <Cloud size={10} />
+                          )}
+                          {cloudLabel}
+                        </span>
+                      )}
+                      <span className="rounded bg-panel/90 px-1.5 py-0.5 text-ui-xs tabular-nums text-secondary">
+                        {formatDuration(asset.durationUs)}
+                      </span>
+                    </div>
                   }
                   onClick={(event) => selectAsset(asset.id, event)}
                   onDoubleClick={() => void addToTimeline(asset)}
@@ -416,6 +465,30 @@ export function MediaBin({ project, onOpenTimeline }: MediaBinProps) {
                 <ListPlus size={14} /> Create Timeline from {selectedCount}{" "}
                 {selectedCount === 1 ? "Asset" : "Assets"}
               </button>
+              {account.status === "signed-in" &&
+                selectedAssets.some((asset) => asset.source.kind === "local") && (
+                  <button
+                    role="menuitem"
+                    className="flex min-h-10 w-full items-center gap-2 rounded-lg px-2.5 text-left text-ui hover:bg-surface"
+                    onClick={() => void storeSelectedInCloud()}
+                  >
+                    <Cloud size={14} /> Store original{selectedCount === 1 ? "" : "s"} in cloud
+                  </button>
+                )}
+              {selectedAssets.length === 1 &&
+                cloudTransfers.find((transfer) => transfer.assetId === selectedAssets[0]?.id)
+                  ?.state === "failed" && (
+                  <button
+                    role="menuitem"
+                    className="flex min-h-10 w-full items-center gap-2 rounded-lg px-2.5 text-left text-ui hover:bg-surface"
+                    onClick={() => {
+                      void retryCloudTransfer(selectedAssets[0]!.id);
+                      setContextMenu(null);
+                    }}
+                  >
+                    <RotateCcw size={14} /> Retry cloud upload
+                  </button>
+                )}
               <button
                 role="menuitem"
                 className="flex min-h-10 w-full items-center gap-2 rounded-lg px-2.5 text-left text-ui hover:bg-surface"

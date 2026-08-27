@@ -2,6 +2,7 @@ import { lstat, readFile, realpath } from "node:fs/promises";
 import { parse, resolve } from "node:path";
 import { dialog, ipcMain, shell } from "electron";
 import type { EditorCommand } from "@cinesim/core";
+import { settingsSchema } from "@cinesim/core";
 import type { AgentManager } from "../agents/manager";
 import type { DesktopAppStateStore } from "../state/app-state-store";
 import type { DesktopProjectStore } from "./project-store";
@@ -55,6 +56,13 @@ export function registerProjectIpc(
     return Object.fromEntries(sizes);
   });
   ipcMain.handle("project:save", () => store.save());
+  ipcMain.handle("project:settings:update", (_event, update: unknown) => {
+    if (!update || typeof update !== "object" || Array.isArray(update))
+      throw new Error("Invalid project settings update");
+    const current = store.session().settings;
+    const next = settingsSchema.parse({ ...current, ...update });
+    return store.updateSettings(next);
+  });
   ipcMain.handle("project:undo", () => store.undo());
   ipcMain.handle("project:redo", () => store.redo());
   ipcMain.handle("project:reveal", () =>

@@ -8,6 +8,7 @@ import {
   ProjectHistory,
   settingsFromToml,
   settingsToToml,
+  settingsSchema,
   splitProjectFiles,
   stableJson,
 } from "@cinesim/core";
@@ -89,7 +90,7 @@ export class DesktopProjectStore {
       this.#settings = DEFAULT_SETTINGS;
       this.#revision = 1;
       await this.#ensureLayout();
-      await this.derivedMedia.setProject(directory, project);
+      await this.derivedMedia.setProject(directory, project, undefined, this.#settings);
       return this.#persist();
     });
   }
@@ -122,7 +123,12 @@ export class DesktopProjectStore {
         await this.#ensureLayout();
         const layoutDurationMs = performance.now() - layoutStartedAt;
         const derivedStartedAt = performance.now();
-        await this.derivedMedia.setProject(directory, this.#history.project, preparedDerived);
+        await this.derivedMedia.setProject(
+          directory,
+          this.#history.project,
+          preparedDerived,
+          this.#settings,
+        );
         const derivedDurationMs = performance.now() - derivedStartedAt;
         const session = this.session();
         log.info(
@@ -172,6 +178,15 @@ export class DesktopProjectStore {
 
   async save(): Promise<DesktopProjectSession> {
     return this.#serialize(() => this.#persist());
+  }
+
+  async updateSettings(update: Partial<ProjectSettings>): Promise<DesktopProjectSession> {
+    return this.#serialize(async () => {
+      this.#settings = settingsSchema.parse({ ...this.#settings, ...update });
+      this.#revision += 1;
+      await this.derivedMedia.updateSettings(this.#settings);
+      return this.#persist();
+    });
   }
 
   async #persist(): Promise<DesktopProjectSession> {

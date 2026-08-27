@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, lt } from "drizzle-orm";
 import { db } from "../db/client";
 import {
   cloudAsset,
@@ -12,6 +12,7 @@ import type { R2ObjectStore } from "./r2";
 
 const MULTIPART_PART_SIZE = 64 * 1024 * 1024;
 const MULTIPART_EXPIRY_MS = 7 * 24 * 60 * 60 * 1_000;
+const TRASH_RETENTION_MS = 30 * 24 * 60 * 60 * 1_000;
 
 export class CloudStorageError extends Error {
   constructor(
@@ -92,6 +93,7 @@ export class CloudStorageService {
   }
 
   async usage(userId: string) {
+    await this.#maintainAccount(userId);
     await this.#ensureEntitlement(userId);
     const [entitlement] = await db
       .select()
@@ -470,6 +472,35 @@ export class CloudStorageService {
         includedBytes: this.includedBytes,
       })
       .onConflictDoNothing();
+  }
+
+  async #maintainAccount(userId: string): Promise<void> {
+    const expiredUploads = await db
+      .select({ id: cloudUpload.id })
+      .from(cloudUpload)
+      .innerJoin(cloudAsset, eq(cloudUpload.assetId, cloudAsset.id))
+      .where(
+        and(
+          eq(cloudAsset.userId, userId),
+          eq(cloudUpload.state, "uploading"),
+          lt(cloudUpload.expiresAt, new Date()),
+        ),
+      );
+    for (const upload of expiredUploads)
+      await this.abortUpload(userId, upload.id).catch(() => undefined);
+
+    const expiredTrash = await db
+      .select({ id: cloudAsset.id })
+      .from(cloudAsset)
+      .where(
+        and(
+          eq(cloudAsset.userId, userId),
+          eq(cloudAsset.state, "trashed"),
+          lt(cloudAsset.trashedAt, new Date(Date.now() - TRASH_RETENTION_MS)),
+        ),
+      );
+    for (const asset of expiredTrash)
+      await this.purgeAsset(userId, asset.id).catch(() => undefined);
   }
 
   async #requireAsset(userId: string, cloudAssetId: string) {

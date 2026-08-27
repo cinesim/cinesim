@@ -5,6 +5,7 @@ import type { RuntimeSnapshot } from "@cinesim/engine";
 import { DEFAULT_EDITOR_LAYOUT } from "../../shared/api";
 import type {
   AccountSnapshot,
+  CloudTransferSnapshot,
   DerivedMediaSnapshot,
   DesktopApi,
   DesktopAppState,
@@ -16,7 +17,7 @@ import { clampTimelineZoom } from "../lib/timeline-scale";
 
 export type Destination = "home" | "project" | "settings";
 export type ProjectSection = "media" | "edit";
-export type SettingsSection = "general" | "account" | "agents";
+export type SettingsSection = "general" | "media" | "storage" | "account" | "agents";
 export type AuxiliarySidebarMode = "agents" | "metrics" | null;
 export type EditTool = "select" | "trim" | "blade";
 export type PanelKind = "mediaPool" | "inspector" | "notes";
@@ -70,6 +71,7 @@ export interface RendererState {
   electronHealth: ElectronHealthSnapshot | null;
   account: AccountSnapshot;
   accountHydrated: boolean;
+  cloudTransfers: CloudTransferSnapshot[];
   initialize: () => Promise<void>;
   receiveExternalSession: (session: DesktopProjectSession) => Promise<void>;
   createProject: (name: string) => Promise<ActionResult<DesktopProjectSession | null>>;
@@ -113,6 +115,13 @@ export interface RendererState {
   refreshAccount: () => Promise<void>;
   beginAccountSignIn: (method: "email" | "google") => Promise<ActionResult<void>>;
   signOutAccount: () => Promise<ActionResult<AccountSnapshot>>;
+  setCloudTransfers: (snapshot: CloudTransferSnapshot[]) => void;
+  storeAssetsInCloud: (assetIds: string[]) => Promise<ActionResult<CloudTransferSnapshot[]>>;
+  retryCloudTransfer: (assetId: string) => Promise<ActionResult<CloudTransferSnapshot[]>>;
+  cancelCloudTransfer: (assetId: string) => Promise<ActionResult<CloudTransferSnapshot[]>>;
+  updateProjectSettings: (
+    update: Partial<DesktopProjectSession["settings"]>,
+  ) => Promise<ActionResult<DesktopProjectSession>>;
 }
 
 export const EMPTY_APP_STATE: DesktopAppState = {
@@ -329,6 +338,7 @@ export function createRendererStore({ api, storage }: RendererStoreDependencies)
       electronHealth: null,
       account: INITIAL_ACCOUNT_STATE,
       accountHydrated: false,
+      cloudTransfers: [],
 
       initialize: () => {
         if (initialization) return initialization;
@@ -336,6 +346,9 @@ export function createRendererStore({ api, storage }: RendererStoreDependencies)
 
         initialization = (async () => {
           const accountRequest = api.getAccountSnapshot().catch(() => INITIAL_ACCOUNT_STATE);
+          const transfersRequest = (api.getCloudTransfers?.() ?? Promise.resolve([])).catch(
+            () => [],
+          );
           const [sessionResult, appStateResult] = await Promise.allSettled([
             api.getSession(),
             api.getAppState(),
@@ -358,6 +371,7 @@ export function createRendererStore({ api, storage }: RendererStoreDependencies)
 
           const account = await accountRequest;
           if (!get().accountHydrated) set({ account, accountHydrated: true });
+          set({ cloudTransfers: await transfersRequest });
         })();
         return initialization;
       },
@@ -642,6 +656,51 @@ export function createRendererStore({ api, storage }: RendererStoreDependencies)
           return { ok: true, value: account };
         } catch (error) {
           return { ok: false, error: messageFrom(error, "Could not sign out") };
+        }
+      },
+      setCloudTransfers: (cloudTransfers) => set({ cloudTransfers }),
+      storeAssetsInCloud: async (assetIds) => {
+        try {
+          const cloudTransfers = await api.storeAssetsInCloud(assetIds);
+          set({ cloudTransfers, operationError: null });
+          return { ok: true, value: cloudTransfers };
+        } catch (error) {
+          const message = messageFrom(error, "The media could not be queued for cloud storage");
+          set({ operationError: message });
+          return { ok: false, error: message };
+        }
+      },
+      retryCloudTransfer: async (assetId) => {
+        try {
+          const cloudTransfers = await api.retryCloudTransfer(assetId);
+          set({ cloudTransfers, operationError: null });
+          return { ok: true, value: cloudTransfers };
+        } catch (error) {
+          const message = messageFrom(error, "The cloud transfer could not be retried");
+          set({ operationError: message });
+          return { ok: false, error: message };
+        }
+      },
+      cancelCloudTransfer: async (assetId) => {
+        try {
+          const cloudTransfers = await api.cancelCloudTransfer(assetId);
+          set({ cloudTransfers, operationError: null });
+          return { ok: true, value: cloudTransfers };
+        } catch (error) {
+          const message = messageFrom(error, "The cloud transfer could not be canceled");
+          set({ operationError: message });
+          return { ok: false, error: message };
+        }
+      },
+      updateProjectSettings: async (update) => {
+        try {
+          const session = await api.updateProjectSettings(update);
+          acceptMutationSession(session);
+          return { ok: true, value: session };
+        } catch (error) {
+          const message = messageFrom(error, "The project settings could not be updated");
+          set({ operationError: message });
+          return { ok: false, error: message };
         }
       },
     };

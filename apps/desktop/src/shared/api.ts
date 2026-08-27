@@ -63,8 +63,6 @@ export interface DerivedAssetSnapshot {
   performance: {
     original: SourcePerformanceSnapshot;
     proxy?: SourcePerformanceSnapshot;
-    decision: "observing" | "original-sufficient" | "proxy-queued" | "proxy-ready" | "proxy-failed";
-    reasons: string[];
   };
 }
 
@@ -404,10 +402,63 @@ export interface AccountSnapshot {
   detail: string | null;
 }
 
+export type CloudTransferState =
+  | "preparing"
+  | "uploading"
+  | "waiting-for-proxy"
+  | "paused"
+  | "failed"
+  | "complete";
+
+export interface CloudTransferSnapshot {
+  assetId: string;
+  cloudAssetId: string | null;
+  name: string;
+  bytes: number;
+  uploadedBytes: number;
+  state: CloudTransferState;
+  error: string | null;
+}
+
+export interface CloudStorageAssetUsage {
+  id: string;
+  clientAssetId: string;
+  name: string;
+  kind: "video" | "audio" | "image";
+  bytes: number;
+  state: "preparing" | "uploading" | "ready" | "failed" | "trashed";
+  trashedAt: string | null;
+}
+
+export interface CloudStorageProjectUsage {
+  id: string;
+  clientProjectId: string;
+  name: string;
+  usedBytes: number;
+  reservedBytes: number;
+  assets: CloudStorageAssetUsage[];
+}
+
+export interface CloudStorageUsage {
+  includedBytes: number;
+  addonBytes: number;
+  usedBytes: number;
+  reservedBytes: number;
+  projects: CloudStorageProjectUsage[];
+}
+
 export interface DesktopApi {
   getAccountSnapshot(): Promise<AccountSnapshot>;
   beginAccountSignIn(method: SignInMethod): Promise<void>;
   signOutAccount(): Promise<AccountSnapshot>;
+  getCloudStorageUsage(): Promise<CloudStorageUsage>;
+  getCloudTransfers(): Promise<CloudTransferSnapshot[]>;
+  storeAssetsInCloud(assetIds: string[]): Promise<CloudTransferSnapshot[]>;
+  retryCloudTransfer(assetId: string): Promise<CloudTransferSnapshot[]>;
+  cancelCloudTransfer(assetId: string): Promise<CloudTransferSnapshot[]>;
+  trashCloudAssets(cloudAssetIds: string[]): Promise<void>;
+  restoreCloudAsset(cloudAssetId: string): Promise<void>;
+  deleteCloudAsset(cloudAssetId: string): Promise<void>;
   createProject(name: string): Promise<DesktopProjectSession | null>;
   openProject(): Promise<DesktopProjectSession | null>;
   openRecentProject(directory: string): Promise<DesktopProjectSession>;
@@ -433,6 +484,7 @@ export interface DesktopApi {
   undo(): Promise<DesktopProjectSession>;
   redo(): Promise<DesktopProjectSession>;
   save(): Promise<DesktopProjectSession>;
+  updateProjectSettings(update: Partial<ProjectSettings>): Promise<DesktopProjectSession>;
   revealProject(): Promise<void>;
   forgetProject(directory: string): Promise<DesktopAppState>;
   trashProject(directory: string): Promise<DesktopAppState>;
@@ -471,6 +523,7 @@ export interface DesktopApi {
   onProjectChanged(callback: (session: DesktopProjectSession) => void): () => void;
   onDerivedMediaChanged(callback: (snapshot: DerivedMediaSnapshot) => void): () => void;
   onAccountChanged(callback: (snapshot: AccountSnapshot) => void): () => void;
+  onCloudTransfersChanged(callback: (snapshot: CloudTransferSnapshot[]) => void): () => void;
   platform: NodeJS.Platform;
 }
 
