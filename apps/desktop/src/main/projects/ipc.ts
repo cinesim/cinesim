@@ -51,15 +51,21 @@ export function registerProjectIpc(
   async function authorizeOpen(directory: string, allowOffline: boolean): Promise<void> {
     activateAccount();
     const manifest = await registeredManifest(directory);
-    try {
-      await account.registerProject({
-        cloudProjectId: manifest.cloudProjectId,
-        clientProjectId: manifest.id,
-        name: manifest.name,
-      });
-    } catch (error) {
-      if (!allowOffline) throw error;
+    const accountSnapshot = await account.snapshot();
+    if (accountSnapshot.status === "offline") {
+      if (!allowOffline)
+        throw new Error(
+          "Connect to the Cinesim service once before opening this project on this device",
+        );
+      return;
     }
+    if (accountSnapshot.status !== "signed-in")
+      throw new Error("Sign in before accessing Cinesim projects");
+    await account.registerProject({
+      cloudProjectId: manifest.cloudProjectId,
+      clientProjectId: manifest.id,
+      name: manifest.name,
+    });
   }
 
   async function reconcileLocalOriginals(): Promise<void> {

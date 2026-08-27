@@ -279,14 +279,6 @@ export class DesktopAccountService {
     );
   }
 
-  async projectRegistration(cloudProjectId: string): Promise<RegisteredProject> {
-    return registeredProjectSchema.parse(
-      await (
-        await this.authenticatedFetch(`/api/v1/projects/${encodeURIComponent(cloudProjectId)}`)
-      ).json(),
-    );
-  }
-
   async authenticatedFetch(path: string, init: RequestInit = {}): Promise<Response> {
     if (!path.startsWith("/api/v1/")) throw new Error("Invalid Cinesim API path");
     if (!this.#origin || !this.#client)
