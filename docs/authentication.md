@@ -63,6 +63,17 @@ and returns a short-lived PKCE-bound authorization code to the desktop app.
 
 Passwords and verification tokens never enter the Electron renderer.
 
+## Password recovery
+
+The browser sign-in page exposes a **Forgot password?** flow for email-password accounts. Better
+Auth creates a one-hour, single-use reset token and sends the reset link through the configured SMTP
+transport. During local development, open Mailpit at `http://127.0.0.1:8025`, select the password
+reset message, and follow its link to choose a new password. Completing a reset revokes the user's
+existing sessions.
+
+For accounts originally created with Google, password recovery can add an email-password credential
+after ownership of the address is proven through the reset email. Google sign-in continues to work.
+
 ### Development callback
 
 Electron custom URL schemes on macOS and Linux require a packaged application. During development,

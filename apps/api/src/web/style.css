@@ -39,8 +39,13 @@ input:focus-visible {
   padding: 24px 16px;
 }
 
-.auth-card {
+.auth-stack {
+  position: relative;
   width: min(380px, calc(100vw - 32px));
+}
+
+.auth-card {
+  width: 100%;
   border: 1px solid var(--ui-border);
   border-radius: 12px;
   background: var(--ui-panel);
@@ -69,7 +74,10 @@ input:focus-visible {
 }
 
 .notice {
-  margin-bottom: 14px;
+  position: absolute;
+  top: calc(100% + 12px);
+  right: 0;
+  left: 0;
   border: 1px solid var(--ui-border);
   border-radius: 6px;
   background: var(--ui-panel-muted);
@@ -182,12 +190,45 @@ form {
   gap: 12px;
 }
 
-label {
+label,
+.form-field {
   display: grid;
   gap: 5px;
   color: var(--ui-text-secondary);
   font-size: var(--ui-font-size-compact);
   font-weight: 500;
+}
+
+.field-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.field-heading label {
+  display: block;
+}
+
+.text-button {
+  border: 0;
+  background: transparent;
+  padding: 0;
+  color: var(--ui-text-muted);
+  font-size: var(--ui-font-size-compact);
+}
+
+.text-button:hover:not(:disabled) {
+  color: var(--ui-text);
+}
+
+.text-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.4;
+}
+
+.form-back {
+  justify-self: center;
+  margin-top: 2px;
 }
 
 input {

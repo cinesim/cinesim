@@ -23,6 +23,11 @@ describe("authentication page", () => {
     expect(page).toContain('content="false"');
     expect(page).toContain(`content="${LOCAL_DESKTOP_CALLBACK_URL}"`);
     expect(page).toContain('rel="icon" href="data:image/svg+xml');
+    expect(page).toContain('id="forgot-password"');
+    expect(page).toContain('id="confirm-password"');
+    expect(page).toContain('id="back-to-sign-in"');
+    expect(page.indexOf('id="notice"')).toBeGreaterThan(page.indexOf("</section>"));
+    expect(page).not.toContain('id="form-error"');
     expect(page).not.toContain(config.authSecret);
     expect(page).not.toContain(config.databaseUrl);
   });

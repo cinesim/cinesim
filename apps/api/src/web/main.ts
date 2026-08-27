@@ -3,7 +3,7 @@ import { createAuthClient } from "better-auth/client";
 import { encodeDesktopAuthorizationCode, shouldCompleteDesktopTransfer } from "./desktop-transfer";
 import "./style.css";
 
-type AuthMode = "sign-in" | "sign-up";
+type AuthMode = "sign-in" | "sign-up" | "forgot-password" | "reset-password";
 
 function requiredElement<T extends Element>(selector: string): T {
   const element = document.querySelector<T>(selector);
@@ -30,12 +30,21 @@ const authClient = createAuthClient({
 const authContent = requiredElement<HTMLElement>("#auth-content");
 const authenticated = requiredElement<HTMLElement>("#authenticated");
 const notice = requiredElement<HTMLElement>("#notice");
+const authTitle = requiredElement<HTMLElement>("#auth-title");
+const authOptions = requiredElement<HTMLElement>("#auth-options");
 const form = requiredElement<HTMLFormElement>("#auth-form");
 const nameField = requiredElement<HTMLLabelElement>("#name-field");
 const nameInput = requiredElement<HTMLInputElement>("#name");
+const emailField = requiredElement<HTMLLabelElement>("#email-field");
 const emailInput = requiredElement<HTMLInputElement>("#email");
+const passwordField = requiredElement<HTMLElement>("#password-field");
+const passwordLabel = requiredElement<HTMLLabelElement>("#password-label");
 const passwordInput = requiredElement<HTMLInputElement>("#password");
+const confirmPasswordField = requiredElement<HTMLLabelElement>("#confirm-password-field");
+const confirmPasswordInput = requiredElement<HTMLInputElement>("#confirm-password");
 const submit = requiredElement<HTMLButtonElement>("#submit");
+const forgotPassword = requiredElement<HTMLButtonElement>("#forgot-password");
+const backToSignIn = requiredElement<HTMLButtonElement>("#back-to-sign-in");
 const signInTab = requiredElement<HTMLButtonElement>("#sign-in-tab");
 const signUpTab = requiredElement<HTMLButtonElement>("#sign-up-tab");
 const googleButton = requiredElement<HTMLButtonElement>("#google-sign-in");
@@ -43,7 +52,20 @@ const googleHelp = requiredElement<HTMLElement>("#google-help");
 const openCinesim = requiredElement<HTMLButtonElement>("#open-cinesim");
 const returnStatus = requiredElement<HTMLElement>("#return-status");
 const query = Object.fromEntries(new URLSearchParams(window.location.search));
-const isDesktopFlow = Boolean(query.client_id && query.state && query.code_challenge);
+const transientQueryKeys = new Set([
+  "auth_complete",
+  "error",
+  "oauth_error",
+  "reset_password",
+  "token",
+  "verified",
+]);
+const persistentQuery = Object.fromEntries(
+  Object.entries(query).filter(([key]) => !transientQueryKeys.has(key)),
+);
+const isDesktopFlow = Boolean(
+  persistentQuery.client_id && persistentQuery.state && persistentQuery.code_challenge,
+);
 const completingExplicitAuthentication = shouldCompleteDesktopTransfer(query);
 let mode: AuthMode = "sign-in";
 let busy = false;
@@ -54,7 +76,7 @@ let pendingAuthorizationCode: string | null = null;
 
 function callbackUrl(extra: Record<string, string> = {}): string {
   const url = new URL("/sign-in", window.location.origin);
-  for (const [key, value] of Object.entries(query)) url.searchParams.set(key, value);
+  for (const [key, value] of Object.entries(persistentQuery)) url.searchParams.set(key, value);
   for (const [key, value] of Object.entries(extra)) url.searchParams.set(key, value);
   return url.toString();
 }
@@ -66,10 +88,20 @@ function errorMessage(
   if (error.code === "EMAIL_NOT_VERIFIED")
     return "Check your inbox for a verification link before signing in.";
   if (error.code === "INVALID_EMAIL_OR_PASSWORD") return "The email or password is incorrect.";
+  if (error.code === "INVALID_TOKEN")
+    return "This password reset link is invalid or expired. Request a new one.";
+  if (error.code === "PASSWORD_TOO_SHORT") return "Use a password with at least 10 characters.";
+  if (error.code === "PASSWORD_TOO_LONG") return "Use a password with no more than 128 characters.";
+  if (
+    error.code === "USER_ALREADY_EXISTS" ||
+    error.code === "USER_ALREADY_EXISTS_USE_ANOTHER_EMAIL"
+  )
+    return "An account already exists with this email. Sign in using your original method.";
   return error.message || "Authentication did not complete. Please try again.";
 }
 
 function showNotice(message: string, kind: "info" | "error" = "info"): void {
+  clearNotice();
   notice.textContent = message;
   notice.dataset.kind = kind;
   notice.hidden = false;
@@ -78,6 +110,14 @@ function showNotice(message: string, kind: "info" | "error" = "info"): void {
 function clearNotice(): void {
   notice.hidden = true;
   notice.textContent = "";
+  delete notice.dataset.kind;
+}
+
+function submitLabel(): string {
+  if (mode === "sign-up") return "Create account";
+  if (mode === "forgot-password") return "Send reset link";
+  if (mode === "reset-password") return "Reset password";
+  return "Sign in";
 }
 
 function setBusy(next: boolean): void {
@@ -86,23 +126,49 @@ function setBusy(next: boolean): void {
   googleButton.disabled = next || !googleEnabled;
   signInTab.disabled = next;
   signUpTab.disabled = next;
-  submit.textContent = next ? "Please wait…" : mode === "sign-in" ? "Sign in" : "Create account";
+  forgotPassword.disabled = next;
+  backToSignIn.disabled = next;
+  submit.textContent = next ? "Please wait…" : submitLabel();
 }
 
 function setMode(next: AuthMode): void {
   mode = next;
   clearNotice();
   const signingUp = next === "sign-up";
+  const requestingReset = next === "forgot-password";
+  const resettingPassword = next === "reset-password";
+  const recovering = requestingReset || resettingPassword;
+  authTitle.textContent = requestingReset
+    ? "Reset your password"
+    : resettingPassword
+      ? "Choose a new password"
+      : "Continue to Cinesim";
+  authOptions.hidden = recovering;
   nameField.hidden = !signingUp;
   nameInput.required = signingUp;
-  passwordInput.autocomplete = signingUp ? "new-password" : "current-password";
+  emailField.hidden = resettingPassword;
+  emailInput.required = !resettingPassword;
+  passwordField.hidden = requestingReset;
+  passwordInput.required = !requestingReset;
+  passwordLabel.textContent = resettingPassword ? "New password" : "Password";
+  passwordInput.autocomplete = signingUp || resettingPassword ? "new-password" : "current-password";
+  confirmPasswordField.hidden = !resettingPassword;
+  confirmPasswordInput.required = resettingPassword;
+  if (!resettingPassword) confirmPasswordInput.setCustomValidity("");
+  forgotPassword.hidden = next !== "sign-in";
+  backToSignIn.hidden = !recovering;
   signInTab.setAttribute("aria-selected", String(!signingUp));
   signUpTab.setAttribute("aria-selected", String(signingUp));
-  submit.textContent = signingUp ? "Create account" : "Sign in";
+  submit.textContent = submitLabel();
 }
 
 async function handleEmailSubmit(): Promise<void> {
   if (busy || !form.reportValidity()) return;
+  if (mode === "reset-password" && passwordInput.value !== confirmPasswordInput.value) {
+    confirmPasswordInput.setCustomValidity("Passwords do not match.");
+    confirmPasswordInput.reportValidity();
+    return;
+  }
   setBusy(true);
   clearNotice();
   try {
@@ -112,24 +178,49 @@ async function handleEmailSubmit(): Promise<void> {
         email: emailInput.value.trim(),
         password: passwordInput.value,
         callbackURL: callbackUrl({ verified: "true" }),
-        fetchOptions: { query },
+        fetchOptions: { query: persistentQuery },
       });
       if (result.error) showNotice(errorMessage(result.error), "error");
       else {
         passwordInput.value = "";
-        showNotice("Check Mailpit for your verification link, then return here.");
+        showNotice("Check your email.");
       }
-    } else {
+    } else if (mode === "sign-in") {
       const result = await authClient.signIn.email({
         email: emailInput.value.trim(),
         password: passwordInput.value,
         callbackURL: callbackUrl({ auth_complete: "email" }),
-        fetchOptions: { query },
+        fetchOptions: { query: persistentQuery },
       });
       if (result.error) showNotice(errorMessage(result.error), "error");
       else {
         showNotice("Signed in. Reopening Cinesim…");
         await completeExplicitAuthentication();
+      }
+    } else if (mode === "forgot-password") {
+      const result = await authClient.requestPasswordReset({
+        email: emailInput.value.trim(),
+        redirectTo: callbackUrl({ reset_password: "true" }),
+        fetchOptions: { query: persistentQuery },
+      });
+      if (result.error) showNotice(errorMessage(result.error), "error");
+      else
+        showNotice(
+          "If an account exists with this email, check your email for a password reset link.",
+        );
+    } else {
+      const result = await authClient.resetPassword({
+        newPassword: passwordInput.value,
+        token: query.token ?? "",
+        fetchOptions: { query: persistentQuery },
+      });
+      if (result.error) showNotice(errorMessage(result.error), "error");
+      else {
+        passwordInput.value = "";
+        confirmPasswordInput.value = "";
+        window.history.replaceState({}, "", callbackUrl());
+        setMode("sign-in");
+        showNotice("Password updated. You can sign in now.");
       }
     }
   } catch {
@@ -141,6 +232,9 @@ async function handleEmailSubmit(): Promise<void> {
 
 signInTab.addEventListener("click", () => setMode("sign-in"));
 signUpTab.addEventListener("click", () => setMode("sign-up"));
+forgotPassword.addEventListener("click", () => setMode("forgot-password"));
+backToSignIn.addEventListener("click", () => setMode("sign-in"));
+confirmPasswordInput.addEventListener("input", () => confirmPasswordInput.setCustomValidity(""));
 form.addEventListener("submit", (event) => {
   event.preventDefault();
   void handleEmailSubmit();
@@ -159,7 +253,7 @@ googleButton.addEventListener("click", () => {
       callbackURL: completedUrl,
       newUserCallbackURL: completedUrl,
       errorCallbackURL: callbackUrl({ oauth_error: "true" }),
-      fetchOptions: { query },
+      fetchOptions: { query: persistentQuery },
     })
     .then((result) => {
       if (result?.error) showNotice(errorMessage(result.error), "error");
@@ -179,6 +273,7 @@ async function returnToDesktop(providedCode?: string): Promise<void> {
   if (!code) return;
   pendingAuthorizationCode = code;
   returning = true;
+  clearNotice();
   authContent.hidden = true;
   authenticated.hidden = false;
   returnStatus.textContent = "Reopening Cinesim…";
@@ -220,9 +315,9 @@ async function transferExistingSession(): Promise<void> {
   if (!session.data) return;
 
   const url = new URL("/api/auth/electron/transfer-user", window.location.origin);
-  url.searchParams.set("client_id", query.client_id ?? "");
-  url.searchParams.set("state", query.state ?? "");
-  url.searchParams.set("code_challenge", query.code_challenge ?? "");
+  url.searchParams.set("client_id", persistentQuery.client_id ?? "");
+  url.searchParams.set("state", persistentQuery.state ?? "");
+  url.searchParams.set("code_challenge", persistentQuery.code_challenge ?? "");
   const response = await fetch(url, {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -235,10 +330,13 @@ async function transferExistingSession(): Promise<void> {
     typeof result !== "object" ||
     !("electron_authorization_code" in result) ||
     typeof result.electron_authorization_code !== "string" ||
-    !query.state
+    !persistentQuery.state
   )
     return;
-  const code = encodeDesktopAuthorizationCode(result.electron_authorization_code, query.state);
+  const code = encodeDesktopAuthorizationCode(
+    result.electron_authorization_code,
+    persistentQuery.state,
+  );
   await returnToDesktop(code);
 }
 
@@ -252,11 +350,19 @@ async function completeExplicitAuthentication(): Promise<void> {
   await transferExistingSession();
 }
 
-if (new URLSearchParams(window.location.search).has("verified"))
-  showNotice("Email verified. Finishing sign-in…");
-if (new URLSearchParams(window.location.search).has("oauth_error"))
+if (query.reset_password === "true" && query.token) setMode("reset-password");
+else if (query.reset_password === "true" && query.error) {
+  setMode("forgot-password");
+  showNotice("This password reset link is invalid or expired. Request a new one.", "error");
+}
+if (query.verified !== undefined) showNotice("Email verified. Finishing sign-in…");
+if (query.oauth_error !== undefined)
   showNotice("Google sign-in was cancelled or could not be completed.", "error");
-if (!isDesktopFlow && !authClient.electron.getAuthorizationCode())
+if (
+  !isDesktopFlow &&
+  query.reset_password !== "true" &&
+  !authClient.electron.getAuthorizationCode()
+)
   showNotice("Open this page from Cinesim to connect the account to the desktop app.");
 
 const redirectTimer = window.setInterval(() => {
