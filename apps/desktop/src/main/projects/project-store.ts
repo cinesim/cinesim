@@ -73,6 +73,22 @@ async function writeIfMissing(path: string, contents: string): Promise<void> {
   }
 }
 
+async function createAvailableProjectDirectory(
+  parentDirectory: string,
+  slug: string,
+): Promise<string> {
+  for (let ordinal = 1; ordinal <= 10_000; ordinal += 1) {
+    const directory = join(parentDirectory, ordinal === 1 ? slug : `${slug}-${ordinal}`);
+    try {
+      await mkdir(directory, { recursive: false });
+      return directory;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+    }
+  }
+  throw new Error(`Could not find an available folder for ${slug}`);
+}
+
 export class DesktopProjectStore {
   readonly derivedMedia = new DerivedMediaStore();
   #directory: string | null = null;
@@ -103,8 +119,7 @@ export class DesktopProjectStore {
           .toLowerCase()
           .replace(/[^a-z0-9]+/g, "-")
           .replace(/^-|-$/g, "") || "untitled-project";
-      const directory = join(parentDirectory, slug);
-      await mkdir(directory, { recursive: false });
+      const directory = await createAvailableProjectDirectory(parentDirectory, slug);
       const project = createProject({
         ...(typeof input === "string"
           ? {}

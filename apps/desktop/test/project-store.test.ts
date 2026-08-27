@@ -72,6 +72,26 @@ describe("DesktopProjectStore", () => {
     expect(localSession.project.cloudProjectId).toBeUndefined();
   });
 
+  it("creates a numbered sibling without touching an existing project folder", async () => {
+    const parentDirectory = await mkdtemp(join(tmpdir(), "cinesim-project-collision-test-"));
+    temporaryDirectories.push(parentDirectory);
+    const existingDirectory = join(parentDirectory, "test-proj");
+    await mkdir(existingDirectory);
+    const markerPath = join(existingDirectory, "keep.txt");
+    await writeFile(markerPath, "existing project");
+
+    const store = new DesktopProjectStore();
+    const session = await store.create(parentDirectory, {
+      name: "Test Proj",
+      projectId: "project_collision_fixture",
+      cloudProjectId: "cloud_project_collision00001",
+    });
+
+    expect(session.directory).toBe(join(parentDirectory, "test-proj-2"));
+    await expect(readFile(markerPath, "utf8")).resolves.toBe("existing project");
+    expect(session.project.cloudProjectId).toBe("cloud_project_collision00001");
+  });
+
   it("measures canonical project files without counting disposable video output", async () => {
     const parentDirectory = await mkdtemp(join(tmpdir(), "cinesim-size-test-"));
     temporaryDirectories.push(parentDirectory);
