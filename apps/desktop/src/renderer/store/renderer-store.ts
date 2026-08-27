@@ -4,6 +4,7 @@ import type { ClipId, EditorCommand, Sequence, TimeUs } from "@cinesim/core";
 import type { RuntimeSnapshot } from "@cinesim/engine";
 import { DEFAULT_EDITOR_LAYOUT } from "../../shared/api";
 import type {
+  AccountSnapshot,
   DerivedMediaSnapshot,
   DesktopApi,
   DesktopAppState,
@@ -15,7 +16,7 @@ import { clampTimelineZoom } from "../lib/timeline-scale";
 
 export type Destination = "home" | "project" | "settings";
 export type ProjectSection = "media" | "edit";
-export type SettingsSection = "general" | "agents";
+export type SettingsSection = "general" | "account" | "agents";
 export type AuxiliarySidebarMode = "agents" | "metrics" | null;
 export type EditTool = "select" | "trim" | "blade";
 export type PanelKind = "mediaPool" | "inspector" | "notes";
@@ -67,6 +68,7 @@ export interface RendererState {
   playbackRuntime: PlaybackRuntimeState | null;
   derivedMedia: DerivedMediaSnapshot | null;
   electronHealth: ElectronHealthSnapshot | null;
+  account: AccountSnapshot;
   initialize: () => Promise<void>;
   receiveExternalSession: (session: DesktopProjectSession) => Promise<void>;
   createProject: (name: string) => Promise<ActionResult<DesktopProjectSession | null>>;
@@ -106,6 +108,10 @@ export interface RendererState {
   ) => void;
   setDerivedMedia: (projectDirectory: string, snapshot: DerivedMediaSnapshot | null) => void;
   setElectronHealth: (snapshot: ElectronHealthSnapshot | null) => void;
+  setAccount: (snapshot: AccountSnapshot) => void;
+  refreshAccount: () => Promise<void>;
+  beginAccountSignIn: (method: "email" | "google") => Promise<ActionResult<void>>;
+  signOutAccount: () => Promise<ActionResult<AccountSnapshot>>;
 }
 
 export const EMPTY_APP_STATE: DesktopAppState = {
@@ -115,6 +121,15 @@ export const EMPTY_APP_STATE: DesktopAppState = {
   inspectorOpenByProject: {},
   notesOpenByProject: {},
   editorLayoutsByProject: {},
+};
+
+export const INITIAL_ACCOUNT_STATE: AccountSnapshot = {
+  status: "local",
+  cloudOrigin: null,
+  serviceAvailable: false,
+  googleSignIn: false,
+  user: null,
+  detail: null,
 };
 
 function messageFrom(error: unknown, fallback: string): string {
@@ -294,11 +309,13 @@ export function createRendererStore({ api, storage }: RendererStoreDependencies)
       playbackRuntime: null,
       derivedMedia: null,
       electronHealth: null,
+      account: INITIAL_ACCOUNT_STATE,
 
       initialize: async () => {
-        const [sessionResult, appStateResult] = await Promise.allSettled([
+        const [sessionResult, appStateResult, accountResult] = await Promise.allSettled([
           api.getSession(),
           api.getAppState(),
+          api.getAccountSnapshot(),
         ]);
         if (get().project.status !== "booting") return;
         if (sessionResult.status === "rejected") {
@@ -311,8 +328,11 @@ export function createRendererStore({ api, storage }: RendererStoreDependencies)
         }
         const appState =
           appStateResult.status === "fulfilled" ? appStateResult.value : EMPTY_APP_STATE;
-        if (sessionResult.value) set(hydratedProjectState(sessionResult.value, appState));
-        else set({ project: { status: "idle" }, appState });
+        const account =
+          accountResult.status === "fulfilled" ? accountResult.value : INITIAL_ACCOUNT_STATE;
+        if (sessionResult.value)
+          set({ ...hydratedProjectState(sessionResult.value, appState), account });
+        else set({ project: { status: "idle" }, appState, account });
       },
 
       receiveExternalSession: async (session) => {
@@ -554,6 +574,38 @@ export function createRendererStore({ api, storage }: RendererStoreDependencies)
         set({ derivedMedia });
       },
       setElectronHealth: (electronHealth) => set({ electronHealth }),
+      setAccount: (account) => set({ account }),
+      refreshAccount: async () => {
+        try {
+          set({ account: await api.getAccountSnapshot() });
+        } catch {
+          set({
+            account: {
+              ...get().account,
+              status: get().account.user ? "offline" : "local",
+              serviceAvailable: false,
+              detail: "The authentication service is unavailable. Local editing still works.",
+            },
+          });
+        }
+      },
+      beginAccountSignIn: async (method) => {
+        try {
+          await api.beginAccountSignIn(method);
+          return { ok: true, value: undefined };
+        } catch (error) {
+          return { ok: false, error: messageFrom(error, "Sign-in could not be started") };
+        }
+      },
+      signOutAccount: async () => {
+        try {
+          const account = await api.signOutAccount();
+          set({ account });
+          return { ok: true, value: account };
+        } catch (error) {
+          return { ok: false, error: messageFrom(error, "Could not sign out") };
+        }
+      },
     };
   });
 }

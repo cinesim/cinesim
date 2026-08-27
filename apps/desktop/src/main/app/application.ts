@@ -14,6 +14,8 @@ import { createEditorWindow } from "./editor-window";
 import { MainEventLoopMonitor } from "./event-loop-monitor";
 import { registerAppIpc } from "./ipc";
 import type { ApplicationLifecycle } from "./lifecycle";
+import { registerAccountIpc } from "../account/ipc";
+import type { DesktopAccountService } from "../account/service";
 
 const log = createCinesimLogger({ service: "desktop" });
 
@@ -21,6 +23,8 @@ export class DesktopApplication implements ApplicationLifecycle {
   readonly projectStore = new DesktopProjectStore();
   #agents: AgentManager | null = null;
   #eventLoopMonitor = new MainEventLoopMonitor();
+
+  constructor(private readonly accountService: DesktopAccountService) {}
 
   async start(): Promise<void> {
     await app.whenReady();
@@ -74,6 +78,7 @@ export class DesktopApplication implements ApplicationLifecycle {
     registerAppStateIpc(appState, this.projectStore);
     registerAgentIpc(agents, agentSettings);
     registerAppIpc(log, this.#eventLoopMonitor);
+    registerAccountIpc(this.accountService);
 
     this.#openWindow();
     app.on("activate", () => {

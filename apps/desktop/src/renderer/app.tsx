@@ -22,6 +22,7 @@ export function App() {
   const inspectorOpen = useRendererStore((state) => state.inspectorOpen);
   const notesOpen = useRendererStore((state) => state.notesOpen);
   const settingsSection = useRendererStore((state) => state.settingsSection);
+  const account = useRendererStore((state) => state.account);
   const auxiliaryMode = useRendererStore((state) => state.auxiliaryMode);
   const error = useRendererStore((state) => state.operationError);
   const editorLayout = useRendererStore(editorLayoutFromState);
@@ -29,6 +30,8 @@ export function App() {
   const showProjectSection = useRendererStore((state) => state.showProjectSection);
   const showTimeline = useRendererStore((state) => state.showTimeline);
   const setSettingsSection = useRendererStore((state) => state.setSettingsSection);
+  const beginAccountSignIn = useRendererStore((state) => state.beginAccountSignIn);
+  const signOutAccount = useRendererStore((state) => state.signOutAccount);
   const setAuxiliaryMode = useRendererStore((state) => state.setAuxiliaryMode);
   const togglePanel = useRendererStore((state) => state.togglePanel);
   const openProject = useRendererStore((state) => state.openProject);
@@ -55,6 +58,7 @@ export function App() {
         projectSection={projectSection}
         activeSequenceId={activeSequenceId}
         settingsSection={settingsSection}
+        account={account}
         title={title}
         leadingToolbar={
           destination === "project" && session && projectSection === "edit" ? (
@@ -107,7 +111,12 @@ export function App() {
         onHome={() => navigate("home")}
         onProjectSection={showProjectSection}
         onTimeline={showTimeline}
-        onSettings={() => navigate("settings")}
+        onSettings={() => {
+          setSettingsSection("general");
+          navigate("settings");
+        }}
+        onAccountSignIn={beginAccountSignIn}
+        onAccountSignOut={signOutAccount}
         onSettingsSection={setSettingsSection}
         onOpenRecent={(directory) => void openRecentProject(directory)}
         onOpenProject={() => void openProject()}

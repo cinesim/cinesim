@@ -61,9 +61,16 @@ function RendererControllerEffects({ api, store }: { api: DesktopApi; store: Ren
 
   useEffect(() => {
     void store.getState().initialize();
-    return api.onProjectChanged((session) => {
+    const unsubscribeProject = api.onProjectChanged((session) => {
       void store.getState().receiveExternalSession(session);
     });
+    const unsubscribeAccount = api.onAccountChanged((snapshot) => {
+      store.getState().setAccount(snapshot);
+    });
+    return () => {
+      unsubscribeProject();
+      unsubscribeAccount();
+    };
   }, [api, store]);
 
   useEffect(() => {

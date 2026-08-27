@@ -3,6 +3,9 @@ import type { EditorCommand } from "@cinesim/core";
 import type { DesktopApi } from "../shared/api";
 
 const api: DesktopApi = {
+  getAccountSnapshot: () => ipcRenderer.invoke("account:get"),
+  beginAccountSignIn: (method) => ipcRenderer.invoke("account:sign-in", method),
+  signOutAccount: () => ipcRenderer.invoke("account:sign-out"),
   createProject: (name) => ipcRenderer.invoke("project:create", name),
   openProject: () => ipcRenderer.invoke("project:open"),
   openRecentProject: (directory) => ipcRenderer.invoke("project:open-recent", directory),
@@ -78,6 +81,29 @@ const api: DesktopApi = {
     ) => callback(snapshot);
     ipcRenderer.on("derived:changed", listener);
     return () => ipcRenderer.removeListener("derived:changed", listener);
+  },
+  onAccountChanged: (callback) => {
+    const refreshSnapshot = async () => {
+      try {
+        const snapshot = await ipcRenderer.invoke("account:get");
+        callback(snapshot);
+      } catch {
+        // The renderer keeps its last safe snapshot if the main process is shutting down.
+      }
+    };
+    const refresh = () => {
+      void refreshSnapshot();
+    };
+    ipcRenderer.on("account:changed", refresh);
+    ipcRenderer.on("cinesim-auth:authenticated", refresh);
+    ipcRenderer.on("cinesim-auth:user-updated", refresh);
+    ipcRenderer.on("cinesim-auth:error", refresh);
+    return () => {
+      ipcRenderer.removeListener("account:changed", refresh);
+      ipcRenderer.removeListener("cinesim-auth:authenticated", refresh);
+      ipcRenderer.removeListener("cinesim-auth:user-updated", refresh);
+      ipcRenderer.removeListener("cinesim-auth:error", refresh);
+    };
   },
   platform: process.platform,
 };

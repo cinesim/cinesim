@@ -29,15 +29,24 @@ describe("renderer typography", () => {
 
     expect(violations).toEqual([]);
 
-    const styles = readFileSync(resolve(root, "apps/desktop/src/renderer/styles.css"), "utf8");
-    expect(styles.match(/font-family:\s*[^;]+;/g)).toEqual([
+    const rendererStyles = readFileSync(
+      resolve(root, "apps/desktop/src/renderer/styles.css"),
+      "utf8",
+    );
+    const authStyles = readFileSync(resolve(root, "apps/api/src/web/style.css"), "utf8");
+    const tokenStyles = readFileSync(resolve(root, "packages/ui/src/tokens.css"), "utf8");
+    expect(rendererStyles).toContain('@import "../../../../packages/ui/src/tokens.css";');
+    expect(authStyles).toContain('@import "../../../../packages/ui/src/tokens.css";');
+    expect(tokenStyles.match(/font-family:\s*[^;]+;/g)).toEqual([
       'font-family: "Geist Variable", sans-serif;',
     ]);
-    expect(Array.from(styles.matchAll(/font-size:\s*([^;]+);/g), (match) => match[1])).toEqual([
-      "var(--ui-font-size-body)",
-      "var(--ui-font-size-compact)",
-    ]);
-    expect(styles.match(/--ui-font-size-[a-z-]+:\s*\d+px;/g)).toEqual([
+    expect(
+      Array.from(
+        `${tokenStyles}\n${rendererStyles}`.matchAll(/font-size:\s*([^;]+);/g),
+        (match) => match[1],
+      ),
+    ).toEqual(["var(--ui-font-size-body)", "var(--ui-font-size-compact)"]);
+    expect(tokenStyles.match(/--ui-font-size-[a-z-]+:\s*\d+px;/g)).toEqual([
       "--ui-font-size-compact: 11px;",
       "--ui-font-size-body: 13px;",
       "--ui-font-size-heading: 20px;",

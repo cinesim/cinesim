@@ -2,7 +2,14 @@
 
 ## Toolchain and Electron build
 
-Cinesim uses pnpm workspaces for dependency resolution and Vite+ 0.2 for repository-wide formatting, linting, testing, task execution, and caching. There is one root `vite.config.ts`; the desktop package adds one mode-aware config because Electron has three genuinely different targets: Node-flavored main, sandbox-compatible preload, and browser renderer.
+Cinesim uses pnpm workspaces for dependency resolution and Vite+ 0.2 for repository-wide formatting, linting, testing, task execution, and caching. The desktop package has one mode-aware config because Electron has three genuinely different targets: Node-flavored main, sandbox-compatible preload, and browser renderer. The API has a small Vite config used only to bundle its system-browser authentication client; Hono remains a regular standards-based server entry point.
+
+The optional account system is a separate Hono application backed by Better Auth and PostgreSQL. It
+does not enter `packages/core` or canonical project state. Authentication uses the system browser and
+a PKCE-bound custom-protocol return. Electron main owns the encrypted cookie and the renderer receives
+only sanitized account state and narrow sign-in/sign-out methods. Local development uses ordinary
+PostgreSQL and SMTP so the same committed migrations and server configuration can later target
+PlanetScale and a production mail provider.
 
 We do not use `electron-vite`. Current Electron builds are straightforward Vite library builds, while coupling another wrapper to Vite+'s fast-moving Vite version would duplicate configuration and reduce transparency. `vp run desktop:build` invokes the same Vite implementation for all three targets. The small development launcher only coordinates watch processes; it is not another bundler.
 

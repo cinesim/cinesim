@@ -10,7 +10,11 @@ import {
 } from "@cinesim/core";
 import type { RuntimeSnapshot } from "@cinesim/engine";
 import type { DesktopApi, DesktopProjectSession } from "../src/shared/api";
-import { createRendererStore, EMPTY_APP_STATE } from "../src/renderer/store/renderer-store";
+import {
+  createRendererStore,
+  EMPTY_APP_STATE,
+  INITIAL_ACCOUNT_STATE,
+} from "../src/renderer/store/renderer-store";
 
 function sessionFixture(directory = "/projects/fixture"): DesktopProjectSession {
   return {
@@ -31,6 +35,7 @@ function apiFixture(overrides: Partial<DesktopApi> = {}): DesktopApi {
   return {
     getSession: async () => null,
     getAppState: async () => EMPTY_APP_STATE,
+    getAccountSnapshot: async () => INITIAL_ACCOUNT_STATE,
     ...overrides,
   } as DesktopApi;
 }

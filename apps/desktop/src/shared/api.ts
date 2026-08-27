@@ -384,7 +384,30 @@ export interface ElectronHealthSnapshot {
   processes: Record<ElectronProcessGroupKind, ElectronProcessGroupMetric>;
 }
 
+export interface AccountUser {
+  id: string;
+  name: string;
+  email: string;
+  emailVerified: boolean;
+  image: string | null;
+}
+
+export type AccountStatus = "local" | "signed-in" | "offline";
+export type SignInMethod = "email" | "google";
+
+export interface AccountSnapshot {
+  status: AccountStatus;
+  cloudOrigin: string | null;
+  serviceAvailable: boolean;
+  googleSignIn: boolean;
+  user: AccountUser | null;
+  detail: string | null;
+}
+
 export interface DesktopApi {
+  getAccountSnapshot(): Promise<AccountSnapshot>;
+  beginAccountSignIn(method: SignInMethod): Promise<void>;
+  signOutAccount(): Promise<AccountSnapshot>;
   createProject(name: string): Promise<DesktopProjectSession | null>;
   openProject(): Promise<DesktopProjectSession | null>;
   openRecentProject(directory: string): Promise<DesktopProjectSession>;
@@ -447,6 +470,7 @@ export interface DesktopApi {
   onAgentsChanged(callback: (snapshot: AgentProjectSnapshot) => void): () => void;
   onProjectChanged(callback: (session: DesktopProjectSession) => void): () => void;
   onDerivedMediaChanged(callback: (snapshot: DerivedMediaSnapshot) => void): () => void;
+  onAccountChanged(callback: (snapshot: AccountSnapshot) => void): () => void;
   platform: NodeJS.Platform;
 }
 

@@ -24,5 +24,17 @@ Runtime dependencies:
 | Commander                           | CLI parsing                          | MIT          |
 | MCP TypeScript SDK                  | MCP adapters and local agent bridge  | MIT          |
 | Pino                                | Structured local diagnostics         | MIT          |
+| Better Auth / Electron integration  | Server and desktop authentication    | MIT          |
+| Hono / Hono Node server             | HTTP API and local server adapter    | MIT          |
+| Drizzle ORM                         | Typed PostgreSQL queries             | Apache-2.0   |
+| node-postgres (`pg`)                | PostgreSQL connection pooling        | MIT          |
+| Nodemailer                          | Verification email over SMTP         | MIT-0        |
+
+Development services:
+
+| Service                    | Purpose                           | License            |
+| -------------------------- | --------------------------------- | ------------------ |
+| PostgreSQL 17 Docker image | Local authentication database     | PostgreSQL License |
+| Mailpit                    | Local SMTP server and email inbox | MIT                |
 
 Build-only dependencies (Vite+, Vite, TypeScript, React Compiler, Electron, electron-builder, tsx, type packages) use MIT, Apache-2.0, or BSD-style licenses. Cinesim does not copy or modify Mediabunny source and does not include optional FFmpeg/libavcodec-backed codec extensions.
