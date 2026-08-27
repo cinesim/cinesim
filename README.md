@@ -80,8 +80,11 @@ my-project/
     └── runtime/
 ```
 
-Source media is referenced in place and is never copied automatically. Deleting `.video/` must not invalidate the project.
+Local source media is referenced in place. Signed-in users may explicitly move supported originals
+to private cloud storage after a local edit proxy is ready. Deleting `.video/` remains safe; cloud
+proxies can be regenerated while the account is online.
 
-See [technical decisions](docs/technical-decisions.md), [project format](docs/project-format.md), and [dependency licenses](docs/dependencies.md).
+See [technical decisions](docs/technical-decisions.md), [project format](docs/project-format.md),
+[cloud originals](docs/cloud-storage.md), and [dependency licenses](docs/dependencies.md).
 
 The detailed [V1 implementation status](docs/implementation-status.md) records exactly what is implemented, what was verified without launching Electron, known limitations, and the next engineering steps.

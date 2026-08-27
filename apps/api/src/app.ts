@@ -13,7 +13,11 @@ import { createCloudRoutes } from "./cloud/routes";
 const config = serverConfig();
 const app = new Hono();
 const cloudStorage = config.r2
-  ? new CloudStorageService(new R2ObjectStore(config.r2), config.cloudIncludedBytes)
+  ? new CloudStorageService(
+      new R2ObjectStore(config.r2),
+      config.cloudIncludedBytes,
+      config.cloudAddonOptionsBytes,
+    )
   : null;
 
 app.use(

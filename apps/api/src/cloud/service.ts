@@ -49,6 +49,7 @@ export class CloudStorageService {
   constructor(
     private readonly objectStore: R2ObjectStore,
     private readonly includedBytes: number,
+    private readonly addonOptionsBytes: number[],
   ) {}
 
   async ensureProject(
@@ -111,6 +112,7 @@ export class CloudStorageService {
       addonBytes: entitlement!.addonBytes,
       usedBytes: entitlement!.usedBytes,
       reservedBytes: entitlement!.reservedBytes,
+      addonOptionsBytes: this.addonOptionsBytes,
       projects: projects
         .map((project) => {
           const projectAssets = assets
@@ -141,6 +143,31 @@ export class CloudStorageService {
           (left, right) => right.usedBytes - left.usedBytes || left.name.localeCompare(right.name),
         ),
     };
+  }
+
+  async setAddonBytes(userId: string, addonBytes: number): Promise<void> {
+    if (!this.addonOptionsBytes.includes(addonBytes))
+      throw new CloudStorageError(
+        "STORAGE_ALLOWANCE_UNAVAILABLE",
+        "That storage allowance is not available",
+      );
+    await this.#ensureEntitlement(userId);
+    const [entitlement] = await db
+      .select()
+      .from(storageEntitlement)
+      .where(eq(storageEntitlement.userId, userId))
+      .limit(1);
+    if (!entitlement) throw new Error("Storage entitlement is unavailable");
+    if (entitlement.usedBytes + entitlement.reservedBytes > entitlement.includedBytes + addonBytes)
+      throw new CloudStorageError(
+        "STORAGE_ALLOWANCE_IN_USE",
+        "Remove cloud originals before reducing storage below current usage",
+        409,
+      );
+    await db
+      .update(storageEntitlement)
+      .set({ addonBytes })
+      .where(eq(storageEntitlement.userId, userId));
   }
 
   async createUpload(

@@ -16,6 +16,7 @@ const config: ServerConfig = {
   google: null,
   r2: null,
   cloudIncludedBytes: 10 * 1024 ** 3,
+  cloudAddonOptionsBytes: [0],
 };
 
 describe("authentication page", () => {

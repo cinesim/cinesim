@@ -7,6 +7,8 @@ const api: DesktopApi = {
   beginAccountSignIn: (method) => ipcRenderer.invoke("account:sign-in", method),
   signOutAccount: () => ipcRenderer.invoke("account:sign-out"),
   getCloudStorageUsage: () => ipcRenderer.invoke("cloud:usage"),
+  configureCloudStorageAddon: (addonBytes) =>
+    ipcRenderer.invoke("cloud:configure-addon", addonBytes),
   getCloudTransfers: () => ipcRenderer.invoke("cloud:transfers"),
   storeAssetsInCloud: (assetIds) => ipcRenderer.invoke("cloud:store-assets", assetIds),
   retryCloudTransfer: (assetId) => ipcRenderer.invoke("cloud:retry", assetId),
@@ -21,6 +23,8 @@ const api: DesktopApi = {
   getDerivedMediaSnapshot: (scope) => ipcRenderer.invoke("derived:get", scope),
   requestDerivedJobs: (scope, assetIds) =>
     ipcRenderer.invoke("derived:request-jobs", scope, assetIds),
+  requestProxyJobs: (scope, assetIds) =>
+    ipcRenderer.invoke("derived:request-proxies", scope, assetIds),
   beginDerivedWrite: (scope, input) => ipcRenderer.invoke("derived:write:begin", scope, input),
   writeDerivedChunk: (writerId, offset, data) =>
     ipcRenderer.invoke("derived:write:chunk", writerId, offset, data),

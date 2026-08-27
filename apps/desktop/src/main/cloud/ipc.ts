@@ -15,6 +15,10 @@ function cloudAssetId(value: unknown): string {
 
 export function registerCloudIpc(manager: CloudMediaManager): void {
   ipcMain.handle("cloud:usage", () => manager.usage());
+  ipcMain.handle("cloud:configure-addon", (_event, value: unknown) => {
+    if (typeof value !== "number") throw new Error("Invalid storage allowance");
+    return manager.configureAddon(value);
+  });
   ipcMain.handle("cloud:transfers", () => manager.snapshots());
   ipcMain.handle("cloud:store-assets", (_event, value: unknown) => {
     if (!Array.isArray(value)) throw new Error("Invalid cloud storage request");

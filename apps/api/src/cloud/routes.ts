@@ -44,6 +44,7 @@ const completedPartInput = z.object({
   etag: z.string().min(1).max(255),
   bytes: z.number().int().positive().safe(),
 });
+const allowanceInput = z.object({ addonBytes: z.number().int().nonnegative().safe() });
 
 async function authenticatedUserId(headers: Headers): Promise<string | null> {
   return (await auth.api.getSession({ headers }))?.user.id ?? null;
@@ -63,6 +64,12 @@ export function createCloudRoutes(service: CloudStorageService | null) {
   routes.get("/usage", async (context) =>
     context.json(await service!.usage(context.get("userId"))),
   );
+
+  routes.patch("/usage", async (context) => {
+    const input = allowanceInput.parse(await context.req.json());
+    await service!.setAddonBytes(context.get("userId"), input.addonBytes);
+    return context.json(await service!.usage(context.get("userId")));
+  });
 
   routes.post("/projects", async (context) => {
     const input = projectInput.parse(await context.req.json());

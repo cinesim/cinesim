@@ -444,6 +444,7 @@ export interface CloudStorageUsage {
   addonBytes: number;
   usedBytes: number;
   reservedBytes: number;
+  addonOptionsBytes: number[];
   projects: CloudStorageProjectUsage[];
 }
 
@@ -452,6 +453,7 @@ export interface DesktopApi {
   beginAccountSignIn(method: SignInMethod): Promise<void>;
   signOutAccount(): Promise<AccountSnapshot>;
   getCloudStorageUsage(): Promise<CloudStorageUsage>;
+  configureCloudStorageAddon(addonBytes: number): Promise<CloudStorageUsage>;
   getCloudTransfers(): Promise<CloudTransferSnapshot[]>;
   storeAssetsInCloud(assetIds: string[]): Promise<CloudTransferSnapshot[]>;
   retryCloudTransfer(assetId: string): Promise<CloudTransferSnapshot[]>;
@@ -465,6 +467,7 @@ export interface DesktopApi {
   importMedia(): Promise<DesktopProjectSession | null>;
   getDerivedMediaSnapshot(scope: DerivedProjectScope): Promise<DerivedMediaSnapshot>;
   requestDerivedJobs(scope: DerivedProjectScope, assetIds: string[]): Promise<DerivedMediaSnapshot>;
+  requestProxyJobs(scope: DerivedProjectScope, assetIds: string[]): Promise<DerivedMediaSnapshot>;
   beginDerivedWrite(
     scope: DerivedProjectScope,
     input: BeginDerivedWrite,

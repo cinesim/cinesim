@@ -141,6 +141,17 @@ function CloudStorageSettings() {
     setBusyAssetId(null);
   }
 
+  async function configureAddon(addonBytes: number): Promise<void> {
+    setLoading(true);
+    setError(null);
+    try {
+      setUsage(await window.cinesim.configureCloudStorageAddon(addonBytes));
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "The storage allowance could not change");
+    }
+    setLoading(false);
+  }
+
   return (
     <>
       <SettingsHeading
@@ -267,9 +278,29 @@ function CloudStorageSettings() {
       <div className="mt-5 rounded-xl border border-border bg-panel p-5">
         <p className="text-ui font-medium text-primary">Additional storage</p>
         <p className="mt-1 text-ui text-muted">
-          This account is ready for storage add-ons. Billing choices will appear here when plans are
-          enabled; no enterprise setup is required.
+          Choose an account allowance made available by this Cinesim service. You cannot reduce it
+          below storage already in use.
         </p>
+        {usage && (
+          <Select
+            className="mt-4 max-w-xs"
+            aria-label="Additional cloud storage"
+            value={usage.addonBytes}
+            disabled={loading || usage.addonOptionsBytes.length <= 1}
+            onChange={(event) => void configureAddon(Number(event.target.value))}
+          >
+            {usage.addonOptionsBytes.map((bytes) => (
+              <option key={bytes} value={bytes}>
+                {bytes === 0 ? "Included storage only" : `Add ${formatBytes(bytes)}`}
+              </option>
+            ))}
+          </Select>
+        )}
+        {usage?.addonOptionsBytes.length === 1 && (
+          <p className="mt-3 text-ui-xs text-muted">
+            No additional allowances are configured for this service.
+          </p>
+        )}
       </div>
     </>
   );

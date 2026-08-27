@@ -36,6 +36,19 @@ const environmentSchema = z
       .positive()
       .safe()
       .default(10 * 1024 ** 3),
+    CINESIM_CLOUD_ADDON_OPTIONS_BYTES: z
+      .string()
+      .default("0")
+      .transform((source, context) => {
+        const values = source.split(",").map((part) => Number(part.trim()));
+        if (
+          values.some((value) => !Number.isSafeInteger(value) || value < 0 || value > 5 * 1024 ** 4)
+        ) {
+          context.addIssue({ code: "custom", message: "must be comma-separated byte counts" });
+          return z.NEVER;
+        }
+        return [...new Set([0, ...values])].sort((left, right) => left - right);
+      }),
   })
   .superRefine((value, context) => {
     const hasGoogleId = Boolean(value.GOOGLE_CLIENT_ID);
@@ -89,6 +102,7 @@ export interface ServerConfig {
     secretAccessKey: string;
   } | null;
   cloudIncludedBytes: number;
+  cloudAddonOptionsBytes: number[];
 }
 
 let cachedConfig: ServerConfig | null = null;
@@ -129,6 +143,7 @@ export function readServerConfig(environment: NodeJS.ProcessEnv): ServerConfig {
           }
         : null,
     cloudIncludedBytes: value.CINESIM_CLOUD_INCLUDED_BYTES,
+    cloudAddonOptionsBytes: value.CINESIM_CLOUD_ADDON_OPTIONS_BYTES,
   };
 }
 

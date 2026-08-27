@@ -155,8 +155,9 @@ export class DerivedMediaStore {
       }
       await Promise.all(project.assets.map((asset) => this.#ensureAsset(asset)));
       await this.#refreshStorage();
-      if (this.#settings.proxyGeneration === "automatic")
-        for (const asset of project.assets) await this.#queueProxyRecord(asset);
+      for (const asset of project.assets)
+        if (this.#settings.proxyGeneration === "automatic" || asset.source.kind === "cloud")
+          await this.#queueProxyRecord(asset);
       if (recovered)
         this.#log({ kind: "jobs-recovered", detail: "Interrupted jobs returned to the queue" });
       if (recovered)
@@ -199,11 +200,16 @@ export class DerivedMediaStore {
   async updateSettings(settings: ProjectSettings): Promise<void> {
     await this.#serialize(async () => {
       this.#settings = structuredClone(settings);
-      if (settings.proxyGeneration === "automatic")
-        for (const asset of this.#requireProject().assets) await this.#queueProxyRecord(asset);
-      else
-        for (const record of Object.values(this.#index.assets))
-          if (record.proxy.state === "queued") {
+      const project = this.#requireProject();
+      for (const asset of project.assets)
+        if (settings.proxyGeneration === "automatic" || asset.source.kind === "cloud")
+          await this.#queueProxyRecord(asset);
+      if (settings.proxyGeneration === "manual")
+        for (const [assetId, record] of Object.entries(this.#index.assets))
+          if (
+            record.proxy.state === "queued" &&
+            project.assets.find((asset) => asset.id === assetId)?.source.kind !== "cloud"
+          ) {
             record.proxy.state = "missing";
             delete record.proxy.progress;
           }
@@ -302,7 +308,8 @@ export class DerivedMediaStore {
           const artifact = record[kind];
           if (artifact.state === "missing") artifact.state = "queued";
         }
-        if (this.#settings.proxyGeneration === "automatic") await this.#queueProxyRecord(asset);
+        if (this.#settings.proxyGeneration === "automatic" || asset.source.kind === "cloud")
+          await this.#queueProxyRecord(asset);
       }
       if (projectOpenPersistenceSignature(this.#index) !== persistenceSignature)
         await this.#persist();
@@ -321,6 +328,17 @@ export class DerivedMediaStore {
       this.#emit();
       return this.snapshot();
     });
+  }
+
+  async queueProxies(
+    scope: DerivedProjectScope,
+    assetIds: string[],
+  ): Promise<DerivedMediaSnapshot> {
+    this.assertScope(scope);
+    if (assetIds.length === 0 || assetIds.length > 100)
+      throw new Error("Invalid proxy job request");
+    for (const assetId of new Set(assetIds)) await this.queueProxy(assetId);
+    return this.snapshot();
   }
 
   async waitForProxy(assetId: string, signal?: AbortSignal): Promise<void> {

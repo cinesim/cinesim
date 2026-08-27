@@ -98,7 +98,12 @@ export class CloudMediaManager {
     for (const record of parsed.data)
       this.#records.set(record.assetId, {
         ...record,
-        state: record.state === "preparing" ? "paused" : record.state,
+        state:
+          record.state === "preparing" ||
+          record.state === "uploading" ||
+          record.state === "waiting-for-proxy"
+            ? "paused"
+            : record.state,
       });
   }
 
@@ -118,6 +123,18 @@ export class CloudMediaManager {
 
   async usage(): Promise<CloudStorageUsage> {
     return json<CloudStorageUsage>(await this.account.authenticatedFetch("/api/v1/cloud/usage"));
+  }
+
+  async configureAddon(addonBytes: number): Promise<CloudStorageUsage> {
+    if (!Number.isSafeInteger(addonBytes) || addonBytes < 0)
+      throw new Error("Invalid storage allowance");
+    return json<CloudStorageUsage>(
+      await this.account.authenticatedFetch("/api/v1/cloud/usage", {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ addonBytes }),
+      }),
+    );
   }
 
   async readOriginal(cloudAssetId: string, request: Request): Promise<Response> {
@@ -177,6 +194,13 @@ export class CloudMediaManager {
     for (const asset of assets) {
       if (asset.source.kind === "cloud") continue;
       if (this.#running.has(asset.id)) continue;
+      const existing = this.#records.get(asset.id);
+      if (existing && (existing.state === "paused" || existing.state === "failed")) {
+        existing.state = "preparing";
+        existing.error = null;
+        this.#start(asset.id);
+        continue;
+      }
       const info = await stat(asset.source.path);
       if (!info.isFile() || info.size <= 0) throw new Error(`${asset.name} is unavailable`);
       this.#records.set(asset.id, {
@@ -204,6 +228,7 @@ export class CloudMediaManager {
     const record = this.#records.get(assetId);
     if (!record || (record.state !== "paused" && record.state !== "failed"))
       throw new Error("This cloud transfer cannot be retried");
+    if (this.#running.has(assetId)) return this.snapshots();
     record.state = "preparing";
     record.error = null;
     this.#start(assetId);
@@ -216,7 +241,7 @@ export class CloudMediaManager {
     const record = this.#records.get(assetId);
     if (!record) return this.snapshots();
     this.#running.get(assetId)?.abort();
-    if (record.uploadId)
+    if (record.uploadId && record.uploadedBytes < record.bytes)
       await this.account
         .authenticatedFetch(`/api/v1/cloud/uploads/${encodeURIComponent(record.uploadId)}`, {
           method: "DELETE",
@@ -224,9 +249,11 @@ export class CloudMediaManager {
         .catch(() => undefined);
     record.state = "paused";
     record.error = null;
-    record.uploadId = null;
-    record.cloudAssetId = null;
-    record.uploadedBytes = 0;
+    if (record.uploadedBytes < record.bytes) {
+      record.uploadId = null;
+      record.cloudAssetId = null;
+      record.uploadedBytes = 0;
+    }
     await this.#persist();
     this.#emit();
     return this.snapshots();
@@ -270,7 +297,9 @@ export class CloudMediaManager {
         this.#emit();
         log.error({ err: error, operation: "upload", assetId }, "Cloud media upload failed");
       })
-      .finally(() => this.#running.delete(assetId));
+      .finally(() => {
+        if (this.#running.get(assetId) === controller) this.#running.delete(assetId);
+      });
   }
 
   async #run(assetId: string, signal: AbortSignal): Promise<void> {
@@ -290,6 +319,15 @@ export class CloudMediaManager {
     if (signal.aborted) return;
     if (fingerprint.size !== record.bytes)
       throw new Error("The source media changed after this upload was queued");
+    if (
+      record.sourceFingerprint &&
+      (record.sourceFingerprint.size !== fingerprint.size ||
+        Math.round(record.sourceFingerprint.mtimeMs) !== Math.round(fingerprint.mtimeMs) ||
+        record.sourceFingerprint.edgeHash !== fingerprint.edgeHash)
+    )
+      throw new Error("The source media changed since this upload was paused");
+    if (record.checksumSha256 && record.checksumSha256 !== checksum)
+      throw new Error("The source media changed since this upload was paused");
     record.sourceFingerprint = fingerprint;
     record.checksumSha256 = checksum;
 
@@ -312,12 +350,20 @@ export class CloudMediaManager {
       this.#emitProject();
     }
 
+    let resumeResponse: Response | null = null;
+    if (record.uploadId)
+      resumeResponse = await this.account
+        .authenticatedFetch(`/api/v1/cloud/uploads/${encodeURIComponent(record.uploadId)}`)
+        .catch(() => null);
+    if (!resumeResponse) {
+      record.uploadId = null;
+      record.cloudAssetId = null;
+      record.uploadedBytes = 0;
+    }
     const upload = uploadSchema.parse(
       await json<unknown>(
-        record.uploadId
-          ? await this.account.authenticatedFetch(
-              `/api/v1/cloud/uploads/${encodeURIComponent(record.uploadId)}`,
-            )
+        resumeResponse
+          ? resumeResponse
           : await this.account.authenticatedFetch("/api/v1/cloud/uploads", {
               method: "POST",
               headers: { "content-type": "application/json" },

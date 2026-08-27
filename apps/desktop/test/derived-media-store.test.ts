@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { applyCommand, createProject } from "@cinesim/core";
+import { applyCommand, createProject, DEFAULT_SETTINGS } from "@cinesim/core";
 import type { Project } from "@cinesim/core";
 import { DerivedMediaStore } from "../src/main/derived-media/service";
 import { encodeWaveformEnvelope, WAVEFORM_FORMAT_VERSION } from "../src/shared/waveform-format";
@@ -410,6 +410,35 @@ describe("DerivedMediaStore", () => {
     });
     await store.setProject(directory, project);
     expect(store.snapshot().assets.asset_fixture?.proxy.state).toBe("queued");
+  });
+
+  it("leaves local proxies manual while always queuing cloud edit representations", async () => {
+    const local = await fixture("manual-proxy");
+    const diskSpace = { capacityBytes: 100 * 1024 ** 3, availableBytes: 50 * 1024 ** 3 };
+    const localStore = new DerivedMediaStore({ diskSpace });
+    await localStore.setProject(local.directory, local.project, undefined, {
+      ...DEFAULT_SETTINGS,
+      proxyGeneration: "manual",
+    });
+    expect(localStore.snapshot().assets.asset_fixture?.proxy.state).toBe("missing");
+    await localStore.queueProxies(localStore.scope(), ["asset_fixture"]);
+    expect(localStore.snapshot().assets.asset_fixture?.proxy).toMatchObject({
+      state: "queued",
+      profileId: "balanced-1280-60-medium",
+    });
+
+    const cloud = await fixture("cloud-proxy");
+    const cloudProject = applyCommand(cloud.project, {
+      type: "asset.setSource",
+      assetId: "asset_fixture",
+      source: { kind: "cloud", cloudAssetId: "cloud_asset_fixture00000001" },
+    }).project;
+    const cloudStore = new DerivedMediaStore({ diskSpace });
+    await cloudStore.setProject(cloud.directory, cloudProject, undefined, {
+      ...DEFAULT_SETTINGS,
+      proxyGeneration: "manual",
+    });
+    expect(cloudStore.snapshot().assets.asset_fixture?.proxy.state).toBe("queued");
   });
 
   it("reports bounded worker and protocol runtime metrics", async () => {

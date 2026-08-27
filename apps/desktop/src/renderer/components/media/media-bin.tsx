@@ -118,6 +118,9 @@ export function MediaBin({ project, onOpenTimeline }: MediaBinProps) {
   const cloudTransfers = useRendererStore((state) => state.cloudTransfers);
   const storeAssetsInCloud = useRendererStore((state) => state.storeAssetsInCloud);
   const retryCloudTransfer = useRendererStore((state) => state.retryCloudTransfer);
+  const derivedScope = useRendererStore((state) =>
+    state.project.status === "ready" ? state.project.session.derivedScope : null,
+  );
   const importMedia = useCallback(async () => importProjectMedia(), [importProjectMedia]);
 
   useEffect(() => {
@@ -302,6 +305,15 @@ export function MediaBin({ project, onOpenTimeline }: MediaBinProps) {
     setContextMenu(null);
   }
 
+  async function generateSelectedProxies(): Promise<void> {
+    const mediaIds = selectedAssets
+      .filter((asset) => asset.kind === "video" || asset.kind === "audio")
+      .map((asset) => asset.id);
+    if (mediaIds.length > 0 && derivedScope)
+      await window.cinesim.requestProxyJobs(derivedScope, mediaIds);
+    setContextMenu(null);
+  }
+
   return (
     <section className="relative flex h-full min-h-0 flex-col bg-canvas">
       <PaneHeader size="lg" className="gap-3">
@@ -475,6 +487,15 @@ export function MediaBin({ project, onOpenTimeline }: MediaBinProps) {
                     <Cloud size={14} /> Store original{selectedCount === 1 ? "" : "s"} in cloud
                   </button>
                 )}
+              {selectedAssets.some((asset) => asset.kind === "video" || asset.kind === "audio") && (
+                <button
+                  role="menuitem"
+                  className="flex min-h-10 w-full items-center gap-2 rounded-lg px-2.5 text-left text-ui hover:bg-surface"
+                  onClick={() => void generateSelectedProxies()}
+                >
+                  <Film size={14} /> Generate edit {selectedCount === 1 ? "proxy" : "proxies"}
+                </button>
+              )}
               {selectedAssets.length === 1 &&
                 cloudTransfers.find((transfer) => transfer.assetId === selectedAssets[0]?.id)
                   ?.state === "failed" && (
