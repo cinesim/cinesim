@@ -332,6 +332,7 @@ export interface AgentSettingsUpdate {
 export interface RecentProject {
   name: string;
   directory: string;
+  kind: "local" | "cloud";
 }
 
 export interface EditorLayoutState {
@@ -471,7 +472,7 @@ export interface DesktopApi {
   trashCloudAssets(cloudAssetIds: string[]): Promise<void>;
   restoreCloudAsset(cloudAssetId: string): Promise<void>;
   deleteCloudAsset(cloudAssetId: string): Promise<void>;
-  createProject(name: string): Promise<DesktopProjectSession | null>;
+  createProject(name: string, kind: "local" | "cloud"): Promise<DesktopProjectSession | null>;
   openProject(): Promise<DesktopProjectSession | null>;
   openRecentProject(directory: string): Promise<DesktopProjectSession>;
   importMedia(): Promise<DesktopProjectSession | null>;

@@ -82,10 +82,10 @@ describe("CloudMediaManager transfer journal", () => {
     temporaryDirectories.push(directory);
     const sourcePath = join(directory, "source.mov");
     await writeFile(sourcePath, new Uint8Array([1, 2, 3]));
-    let project = applyCommand(createProject({ name: "Fixture" }), {
-      type: "project.attachCloud",
+    let project = createProject({
+      name: "Fixture",
       cloudProjectId: "cloud_project_fixture0000001",
-    }).project;
+    });
     project = applyCommand(project, {
       type: "asset.import",
       asset: {
@@ -151,10 +151,10 @@ describe("CloudMediaManager transfer journal", () => {
     const sourcePath = join(directory, "source.mov");
     const sourceBytes = new Uint8Array([1, 2, 3]);
     await writeFile(sourcePath, sourceBytes);
-    let project = applyCommand(createProject({ name: "Fixture" }), {
-      type: "project.attachCloud",
+    let project = createProject({
+      name: "Fixture",
       cloudProjectId: "cloud_project_fixture0000001",
-    }).project;
+    });
     project = applyCommand(project, {
       type: "asset.import",
       asset: {
@@ -246,10 +246,10 @@ describe("CloudMediaManager transfer journal", () => {
     const directory = await mkdtemp(join(tmpdir(), "cinesim-cloud-download-"));
     temporaryDirectories.push(directory);
     const downloadedBytes = new Uint8Array([4, 5, 6]);
-    let project = applyCommand(createProject({ name: "Fixture" }), {
-      type: "project.attachCloud",
+    let project = createProject({
+      name: "Fixture",
       cloudProjectId: "cloud_project_fixture0000001",
-    }).project;
+    });
     project = applyCommand(project, {
       type: "asset.import",
       asset: {
@@ -294,10 +294,10 @@ describe("CloudMediaManager transfer journal", () => {
     await symlink(outsideDirectory, join(directory, ".video", "originals"), "dir");
     const outsidePath = join(outsideDirectory, "asset_fixture");
     await writeFile(outsidePath, new Uint8Array([7, 8, 9]));
-    let project = applyCommand(createProject({ name: "Fixture" }), {
-      type: "project.attachCloud",
+    let project = createProject({
+      name: "Fixture",
       cloudProjectId: "cloud_project_fixture0000001",
-    }).project;
+    });
     project = applyCommand(project, {
       type: "asset.import",
       asset: {

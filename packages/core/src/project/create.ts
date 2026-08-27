@@ -1,9 +1,10 @@
 import { nextId } from "../ids";
 import type { ProjectId } from "../ids";
-import type { Project } from "./types";
+import type { CloudProjectId, Project } from "./types";
 
 export interface CreateProjectOptions {
   id?: ProjectId;
+  cloudProjectId?: CloudProjectId;
   name: string;
   width?: number;
   height?: number;
@@ -19,6 +20,7 @@ export function createProject(options: CreateProjectOptions): Project {
   return {
     version: 1,
     id: options.id ?? projectId,
+    ...(options.cloudProjectId ? { cloudProjectId: options.cloudProjectId } : {}),
     name: options.name.trim() || "Untitled project",
     activeSequenceId: sequenceId,
     assets: [],

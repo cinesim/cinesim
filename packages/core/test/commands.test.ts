@@ -39,12 +39,12 @@ function withClip(): Project {
 }
 
 describe("editing commands", () => {
-  it("links a project and switches asset sources only through commands", () => {
-    let project = seededProject();
-    project = applyCommand(project, {
-      type: "project.attachCloud",
+  it("creates an immutable cloud project kind and switches asset sources through commands", () => {
+    let project = createProject({
+      name: "Cloud",
       cloudProjectId: "cloud_project_01hzy3w3fq1h7z6y7rj3a2bcde",
-    }).project;
+    });
+    project = applyCommand(project, { type: "asset.import", asset }).project;
     expect(project.cloudProjectId).toBe("cloud_project_01hzy3w3fq1h7z6y7rj3a2bcde");
 
     project = applyCommand(project, {
@@ -56,13 +56,18 @@ describe("editing commands", () => {
       kind: "cloud",
       cloudAssetId: "cloud_asset_01hzy3w3fq1h7z6y7rj3a2bcde",
     });
+  });
 
-    expect(() =>
-      applyCommand(project, {
-        type: "project.attachCloud",
-        cloudProjectId: "cloud_project_01hzy3w3fq1h7z6y7rj3a2other",
-      }),
-    ).toThrow(/already linked/);
+  it("rejects cloud-backed assets in local projects", () => {
+    const project = createProject({ name: "Local" });
+    const cloudAsset: Asset = {
+      ...asset,
+      source: { kind: "cloud", cloudAssetId: "cloud_asset_01hzy3w3fq1h7z6y7rj3a2bcde" },
+    };
+
+    expect(() => applyCommand(project, { type: "asset.import", asset: cloudAsset })).toThrow(
+      "Cloud-backed media can only be used in a cloud project",
+    );
   });
 
   it("adds, updates, reorders, and removes tracks through deterministic commands", () => {

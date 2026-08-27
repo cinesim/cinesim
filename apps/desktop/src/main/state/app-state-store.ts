@@ -17,9 +17,14 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function parseRecentProject(value: unknown): RecentProject | null {
-  if (!isRecord(value) || typeof value.name !== "string" || typeof value.directory !== "string")
+  if (
+    !isRecord(value) ||
+    typeof value.name !== "string" ||
+    typeof value.directory !== "string" ||
+    (value.kind !== "local" && value.kind !== "cloud")
+  )
     return null;
-  return { name: value.name, directory: value.directory };
+  return { name: value.name, directory: value.directory, kind: value.kind };
 }
 
 export function parseEditorLayoutState(value: unknown): EditorLayoutState | null {
@@ -96,6 +101,7 @@ function parseState(value: unknown): DesktopAppState {
 }
 
 export class DesktopAppStateStore {
+  #local: DesktopAppState = structuredClone(EMPTY_STATE);
   #accounts: Record<string, DesktopAppState> = {};
   #accountId: string | null = null;
   #writeQueue: Promise<void> = Promise.resolve();
@@ -105,11 +111,19 @@ export class DesktopAppStateStore {
   async load(): Promise<void> {
     try {
       const parsed = JSON.parse(await readFile(this.path, "utf8")) as unknown;
-      if (!isRecord(parsed) || parsed.version !== 2 || !isRecord(parsed.accounts)) return;
+      if (
+        !isRecord(parsed) ||
+        parsed.version !== 3 ||
+        !isRecord(parsed.local) ||
+        !isRecord(parsed.accounts)
+      )
+        return;
+      this.#local = parseState(parsed.local);
       for (const [accountId, state] of Object.entries(parsed.accounts)) {
         if (accountId) this.#accounts[accountId] = parseState(state);
       }
     } catch {
+      this.#local = structuredClone(EMPTY_STATE);
       this.#accounts = {};
     }
   }
@@ -119,15 +133,37 @@ export class DesktopAppStateStore {
   }
 
   snapshot(): DesktopAppState {
-    return structuredClone(this.#current());
+    const cloud = this.#currentCloud(false);
+    return structuredClone({
+      version: 1,
+      recentProjects: [...(cloud?.recentProjects ?? []), ...this.#local.recentProjects],
+      mediaPoolOpenByProject: {
+        ...this.#local.mediaPoolOpenByProject,
+        ...cloud?.mediaPoolOpenByProject,
+      },
+      inspectorOpenByProject: {
+        ...this.#local.inspectorOpenByProject,
+        ...cloud?.inspectorOpenByProject,
+      },
+      notesOpenByProject: {
+        ...this.#local.notesOpenByProject,
+        ...cloud?.notesOpenByProject,
+      },
+      editorLayoutsByProject: {
+        ...this.#local.editorLayoutsByProject,
+        ...cloud?.editorLayoutsByProject,
+      },
+    });
   }
 
-  hasRecent(directory: string): boolean {
-    return this.#current().recentProjects.some((project) => project.directory === directory);
+  hasRecent(directory: string, kind?: RecentProject["kind"]): boolean {
+    return this.snapshot().recentProjects.some(
+      (project) => project.directory === directory && (!kind || project.kind === kind),
+    );
   }
 
   async rememberProject(project: RecentProject): Promise<void> {
-    const state = this.#requireCurrent();
+    const state = project.kind === "local" ? this.#local : this.#requireCloud();
     state.recentProjects = [
       project,
       ...state.recentProjects.filter((recent) => recent.directory !== project.directory),
@@ -136,7 +172,7 @@ export class DesktopAppStateStore {
   }
 
   async forgetProject(directory: string): Promise<void> {
-    const state = this.#requireCurrent();
+    const state = this.#stateForDirectory(directory);
     state.recentProjects = state.recentProjects.filter(
       (project) => project.directory !== directory,
     );
@@ -148,27 +184,31 @@ export class DesktopAppStateStore {
   }
 
   async setMediaPoolOpen(directory: string, open: boolean): Promise<void> {
-    this.#requireCurrent().mediaPoolOpenByProject[directory] = open;
+    this.#stateForDirectory(directory).mediaPoolOpenByProject[directory] = open;
     await this.#queueSave();
   }
 
   async setInspectorOpen(directory: string, open: boolean): Promise<void> {
-    this.#requireCurrent().inspectorOpenByProject[directory] = open;
+    this.#stateForDirectory(directory).inspectorOpenByProject[directory] = open;
     await this.#queueSave();
   }
 
   async setNotesOpen(directory: string, open: boolean): Promise<void> {
-    this.#requireCurrent().notesOpenByProject[directory] = open;
+    this.#stateForDirectory(directory).notesOpenByProject[directory] = open;
     await this.#queueSave();
   }
 
   async setEditorLayout(directory: string, layout: EditorLayoutState): Promise<void> {
-    this.#requireCurrent().editorLayoutsByProject[directory] = structuredClone(layout);
+    this.#stateForDirectory(directory).editorLayoutsByProject[directory] = structuredClone(layout);
     await this.#queueSave();
   }
 
   async #queueSave(): Promise<void> {
-    const contents = `${JSON.stringify({ version: 2, accounts: this.#accounts }, null, 2)}\n`;
+    const contents = `${JSON.stringify(
+      { version: 3, local: this.#local, accounts: this.#accounts },
+      null,
+      2,
+    )}\n`;
     const write = this.#writeQueue.catch(() => undefined).then(() => this.#save(contents));
     this.#writeQueue = write;
     await write;
@@ -181,13 +221,23 @@ export class DesktopAppStateStore {
     await rename(temporaryPath, this.path);
   }
 
-  #current(): DesktopAppState {
-    if (!this.#accountId) return structuredClone(EMPTY_STATE);
-    return (this.#accounts[this.#accountId] ??= structuredClone(EMPTY_STATE));
+  #currentCloud(create: boolean): DesktopAppState | null {
+    if (!this.#accountId) return null;
+    if (create) return (this.#accounts[this.#accountId] ??= structuredClone(EMPTY_STATE));
+    return this.#accounts[this.#accountId] ?? null;
   }
 
-  #requireCurrent(): DesktopAppState {
-    if (!this.#accountId) throw new Error("Sign in before changing local project state");
-    return (this.#accounts[this.#accountId] ??= structuredClone(EMPTY_STATE));
+  #requireCloud(): DesktopAppState {
+    const state = this.#currentCloud(true);
+    if (!state) throw new Error("Sign in before changing cloud project state");
+    return state;
+  }
+
+  #stateForDirectory(directory: string): DesktopAppState {
+    if (this.#local.recentProjects.some((project) => project.directory === directory))
+      return this.#local;
+    const cloud = this.#currentCloud(false);
+    if (cloud?.recentProjects.some((project) => project.directory === directory)) return cloud;
+    throw new Error("Project is not in the recent projects list");
   }
 }

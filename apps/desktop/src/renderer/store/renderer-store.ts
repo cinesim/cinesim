@@ -75,7 +75,10 @@ export interface RendererState {
   downloadedCloudOriginals: string[];
   initialize: () => Promise<void>;
   receiveExternalSession: (session: DesktopProjectSession) => Promise<void>;
-  createProject: (name: string) => Promise<ActionResult<DesktopProjectSession | null>>;
+  createProject: (
+    name: string,
+    kind: "local" | "cloud",
+  ) => Promise<ActionResult<DesktopProjectSession | null>>;
   openProject: () => Promise<ActionResult<DesktopProjectSession | null>>;
   openRecentProject: (directory: string) => Promise<ActionResult<DesktopProjectSession>>;
   importMedia: () => Promise<ActionResult<DesktopProjectSession | null>>;
@@ -211,7 +214,11 @@ function appStateWithRememberedProject(
   return {
     ...appState,
     recentProjects: [
-      { name: session.project.name, directory: session.directory },
+      {
+        name: session.project.name,
+        directory: session.directory,
+        kind: session.project.cloudProjectId ? ("cloud" as const) : ("local" as const),
+      },
       ...appState.recentProjects.filter((project) => project.directory !== session.directory),
     ].slice(0, 12),
   };
@@ -391,16 +398,11 @@ export function createRendererStore({ api, storage }: RendererStoreDependencies)
         if (get().project.status !== "booting") return Promise.resolve();
 
         initialization = (async () => {
-          const account = await api.getAccountSnapshot().catch(() => INITIAL_ACCOUNT_STATE);
-          set({ account, accountHydrated: true });
-          if (account.user) await hydrateAccountWorkspace();
-          else
-            set({
-              project: { status: "idle" },
-              appState: EMPTY_APP_STATE,
-              cloudTransfers: [],
-              downloadedCloudOriginals: [],
-            });
+          const hydrateAccount = api
+            .getAccountSnapshot()
+            .catch(() => INITIAL_ACCOUNT_STATE)
+            .then((account) => set({ account, accountHydrated: true }));
+          await Promise.all([hydrateAccountWorkspace(), hydrateAccount]);
         })();
         return initialization;
       },
@@ -423,7 +425,8 @@ export function createRendererStore({ api, storage }: RendererStoreDependencies)
         set(hydratedProjectState(session, appState));
       },
 
-      createProject: (name) => runProjectOperation("create", () => api.createProject(name.trim())),
+      createProject: (name, kind) =>
+        runProjectOperation("create", () => api.createProject(name.trim(), kind)),
       openProject: () => runProjectOperation("open", () => api.openProject()),
       openRecentProject: (directory) =>
         runProjectOperation("open-recent", () => api.openRecentProject(directory)),
@@ -657,22 +660,37 @@ export function createRendererStore({ api, storage }: RendererStoreDependencies)
       setAccount: (account) => {
         const previousUserId = get().account.user?.id ?? null;
         set({ account, accountHydrated: true });
+        const session = sessionFromLifecycle(get().project);
         if (!account.user) {
-          set({
-            project: { status: "idle" },
-            appState: EMPTY_APP_STATE,
-            destination: "home",
-            cloudTransfers: [],
-            downloadedCloudOriginals: [],
-          });
+          set(
+            session?.project.cloudProjectId
+              ? {
+                  project: { status: "idle" },
+                  destination: "home",
+                  cloudTransfers: [],
+                  downloadedCloudOriginals: [],
+                }
+              : { cloudTransfers: [], downloadedCloudOriginals: [] },
+          );
+          void api
+            .getAppState()
+            .then((appState) => set({ appState }))
+            .catch(() => undefined);
         } else if (account.user.id !== previousUserId) {
-          set({
-            project: { status: "booting" },
-            appState: EMPTY_APP_STATE,
-            cloudTransfers: [],
-            downloadedCloudOriginals: [],
-          });
-          void hydrateAccountWorkspace();
+          if (session?.project.cloudProjectId) {
+            set({
+              project: { status: "booting" },
+              appState: EMPTY_APP_STATE,
+              cloudTransfers: [],
+              downloadedCloudOriginals: [],
+            });
+            void hydrateAccountWorkspace();
+          } else {
+            void api
+              .getAppState()
+              .then((appState) => set({ appState }))
+              .catch(() => undefined);
+          }
         }
       },
       refreshAccount: async () => {

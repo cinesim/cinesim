@@ -1,10 +1,5 @@
 import { z } from "zod";
-import {
-  assetSchema,
-  assetSourceSchema,
-  cloudProjectIdSchema,
-  transformSchema,
-} from "@cinesim/core";
+import { assetSchema, assetSourceSchema, transformSchema } from "@cinesim/core";
 
 const assetId = z.string().regex(/^asset_[a-zA-Z0-9][a-zA-Z0-9_-]*$/);
 const clipId = z.string().regex(/^clip_[a-zA-Z0-9][a-zA-Z0-9_-]*$/);
@@ -13,7 +8,6 @@ const sequenceId = z.string().regex(/^sequence_[a-zA-Z0-9][a-zA-Z0-9_-]*$/);
 const timeUs = z.number().int().nonnegative().safe();
 
 export const editorCommandSchema = z.discriminatedUnion("type", [
-  z.object({ type: z.literal("project.attachCloud"), cloudProjectId: cloudProjectIdSchema }),
   z.object({ type: z.literal("asset.import"), asset: assetSchema }),
   z.object({ type: z.literal("asset.setSource"), assetId, source: assetSourceSchema }),
   z.object({

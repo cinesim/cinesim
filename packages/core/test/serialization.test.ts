@@ -37,11 +37,10 @@ describe("canonical serialization", () => {
       source: { kind: "cloud", cloudAssetId: "cloud_asset_01hzy3w3fq1h7z6y7rj3a2bcde" },
       durationUs: 1_000_000,
     };
-    let project = createProject({ name: "Cloud" });
-    project = applyCommand(project, {
-      type: "project.attachCloud",
+    let project = createProject({
+      name: "Cloud",
       cloudProjectId: "cloud_project_01hzy3w3fq1h7z6y7rj3a2bcde",
-    }).project;
+    });
     project = applyCommand(project, { type: "asset.import", asset }).project;
     const files = splitProjectFiles(project);
     expect(files.manifest.cloudProjectId).toBe(project.cloudProjectId);

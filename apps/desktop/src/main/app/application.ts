@@ -89,13 +89,15 @@ export class DesktopApplication implements ApplicationLifecycle {
 
     registerProjectIpc(this.projectStore, appState, agents, this.accountService, cloudMedia);
     registerDerivedMediaIpc(this.projectStore.derivedMedia);
-    registerAppStateIpc(appState, this.projectStore, this.accountService);
+    registerAppStateIpc(appState, this.projectStore);
     registerAgentIpc(agents, agentSettings);
     registerAppIpc(log, this.#eventLoopMonitor);
     registerAccountIpc(this.accountService, async () => {
       appState.setAccount(null);
-      if (this.projectStore.directory) await agents.stopProject(this.projectStore.directory);
-      if (this.projectStore.project) await this.projectStore.close();
+      if (this.projectStore.project?.cloudProjectId) {
+        if (this.projectStore.directory) await agents.stopProject(this.projectStore.directory);
+        await this.projectStore.close();
+      }
     });
     registerCloudIpc(cloudMedia);
 

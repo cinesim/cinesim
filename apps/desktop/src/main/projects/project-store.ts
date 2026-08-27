@@ -1,4 +1,6 @@
-import { mkdir, readFile, rename, stat, writeFile } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
+import { constants } from "node:fs";
+import { copyFile, lstat, mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import {
   createProject,
@@ -14,7 +16,6 @@ import {
 } from "@cinesim/core";
 import type { EditorCommand, Project, ProjectSettings } from "@cinesim/core";
 import type { CloudProjectId, ProjectId } from "@cinesim/core";
-import { applyCommand } from "@cinesim/core";
 import { createCinesimLogger } from "@cinesim/logging";
 import { dispatchCommand } from "@cinesim/protocol";
 import type { DesktopProjectSession } from "../../shared/api";
@@ -80,7 +81,9 @@ export class DesktopProjectStore {
 
   async create(
     parentDirectory: string,
-    input: string | { name: string; projectId: ProjectId; cloudProjectId: CloudProjectId },
+    input:
+      | string
+      | { name: string; projectId: ProjectId; cloudProjectId?: CloudProjectId | undefined },
   ): Promise<DesktopProjectSession> {
     return this.#serialize(async () => {
       const name = typeof input === "string" ? input : input.name;
@@ -92,17 +95,15 @@ export class DesktopProjectStore {
           .replace(/^-|-$/g, "") || "untitled-project";
       const directory = join(parentDirectory, slug);
       await mkdir(directory, { recursive: false });
-      const localProject = createProject({
-        ...(typeof input === "string" ? {} : { id: input.projectId }),
+      const project = createProject({
+        ...(typeof input === "string"
+          ? {}
+          : {
+              id: input.projectId,
+              ...(input.cloudProjectId ? { cloudProjectId: input.cloudProjectId } : {}),
+            }),
         name,
       });
-      const project =
-        typeof input === "string"
-          ? localProject
-          : applyCommand(localProject, {
-              type: "project.attachCloud",
-              cloudProjectId: input.cloudProjectId,
-            }).project;
       this.#directory = directory;
       this.#history = new ProjectHistory(project);
       this.#settings = DEFAULT_SETTINGS;
@@ -306,14 +307,41 @@ export class DesktopProjectStore {
     });
   }
 
-  async inspectAndImportMedia(filePath: string): Promise<DesktopProjectSession> {
+  async inspectAndImportMedia(
+    filePath: string,
+    options: { managedCopy?: boolean } = {},
+  ): Promise<DesktopProjectSession> {
     const project = this.#requireProject();
-    const asset = await inspectMedia(
+    let asset = await inspectMedia(
       filePath,
       project.assets.map((candidate) => candidate.id),
     );
-    await this.execute({ type: "asset.import", asset });
-    return this.session();
+    let managedPath: string | null = null;
+    if (options.managedCopy) {
+      const originalsDirectory = await this.#managedOriginalsDirectory();
+      managedPath = join(originalsDirectory, asset.id);
+      const temporaryPath = `${managedPath}.${randomUUID()}.tmp`;
+      if (await lstat(managedPath).catch(() => null))
+        throw new Error("The managed original already exists");
+      try {
+        await copyFile(filePath, temporaryPath, constants.COPYFILE_EXCL);
+        const [sourceInfo, copyInfo] = await Promise.all([stat(filePath), stat(temporaryPath)]);
+        if (!sourceInfo.isFile() || !copyInfo.isFile() || sourceInfo.size !== copyInfo.size)
+          throw new Error("The managed original copy could not be verified");
+        await rename(temporaryPath, managedPath);
+      } catch (error) {
+        await rm(temporaryPath, { force: true }).catch(() => undefined);
+        throw error;
+      }
+      asset = { ...asset, source: { kind: "local", path: managedPath } };
+    }
+    try {
+      await this.execute({ type: "asset.import", asset });
+      return this.session();
+    } catch (error) {
+      if (managedPath) await rm(managedPath, { force: true }).catch(() => undefined);
+      throw error;
+    }
   }
 
   assetPath(assetId: string): string | null {
@@ -352,6 +380,23 @@ export class DesktopProjectStore {
     const project = this.project;
     if (!project) throw new Error("No project is open");
     return project;
+  }
+
+  async #managedOriginalsDirectory(): Promise<string> {
+    const videoDirectory = join(this.#requireDirectory(), ".video");
+    const originalsDirectory = join(videoDirectory, "originals");
+    const [videoInfo, originalsInfo] = await Promise.all([
+      lstat(videoDirectory),
+      lstat(originalsDirectory),
+    ]);
+    if (
+      videoInfo.isSymbolicLink() ||
+      !videoInfo.isDirectory() ||
+      originalsInfo.isSymbolicLink() ||
+      !originalsInfo.isDirectory()
+    )
+      throw new Error("Managed originals must stay inside .video");
+    return originalsDirectory;
   }
 
   #serialize<T>(operation: () => Promise<T>): Promise<T> {

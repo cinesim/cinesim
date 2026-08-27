@@ -428,11 +428,14 @@ describe("DerivedMediaStore", () => {
     });
 
     const cloud = await fixture("cloud-proxy");
-    const cloudProject = applyCommand(cloud.project, {
-      type: "asset.setSource",
-      assetId: "asset_fixture",
-      source: { kind: "cloud", cloudAssetId: "cloud_asset_fixture00000001" },
-    }).project;
+    const cloudProject = applyCommand(
+      { ...cloud.project, cloudProjectId: "cloud_project_fixture0000001" },
+      {
+        type: "asset.setSource",
+        assetId: "asset_fixture",
+        source: { kind: "cloud", cloudAssetId: "cloud_asset_fixture00000001" },
+      },
+    ).project;
     const cloudStore = new DerivedMediaStore({ diskSpace });
     await cloudStore.setProject(cloud.directory, cloudProject, undefined, {
       ...DEFAULT_SETTINGS,

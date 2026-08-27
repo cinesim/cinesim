@@ -95,7 +95,7 @@ function runtimeFixture(timeUs: number): RuntimeSnapshot {
 }
 
 describe("renderer project controller", () => {
-  it("waits for account identity before hydrating account-owned projects", async () => {
+  it("hydrates local projects without waiting for account identity", async () => {
     const session = sessionFixture();
     const account = deferred<AccountSnapshot>();
     const getSession = vi.fn(async () => session);
@@ -109,18 +109,16 @@ describe("renderer project controller", () => {
     const secondInitialization = store.getState().initialize();
 
     await Promise.resolve();
-    expect(store.getState().project.status).toBe("booting");
+    await vi.waitFor(() => expect(store.getState().project.status).toBe("ready"));
     expect(store.getState().accountHydrated).toBe(false);
-    expect(getSession).not.toHaveBeenCalled();
-    expect(getAppState).not.toHaveBeenCalled();
+    expect(getSession).toHaveBeenCalledOnce();
+    expect(getAppState).toHaveBeenCalledOnce();
     expect(getAccountSnapshot).toHaveBeenCalledOnce();
 
     account.resolve(SIGNED_IN_ACCOUNT);
     await Promise.all([firstInitialization, secondInitialization]);
     expect(store.getState().project.status).toBe("ready");
     expect(store.getState().accountHydrated).toBe(true);
-    expect(getSession).toHaveBeenCalledOnce();
-    expect(getAppState).toHaveBeenCalledOnce();
   });
 
   it("hydrates and updates disposable cloud-original downloads", async () => {
@@ -187,6 +185,7 @@ describe("renderer project controller", () => {
     expect(store.getState().appState.recentProjects[0]).toEqual({
       name: next.project.name,
       directory: next.directory,
+      kind: "local",
     });
   });
 

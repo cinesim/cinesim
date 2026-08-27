@@ -1,7 +1,27 @@
-import { basename } from "node:path";
+import { realpath } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { basename, isAbsolute, relative, sep } from "node:path";
 import { nextId } from "@cinesim/core";
 import type { Asset } from "@cinesim/core";
 import { ALL_FORMATS, FilePathSource, Input } from "mediabunny";
+
+export async function isTemporaryMediaSelection(
+  filePath: string,
+  options: { platform?: NodeJS.Platform; temporaryDirectory?: string } = {},
+): Promise<boolean> {
+  if ((options.platform ?? process.platform) !== "darwin") return false;
+  const [canonicalFile, canonicalTemporaryDirectory] = await Promise.all([
+    realpath(filePath),
+    realpath(options.temporaryDirectory ?? tmpdir()),
+  ]);
+  const pathFromTemporaryDirectory = relative(canonicalTemporaryDirectory, canonicalFile);
+  return (
+    pathFromTemporaryDirectory !== "" &&
+    pathFromTemporaryDirectory !== ".." &&
+    !pathFromTemporaryDirectory.startsWith(`..${sep}`) &&
+    !isAbsolute(pathFromTemporaryDirectory)
+  );
+}
 
 export async function inspectMedia(filePath: string, existingIds: string[]): Promise<Asset> {
   const input = new Input({ source: new FilePathSource(filePath), formats: ALL_FORMATS });

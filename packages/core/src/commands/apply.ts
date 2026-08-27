@@ -6,7 +6,7 @@ import {
   DEFAULT_TRANSFORM,
   isAssetMediaCompatibleWithTrack,
 } from "../project/types";
-import type { Asset, Clip, Project, Sequence, Track } from "../project/types";
+import type { Asset, AssetSource, Clip, Project, Sequence, Track } from "../project/types";
 import {
   findClip,
   findSequenceForTrack,
@@ -72,6 +72,14 @@ function assertUniqueAssetIds(assetIds: readonly AssetId[]): void {
     throw new CommandError("EMPTY_ASSET_SELECTION", "Select at least one asset");
   if (new Set(assetIds).size !== assetIds.length)
     throw new CommandError("DUPLICATE_ASSET_ID", "Asset selection contains duplicate IDs");
+}
+
+function assertSourceAllowed(project: Project, source: AssetSource): void {
+  if (!project.cloudProjectId && source.kind === "cloud")
+    throw new CommandError(
+      "LOCAL_PROJECT_CLOUD_SOURCE",
+      "Cloud-backed media can only be used in a cloud project",
+    );
 }
 
 function requireAssets(project: Project, assetIds: readonly AssetId[]): Asset[] {
@@ -170,20 +178,11 @@ export function applyCommand(inputProject: Project, command: EditorCommand): Com
   const project = clone(inputProject);
 
   switch (command.type) {
-    case "project.attachCloud": {
-      if (project.cloudProjectId && project.cloudProjectId !== command.cloudProjectId)
-        throw new CommandError(
-          "PROJECT_ALREADY_CLOUD_LINKED",
-          "This project is already linked to a different cloud project",
-        );
-      project.cloudProjectId = command.cloudProjectId;
-      return result(project, command, "Linked project to Cinesim Cloud", [project.id]);
-    }
-
     case "asset.import": {
       if (project.assets.some((asset) => asset.id === command.asset.id)) {
         throw new CommandError("DUPLICATE_ID", `Asset already exists: ${command.asset.id}`);
       }
+      assertSourceAllowed(project, command.asset.source);
       assertTime(command.asset.durationUs, "durationUs");
       project.assets.push(structuredClone(command.asset));
       project.assets.sort((left, right) => left.id.localeCompare(right.id));
@@ -199,6 +198,7 @@ export function applyCommand(inputProject: Project, command: EditorCommand): Com
     case "asset.setSource": {
       const asset = project.assets.find((candidate) => candidate.id === command.assetId);
       if (!asset) throw new CommandError("ASSET_NOT_FOUND", `Asset not found: ${command.assetId}`);
+      assertSourceAllowed(project, command.source);
       asset.source = structuredClone(command.source);
       return result(project, command, `Updated source for ${asset.name}`, [asset.id]);
     }

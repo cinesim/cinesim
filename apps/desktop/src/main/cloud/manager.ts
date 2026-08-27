@@ -25,6 +25,7 @@ const transferRecordSchema = z.object({
   uploadId: z.string().nullable(),
   projectDirectory: z.string(),
   sourcePath: z.string(),
+  managedSource: z.boolean().default(false),
   name: z.string(),
   bytes: z.number().int().positive(),
   uploadedBytes: z.number().int().nonnegative(),
@@ -319,13 +320,20 @@ export class CloudMediaManager {
     return this.downloadedOriginals();
   }
 
-  async queue(assetIds: string[]): Promise<CloudTransferSnapshot[]> {
+  async queue(
+    assetIds: string[],
+    managedSourceAssetIds: string[] = [],
+  ): Promise<CloudTransferSnapshot[]> {
     if (
       assetIds.length === 0 ||
       assetIds.length > MAX_QUEUED_ASSETS ||
       assetIds.some((id) => !/^asset_[a-zA-Z0-9][a-zA-Z0-9_-]*$/.test(id))
     )
       throw new Error("Invalid cloud storage request");
+    const requestedAssetIds = new Set(assetIds);
+    if (managedSourceAssetIds.some((assetId) => !requestedAssetIds.has(assetId)))
+      throw new Error("Invalid managed cloud storage request");
+    const managedSources = new Set(managedSourceAssetIds);
     const project = this.projects.project;
     const directory = this.projects.directory;
     if (!project || !directory) throw new Error("Open a project before storing media in cloud");
@@ -355,6 +363,7 @@ export class CloudMediaManager {
           existing.state === "paused" ||
           existing.state === "failed")
       ) {
+        if (managedSources.has(asset.id)) existing.managedSource = true;
         existing.state = cloudAvailable ? "preparing" : "waiting-for-cloud";
         existing.error = null;
         if (cloudAvailable) this.#start(key);
@@ -370,6 +379,7 @@ export class CloudMediaManager {
         uploadId: null,
         projectDirectory: directory,
         sourcePath: asset.source.path,
+        managedSource: managedSources.has(asset.id),
         name: asset.name,
         bytes: info.size,
         uploadedBytes: 0,
@@ -567,7 +577,7 @@ export class CloudMediaManager {
                 clientAssetId: asset.id,
                 name: asset.name,
                 kind: asset.kind,
-                contentType: contentType(record.sourcePath),
+                contentType: contentType(record.name),
                 bytes: record.bytes,
                 checksumSha256: checksum,
                 sourceFingerprint: fingerprint,
@@ -653,6 +663,7 @@ export class CloudMediaManager {
       source: { kind: "cloud", cloudAssetId: upload.cloudAssetId as CloudAssetId },
     });
     this.#emitProject();
+    if (record.managedSource) await this.#removeManagedSource(record);
     record.state = "complete";
     await this.#persistAndEmit();
   }
@@ -735,5 +746,33 @@ export class CloudMediaManager {
     if (originalsInfo.isSymbolicLink() || !originalsInfo.isDirectory())
       throw new Error("The downloaded originals directory must stay inside .video");
     return originalsDirectory;
+  }
+
+  async #removeManagedSource(record: TransferRecord): Promise<void> {
+    try {
+      const originalsDirectory = await this.#originalsDirectory(record.projectDirectory, false);
+      if (!originalsDirectory || record.sourcePath !== join(originalsDirectory, record.assetId)) {
+        log.warn(
+          { operation: "managed-source-cleanup", assetId: record.assetId },
+          "Retained a managed upload source outside its expected disposable path",
+        );
+        return;
+      }
+      const info = await lstat(record.sourcePath).catch(() => null);
+      if (!info) return;
+      if (info.isSymbolicLink() || !info.isFile()) {
+        log.warn(
+          { operation: "managed-source-cleanup", assetId: record.assetId },
+          "Retained a managed upload source that was no longer a regular file",
+        );
+        return;
+      }
+      await rm(record.sourcePath, { force: true });
+    } catch (error) {
+      log.warn(
+        { err: error, operation: "managed-source-cleanup", assetId: record.assetId },
+        "Cloud upload completed but its disposable staging copy was retained",
+      );
+    }
   }
 }

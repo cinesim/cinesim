@@ -19,45 +19,59 @@ afterEach(async () => {
 });
 
 describe("DesktopAppStateStore", () => {
-  it("persists recent projects separately for each account", async () => {
+  it("keeps local projects device-wide and cloud projects account-scoped", async () => {
     const { path } = await stateFixture();
     const store = new DesktopAppStateStore(path);
     await store.load();
+    await store.rememberProject({ name: "Local", directory: "/films/local", kind: "local" });
     store.setAccount("user_one");
-    await store.rememberProject({ name: "First", directory: "/films/first" });
+    await store.rememberProject({ name: "First", directory: "/films/first", kind: "cloud" });
     store.setAccount("user_two");
-    await store.rememberProject({ name: "Second", directory: "/films/second" });
+    await store.rememberProject({ name: "Second", directory: "/films/second", kind: "cloud" });
 
     const restored = new DesktopAppStateStore(path);
     await restored.load();
+    expect(restored.snapshot().recentProjects).toEqual([
+      { name: "Local", directory: "/films/local", kind: "local" },
+    ]);
     restored.setAccount("user_one");
     expect(restored.snapshot().recentProjects).toEqual([
-      { name: "First", directory: "/films/first" },
+      { name: "First", directory: "/films/first", kind: "cloud" },
+      { name: "Local", directory: "/films/local", kind: "local" },
     ]);
     restored.setAccount("user_two");
     expect(restored.snapshot().recentProjects).toEqual([
-      { name: "Second", directory: "/films/second" },
+      { name: "Second", directory: "/films/second", kind: "cloud" },
+      { name: "Local", directory: "/films/local", kind: "local" },
     ]);
     expect(await readFile(path, "utf8")).not.toContain("timestamp");
   });
 
-  it("starts empty without an account and rejects unsigned mutations", async () => {
+  it("allows signed-out local state but requires an account for cloud state", async () => {
     const { path } = await stateFixture();
     const store = new DesktopAppStateStore(path);
     await store.load();
     expect(store.snapshot().recentProjects).toEqual([]);
+    await store.rememberProject({ name: "Local", directory: "/films/local", kind: "local" });
+    await store.setMediaPoolOpen("/films/local", false);
+    expect(store.snapshot().mediaPoolOpenByProject["/films/local"]).toBe(false);
     await expect(
-      store.rememberProject({ name: "First", directory: "/films/first" }),
-    ).rejects.toThrow("Sign in");
+      store.rememberProject({ name: "Cloud", directory: "/films/cloud", kind: "cloud" }),
+    ).rejects.toThrow("cloud project state");
   });
 
-  it("does not migrate anonymous pre-account state", async () => {
+  it("does not migrate the prior account-only state shape", async () => {
     const { path } = await stateFixture();
     await writeFile(
       path,
       JSON.stringify({
-        version: 1,
-        recentProjects: [{ name: "Legacy", directory: "/films/legacy" }],
+        version: 2,
+        accounts: {
+          user_one: {
+            version: 1,
+            recentProjects: [{ name: "Legacy", directory: "/films/legacy" }],
+          },
+        },
       }),
     );
     const store = new DesktopAppStateStore(path);
@@ -66,12 +80,11 @@ describe("DesktopAppStateStore", () => {
     expect(store.snapshot().recentProjects).toEqual([]);
   });
 
-  it("forgets an account project and its device-specific UI preferences", async () => {
+  it("forgets a local project and its device-specific UI preferences", async () => {
     const { path } = await stateFixture();
     const store = new DesktopAppStateStore(path);
     await store.load();
-    store.setAccount("user_one");
-    await store.rememberProject({ name: "First", directory: "/films/first" });
+    await store.rememberProject({ name: "First", directory: "/films/first", kind: "local" });
     await store.setMediaPoolOpen("/films/first", false);
     await store.setInspectorOpen("/films/first", false);
     await store.setNotesOpen("/films/first", false);

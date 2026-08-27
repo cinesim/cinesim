@@ -29,6 +29,7 @@ import {
   HardDriveDownloadIcon as HardDriveDownloadData,
   House as HouseData,
   Image as ImageData,
+  InformationCircleIcon as InfoData,
   Keyboard as KeyboardData,
   Layers as LayersData,
   Library as LibraryData,
@@ -121,6 +122,7 @@ export const Grid3X3 = createIcon(Grid3X3Data, "Grid3X3");
 export const HardDriveDownload = createIcon(HardDriveDownloadData, "HardDriveDownload");
 export const House = createIcon(HouseData, "House");
 export const Image = createIcon(ImageData, "Image");
+export const Info = createIcon(InfoData, "Info");
 export const Keyboard = createIcon(KeyboardData, "Keyboard");
 export const Layers = createIcon(LayersData, "Layers");
 export const Library = createIcon(LibraryData, "Library");
