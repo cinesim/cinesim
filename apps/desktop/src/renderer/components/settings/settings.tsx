@@ -109,10 +109,7 @@ function AccountSettings() {
               </p>
             </div>
           </div>
-          <div className="mt-6 flex items-center justify-between gap-4 border-t border-border pt-5">
-            <p className="max-w-sm text-ui-xs leading-5 text-muted">
-              Projects and media are currently stored on this computer.
-            </p>
+          <div className="mt-6 flex justify-end border-t border-border pt-5">
             <button
               className="h-8 rounded-md border border-border px-3 text-ui text-secondary hover:bg-surface hover:text-primary disabled:opacity-50"
               disabled={busy !== null}

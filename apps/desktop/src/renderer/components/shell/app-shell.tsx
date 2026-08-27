@@ -359,9 +359,6 @@ export function AppShell({
                       <p className="truncate text-ui-xs text-muted">{account.user.email}</p>
                     </div>
                   </div>
-                  <p className="px-2 pb-2 pt-1 text-ui-xs leading-5 text-muted">
-                    Projects and media are currently stored on this computer.
-                  </p>
                   <MenuSeparator />
                   <MenuItem disabled={accountBusy !== null} onClick={() => void signOutAccount()}>
                     {accountBusy === "sign-out" ? "Signing out…" : "Sign out"}
@@ -369,11 +366,8 @@ export function AppShell({
                 </>
               ) : (
                 <>
-                  <div className="px-2 pb-3 pt-2">
+                  <div className="px-2 py-2">
                     <p className="text-ui font-semibold text-primary">Local workspace</p>
-                    <p className="mt-1 text-ui-xs leading-5 text-muted">
-                      You’re using Cinesim without an account. Projects remain on this computer.
-                    </p>
                   </div>
                   <div className="space-y-2 px-1 pb-1">
                     <Button

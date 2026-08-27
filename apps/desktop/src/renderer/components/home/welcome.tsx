@@ -149,13 +149,10 @@ export function Welcome({
       <div>
         <div className="mb-4 flex items-center justify-between">
           <h1 className="text-ui font-semibold text-primary">Projects</h1>
-          <div className="flex items-center gap-3">
-            <span className="text-ui-xs text-muted">{appState.recentProjects.length} saved</span>
-            <Button data-open-project onClick={() => void open()}>
-              Open project
-              <Kbd className="ml-1">{modifier}O</Kbd>
-            </Button>
-          </div>
+          <Button data-open-project onClick={() => void open()}>
+            Open project
+            <Kbd className="ml-1">{modifier}O</Kbd>
+          </Button>
         </div>
 
         <LibraryGrid>
