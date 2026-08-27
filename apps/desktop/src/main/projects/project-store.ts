@@ -1,6 +1,16 @@
 import { randomUUID } from "node:crypto";
 import { constants } from "node:fs";
-import { copyFile, lstat, mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
+import {
+  copyFile,
+  link,
+  lstat,
+  mkdir,
+  readFile,
+  rename,
+  rm,
+  stat,
+  writeFile,
+} from "node:fs/promises";
 import { dirname, join } from "node:path";
 import {
   createProject,
@@ -323,14 +333,18 @@ export class DesktopProjectStore {
       const temporaryPath = `${managedPath}.${randomUUID()}.tmp`;
       if (await lstat(managedPath).catch(() => null))
         throw new Error("The managed original already exists");
+      let published = false;
       try {
         await copyFile(filePath, temporaryPath, constants.COPYFILE_EXCL);
         const [sourceInfo, copyInfo] = await Promise.all([stat(filePath), stat(temporaryPath)]);
         if (!sourceInfo.isFile() || !copyInfo.isFile() || sourceInfo.size !== copyInfo.size)
           throw new Error("The managed original copy could not be verified");
-        await rename(temporaryPath, managedPath);
+        await link(temporaryPath, managedPath);
+        published = true;
+        await rm(temporaryPath);
       } catch (error) {
         await rm(temporaryPath, { force: true }).catch(() => undefined);
+        if (published) await rm(managedPath, { force: true }).catch(() => undefined);
         throw error;
       }
       asset = { ...asset, source: { kind: "local", path: managedPath } };

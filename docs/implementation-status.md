@@ -129,16 +129,28 @@ The MCP stdio server exposes project/asset/timeline inspection, asset removal, t
 
 - TypeScript whole-repository check: passed
 - Vite+ format and lint check: passed with no warnings
-- All 176 semantic tests in 37 files, including authentication boundaries and account presentation, frame-cadenced playback, overlapping seek/audio isolation, source-preview restoration, waveform bounds/serving/render geometry, adaptive policy, derived storage/writers, canonical track operations/layering, timeline interaction geometry, source resolution, agent integration, and shortcuts: passed
+- All 202 semantic tests in 41 files, including optional-auth project boundaries, account presentation,
+  cloud transfer containment, frame-cadenced playback, overlapping seek/audio isolation,
+  source-preview restoration, waveform bounds/serving/render geometry, proxy configuration, derived
+  storage/writers, canonical track operations/layering, timeline interaction geometry, source
+  resolution, agent integration, and shortcuts: passed
 - Vite production builds for main, preload, and renderer: passed
 - CLI help smoke check: passed
 - Electron application launch: intentionally not run
 
-Tests cover command semantics, track compatibility/order, invalid edits/overlaps, stable ID allocation, undo/redo, deterministic serialization and version rejection, protocol errors, timeline-to-source mapping, monotonic timing, sequential frame scheduling, latest-only coalescing, source-preview isolation/restoration, deterministic perception sampling/scoring, bounded waveform encoding/writes/recovery, drag/drop and trim geometry, adaptive decisions, and original/proxy resolution.
+Tests cover command semantics, project/source-kind boundaries, track compatibility/order, invalid
+edits/overlaps, stable ID allocation, undo/redo, deterministic serialization and version rejection,
+protocol errors, timeline-to-source mapping, monotonic timing, sequential frame scheduling,
+latest-only coalescing, source-preview isolation/restoration, deterministic perception
+sampling/scoring, bounded waveform encoding/writes/recovery, drag/drop and trim geometry, configured
+proxy behavior, temporary import containment, cloud upload finalization, and original/proxy
+resolution.
 
 ## Performance measurements
 
-No benchmark numbers are reported. The Metrics sidebar now exposes live FPS, seek latency, request coalescing, dropped frames, CPU GPU-submit duration, artifact jobs, adaptive reasons, and storage, but measuring representative media still requires the interactive Electron validation matrix left to the user.
+No benchmark numbers are reported. The Metrics sidebar now exposes live FPS, seek latency, request
+coalescing, dropped frames, CPU GPU-submit duration, artifact jobs, and storage, but measuring
+representative media still requires the interactive Electron validation matrix left to the user.
 
 ## Known limitations and deviations
 
