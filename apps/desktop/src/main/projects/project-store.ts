@@ -30,7 +30,8 @@ This is a Cinesim video editing project.
 - Prefer the Cinesim CLI or MCP tools for timeline edits.
 - Canonical state is \`cinesim.json\` and \`.cinesim/\`.
 - Human-readable settings are in \`.cinesim/settings.toml\`.
-- \`.video/\` contains generated caches, proxies, perception artifacts, and runtime files.
+- \`.video/\` contains generated caches, optional downloaded originals, proxies, perception
+  artifacts, and runtime files.
 - Derived files may be deleted and regenerated. Do not edit them manually.
 - Cinesim may offload originals under the signed-in account's storage policy. Agents must not move
   or modify source media directly.
@@ -183,9 +184,16 @@ export class DesktopProjectStore {
     const directory = this.#requireDirectory();
     await Promise.all([
       mkdir(join(directory, ".cinesim"), { recursive: true }),
-      ...["cache", "proxies", "thumbnails", "waveforms", "filmstrips", "frames", "runtime"].map(
-        (folder) => mkdir(join(directory, ".video", folder), { recursive: true }),
-      ),
+      ...[
+        "cache",
+        "proxies",
+        "originals",
+        "thumbnails",
+        "waveforms",
+        "filmstrips",
+        "frames",
+        "runtime",
+      ].map((folder) => mkdir(join(directory, ".video", folder), { recursive: true })),
     ]);
     await Promise.all([
       writeIfMissing(join(directory, "AGENTS.md"), PROJECT_AGENTS),

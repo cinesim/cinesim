@@ -26,6 +26,7 @@ import {
   FolderX as FolderXData,
   GaugeIcon as GaugeData,
   Grid3X3Icon as Grid3X3Data,
+  HardDriveDownloadIcon as HardDriveDownloadData,
   House as HouseData,
   Image as ImageData,
   Keyboard as KeyboardData,
@@ -117,6 +118,7 @@ export const FolderSearch = createIcon(FolderSearchData, "FolderSearch");
 export const FolderX = createIcon(FolderXData, "FolderX");
 export const Gauge = createIcon(GaugeData, "Gauge");
 export const Grid3X3 = createIcon(Grid3X3Data, "Grid3X3");
+export const HardDriveDownload = createIcon(HardDriveDownloadData, "HardDriveDownload");
 export const House = createIcon(HouseData, "House");
 export const Image = createIcon(ImageData, "Image");
 export const Keyboard = createIcon(KeyboardData, "Keyboard");

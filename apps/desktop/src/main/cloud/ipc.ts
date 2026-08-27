@@ -22,6 +22,13 @@ export function registerCloudIpc(manager: CloudMediaManager): void {
   ipcMain.handle("cloud:transfers", () => manager.snapshots());
   ipcMain.handle("cloud:retry", (_event, value: unknown) => manager.retry(assetId(value)));
   ipcMain.handle("cloud:cancel", (_event, value: unknown) => manager.cancel(assetId(value)));
+  ipcMain.handle("cloud:downloaded-originals", () => manager.downloadedOriginals());
+  ipcMain.handle("cloud:keep-downloaded", (_event, value: unknown) =>
+    manager.keepDownloaded(assetId(value)),
+  );
+  ipcMain.handle("cloud:remove-download", (_event, value: unknown) =>
+    manager.removeDownload(assetId(value)),
+  );
   ipcMain.handle("cloud:trash-assets", (_event, value: unknown) => {
     if (!Array.isArray(value) || value.length > 100) throw new Error("Invalid cloud asset request");
     return manager.trashAssets(value.map(cloudAssetId));

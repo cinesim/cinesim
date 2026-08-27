@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import {
   mkdir,
+  lstat,
   open,
   readFile,
   readdir,
@@ -730,8 +731,10 @@ export class DerivedMediaStore {
 
   async #removeInterruptedTemps(): Promise<void> {
     await Promise.all(
-      ["thumbnails", "filmstrips", "waveforms", "proxies"].map(async (folder) => {
+      ["thumbnails", "filmstrips", "waveforms", "proxies", "originals"].map(async (folder) => {
         const directory = this.#containedPath(join(".video", folder));
+        const info = await lstat(directory).catch(() => null);
+        if (!info?.isDirectory() || info.isSymbolicLink()) return;
         const names = await readdir(directory).catch(() => []);
         await Promise.all(
           names
@@ -801,10 +804,13 @@ export class DerivedMediaStore {
         folder: "frames",
         matches: (name: string) => name.startsWith(`${assetId}-`) && name.endsWith(".png"),
       },
+      { folder: "originals", matches: (name: string) => name === assetId },
     ];
     await Promise.all(
       candidates.map(async ({ folder, matches }) => {
         const directory = this.#containedPath(join(".video", folder));
+        const info = await lstat(directory).catch(() => null);
+        if (!info?.isDirectory() || info.isSymbolicLink()) return;
         const names = await readdir(directory).catch(() => []);
         await Promise.all(
           names

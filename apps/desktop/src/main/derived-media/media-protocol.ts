@@ -168,8 +168,35 @@ export async function registerMediaProtocol(
       }
       const asset = store.project?.assets.find((candidate) => candidate.id === assetId);
       if (!asset) return new Response("Unknown asset", { status: 404 });
-      if (asset.source.kind === "cloud")
-        return cloudMedia.readOriginal(asset.source.cloudAssetId, request);
+      if (asset.source.kind === "cloud") {
+        const downloadedPath = await cloudMedia.downloadedOriginalPath(asset.id);
+        if (!downloadedPath) return cloudMedia.readOriginal(asset.source.cloudAssetId, request);
+        const size = (await stat(downloadedPath)).size;
+        if (request.method === "HEAD")
+          return new Response(null, {
+            headers: {
+              "Accept-Ranges": "bytes",
+              "Access-Control-Allow-Origin": "*",
+              "Content-Length": String(size),
+              "Content-Type": "application/octet-stream",
+              "Cache-Control": "no-store",
+            },
+          });
+        const match = range?.match(/^bytes=(\d+)-(\d*)$/);
+        const start = match ? Number(match[1]) : 0;
+        const requestedEnd = match?.[2] ? Number(match[2]) + 1 : size;
+        return streamedMediaResponse(store, {
+          path: downloadedPath,
+          size,
+          mimeType: "application/octet-stream",
+          assetId,
+          start,
+          endExclusive: requestedEnd,
+          range: Boolean(range),
+          cacheControl: "no-store",
+          requestStarted,
+        });
+      }
       const path = asset.source.path;
       const size = (await stat(path)).size;
       if (request.method === "HEAD") {

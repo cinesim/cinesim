@@ -55,7 +55,7 @@ Canonical, Git-tracked state:
 - `.cinesim/settings.toml`: human-readable preview, autosave, and perception preferences
 - `AGENTS.md`: project-specific creative/agent direction
 
-Generated local state is entirely under ignored `.video/{cache,proxies,thumbnails,waveforms,filmstrips,frames,runtime}`. Project creation writes this layout and a project-level `.gitignore`. Canonical saves validate and split state, pretty-print deterministically, write temporary files, and atomically rename them.
+Generated local state is entirely under ignored `.video/{cache,originals,proxies,thumbnails,waveforms,filmstrips,frames,runtime}`. `originals/` contains only explicit disposable downloads of already-cloud-backed media; imported user-owned source paths are never moved or deleted. Project creation writes this layout and a project-level `.gitignore`. Canonical saves validate and split state, pretty-print deterministically, write temporary files, and atomically rename them.
 
 ## Command and history architecture
 

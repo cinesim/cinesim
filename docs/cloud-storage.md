@@ -34,8 +34,13 @@ never enter canonical project files or the renderer.
 5. The API completes the multipart upload, verifies the object size, and atomically moves reserved
    bytes to used bytes.
 6. Only after both the cloud original and local proxy are ready does Cinesim commit
-   `asset.setSource`. It then moves the former local original to the system Trash. A Trash failure
-   leaves the redundant local file in place and does not invalidate the cloud-backed project.
+   `asset.setSource`. The file originally selected by the user is never moved, renamed, or deleted.
+
+A cloud-backed asset offers **Keep downloaded** in its Media Bin context menu. This streams a
+verified disposable copy to `.video/originals/<asset-id>` and changes the action to **Remove
+download**. The canonical source remains cloud-backed, proxy editing remains the default, and cloud
+original reads prefer the downloaded copy while it exists. Removing a download only deletes this
+contained `.video/originals/` copy; it never touches the path used during import.
 
 Transfers are scoped by account, project directory, and asset ID. An unavailable service produces
 **Waiting for cloud** while leaving the original in place. Interrupted `preparing`, `uploading`, or
@@ -98,8 +103,8 @@ the bucket private and never put R2 credentials into desktop build-time variable
    account identity.
 3. Import a video with audio and confirm upload starts without a per-asset prompt. Confirm card
    progress survives closing and reopening the app as a paused, retryable transfer.
-4. After completion, confirm the card says **Cloud original**, the viewer says **Proxy**, the local
-   source moved to system Trash, and seeking still works.
+4. After completion, confirm the card says **Cloud original**, the viewer says **Proxy**, the
+   originally selected file remains untouched, and seeking still works.
 5. Delete the `.video/` proxy while online, reopen the project, and confirm the required proxy is
    regenerated from signed cloud range requests.
 6. Verify usage totals at account, project, and asset levels; test quota rejection and a configured
@@ -108,6 +113,8 @@ the bucket private and never put R2 credentials into desktop build-time variable
    in Settings.
 8. Repeat a proxy-backed edit offline. The existing proxy must remain usable; operations requiring
    original bytes should report that cloud storage is unavailable without corrupting the project.
+9. Choose **Keep downloaded**, confirm `.video/originals/<asset-id>` is used offline, then choose
+   **Remove download** and confirm only that disposable copy is removed.
 
 Still-image import is not currently exposed by the desktop media picker; cloud offload therefore
 accepts the editor's supported video and audio originals.

@@ -123,6 +123,35 @@ describe("renderer project controller", () => {
     expect(getAppState).toHaveBeenCalledOnce();
   });
 
+  it("hydrates and updates disposable cloud-original downloads", async () => {
+    const getDownloadedCloudOriginals = vi.fn(async () => ["asset_fixture"]);
+    const keepCloudOriginalDownloaded = vi.fn(async () => ["asset_fixture", "asset_second"]);
+    const removeCloudOriginalDownload = vi.fn(async () => ["asset_second"]);
+    const store = createRendererStore({
+      api: apiFixture({
+        getSession: async () => sessionFixture(),
+        getDownloadedCloudOriginals,
+        keepCloudOriginalDownloaded,
+        removeCloudOriginalDownload,
+      }),
+    });
+
+    await store.getState().initialize();
+    expect(store.getState().downloadedCloudOriginals).toEqual(["asset_fixture"]);
+
+    await expect(store.getState().keepCloudOriginalDownloaded("asset_second")).resolves.toEqual({
+      ok: true,
+      value: ["asset_fixture", "asset_second"],
+    });
+    expect(store.getState().downloadedCloudOriginals).toEqual(["asset_fixture", "asset_second"]);
+
+    await expect(store.getState().removeCloudOriginalDownload("asset_fixture")).resolves.toEqual({
+      ok: true,
+      value: ["asset_second"],
+    });
+    expect(store.getState().downloadedCloudOriginals).toEqual(["asset_second"]);
+  });
+
   it("keeps the previous project visible while opening and avoids a second preferences fetch", async () => {
     const previous = sessionFixture("/projects/previous");
     const next = sessionFixture("/projects/next");

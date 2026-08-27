@@ -72,6 +72,7 @@ my-project/
 │   └── settings.toml
 └── .video/                   # ignored, generated/local only
     ├── cache/
+    ├── originals/
     ├── proxies/
     ├── thumbnails/
     ├── waveforms/
@@ -80,9 +81,10 @@ my-project/
     └── runtime/
 ```
 
-Local source media is referenced in place. Signed-in users may explicitly move supported originals
-to private cloud storage after a local edit proxy is ready. Deleting `.video/` remains safe; cloud
-proxies can be regenerated while the account is online.
+Local source media is referenced in place and is never moved or deleted by cloud upload. Supported
+originals are automatically stored privately after a local edit proxy is ready. Users can
+explicitly keep a disposable copy under `.video/originals/`; deleting `.video/` remains safe and
+cloud-backed originals and proxies can be downloaded or regenerated while online.
 
 See [technical decisions](docs/technical-decisions.md), [project format](docs/project-format.md),
 [cloud originals](docs/cloud-storage.md), and [dependency licenses](docs/dependencies.md).

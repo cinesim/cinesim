@@ -72,6 +72,7 @@ export interface RendererState {
   account: AccountSnapshot;
   accountHydrated: boolean;
   cloudTransfers: CloudTransferSnapshot[];
+  downloadedCloudOriginals: string[];
   initialize: () => Promise<void>;
   receiveExternalSession: (session: DesktopProjectSession) => Promise<void>;
   createProject: (name: string) => Promise<ActionResult<DesktopProjectSession | null>>;
@@ -118,6 +119,8 @@ export interface RendererState {
   setCloudTransfers: (snapshot: CloudTransferSnapshot[]) => void;
   retryCloudTransfer: (assetId: string) => Promise<ActionResult<CloudTransferSnapshot[]>>;
   cancelCloudTransfer: (assetId: string) => Promise<ActionResult<CloudTransferSnapshot[]>>;
+  keepCloudOriginalDownloaded: (assetId: string) => Promise<ActionResult<string[]>>;
+  removeCloudOriginalDownload: (assetId: string) => Promise<ActionResult<string[]>>;
   updateProjectSettings: (
     update: Partial<DesktopProjectSession["settings"]>,
   ) => Promise<ActionResult<DesktopProjectSession>>;
@@ -280,7 +283,16 @@ export function createRendererStore({ api, storage }: RendererStoreDependencies)
           return { ok: true, value: session };
         }
         const appState = appStateWithRememberedProject(get().appState, session);
-        set(hydratedProjectState(session, appState));
+        const [transfersResult, downloadsResult] = await Promise.allSettled([
+          api.getCloudTransfers?.() ?? Promise.resolve([]),
+          api.getDownloadedCloudOriginals?.() ?? Promise.resolve([]),
+        ]);
+        set({
+          ...hydratedProjectState(session, appState),
+          cloudTransfers: transfersResult.status === "fulfilled" ? transfersResult.value : [],
+          downloadedCloudOriginals:
+            downloadsResult.status === "fulfilled" ? downloadsResult.value : [],
+        });
         return { ok: true, value: session };
       } catch (error) {
         const message = messageFrom(error, "The project could not be opened");
@@ -312,17 +324,20 @@ export function createRendererStore({ api, storage }: RendererStoreDependencies)
     }
 
     async function hydrateAccountWorkspace(): Promise<void> {
-      const [sessionResult, appStateResult, transfersResult] = await Promise.allSettled([
-        api.getSession(),
-        api.getAppState(),
-        api.getCloudTransfers?.() ?? Promise.resolve([]),
-      ]);
+      const [sessionResult, appStateResult, transfersResult, downloadsResult] =
+        await Promise.allSettled([
+          api.getSession(),
+          api.getAppState(),
+          api.getCloudTransfers?.() ?? Promise.resolve([]),
+          api.getDownloadedCloudOriginals?.() ?? Promise.resolve([]),
+        ]);
       if (sessionResult.status === "rejected") {
         const message = messageFrom(sessionResult.reason, "Cinesim could not load your projects");
         set({
           project: { status: "failed", previousSession: null, error: message },
           appState: EMPTY_APP_STATE,
           cloudTransfers: [],
+          downloadedCloudOriginals: [],
           operationError: message,
         });
         return;
@@ -330,9 +345,15 @@ export function createRendererStore({ api, storage }: RendererStoreDependencies)
       const appState =
         appStateResult.status === "fulfilled" ? appStateResult.value : EMPTY_APP_STATE;
       const cloudTransfers = transfersResult.status === "fulfilled" ? transfersResult.value : [];
+      const downloadedCloudOriginals =
+        downloadsResult.status === "fulfilled" ? downloadsResult.value : [];
       if (sessionResult.value)
-        set({ ...hydratedProjectState(sessionResult.value, appState), cloudTransfers });
-      else set({ project: { status: "idle" }, appState, cloudTransfers });
+        set({
+          ...hydratedProjectState(sessionResult.value, appState),
+          cloudTransfers,
+          downloadedCloudOriginals,
+        });
+      else set({ project: { status: "idle" }, appState, cloudTransfers, downloadedCloudOriginals });
     }
 
     const initialAuxiliaryMode =
@@ -363,6 +384,7 @@ export function createRendererStore({ api, storage }: RendererStoreDependencies)
       account: INITIAL_ACCOUNT_STATE,
       accountHydrated: false,
       cloudTransfers: [],
+      downloadedCloudOriginals: [],
 
       initialize: () => {
         if (initialization) return initialization;
@@ -372,7 +394,13 @@ export function createRendererStore({ api, storage }: RendererStoreDependencies)
           const account = await api.getAccountSnapshot().catch(() => INITIAL_ACCOUNT_STATE);
           set({ account, accountHydrated: true });
           if (account.user) await hydrateAccountWorkspace();
-          else set({ project: { status: "idle" }, appState: EMPTY_APP_STATE, cloudTransfers: [] });
+          else
+            set({
+              project: { status: "idle" },
+              appState: EMPTY_APP_STATE,
+              cloudTransfers: [],
+              downloadedCloudOriginals: [],
+            });
         })();
         return initialization;
       },
@@ -635,9 +663,15 @@ export function createRendererStore({ api, storage }: RendererStoreDependencies)
             appState: EMPTY_APP_STATE,
             destination: "home",
             cloudTransfers: [],
+            downloadedCloudOriginals: [],
           });
         } else if (account.user.id !== previousUserId) {
-          set({ project: { status: "booting" }, appState: EMPTY_APP_STATE, cloudTransfers: [] });
+          set({
+            project: { status: "booting" },
+            appState: EMPTY_APP_STATE,
+            cloudTransfers: [],
+            downloadedCloudOriginals: [],
+          });
           void hydrateAccountWorkspace();
         }
       },
@@ -692,6 +726,28 @@ export function createRendererStore({ api, storage }: RendererStoreDependencies)
           return { ok: true, value: cloudTransfers };
         } catch (error) {
           const message = messageFrom(error, "The cloud transfer could not be canceled");
+          set({ operationError: message });
+          return { ok: false, error: message };
+        }
+      },
+      keepCloudOriginalDownloaded: async (assetId) => {
+        try {
+          const downloadedCloudOriginals = await api.keepCloudOriginalDownloaded(assetId);
+          set({ downloadedCloudOriginals, operationError: null });
+          return { ok: true, value: downloadedCloudOriginals };
+        } catch (error) {
+          const message = messageFrom(error, "The cloud original could not be downloaded");
+          set({ operationError: message });
+          return { ok: false, error: message };
+        }
+      },
+      removeCloudOriginalDownload: async (assetId) => {
+        try {
+          const downloadedCloudOriginals = await api.removeCloudOriginalDownload(assetId);
+          set({ downloadedCloudOriginals, operationError: null });
+          return { ok: true, value: downloadedCloudOriginals };
+        } catch (error) {
+          const message = messageFrom(error, "The downloaded original could not be removed");
           set({ operationError: message });
           return { ok: false, error: message };
         }

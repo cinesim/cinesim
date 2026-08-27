@@ -465,6 +465,9 @@ export interface DesktopApi {
   getCloudTransfers(): Promise<CloudTransferSnapshot[]>;
   retryCloudTransfer(assetId: string): Promise<CloudTransferSnapshot[]>;
   cancelCloudTransfer(assetId: string): Promise<CloudTransferSnapshot[]>;
+  getDownloadedCloudOriginals(): Promise<string[]>;
+  keepCloudOriginalDownloaded(assetId: string): Promise<string[]>;
+  removeCloudOriginalDownload(assetId: string): Promise<string[]>;
   trashCloudAssets(cloudAssetIds: string[]): Promise<void>;
   restoreCloudAsset(cloudAssetId: string): Promise<void>;
   deleteCloudAsset(cloudAssetId: string): Promise<void>;
