@@ -21,7 +21,7 @@ never enter canonical project files or the renderer.
 
 ## Upload and offload lifecycle
 
-1. The user selects **Store original in cloud** from a media card. This action is only present for a
+1. The user selects **Move original to cloud** from a media card. This action is only present for a
    signed-in account.
 2. Cinesim queues the configured local edit proxy, fingerprints the source edges, and streams a
    full SHA-256 calculation.

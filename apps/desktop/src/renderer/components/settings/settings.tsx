@@ -116,6 +116,10 @@ function CloudStorageSettings() {
 
   if (account.status !== "signed-in")
     return <Notice size="default">Sign in to configure and inspect Cinesim Cloud storage.</Notice>;
+  if (account.cloudStorage !== true)
+    return (
+      <Notice size="default">Cloud storage is not configured for this Cinesim service.</Notice>
+    );
 
   const allowance = (usage?.includedBytes ?? 0) + (usage?.addonBytes ?? 0);
   const occupied = (usage?.usedBytes ?? 0) + (usage?.reservedBytes ?? 0);
@@ -364,9 +368,9 @@ function MediaSettings() {
               void updateProfile(event.target.value as typeof settings.proxyProfile)
             }
           >
-            <option value="space-saver">Space saver · 960p / 30 fps</option>
-            <option value="balanced">Balanced · 1280p / up to 60 fps</option>
-            <option value="high-quality">High quality · 1920p / up to 60 fps</option>
+            <option value="space-saver">Space saver · 960 px / 30 fps</option>
+            <option value="balanced">Balanced · 1280 px / up to 60 fps</option>
+            <option value="high-quality">High quality · 1920 px / up to 60 fps</option>
             <option value="custom">Custom</option>
           </Select>
         </SettingRow>

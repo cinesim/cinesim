@@ -398,6 +398,7 @@ export interface AccountSnapshot {
   cloudOrigin: string | null;
   serviceAvailable: boolean;
   googleSignIn: boolean;
+  cloudStorage?: boolean;
   user: AccountUser | null;
   detail: string | null;
 }

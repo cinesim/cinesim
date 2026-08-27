@@ -26,6 +26,7 @@ const accountResponseSchema = z.object({
 const healthResponseSchema = z.object({
   ok: z.literal(true),
   googleSignIn: z.boolean(),
+  cloudStorage: z.boolean(),
 });
 
 function configuredOrigin(): string | null {
@@ -49,6 +50,7 @@ function localSnapshot(input: {
     cloudOrigin: input.origin,
     serviceAvailable: input.available,
     googleSignIn: input.googleSignIn ?? false,
+    cloudStorage: false,
     user: null,
     detail: input.detail ?? null,
   };
@@ -176,11 +178,13 @@ export class DesktopAccountService {
       }
       if (!response.ok) throw new Error(`Account endpoint returned ${response.status}`);
       const parsed = accountResponseSchema.parse(await response.json());
+      const health = await this.#health();
       return {
         status: "signed-in",
         cloudOrigin: this.#origin,
         serviceAvailable: true,
-        googleSignIn: (await this.#health()).googleSignIn,
+        googleSignIn: health.googleSignIn,
+        cloudStorage: health.cloudStorage,
         user: this.#normalizeUser(parsed.user),
         detail: null,
       };
@@ -190,6 +194,7 @@ export class DesktopAccountService {
         cloudOrigin: this.#origin,
         serviceAvailable: false,
         googleSignIn: false,
+        cloudStorage: false,
         user: null,
         detail: "The authentication service is unavailable. Local editing still works.",
       };
@@ -243,8 +248,8 @@ export class DesktopAccountService {
     return response;
   }
 
-  async #health(): Promise<{ googleSignIn: boolean }> {
-    if (!this.#origin) return { googleSignIn: false };
+  async #health(): Promise<{ googleSignIn: boolean; cloudStorage: boolean }> {
+    if (!this.#origin) return { googleSignIn: false, cloudStorage: false };
     const response = await fetch(`${this.#origin}/health`, {
       signal: AbortSignal.timeout(5_000),
     });

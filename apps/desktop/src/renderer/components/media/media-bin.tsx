@@ -286,7 +286,8 @@ export function MediaBin({ project, onOpenTimeline }: MediaBinProps) {
       assetIds: selectedAssets.map((asset) => asset.id),
     });
     if (!result.ok) return;
-    if (cloudAssetIds.length > 0) await window.cinesim.trashCloudAssets(cloudAssetIds);
+    if (cloudAssetIds.length > 0)
+      await window.cinesim.trashCloudAssets(cloudAssetIds).catch(() => undefined);
     setPendingDialog(null);
     setSelectedAssetIds(new Set());
     setSelectionAnchor(null);
@@ -478,13 +479,14 @@ export function MediaBin({ project, onOpenTimeline }: MediaBinProps) {
                 {selectedCount === 1 ? "Asset" : "Assets"}
               </button>
               {account.status === "signed-in" &&
+                account.cloudStorage === true &&
                 selectedAssets.some((asset) => asset.source.kind === "local") && (
                   <button
                     role="menuitem"
                     className="flex min-h-10 w-full items-center gap-2 rounded-lg px-2.5 text-left text-ui hover:bg-surface"
                     onClick={() => void storeSelectedInCloud()}
                   >
-                    <Cloud size={14} /> Store original{selectedCount === 1 ? "" : "s"} in cloud
+                    <Cloud size={14} /> Move original{selectedCount === 1 ? "" : "s"} to cloud
                   </button>
                 )}
               {selectedAssets.some((asset) => asset.kind === "video" || asset.kind === "audio") && (

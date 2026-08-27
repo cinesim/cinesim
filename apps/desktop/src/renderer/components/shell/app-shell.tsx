@@ -291,7 +291,7 @@ export function AppShell({
               >
                 <Film size={15} /> Media & proxies
               </SidebarButton>
-              {account.status === "signed-in" && (
+              {account.status === "signed-in" && account.cloudStorage === true && (
                 <SidebarButton
                   active={settingsSection === "storage"}
                   onClick={() => onSettingsSection("storage")}
