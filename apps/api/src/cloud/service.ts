@@ -37,7 +37,7 @@ interface UploadContext {
   project: typeof cloudProject.$inferSelect;
 }
 
-function cloudId(prefix: "project" | "asset" | "upload"): string {
+function cloudId(prefix: "asset" | "upload"): string {
   return `cloud_${prefix}_${randomUUID().replaceAll("-", "")}`;
 }
 
@@ -51,47 +51,6 @@ export class CloudStorageService {
     private readonly includedBytes: number,
     private readonly addonOptionsBytes: number[],
   ) {}
-
-  async ensureProject(
-    userId: string,
-    input: { cloudProjectId?: string | undefined; clientProjectId: string; name: string },
-  ): Promise<{ id: string; name: string }> {
-    if (input.cloudProjectId) {
-      const [project] = await db
-        .select()
-        .from(cloudProject)
-        .where(and(eq(cloudProject.id, input.cloudProjectId), eq(cloudProject.userId, userId)))
-        .limit(1);
-      if (!project)
-        throw new CloudStorageError(
-          "CLOUD_PROJECT_NOT_FOUND",
-          "The cloud project is unavailable for this account",
-          404,
-        );
-      if (project.name !== input.name)
-        await db
-          .update(cloudProject)
-          .set({ name: input.name })
-          .where(eq(cloudProject.id, project.id));
-      return { id: project.id, name: input.name };
-    }
-
-    const [project] = await db
-      .insert(cloudProject)
-      .values({
-        id: cloudId("project"),
-        userId,
-        clientProjectId: input.clientProjectId,
-        name: input.name,
-      })
-      .onConflictDoUpdate({
-        target: [cloudProject.userId, cloudProject.clientProjectId],
-        set: { name: input.name },
-      })
-      .returning({ id: cloudProject.id, name: cloudProject.name });
-    if (!project) throw new Error("Cloud project could not be created");
-    return project;
-  }
 
   async usage(userId: string) {
     await this.#maintainAccount(userId);

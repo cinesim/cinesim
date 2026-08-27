@@ -6,14 +6,7 @@ import { CloudStorageError, type CloudStorageService } from "./service";
 const cloudProjectId = z.string().regex(/^cloud_project_[a-zA-Z0-9][a-zA-Z0-9_-]{7,127}$/);
 const cloudAssetId = z.string().regex(/^cloud_asset_[a-zA-Z0-9][a-zA-Z0-9_-]{7,127}$/);
 const cloudUploadId = z.string().regex(/^cloud_upload_[a-zA-Z0-9][a-zA-Z0-9_-]{7,127}$/);
-const clientProjectId = z.string().regex(/^project_[a-zA-Z0-9][a-zA-Z0-9_-]*$/);
 const clientAssetId = z.string().regex(/^asset_[a-zA-Z0-9][a-zA-Z0-9_-]*$/);
-
-const projectInput = z.object({
-  cloudProjectId: cloudProjectId.optional(),
-  clientProjectId,
-  name: z.string().trim().min(1).max(120),
-});
 
 const uploadInput = z.object({
   cloudProjectId,
@@ -69,11 +62,6 @@ export function createCloudRoutes(service: CloudStorageService | null) {
     const input = allowanceInput.parse(await context.req.json());
     await service!.setAddonBytes(context.get("userId"), input.addonBytes);
     return context.json(await service!.usage(context.get("userId")));
-  });
-
-  routes.post("/projects", async (context) => {
-    const input = projectInput.parse(await context.req.json());
-    return context.json(await service!.ensureProject(context.get("userId"), input));
   });
 
   routes.post("/uploads", async (context) => {
