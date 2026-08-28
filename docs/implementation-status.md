@@ -129,7 +129,7 @@ The MCP stdio server exposes project/asset/timeline inspection, asset removal, t
 
 - TypeScript whole-repository check: passed
 - Vite+ format and lint check: passed with no warnings
-- All 206 semantic tests in 41 files, including optional-auth project boundaries, account presentation,
+- All 207 semantic tests in 42 files, including optional-auth project boundaries, account presentation,
   cloud transfer containment, frame-cadenced playback, overlapping seek/audio isolation,
   source-preview restoration, waveform bounds/serving/render geometry, proxy configuration, derived
   storage/writers, canonical track operations/layering, timeline interaction geometry, source

@@ -33,6 +33,7 @@ import { formatDuration } from "../../lib/format";
 import { useRendererStore } from "../../store/renderer-store-context";
 import { LibraryGrid } from "../shared/library-card";
 import { AssetSourceMetadata } from "./asset-source-metadata";
+import { assetNeedsEditProxy } from "./media-actions";
 import { MediaSkimSurface } from "./media-skim-surface";
 
 interface MediaBinProps {
@@ -118,6 +119,7 @@ export function MediaBin({ project, onOpenTimeline }: MediaBinProps) {
   const execute = useRendererStore((state) => state.execute);
   const activeSequenceId = useRendererStore((state) => state.activeSequenceId);
   const cloudTransfers = useRendererStore((state) => state.cloudTransfers);
+  const derivedMedia = useRendererStore((state) => state.derivedMedia);
   const downloadedCloudOriginals = useRendererStore((state) => state.downloadedCloudOriginals);
   const retryCloudTransfer = useRendererStore((state) => state.retryCloudTransfer);
   const keepCloudOriginalDownloaded = useRendererStore(
@@ -137,6 +139,9 @@ export function MediaBin({ project, onOpenTimeline }: MediaBinProps) {
     selectedAssets.length === 1 && selectedAssets[0]?.source.kind === "cloud"
       ? selectedAssets[0]
       : null;
+  const selectedProxyAssets = selectedAssets.filter((asset) =>
+    assetNeedsEditProxy(asset, derivedMedia?.assets[asset.id]),
+  );
   const importMedia = useCallback(async () => importProjectMedia(), [importProjectMedia]);
 
   useEffect(() => {
@@ -315,9 +320,7 @@ export function MediaBin({ project, onOpenTimeline }: MediaBinProps) {
   }
 
   async function generateSelectedProxies(): Promise<void> {
-    const mediaIds = selectedAssets
-      .filter((asset) => asset.kind === "video" || asset.kind === "audio")
-      .map((asset) => asset.id);
+    const mediaIds = selectedProxyAssets.map((asset) => asset.id);
     if (mediaIds.length > 0 && derivedScope)
       await window.cinesim.requestProxyJobs(derivedScope, mediaIds);
     setContextMenu(null);
@@ -513,7 +516,7 @@ export function MediaBin({ project, onOpenTimeline }: MediaBinProps) {
                 <ListPlus size={14} /> Create Timeline from {selectedCount}{" "}
                 {selectedCount === 1 ? "Asset" : "Assets"}
               </button>
-              {selectedAssets.some((asset) => asset.kind === "video" || asset.kind === "audio") && (
+              {selectedProxyAssets.length > 0 && (
                 <button
                   role="menuitem"
                   className="flex min-h-10 w-full items-center gap-2 rounded-lg px-2.5 text-left text-ui hover:bg-surface"
