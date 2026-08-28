@@ -29,16 +29,19 @@ never enter canonical project files or the renderer.
 1. Import into a cloud project commits the local asset and automatically queues its original for
    the signed-in account. Opening a cloud project also reconciles eligible originals that were
    waiting while offline. Local-project imports never enter the cloud queue.
-2. Cinesim queues the configured local edit proxy, fingerprints the source edges, and streams a
+2. Cinesim queues thumbnail, filmstrip, and waveform work first. The thumbnail is published as soon
+   as it is encoded; upload preparation waits until the applicable perception artifacts are ready
+   or have reached a non-blocking failed state.
+3. Cinesim queues the configured local edit proxy, fingerprints the source edges, and streams a
    full SHA-256 calculation.
-3. The API reserves the source byte count under an account row lock before it creates a private R2
+4. The API reserves the source byte count under an account row lock before it creates a private R2
    multipart upload.
-4. Electron uploads 64 MiB parts with at most three in flight. It records every R2 ETag with the
+5. Electron uploads 64 MiB parts with at most three in flight. It records every R2 ETag with the
    API and persists resumable state in the app user-data directory. Media is never loaded into
    memory as one complete file.
-5. The API completes the multipart upload, verifies the object size, and atomically moves reserved
+6. The API completes the multipart upload, verifies the object size, and atomically moves reserved
    bytes to used bytes.
-6. Only after both the cloud original and local proxy are ready does Cinesim commit
+7. Only after both the cloud original and local proxy are ready does Cinesim commit
    `asset.setSource`. The file originally selected by the user is never moved, renamed, or deleted.
 
 Normal local imports reference the selected filesystem path in place. macOS may export selections

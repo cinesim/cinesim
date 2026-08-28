@@ -37,6 +37,47 @@ afterEach(async () => {
 });
 
 describe("DerivedMediaStore", () => {
+  it("queues visual perception artifacts without putting a proxy ahead of them", async () => {
+    const { directory, project } = await fixture("perception-priority");
+    const store = new DerivedMediaStore();
+    await store.setProject(directory, project, undefined, {
+      ...DEFAULT_SETTINGS,
+      proxyGeneration: "manual",
+    });
+
+    const snapshot = await store.queuePerception(["asset_fixture"]);
+
+    expect(snapshot.assets.asset_fixture).toMatchObject({
+      thumbnail: { state: "queued" },
+      filmstrip: { state: "queued" },
+      waveform: { state: "queued" },
+      proxy: { state: "missing" },
+    });
+  });
+
+  it("lets cloud preparation continue after visual generation reaches a failed terminal state", async () => {
+    const { directory, project } = await fixture("perception-terminal");
+    const silentProject = {
+      ...project,
+      assets: project.assets.map((asset) => ({ ...asset, hasAudio: false })),
+    };
+    const store = new DerivedMediaStore();
+    await store.setProject(directory, silentProject, undefined, {
+      ...DEFAULT_SETTINGS,
+      proxyGeneration: "manual",
+    });
+    const scope = store.scope();
+    await store.queuePerception(["asset_fixture"]);
+    const waiting = store.waitForPerception("asset_fixture");
+
+    for (const kind of ["thumbnail", "filmstrip"] as const) {
+      const { writerId } = await store.beginWrite(scope, { assetId: "asset_fixture", kind });
+      await store.cancelWrite(writerId, "fixture-generation-failed");
+    }
+
+    await expect(waiting).resolves.toBeUndefined();
+  });
+
   it("atomically publishes bounded artifacts without exposing paths", async () => {
     const { directory, project } = await fixture("write");
     const store = new DerivedMediaStore();

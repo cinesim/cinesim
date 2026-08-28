@@ -37,6 +37,7 @@ async function completeUpload(managedSource: boolean) {
       durationUs: 1_000_000,
     },
   }).project;
+  const preparationOrder: string[] = [];
   const account = {
     cachedUser: () => ({ id: "user_fixture" }),
     requireCachedUser: () => ({ id: "user_fixture" }),
@@ -47,7 +48,8 @@ async function completeUpload(managedSource: boolean) {
     }),
     registerProject: async () => ({ id: "cloud_project_fixture0000001" }),
     authenticatedFetch: async (path: string) => {
-      if (path === "/api/v1/cloud/uploads")
+      if (path === "/api/v1/cloud/uploads") {
+        preparationOrder.push("upload");
         return new Response(
           JSON.stringify({
             id: "cloud_upload_fixture0000001",
@@ -57,6 +59,7 @@ async function completeUpload(managedSource: boolean) {
             parts: [],
           }),
         );
+      }
       if (path.endsWith("/parts/sign"))
         return new Response(
           JSON.stringify({
@@ -75,7 +78,15 @@ async function completeUpload(managedSource: boolean) {
     directory,
     project,
     derivedMedia: {
-      queueProxy: async () => undefined,
+      queuePerception: async () => {
+        preparationOrder.push("queue-perception");
+      },
+      waitForPerception: async () => {
+        preparationOrder.push("perception-ready");
+      },
+      queueProxy: async () => {
+        preparationOrder.push("queue-proxy");
+      },
       waitForProxy: async () => undefined,
     },
     execute: async (command: Parameters<typeof applyCommand>[1]) => {
@@ -104,7 +115,7 @@ async function completeUpload(managedSource: boolean) {
   await manager.queue(["asset_fixture"], managedSource ? ["asset_fixture"] : []);
   await vi.waitFor(() => expect(projectStore.project.assets[0]?.source.kind).toBe("cloud"));
   await vi.waitFor(() => expect(manager.snapshots()[0]?.state).toBe("complete"));
-  return { projectStore, sourceBytes, sourcePath };
+  return { preparationOrder, projectStore, sourceBytes, sourcePath };
 }
 
 describe("CloudMediaManager transfer journal", () => {
@@ -239,12 +250,18 @@ describe("CloudMediaManager transfer journal", () => {
   });
 
   it("keeps the user-owned import in place after cloud upload finalization", async () => {
-    const { projectStore, sourceBytes, sourcePath } = await completeUpload(false);
+    const { preparationOrder, projectStore, sourceBytes, sourcePath } = await completeUpload(false);
 
     expect(projectStore.project.assets[0]?.source).toEqual({
       kind: "cloud",
       cloudAssetId: "cloud_asset_fixture00000001",
     });
+    expect(preparationOrder.slice(0, 4)).toEqual([
+      "queue-perception",
+      "perception-ready",
+      "queue-proxy",
+      "upload",
+    ]);
     await expect(readFile(sourcePath)).resolves.toEqual(Buffer.from(sourceBytes));
   });
 

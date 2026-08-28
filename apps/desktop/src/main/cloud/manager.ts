@@ -525,6 +525,9 @@ export class CloudMediaManager {
     if (!asset || asset.source.kind !== "local" || asset.source.path !== record.sourcePath)
       throw new Error("The source media changed after this upload was queued");
 
+    await this.projects.derivedMedia.queuePerception([asset.id]);
+    await this.projects.derivedMedia.waitForPerception(asset.id, signal);
+    if (signal.aborted) return;
     await this.projects.derivedMedia.queueProxy(asset.id);
     const [fingerprint, checksum] = await Promise.all([
       fingerprintSource(record.sourcePath),

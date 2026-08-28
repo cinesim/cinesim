@@ -295,27 +295,48 @@ export class DerivedMediaStore {
   async requestJobs(scope: DerivedProjectScope, assetIds: string[]): Promise<DerivedMediaSnapshot> {
     return this.#serialize(async () => {
       this.assertScope(scope);
-      if (assetIds.length > 500) throw new Error("Too many derived job requests");
-      const persistenceSignature = projectOpenPersistenceSignature(this.#index);
-      const project = this.#requireProject();
-      for (const assetId of new Set(assetIds)) {
-        const asset = project.assets.find((candidate) => candidate.id === assetId);
-        if (!asset || (asset.kind !== "video" && asset.kind !== "audio")) continue;
-        const record = await this.#ensureAsset(asset);
-        const kinds: DerivedArtifactKind[] = [];
-        if (asset.kind === "video") kinds.push("thumbnail", "filmstrip");
-        if (asset.kind === "audio" || asset.hasAudio === true) kinds.push("waveform");
-        for (const kind of kinds) {
-          const artifact = record[kind];
-          if (artifact.state === "missing") artifact.state = "queued";
-        }
-        if (this.#settings.proxyGeneration === "automatic" || asset.source.kind === "cloud")
-          await this.#queueProxyRecord(asset);
+      return this.#queueRequestedArtifacts(assetIds, true);
+    });
+  }
+
+  async queuePerception(assetIds: string[]): Promise<DerivedMediaSnapshot> {
+    return this.#serialize(() => this.#queueRequestedArtifacts(assetIds, false));
+  }
+
+  async waitForPerception(assetId: string, signal?: AbortSignal): Promise<void> {
+    const terminal = (snapshot: DerivedMediaSnapshot): boolean => {
+      const asset = this.#requireAsset(assetId);
+      const record = snapshot.assets[assetId];
+      if (!record) return false;
+      const kinds: DerivedArtifactKind[] = [];
+      if (asset.kind === "video") kinds.push("thumbnail", "filmstrip");
+      if (asset.kind === "audio" || asset.hasAudio === true) kinds.push("waveform");
+      return kinds.every(
+        (kind) => record[kind].state === "ready" || record[kind].state === "failed",
+      );
+    };
+    if (terminal(this.snapshot())) return;
+    if (signal?.aborted) throw new Error("Cloud transfer canceled");
+    await new Promise<void>((resolve, reject) => {
+      let stop: () => void = () => undefined;
+      let settled = false;
+      const abort = () => {
+        settled = true;
+        stop();
+        reject(new Error("Cloud transfer canceled"));
+      };
+      stop = this.subscribe((snapshot) => {
+        if (!terminal(snapshot)) return;
+        settled = true;
+        stop();
+        signal?.removeEventListener("abort", abort);
+        resolve();
+      });
+      if (settled) stop();
+      else {
+        signal?.addEventListener("abort", abort, { once: true });
+        if (signal?.aborted) abort();
       }
-      if (projectOpenPersistenceSignature(this.#index) !== persistenceSignature)
-        await this.#persist();
-      this.#emit();
-      return this.snapshot();
     });
   }
 
@@ -329,6 +350,36 @@ export class DerivedMediaStore {
       this.#emit();
       return this.snapshot();
     });
+  }
+
+  async #queueRequestedArtifacts(
+    assetIds: string[],
+    queueConfiguredProxies: boolean,
+  ): Promise<DerivedMediaSnapshot> {
+    if (assetIds.length > 500) throw new Error("Too many derived job requests");
+    const persistenceSignature = projectOpenPersistenceSignature(this.#index);
+    const project = this.#requireProject();
+    for (const assetId of new Set(assetIds)) {
+      const asset = project.assets.find((candidate) => candidate.id === assetId);
+      if (!asset || (asset.kind !== "video" && asset.kind !== "audio")) continue;
+      const record = await this.#ensureAsset(asset);
+      const kinds: DerivedArtifactKind[] = [];
+      if (asset.kind === "video") kinds.push("thumbnail", "filmstrip");
+      if (asset.kind === "audio" || asset.hasAudio === true) kinds.push("waveform");
+      for (const kind of kinds) {
+        const artifact = record[kind];
+        if (artifact.state === "missing") artifact.state = "queued";
+      }
+      if (
+        queueConfiguredProxies &&
+        (this.#settings.proxyGeneration === "automatic" || asset.source.kind === "cloud")
+      )
+        await this.#queueProxyRecord(asset);
+    }
+    if (projectOpenPersistenceSignature(this.#index) !== persistenceSignature)
+      await this.#persist();
+    this.#emit();
+    return this.snapshot();
   }
 
   async queueProxies(
