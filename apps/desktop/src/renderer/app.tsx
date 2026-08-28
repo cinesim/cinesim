@@ -167,7 +167,9 @@ export function App() {
               error={error}
               loading={false}
               opening={openingProject}
+              account={account}
               onCreate={createProject}
+              onSignIn={beginAccountSignIn}
               onOpen={openProject}
               onOpenRecent={openRecentProject}
               onForgetProject={forgetProject}

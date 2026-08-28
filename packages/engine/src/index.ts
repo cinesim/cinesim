@@ -1,6 +1,5 @@
 export * from "./compositor/webgpu-compositor";
 export * from "./media/mediabunny-source";
-export * from "./media/adaptive-policy";
 export * from "./media/video-source";
 export * from "./perception/sampling";
 export * from "./perception/filmstrip";

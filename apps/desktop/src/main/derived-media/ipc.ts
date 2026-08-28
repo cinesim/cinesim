@@ -17,6 +17,11 @@ export function registerDerivedMediaIpc(store: DerivedMediaStore): void {
       throw new Error("Invalid derived job request");
     return store.requestJobs(parseDerivedProjectScope(scope), assetIds);
   });
+  ipcMain.handle("derived:request-proxies", (_event, scope: unknown, assetIds: unknown) => {
+    if (!Array.isArray(assetIds) || assetIds.some((id) => typeof id !== "string"))
+      throw new Error("Invalid proxy job request");
+    return store.queueProxies(parseDerivedProjectScope(scope), assetIds);
+  });
   ipcMain.handle("derived:write:begin", (_event, scope: unknown, input: unknown) =>
     store.beginWrite(parseDerivedProjectScope(scope), input as BeginDerivedWrite),
   );

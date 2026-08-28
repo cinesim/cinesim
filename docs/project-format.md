@@ -18,13 +18,25 @@
 
 `.cinesim/assets.json` and `.cinesim/timeline.json` are deterministic machine-edited canonical files. `.cinesim/settings.toml` is canonical and intentionally comfortable to edit by hand. All carry `version = 1` semantics and future versions are rejected until a migration exists.
 
-`.video/` is local derived state. It is ignored in the project-level `.gitignore` created by Cinesim and can always be deleted and regenerated. Master media remains at its imported path; Cinesim never moves or mutates it.
+`.video/` is local generated state and is ignored in the project-level `.gitignore` created by
+Cinesim. Ordinary local-project imports reference their selected source path in place. Because
+Apple Photos can provide a temporary picker export instead of a durable path, that specific local
+import is copied to `.video/originals/<asset-id>` and depends on the managed copy until re-linked.
+
+Cloud-project imports retain an ordinary user-owned source before, during, and after private cloud
+upload; Cinesim never moves or deletes it. A temporary macOS picker export is the exception: Cinesim
+copies it into `.video/originals/` for stable upload staging, then removes only that managed copy
+after the cloud object and local proxy are verified. Cinesim commits an opaque cloud source through
+`asset.setSource`. An explicit **Keep downloaded** action streams a disposable copy to
+`.video/originals/<asset-id>` without changing canonical state.
 
 ## Timeline ordering and compatibility
 
 Sequence track order is authored canonical state, not an incidental JSON order. It is preserved across save/load and matches the timeline UI: index `0` is the uppermost track. Upper visual tracks composite over lower video and overlay tracks. Track reordering uses a zero-based destination index within the track's existing sequence.
 
 Every canonical clip declares a `mediaKind` of `video` or `audio`; playback and presentation never infer embedded audio from a visual clip. Audio-only assets may be placed only on audio tracks, while video and image components may be placed on video or overlay tracks. Adding a video asset with audio atomically creates reciprocal linked video and audio clips. The command chooses an available audio track or creates one when necessary, and linked move, trim, split, and remove edits remain one command and one undo step. Pre-component project files are deterministically upgraded to this representation during load. Loading a project or applying a clip command rejects incompatible placements and malformed links.
+
+Optional `fadeInUs` and `fadeOutUs` clip fields define linear opacity or audio-gain envelopes in integer microseconds. `clip.setFade` is the only editing pathway for them; the combined fades cannot exceed the clip duration. A timeline handle drag commits one command and one undo step. Trims clamp existing fades to the new duration, while splits preserve the outer fades and clear the two new interior edges.
 
 Tracks are changed through the shared command pathway:
 
@@ -39,8 +51,8 @@ Collection edits use the same command pathway:
   format overrides. It creates standard video/audio tracks, places assets sequentially, creates
   reciprocal audio components when needed, and makes the new timeline active in one undo step.
 - `asset.remove` takes a non-empty `assetIds` list. It removes the canonical asset references and
-  every clip using them. A usage on a locked track blocks the operation. Source media is never
-  deleted; disposable derived artifacts are pruned by the filesystem adapter after commit.
+  every clip using them. A usage on a locked track blocks the operation. Cloud originals enter the
+  account Trash through the desktop adapter; disposable derived artifacts are pruned after commit.
 - `sequence.remove` deletes an unlocked timeline and its clips without removing assets. The last
   timeline cannot be deleted, and removing the active timeline chooses the lowest remaining stable
   sequence ID as the deterministic fallback.

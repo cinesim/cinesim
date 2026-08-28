@@ -14,6 +14,7 @@ Runtime dependencies:
 | class-variance-authority            | Component variants                   | Apache-2.0   |
 | tailwind-merge                      | Tailwind class composition           | MIT          |
 | Hugeicons Free / React              | Free icon data and React renderer    | MIT          |
+| Lucide React                        | Timeline transport controls          | ISC          |
 | dnd-kit                             | Timeline drag/drop                   | MIT          |
 | Zustand                             | Ephemeral renderer state             | MIT          |
 | TanStack Router                     | Renderer routing                     | MIT          |
@@ -29,6 +30,7 @@ Runtime dependencies:
 | Drizzle ORM                         | Typed PostgreSQL queries             | Apache-2.0   |
 | node-postgres (`pg`)                | PostgreSQL connection pooling        | MIT          |
 | Nodemailer                          | Verification email over SMTP         | MIT-0        |
+| aws4fetch                           | AWS Signature V4 for private R2 I/O  | MIT          |
 
 Development services:
 

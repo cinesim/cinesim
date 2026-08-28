@@ -132,7 +132,7 @@ export function TimelineWaveform({
   return (
     <svg
       aria-hidden="true"
-      className="pointer-events-none absolute inset-x-1 bottom-1 z-10 h-[45%] w-[calc(100%_-_0.5rem)] overflow-visible text-clip-text-muted opacity-80"
+      className="pointer-events-none absolute inset-x-1 top-2 z-10 h-[62%] w-[calc(100%_-_0.5rem)] overflow-visible text-white opacity-75 drop-shadow-sm"
       viewBox="0 0 1000 100"
       preserveAspectRatio="none"
     >

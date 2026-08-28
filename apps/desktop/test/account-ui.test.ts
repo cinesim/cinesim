@@ -3,7 +3,7 @@ import type { AccountSnapshot } from "../src/shared/api";
 import { accountDisplayName } from "../src/renderer/components/account/account-ui";
 
 const baseAccount: AccountSnapshot = {
-  status: "local",
+  status: "signed-out",
   cloudOrigin: "http://127.0.0.1:8787",
   serviceAvailable: true,
   googleSignIn: true,
@@ -12,8 +12,8 @@ const baseAccount: AccountSnapshot = {
 };
 
 describe("account footer label", () => {
-  it("keeps local mode compact", () => {
-    expect(accountDisplayName(baseAccount)).toBe("Local");
+  it("labels the signed-out state", () => {
+    expect(accountDisplayName(baseAccount)).toBe("Sign in");
   });
 
   it("shows a clear offline state", () => {

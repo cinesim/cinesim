@@ -94,20 +94,21 @@ button {
   display: none;
 }
 
-.clip-texture {
-  background-image: repeating-linear-gradient(
-    90deg,
-    transparent 0,
-    transparent 18px,
-    color-mix(in srgb, var(--ui-clip-text) 18%, transparent) 19px
-  );
-}
-
 .timeline-track {
   background-image: linear-gradient(
     90deg,
     color-mix(in srgb, var(--ui-text) 4%, transparent) 1px,
     transparent 1px
+  );
+}
+
+.meter-segments {
+  background: repeating-linear-gradient(
+    to top,
+    transparent 0,
+    transparent 5px,
+    rgb(0 0 0 / 0.72) 5px,
+    rgb(0 0 0 / 0.72) 7px
   );
 }
 
@@ -127,16 +128,6 @@ aside > div::-webkit-scrollbar {
 aside > div::-webkit-scrollbar-thumb {
   border-radius: 999px;
   background: var(--gray-7);
-}
-
-.viewer-scrubber::-webkit-slider-thumb {
-  width: 20px;
-  height: 20px;
-  appearance: none;
-  border-radius: 999px;
-  border: 2px solid rgb(255 255 255 / 0.85);
-  background: rgb(255 255 255);
-  box-shadow: 0 1px 6px rgb(0 0 0 / 0.35);
 }
 
 ::selection {

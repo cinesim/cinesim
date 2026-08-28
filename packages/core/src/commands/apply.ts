@@ -6,7 +6,7 @@ import {
   DEFAULT_TRANSFORM,
   isAssetMediaCompatibleWithTrack,
 } from "../project/types";
-import type { Asset, Clip, Project, Sequence, Track } from "../project/types";
+import type { Asset, AssetSource, Clip, Project, Sequence, Track } from "../project/types";
 import {
   findClip,
   findSequenceForTrack,
@@ -53,6 +53,16 @@ function assertNoOverlap(track: Track, candidate: Clip, ignoredId?: ClipId): voi
   }
 }
 
+function clampClipFades(clip: Clip): void {
+  const durationUs = clipEndUs(clip) - clip.timelineStartUs;
+  const fadeInUs = Math.min(durationUs, clip.fadeInUs ?? 0);
+  const fadeOutUs = Math.min(durationUs - fadeInUs, clip.fadeOutUs ?? 0);
+  if (fadeInUs > 0) clip.fadeInUs = fadeInUs;
+  else delete clip.fadeInUs;
+  if (fadeOutUs > 0) clip.fadeOutUs = fadeOutUs;
+  else delete clip.fadeOutUs;
+}
+
 function allClipIds(project: Project): string[] {
   return project.sequences.flatMap((sequence) =>
     sequence.tracks.flatMap((track) => track.clips.map((clip) => clip.id)),
@@ -72,6 +82,14 @@ function assertUniqueAssetIds(assetIds: readonly AssetId[]): void {
     throw new CommandError("EMPTY_ASSET_SELECTION", "Select at least one asset");
   if (new Set(assetIds).size !== assetIds.length)
     throw new CommandError("DUPLICATE_ASSET_ID", "Asset selection contains duplicate IDs");
+}
+
+function assertSourceAllowed(project: Project, source: AssetSource): void {
+  if (!project.cloudProjectId && source.kind === "cloud")
+    throw new CommandError(
+      "LOCAL_PROJECT_CLOUD_SOURCE",
+      "Cloud-backed media can only be used in a cloud project",
+    );
 }
 
 function requireAssets(project: Project, assetIds: readonly AssetId[]): Asset[] {
@@ -174,6 +192,7 @@ export function applyCommand(inputProject: Project, command: EditorCommand): Com
       if (project.assets.some((asset) => asset.id === command.asset.id)) {
         throw new CommandError("DUPLICATE_ID", `Asset already exists: ${command.asset.id}`);
       }
+      assertSourceAllowed(project, command.asset.source);
       assertTime(command.asset.durationUs, "durationUs");
       project.assets.push(structuredClone(command.asset));
       project.assets.sort((left, right) => left.id.localeCompare(right.id));
@@ -184,6 +203,14 @@ export function applyCommand(inputProject: Project, command: EditorCommand): Com
         [command.asset.id],
         [command.asset.id],
       );
+    }
+
+    case "asset.setSource": {
+      const asset = project.assets.find((candidate) => candidate.id === command.assetId);
+      if (!asset) throw new CommandError("ASSET_NOT_FOUND", `Asset not found: ${command.assetId}`);
+      assertSourceAllowed(project, command.source);
+      asset.source = structuredClone(command.source);
+      return result(project, command, `Updated source for ${asset.name}`, [asset.id]);
     }
 
     case "asset.remove": {
@@ -602,6 +629,8 @@ export function applyCommand(inputProject: Project, command: EditorCommand): Com
       if (linkedTrimmed) assertNoOverlap(linked!.track, linkedTrimmed, linkedTrimmed.id);
       Object.assign(clip, trimmed);
       if (linked && linkedTrimmed) Object.assign(linked.clip, linkedTrimmed);
+      clampClipFades(clip);
+      if (linked) clampClipFades(linked.clip);
       sortClips(track);
       if (linked) sortClips(linked.track);
       return result(project, command, `Trimmed start of ${clip.id}`, [
@@ -635,11 +664,33 @@ export function applyCommand(inputProject: Project, command: EditorCommand): Com
       if (linkedTrimmed) assertNoOverlap(linked!.track, linkedTrimmed, linkedTrimmed.id);
       Object.assign(clip, trimmed);
       if (linked && linkedTrimmed) Object.assign(linked.clip, linkedTrimmed);
+      clampClipFades(clip);
+      if (linked) clampClipFades(linked.clip);
       return result(project, command, `Trimmed end of ${clip.id}`, [
         track.id,
         clip.id,
         ...(linked ? [linked.track.id, linked.clip.id] : []),
       ]);
+    }
+
+    case "clip.setFade": {
+      assertTime(command.durationUs, "durationUs");
+      const { clip, track } = findClip(project, command.clipId);
+      if (track.locked) throw new CommandError("TRACK_LOCKED", `Track is locked: ${track.id}`);
+      const durationUs = clipEndUs(clip) - clip.timelineStartUs;
+      const otherDurationUs = command.edge === "in" ? (clip.fadeOutUs ?? 0) : (clip.fadeInUs ?? 0);
+      if (command.durationUs + otherDurationUs > durationUs) {
+        throw new CommandError("INVALID_FADE", "Clip fades cannot overlap");
+      }
+      const key = command.edge === "in" ? "fadeInUs" : "fadeOutUs";
+      if (command.durationUs === 0) delete clip[key];
+      else clip[key] = command.durationUs;
+      return result(
+        project,
+        command,
+        `${command.durationUs === 0 ? "Cleared" : "Set"} ${command.edge === "in" ? "fade in" : "fade out"} on ${clip.id}`,
+        [track.id, clip.id],
+      );
     }
 
     case "clip.split": {
@@ -666,6 +717,7 @@ export function applyCommand(inputProject: Project, command: EditorCommand): Com
         timelineStartUs: command.atUs,
         sourceStartUs: sourceSplitUs,
       };
+      delete right.fadeInUs;
       const linkedSourceSplitUs = linked
         ? linked.clip.sourceStartUs + (command.atUs - linked.clip.timelineStartUs)
         : null;
@@ -679,8 +731,15 @@ export function applyCommand(inputProject: Project, command: EditorCommand): Com
               sourceStartUs: linkedSourceSplitUs,
             }
           : null;
+      if (linkedRight) delete linkedRight.fadeInUs;
       clip.sourceEndUs = sourceSplitUs;
+      delete clip.fadeOutUs;
       if (linked && linkedSourceSplitUs !== null) linked.clip.sourceEndUs = linkedSourceSplitUs;
+      if (linked) delete linked.clip.fadeOutUs;
+      clampClipFades(clip);
+      clampClipFades(right);
+      if (linked) clampClipFades(linked.clip);
+      if (linkedRight) clampClipFades(linkedRight);
       track.clips.push(right);
       sortClips(track);
       if (linked && linkedRight) {

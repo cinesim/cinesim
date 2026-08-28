@@ -47,8 +47,6 @@ function snapshot(thumbnailState: DerivedArtifactState): DerivedMediaSnapshot {
             framesPresented: 0,
             framesObsolete: 0,
           },
-          decision: "observing",
-          reasons: [],
         },
       },
     },

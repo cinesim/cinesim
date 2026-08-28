@@ -15,7 +15,7 @@ We do not use `electron-vite`. Current Electron builds are straightforward Vite 
 
 ## Project state
 
-`cinesim.json` is the stable project entry point. Complex canonical collections live in deterministic JSON under `.cinesim/`; human-edited preferences live in `.cinesim/settings.toml`. The generated `.video/` tree contains only caches, proxies, perception artifacts, and runtime scratch data and is ignored as a unit.
+`cinesim.json` is the stable project entry point. Complex canonical collections live in deterministic JSON under `.cinesim/`; human-edited preferences live in `.cinesim/settings.toml`. The generated `.video/` tree contains only disposable downloads, caches, proxies, perception artifacts, and runtime scratch data and is ignored as a unit.
 
 Core uses integer microseconds. IDs are stable, prefixed strings. Unordered collections are sorted before serialization, while sequence track arrays preserve authored layer order. Unknown schema versions are rejected. Disk adapters use temp-file-plus-rename atomic replacement; core itself has no filesystem dependency.
 
@@ -43,7 +43,7 @@ Canvas2D is limited to filmstrip/thumbnail generation, where a CPU-readable imag
 
 Decode-heavy derived work runs in one dedicated renderer worker. Sparse Mediabunny canvas sinks and OffscreenCanvas create bounded thumbnails and filmstrip contact sheets. Sequential Mediabunny audio buffers are reduced to a deterministic mono min/max envelope with at most 4,096 peaks; the versioned little-endian `CSWF` artifact is at most 16,400 bytes and retains no decoded audio. The same worker uses Mediabunny conversion for video-only editing proxies, selecting a supported MP4 codec at runtime and streaming bounded chunks with renderer-to-main acknowledgements so encoder backpressure reaches the filesystem writer. Foreground playback, seeks, hover preview, and timeline dragging defer new derived jobs and pause active decode/conversion work between bounded units; idle grace resumes it.
 
-Derived state is disposable and noncanonical under `.video/`. Main owns source fingerprints, validated contained paths, atomic writer sessions, artifact serving, storage budgets, recovery, and eviction. Waveform writers must declare the exact duration-derived byte bound, and publication validates the format version, peak count, and final size. A pure closed-loop policy chooses the original or queues a proxy from observed warmed-seek latency, deadline misses, and request coalescing. Valid proxies have hysteresis and are selected automatically; failures fall back to the original. No FFmpeg-backed Mediabunny codec extension is included, so footage Chromium cannot decode cannot be proxied by this path.
+Derived state is disposable and noncanonical under `.video/`. Main owns source fingerprints, validated contained paths, atomic writer sessions, artifact serving, storage budgets, recovery, and eviction. Waveform writers must declare the exact duration-derived byte bound, and publication validates the format version, peak count, and final size. Projects select explicit automatic or manual proxy generation and a named or custom proxy profile; cloud-backed originals always retain a local edit proxy. An explicit downloaded-original cache is contained under `.video/originals/` and never reuses or modifies the user-owned import path. No FFmpeg-backed Mediabunny codec extension is included, so footage Chromium cannot decode cannot be proxied by this path.
 
 ## Security
 

@@ -1,5 +1,14 @@
-import { useCallback, useEffect, useState } from "react";
-import { ArrowRight, FolderX, Trash2 } from "@cinesim/ui";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  ArrowRight,
+  ChevronDown,
+  ChevronRight,
+  Cloud,
+  FolderOpen,
+  FolderX,
+  Info,
+  Trash2,
+} from "@cinesim/ui";
 import {
   Button,
   Dialog,
@@ -13,18 +22,32 @@ import {
   Notice,
   PreviewCard,
   Skeleton,
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
 } from "@cinesim/ui";
-import type { DesktopAppState, DesktopProjectSession } from "../../../shared/api";
+import type {
+  AccountSnapshot,
+  DesktopAppState,
+  DesktopProjectSession,
+  RecentProject,
+} from "../../../shared/api";
 import { formatByteCount } from "../../lib/format";
 import type { ActionResult } from "../../store/renderer-store";
 import { LibraryGrid } from "../shared/library-card";
+import { GoogleMark } from "../account/account-ui";
 
 interface WelcomeProps {
   appState: DesktopAppState;
   error: string | null;
   loading: boolean;
   opening: boolean;
-  onCreate: (name: string) => Promise<ActionResult<DesktopProjectSession | null>>;
+  account: AccountSnapshot;
+  onCreate: (
+    name: string,
+    kind: "local" | "cloud",
+  ) => Promise<ActionResult<DesktopProjectSession | null>>;
+  onSignIn: (method: "email" | "google") => Promise<ActionResult<void>>;
   onOpen: () => Promise<ActionResult<DesktopProjectSession | null>>;
   onOpenRecent: (directory: string) => Promise<ActionResult<DesktopProjectSession>>;
   onForgetProject: (directory: string) => Promise<ActionResult<DesktopAppState>>;
@@ -51,18 +74,81 @@ function Shortcut({ children, dark = false }: { children: React.ReactNode; dark?
   return <Kbd className={dark ? "text-white/80" : undefined}>{children}</Kbd>;
 }
 
+function ProjectGroup({
+  kind,
+  count,
+  open,
+  onToggle,
+  children,
+}: {
+  kind: "cloud" | "local";
+  count: number;
+  open: boolean;
+  onToggle: () => void;
+  children: React.ReactNode;
+}) {
+  const label = kind === "cloud" ? "Cloud" : "Local";
+  return (
+    <section className="mt-5" aria-labelledby={`${kind}-projects-heading`}>
+      <div className="mb-3 flex items-center gap-1.5">
+        <button
+          className="flex h-8 items-center gap-2 rounded-md px-1.5 text-ui font-semibold text-primary hover:bg-surface"
+          aria-expanded={open}
+          aria-controls={`${kind}-projects`}
+          onClick={onToggle}
+        >
+          {open ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+          {kind === "cloud" ? <Cloud size={14} /> : <FolderOpen size={14} />}
+          <span id={`${kind}-projects-heading`}>{label}</span>
+          <span className="text-ui-xs font-normal tabular-nums text-muted">{count}</span>
+        </button>
+        {kind === "cloud" && (
+          <Tooltip>
+            <TooltipTrigger
+              className="grid size-7 place-items-center rounded-md text-muted hover:bg-surface hover:text-primary"
+              aria-label="About cloud projects"
+            >
+              <Info size={14} />
+            </TooltipTrigger>
+            <TooltipContent className="max-w-xs leading-5">
+              Cloud projects require an account and upload every imported original privately.
+              Canonical project files and editing proxies stay on this Mac.
+            </TooltipContent>
+          </Tooltip>
+        )}
+      </div>
+      {open && (
+        <div id={`${kind}-projects`}>
+          <LibraryGrid>{children}</LibraryGrid>
+        </div>
+      )}
+    </section>
+  );
+}
+
 export function Welcome({
   appState,
   error,
   loading,
   opening,
+  account,
   onCreate,
+  onSignIn,
   onOpen,
   onOpenRecent,
   onForgetProject,
   onTrashProject,
 }: WelcomeProps) {
-  const [name, setName] = useState("");
+  const [names, setNames] = useState({ cloud: "", local: "" });
+  const [cloudOpen, setCloudOpen] = useState(
+    () => localStorage.getItem("cinesim.home.cloudOpen") !== "false",
+  );
+  const [localOpen, setLocalOpen] = useState(
+    () => localStorage.getItem("cinesim.home.localOpen") !== "false",
+  );
+  const [cloudSignInOpen, setCloudSignInOpen] = useState(false);
+  const [signInBusy, setSignInBusy] = useState<"email" | "google" | null>(null);
+  const [signInError, setSignInError] = useState<string | null>(null);
   const [projectSizes, setProjectSizes] = useState<Record<string, number | null>>({});
   const [contextMenu, setContextMenu] = useState<{
     x: number;
@@ -72,9 +158,29 @@ export function Welcome({
   const [trashTarget, setTrashTarget] = useState<string | null>(null);
   const modifier = window.cinesim.platform === "darwin" ? "⌘" : "Ctrl+";
 
-  async function create() {
+  const { cloudProjects, localProjects, displayedProjects } = useMemo(() => {
+    const cloud = appState.recentProjects.filter((project) => project.kind === "cloud");
+    const local = appState.recentProjects.filter((project) => project.kind === "local");
+    return { cloudProjects: cloud, localProjects: local, displayedProjects: [...cloud, ...local] };
+  }, [appState.recentProjects]);
+
+  async function create(kind: "cloud" | "local") {
+    const name = names[kind];
     if (!name.trim() || opening) return;
-    await onCreate(name);
+    if (kind === "cloud" && account.status !== "signed-in") {
+      setCloudSignInOpen(true);
+      return;
+    }
+    await onCreate(name, kind);
+  }
+
+  async function signIn(method: "email" | "google"): Promise<void> {
+    setSignInBusy(method);
+    setSignInError(null);
+    const result = await onSignIn(method);
+    setSignInBusy(null);
+    if (result.ok) setCloudSignInOpen(false);
+    else setSignInError(result.error);
   }
 
   const open = useCallback(async () => {
@@ -99,7 +205,7 @@ export function Welcome({
         event.preventDefault();
         void open();
       } else if (/^[1-9]$/.test(key)) {
-        const project = appState.recentProjects[Number(key) - 1];
+        const project = displayedProjects[Number(key) - 1];
         if (project) {
           event.preventDefault();
           void openRecent(project.directory);
@@ -108,7 +214,10 @@ export function Welcome({
     }
     window.addEventListener("keydown", shortcut);
     return () => window.removeEventListener("keydown", shortcut);
-  }, [appState.recentProjects, open, openRecent]);
+  }, [displayedProjects, open, openRecent]);
+
+  useEffect(() => localStorage.setItem("cinesim.home.cloudOpen", String(cloudOpen)), [cloudOpen]);
+  useEffect(() => localStorage.setItem("cinesim.home.localOpen", String(localOpen)), [localOpen]);
 
   useEffect(() => {
     let active = true;
@@ -137,9 +246,78 @@ export function Welcome({
     return () => window.removeEventListener("pointerdown", dismiss);
   }, []);
 
-  const projectToTrash = appState.recentProjects.find(
-    (project) => project.directory === trashTarget,
-  );
+  const projectToTrash = displayedProjects.find((project) => project.directory === trashTarget);
+
+  function newProjectCard(kind: "cloud" | "local") {
+    const signedOutCloud = kind === "cloud" && account.status !== "signed-in";
+    return (
+      <PreviewCard previewClassName="media-thumbnail text-secondary" preview={null}>
+        <div className="flex min-h-11 items-center gap-2">
+          <label className="min-w-0 flex-1" htmlFor={`new-${kind}-project-name`}>
+            <span className="sr-only">New {kind} project name</span>
+            <Input
+              id={`new-${kind}-project-name`}
+              className="w-full"
+              size="sm"
+              surface="muted"
+              value={names[kind]}
+              placeholder={`Name a ${kind} project`}
+              maxLength={120}
+              disabled={opening}
+              onChange={(event) =>
+                setNames((current) => ({ ...current, [kind]: event.target.value }))
+              }
+              onKeyDown={(event) => event.key === "Enter" && void create(kind)}
+            />
+          </label>
+          <Button
+            variant="primary"
+            disabled={opening || !names[kind].trim()}
+            onClick={() => void create(kind)}
+          >
+            {signedOutCloud ? "Sign in" : "Start"} <ArrowRight size={14} />
+          </Button>
+        </div>
+      </PreviewCard>
+    );
+  }
+
+  function projectCards(projects: RecentProject[], shortcutOffset: number) {
+    return projects.map((project, index) => {
+      const shortcutIndex = shortcutOffset + index;
+      return (
+        <PreviewCard
+          key={project.directory}
+          ariaLabel={`Open ${project.name}`}
+          title={project.directory}
+          disabled={opening}
+          previewClassName="text-white"
+          previewStyle={projectGradient(`${project.name}:${project.directory}`)}
+          corner={
+            shortcutIndex < 9 ? (
+              <Shortcut dark>{`${modifier}${shortcutIndex + 1}`}</Shortcut>
+            ) : undefined
+          }
+          preview={null}
+          onClick={() => void openRecent(project.directory)}
+          onContextMenu={(event) => {
+            event.preventDefault();
+            setContextMenu({
+              x: event.clientX,
+              y: event.clientY,
+              directory: project.directory,
+            });
+          }}
+        >
+          <p className="truncate text-ui font-medium text-primary">{project.name}</p>
+          <p className="mt-1 truncate text-ui-xs text-muted">{project.directory}</p>
+          <p className="mt-0.5 text-ui-xs text-muted tabular-nums">
+            {projectSizeLabel(projectSizes[project.directory])}
+          </p>
+        </PreviewCard>
+      );
+    });
+  }
 
   if (loading) return <WelcomeLoadingState />;
 
@@ -154,62 +332,25 @@ export function Welcome({
           </Button>
         </div>
 
-        <LibraryGrid>
-          <PreviewCard previewClassName="media-thumbnail text-secondary" preview={null}>
-            <div className="flex min-h-11 items-center gap-2">
-              <label className="min-w-0 flex-1" htmlFor="new-project-name">
-                <span className="sr-only">Project name</span>
-                <Input
-                  id="new-project-name"
-                  className="w-full"
-                  size="sm"
-                  surface="muted"
-                  value={name}
-                  placeholder="Name your project"
-                  maxLength={120}
-                  disabled={opening}
-                  onChange={(event) => setName(event.target.value)}
-                  onKeyDown={(event) => event.key === "Enter" && void create()}
-                />
-              </label>
-              <Button
-                variant="primary"
-                disabled={opening || !name.trim()}
-                onClick={() => void create()}
-              >
-                Start <ArrowRight size={14} />
-              </Button>
-            </div>
-          </PreviewCard>
+        <ProjectGroup
+          kind="cloud"
+          count={cloudProjects.length}
+          open={cloudOpen}
+          onToggle={() => setCloudOpen((open) => !open)}
+        >
+          {newProjectCard("cloud")}
+          {projectCards(cloudProjects, 0)}
+        </ProjectGroup>
 
-          {appState.recentProjects.map((project, index) => (
-            <PreviewCard
-              key={project.directory}
-              ariaLabel={`Open ${project.name}`}
-              title={project.directory}
-              disabled={opening}
-              previewClassName="text-white"
-              previewStyle={projectGradient(`${project.name}:${project.directory}`)}
-              corner={index < 9 ? <Shortcut dark>{`${modifier}${index + 1}`}</Shortcut> : undefined}
-              preview={null}
-              onClick={() => void openRecent(project.directory)}
-              onContextMenu={(event) => {
-                event.preventDefault();
-                setContextMenu({
-                  x: event.clientX,
-                  y: event.clientY,
-                  directory: project.directory,
-                });
-              }}
-            >
-              <p className="truncate text-ui font-medium text-primary">{project.name}</p>
-              <p className="mt-1 truncate text-ui-xs text-muted">{project.directory}</p>
-              <p className="mt-0.5 text-ui-xs text-muted tabular-nums">
-                {projectSizeLabel(projectSizes[project.directory])}
-              </p>
-            </PreviewCard>
-          ))}
-        </LibraryGrid>
+        <ProjectGroup
+          kind="local"
+          count={localProjects.length}
+          open={localOpen}
+          onToggle={() => setLocalOpen((open) => !open)}
+        >
+          {newProjectCard("local")}
+          {projectCards(localProjects, cloudProjects.length)}
+        </ProjectGroup>
 
         {error && (
           <Notice
@@ -253,6 +394,57 @@ export function Welcome({
           </button>
         </div>
       )}
+
+      <Dialog
+        open={cloudSignInOpen}
+        onOpenChange={(open) => {
+          setCloudSignInOpen(open);
+          if (!open) setSignInError(null);
+        }}
+      >
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Sign in for cloud projects</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 p-4">
+            <DialogDescription>
+              Cloud projects privately upload their original media and keep a local editing proxy.
+              Local projects remain available without an account.
+            </DialogDescription>
+            <div className="space-y-2">
+              {account.googleSignIn && (
+                <Button
+                  className="w-full"
+                  variant="primary"
+                  disabled={signInBusy !== null}
+                  onClick={() => void signIn("google")}
+                >
+                  <GoogleMark className="size-4" />
+                  {signInBusy === "google" ? "Opening Google…" : "Continue with Google"}
+                </Button>
+              )}
+              <Button
+                className="w-full"
+                variant={account.googleSignIn ? "secondary" : "primary"}
+                disabled={!account.serviceAvailable || signInBusy !== null}
+                onClick={() => void signIn("email")}
+              >
+                {signInBusy === "email" ? "Opening browser…" : "Sign in with email"}
+              </Button>
+            </div>
+            {(signInError || !account.serviceAvailable) && (
+              <Notice size="default">
+                {signInError ?? account.detail ?? "The account service is unavailable."}
+              </Notice>
+            )}
+          </div>
+          <DialogFooter className="border-t border-border p-4">
+            <Button variant="ghost" onClick={() => setCloudSignInOpen(false)}>
+              Continue locally
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={trashTarget !== null} onOpenChange={(open) => !open && setTrashTarget(null)}>
         <DialogContent className="max-w-md">

@@ -16,11 +16,21 @@ export interface LocalAssetSource {
   path: string;
 }
 
+export type CloudProjectId = `cloud_project_${string}`;
+export type CloudAssetId = `cloud_asset_${string}`;
+
+export interface CloudAssetSource {
+  kind: "cloud";
+  cloudAssetId: CloudAssetId;
+}
+
+export type AssetSource = LocalAssetSource | CloudAssetSource;
+
 export interface Asset {
   id: AssetId;
   kind: "video" | "audio" | "image";
   name: string;
-  source: LocalAssetSource;
+  source: AssetSource;
   durationUs: TimeUs;
   width?: number;
   height?: number;
@@ -38,6 +48,10 @@ export interface Clip {
   timelineStartUs: TimeUs;
   sourceStartUs: TimeUs;
   sourceEndUs: TimeUs;
+  /** Linear fade from silence/transparent at the clip's timeline start. */
+  fadeInUs?: TimeUs;
+  /** Linear fade to silence/transparent at the clip's timeline end. */
+  fadeOutUs?: TimeUs;
   transform: Transform;
 }
 
@@ -90,6 +104,7 @@ export interface Sequence {
 export interface Project {
   version: 1;
   id: ProjectId;
+  cloudProjectId?: CloudProjectId;
   name: string;
   activeSequenceId: SequenceId;
   assets: Asset[];
@@ -102,6 +117,11 @@ export interface ProjectSettings {
   defaultFilmstripIntervalSeconds: number;
   previewQuality: "full" | "half" | "quarter";
   backgroundColor: string;
+  proxyGeneration: "automatic" | "manual";
+  proxyProfile: "space-saver" | "balanced" | "high-quality" | "custom";
+  proxyMaxLongEdge: number;
+  proxyFrameRateCap: 30 | 60;
+  proxyQuality: "low" | "medium" | "high";
 }
 
 export const DEFAULT_TRANSFORM: Transform = {
@@ -119,6 +139,11 @@ export const DEFAULT_SETTINGS: ProjectSettings = {
   defaultFilmstripIntervalSeconds: 5,
   previewQuality: "half",
   backgroundColor: "#09090b",
+  proxyGeneration: "automatic",
+  proxyProfile: "balanced",
+  proxyMaxLongEdge: 1280,
+  proxyFrameRateCap: 60,
+  proxyQuality: "medium",
 };
 
 export function clipDurationUs(clip: Clip): TimeUs {
@@ -127,6 +152,19 @@ export function clipDurationUs(clip: Clip): TimeUs {
 
 export function clipEndUs(clip: Clip): TimeUs {
   return clip.timelineStartUs + clipDurationUs(clip);
+}
+
+export function clipFadeGainAt(clip: Clip, timelineTimeUs: TimeUs): number {
+  const durationUs = clipDurationUs(clip);
+  if (durationUs <= 0) return 0;
+  const elapsedUs = timelineTimeUs - clip.timelineStartUs;
+  if (elapsedUs < 0 || elapsedUs >= durationUs) return 0;
+  const fadeInUs = Math.min(durationUs, Math.max(0, clip.fadeInUs ?? 0));
+  const fadeOutUs = Math.min(durationUs, Math.max(0, clip.fadeOutUs ?? 0));
+  const fadeInGain = fadeInUs > 0 ? Math.min(1, elapsedUs / fadeInUs) : 1;
+  const remainingUs = durationUs - elapsedUs;
+  const fadeOutGain = fadeOutUs > 0 ? Math.min(1, remainingUs / fadeOutUs) : 1;
+  return Math.max(0, Math.min(fadeInGain, fadeOutGain));
 }
 
 export function canSplitClipAt(clip: Clip, atUs: TimeUs): boolean {

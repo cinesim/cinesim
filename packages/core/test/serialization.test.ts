@@ -5,6 +5,8 @@ import {
   joinProjectFiles,
   splitProjectFiles,
   stableJson,
+  settingsFromToml,
+  settingsToToml,
 } from "../src";
 import type { Asset } from "../src";
 
@@ -17,9 +19,21 @@ describe("canonical serialization", () => {
       source: { kind: "local", path: "/tmp/a.mp4" },
       durationUs: 1_000_000,
     };
-    const project = applyCommand(createProject({ name: "Round trip" }), {
+    let project = applyCommand(createProject({ name: "Round trip" }), {
       type: "asset.import",
       asset,
+    }).project;
+    project = applyCommand(project, {
+      type: "clip.add",
+      trackId: "track_000001",
+      assetId: asset.id,
+      timelineStartUs: 0,
+    }).project;
+    project = applyCommand(project, {
+      type: "clip.setFade",
+      clipId: "clip_000001",
+      edge: "in",
+      durationUs: 200_000,
     }).project;
     const files = splitProjectFiles(project);
     const loaded = joinProjectFiles(files.manifest, files.assets, files.timeline);
@@ -27,11 +41,72 @@ describe("canonical serialization", () => {
     expect(stableJson(files)).toBe(stableJson(splitProjectFiles(loaded)));
   });
 
+  it("round-trips opaque cloud project and asset references", () => {
+    const asset: Asset = {
+      id: "asset_000001",
+      kind: "video",
+      name: "cloud.mov",
+      source: { kind: "cloud", cloudAssetId: "cloud_asset_01hzy3w3fq1h7z6y7rj3a2bcde" },
+      durationUs: 1_000_000,
+    };
+    let project = createProject({
+      name: "Cloud",
+      cloudProjectId: "cloud_project_01hzy3w3fq1h7z6y7rj3a2bcde",
+    });
+    project = applyCommand(project, { type: "asset.import", asset }).project;
+    const files = splitProjectFiles(project);
+    expect(files.manifest.cloudProjectId).toBe(project.cloudProjectId);
+    expect(joinProjectFiles(files.manifest, files.assets, files.timeline)).toEqual(project);
+    expect(stableJson(files)).not.toContain("r2.cloudflarestorage.com");
+  });
+
+  it("migrates legacy settings to the balanced automatic proxy defaults", () => {
+    const settings = settingsFromToml(
+      `version = 1\nautosave = true\n\n[preview]\nquality = "half"\nbackground_color = "#09090b"\n\n[perception]\nfilmstrip_interval_seconds = 5\n`,
+    );
+    expect(settings).toMatchObject({
+      proxyGeneration: "automatic",
+      proxyProfile: "balanced",
+      proxyMaxLongEdge: 1280,
+      proxyFrameRateCap: 60,
+      proxyQuality: "medium",
+    });
+    expect(settingsFromToml(settingsToToml(settings))).toEqual(settings);
+  });
+
   it("rejects future versions", () => {
     const files = splitProjectFiles(createProject({ name: "Future" }));
     expect(() =>
       joinProjectFiles({ ...files.manifest, version: 2 }, files.assets, files.timeline),
     ).toThrow();
+  });
+
+  it("rejects persisted fades that overlap", () => {
+    const asset: Asset = {
+      id: "asset_000001",
+      kind: "video",
+      name: "fade.mov",
+      source: { kind: "local", path: "/tmp/fade.mov" },
+      durationUs: 1_000_000,
+    };
+    let project = applyCommand(createProject({ name: "Invalid fade" }), {
+      type: "asset.import",
+      asset,
+    }).project;
+    project = applyCommand(project, {
+      type: "clip.add",
+      trackId: "track_000001",
+      assetId: asset.id,
+      timelineStartUs: 0,
+    }).project;
+    const files = splitProjectFiles(project);
+    Object.assign(files.timeline.sequences[0]!.tracks[0]!.clips[0]!, {
+      fadeInUs: 600_000,
+      fadeOutUs: 600_000,
+    });
+    expect(() => joinProjectFiles(files.manifest, files.assets, files.timeline)).toThrow(
+      /overlapping fades/,
+    );
   });
 
   it("rejects broken asset references", () => {

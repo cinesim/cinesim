@@ -5,6 +5,7 @@ import type { RuntimeSnapshot } from "@cinesim/engine";
 import { DEFAULT_EDITOR_LAYOUT } from "../../shared/api";
 import type {
   AccountSnapshot,
+  CloudTransferSnapshot,
   DerivedMediaSnapshot,
   DesktopApi,
   DesktopAppState,
@@ -16,7 +17,7 @@ import { clampTimelineZoom } from "../lib/timeline-scale";
 
 export type Destination = "home" | "project" | "settings";
 export type ProjectSection = "media" | "edit";
-export type SettingsSection = "general" | "account" | "agents";
+export type SettingsSection = "general" | "media" | "storage" | "account" | "agents";
 export type AuxiliarySidebarMode = "agents" | "metrics" | null;
 export type EditTool = "select" | "trim" | "blade";
 export type PanelKind = "mediaPool" | "inspector" | "notes";
@@ -70,9 +71,14 @@ export interface RendererState {
   electronHealth: ElectronHealthSnapshot | null;
   account: AccountSnapshot;
   accountHydrated: boolean;
+  cloudTransfers: CloudTransferSnapshot[];
+  downloadedCloudOriginals: string[];
   initialize: () => Promise<void>;
   receiveExternalSession: (session: DesktopProjectSession) => Promise<void>;
-  createProject: (name: string) => Promise<ActionResult<DesktopProjectSession | null>>;
+  createProject: (
+    name: string,
+    kind: "local" | "cloud",
+  ) => Promise<ActionResult<DesktopProjectSession | null>>;
   openProject: () => Promise<ActionResult<DesktopProjectSession | null>>;
   openRecentProject: (directory: string) => Promise<ActionResult<DesktopProjectSession>>;
   importMedia: () => Promise<ActionResult<DesktopProjectSession | null>>;
@@ -113,6 +119,14 @@ export interface RendererState {
   refreshAccount: () => Promise<void>;
   beginAccountSignIn: (method: "email" | "google") => Promise<ActionResult<void>>;
   signOutAccount: () => Promise<ActionResult<AccountSnapshot>>;
+  setCloudTransfers: (snapshot: CloudTransferSnapshot[]) => void;
+  retryCloudTransfer: (assetId: string) => Promise<ActionResult<CloudTransferSnapshot[]>>;
+  cancelCloudTransfer: (assetId: string) => Promise<ActionResult<CloudTransferSnapshot[]>>;
+  keepCloudOriginalDownloaded: (assetId: string) => Promise<ActionResult<string[]>>;
+  removeCloudOriginalDownload: (assetId: string) => Promise<ActionResult<string[]>>;
+  updateProjectSettings: (
+    update: Partial<DesktopProjectSession["settings"]>,
+  ) => Promise<ActionResult<DesktopProjectSession>>;
 }
 
 export const EMPTY_APP_STATE: DesktopAppState = {
@@ -125,10 +139,11 @@ export const EMPTY_APP_STATE: DesktopAppState = {
 };
 
 export const INITIAL_ACCOUNT_STATE: AccountSnapshot = {
-  status: "local",
+  status: "signed-out",
   cloudOrigin: null,
   serviceAvailable: false,
   googleSignIn: false,
+  cloudStorage: false,
   user: null,
   detail: null,
 };
@@ -199,7 +214,11 @@ function appStateWithRememberedProject(
   return {
     ...appState,
     recentProjects: [
-      { name: session.project.name, directory: session.directory },
+      {
+        name: session.project.name,
+        directory: session.directory,
+        kind: session.project.cloudProjectId ? ("cloud" as const) : ("local" as const),
+      },
       ...appState.recentProjects.filter((project) => project.directory !== session.directory),
     ].slice(0, 12),
   };
@@ -271,7 +290,16 @@ export function createRendererStore({ api, storage }: RendererStoreDependencies)
           return { ok: true, value: session };
         }
         const appState = appStateWithRememberedProject(get().appState, session);
-        set(hydratedProjectState(session, appState));
+        const [transfersResult, downloadsResult] = await Promise.allSettled([
+          api.getCloudTransfers?.() ?? Promise.resolve([]),
+          api.getDownloadedCloudOriginals?.() ?? Promise.resolve([]),
+        ]);
+        set({
+          ...hydratedProjectState(session, appState),
+          cloudTransfers: transfersResult.status === "fulfilled" ? transfersResult.value : [],
+          downloadedCloudOriginals:
+            downloadsResult.status === "fulfilled" ? downloadsResult.value : [],
+        });
         return { ok: true, value: session };
       } catch (error) {
         const message = messageFrom(error, "The project could not be opened");
@@ -302,6 +330,39 @@ export function createRendererStore({ api, storage }: RendererStoreDependencies)
       }
     }
 
+    async function hydrateAccountWorkspace(): Promise<void> {
+      const [sessionResult, appStateResult, transfersResult, downloadsResult] =
+        await Promise.allSettled([
+          api.getSession(),
+          api.getAppState(),
+          api.getCloudTransfers?.() ?? Promise.resolve([]),
+          api.getDownloadedCloudOriginals?.() ?? Promise.resolve([]),
+        ]);
+      if (sessionResult.status === "rejected") {
+        const message = messageFrom(sessionResult.reason, "Cinesim could not load your projects");
+        set({
+          project: { status: "failed", previousSession: null, error: message },
+          appState: EMPTY_APP_STATE,
+          cloudTransfers: [],
+          downloadedCloudOriginals: [],
+          operationError: message,
+        });
+        return;
+      }
+      const appState =
+        appStateResult.status === "fulfilled" ? appStateResult.value : EMPTY_APP_STATE;
+      const cloudTransfers = transfersResult.status === "fulfilled" ? transfersResult.value : [];
+      const downloadedCloudOriginals =
+        downloadsResult.status === "fulfilled" ? downloadsResult.value : [];
+      if (sessionResult.value)
+        set({
+          ...hydratedProjectState(sessionResult.value, appState),
+          cloudTransfers,
+          downloadedCloudOriginals,
+        });
+      else set({ project: { status: "idle" }, appState, cloudTransfers, downloadedCloudOriginals });
+    }
+
     const initialAuxiliaryMode =
       storage?.getItem("cinesim.agentsSidebarOpen") === "true" ? "agents" : null;
 
@@ -329,35 +390,22 @@ export function createRendererStore({ api, storage }: RendererStoreDependencies)
       electronHealth: null,
       account: INITIAL_ACCOUNT_STATE,
       accountHydrated: false,
+      cloudTransfers: [],
+      downloadedCloudOriginals: [],
 
       initialize: () => {
         if (initialization) return initialization;
         if (get().project.status !== "booting") return Promise.resolve();
 
         initialization = (async () => {
-          const accountRequest = api.getAccountSnapshot().catch(() => INITIAL_ACCOUNT_STATE);
-          const [sessionResult, appStateResult] = await Promise.allSettled([
-            api.getSession(),
-            api.getAppState(),
-          ]);
-
-          if (get().project.status === "booting") {
-            if (sessionResult.status === "rejected") {
-              const message = messageFrom(sessionResult.reason, "Cinesim could not start");
-              set({
-                project: { status: "failed", previousSession: null, error: message },
-                operationError: message,
-              });
-            } else {
-              const appState =
-                appStateResult.status === "fulfilled" ? appStateResult.value : EMPTY_APP_STATE;
-              if (sessionResult.value) set(hydratedProjectState(sessionResult.value, appState));
-              else set({ project: { status: "idle" }, appState });
-            }
+          const workspace = hydrateAccountWorkspace();
+          const account = await api.getAccountSnapshot().catch(() => INITIAL_ACCOUNT_STATE);
+          set({ account, accountHydrated: true });
+          await workspace;
+          if (account.user) {
+            const accountAppState = await api.getAppState().catch(() => null);
+            if (accountAppState) set({ appState: accountAppState });
           }
-
-          const account = await accountRequest;
-          if (!get().accountHydrated) set({ account, accountHydrated: true });
         })();
         return initialization;
       },
@@ -380,7 +428,8 @@ export function createRendererStore({ api, storage }: RendererStoreDependencies)
         set(hydratedProjectState(session, appState));
       },
 
-      createProject: (name) => runProjectOperation("create", () => api.createProject(name.trim())),
+      createProject: (name, kind) =>
+        runProjectOperation("create", () => api.createProject(name.trim(), kind)),
       openProject: () => runProjectOperation("open", () => api.openProject()),
       openRecentProject: (directory) =>
         runProjectOperation("open-recent", () => api.openRecentProject(directory)),
@@ -611,7 +660,42 @@ export function createRendererStore({ api, storage }: RendererStoreDependencies)
         set({ derivedMedia });
       },
       setElectronHealth: (electronHealth) => set({ electronHealth }),
-      setAccount: (account) => set({ account, accountHydrated: true }),
+      setAccount: (account) => {
+        const previousUserId = get().account.user?.id ?? null;
+        set({ account, accountHydrated: true });
+        const session = sessionFromLifecycle(get().project);
+        if (!account.user) {
+          set(
+            session?.project.cloudProjectId
+              ? {
+                  project: { status: "idle" },
+                  destination: "home",
+                  cloudTransfers: [],
+                  downloadedCloudOriginals: [],
+                }
+              : { cloudTransfers: [], downloadedCloudOriginals: [] },
+          );
+          void api
+            .getAppState()
+            .then((appState) => set({ appState }))
+            .catch(() => undefined);
+        } else if (account.user.id !== previousUserId) {
+          if (session?.project.cloudProjectId) {
+            set({
+              project: { status: "booting" },
+              appState: EMPTY_APP_STATE,
+              cloudTransfers: [],
+              downloadedCloudOriginals: [],
+            });
+            void hydrateAccountWorkspace();
+          } else {
+            void api
+              .getAppState()
+              .then((appState) => set({ appState }))
+              .catch(() => undefined);
+          }
+        }
+      },
       refreshAccount: async () => {
         try {
           set({ account: await api.getAccountSnapshot(), accountHydrated: true });
@@ -619,7 +703,7 @@ export function createRendererStore({ api, storage }: RendererStoreDependencies)
           set({
             account: {
               ...get().account,
-              status: get().account.user ? "offline" : "local",
+              status: get().account.user ? "offline" : "signed-out",
               serviceAvailable: false,
               detail: "The authentication service is unavailable. Local editing still works.",
             },
@@ -638,10 +722,66 @@ export function createRendererStore({ api, storage }: RendererStoreDependencies)
       signOutAccount: async () => {
         try {
           const account = await api.signOutAccount();
-          set({ account, accountHydrated: true });
+          get().setAccount(account);
           return { ok: true, value: account };
         } catch (error) {
           return { ok: false, error: messageFrom(error, "Could not sign out") };
+        }
+      },
+      setCloudTransfers: (cloudTransfers) => set({ cloudTransfers }),
+      retryCloudTransfer: async (assetId) => {
+        try {
+          const cloudTransfers = await api.retryCloudTransfer(assetId);
+          set({ cloudTransfers, operationError: null });
+          return { ok: true, value: cloudTransfers };
+        } catch (error) {
+          const message = messageFrom(error, "The cloud transfer could not be retried");
+          set({ operationError: message });
+          return { ok: false, error: message };
+        }
+      },
+      cancelCloudTransfer: async (assetId) => {
+        try {
+          const cloudTransfers = await api.cancelCloudTransfer(assetId);
+          set({ cloudTransfers, operationError: null });
+          return { ok: true, value: cloudTransfers };
+        } catch (error) {
+          const message = messageFrom(error, "The cloud transfer could not be canceled");
+          set({ operationError: message });
+          return { ok: false, error: message };
+        }
+      },
+      keepCloudOriginalDownloaded: async (assetId) => {
+        try {
+          const downloadedCloudOriginals = await api.keepCloudOriginalDownloaded(assetId);
+          set({ downloadedCloudOriginals, operationError: null });
+          return { ok: true, value: downloadedCloudOriginals };
+        } catch (error) {
+          const message = messageFrom(error, "The cloud original could not be downloaded");
+          set({ operationError: message });
+          return { ok: false, error: message };
+        }
+      },
+      removeCloudOriginalDownload: async (assetId) => {
+        try {
+          const downloadedCloudOriginals = await api.removeCloudOriginalDownload(assetId);
+          set({ downloadedCloudOriginals, operationError: null });
+          return { ok: true, value: downloadedCloudOriginals };
+        } catch (error) {
+          const message = messageFrom(error, "The downloaded original could not be removed");
+          set({ operationError: message });
+          return { ok: false, error: message };
+        }
+      },
+      updateProjectSettings: async (update) => {
+        try {
+          const session = await api.updateProjectSettings(update);
+          acceptMutationSession(session);
+          return { ok: true, value: session };
+        } catch (error) {
+          const message = messageFrom(error, "The project settings could not be updated");
+          set({ operationError: message });
+          return { ok: false, error: message };
         }
       },
     };

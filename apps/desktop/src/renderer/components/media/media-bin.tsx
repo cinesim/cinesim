@@ -1,5 +1,18 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Check, Clock3, Film, ListPlus, Trash2, X } from "@cinesim/ui";
+import {
+  Check,
+  CircleAlert,
+  Clock3,
+  Cloud,
+  Film,
+  HardDriveDownload,
+  ListPlus,
+  LoaderCircle,
+  Pause,
+  RotateCcw,
+  Trash2,
+  X,
+} from "@cinesim/ui";
 import {
   Button,
   Dialog,
@@ -20,6 +33,7 @@ import { formatDuration } from "../../lib/format";
 import { useRendererStore } from "../../store/renderer-store-context";
 import { LibraryGrid } from "../shared/library-card";
 import { AssetSourceMetadata } from "./asset-source-metadata";
+import { assetNeedsEditProxy } from "./media-actions";
 import { MediaSkimSurface } from "./media-skim-surface";
 
 interface MediaBinProps {
@@ -104,6 +118,30 @@ export function MediaBin({ project, onOpenTimeline }: MediaBinProps) {
   const appendAsset = useRendererStore((state) => state.appendAsset);
   const execute = useRendererStore((state) => state.execute);
   const activeSequenceId = useRendererStore((state) => state.activeSequenceId);
+  const cloudTransfers = useRendererStore((state) => state.cloudTransfers);
+  const derivedMedia = useRendererStore((state) => state.derivedMedia);
+  const downloadedCloudOriginals = useRendererStore((state) => state.downloadedCloudOriginals);
+  const retryCloudTransfer = useRendererStore((state) => state.retryCloudTransfer);
+  const keepCloudOriginalDownloaded = useRendererStore(
+    (state) => state.keepCloudOriginalDownloaded,
+  );
+  const removeCloudOriginalDownload = useRendererStore(
+    (state) => state.removeCloudOriginalDownload,
+  );
+  const derivedScope = useRendererStore((state) =>
+    state.project.status === "ready" ? state.project.session.derivedScope : null,
+  );
+  const selectedTransfer =
+    selectedAssets.length === 1
+      ? cloudTransfers.find((transfer) => transfer.assetId === selectedAssets[0]?.id)
+      : undefined;
+  const selectedCloudAsset =
+    selectedAssets.length === 1 && selectedAssets[0]?.source.kind === "cloud"
+      ? selectedAssets[0]
+      : null;
+  const selectedProxyAssets = selectedAssets.filter((asset) =>
+    assetNeedsEditProxy(asset, derivedMedia?.assets[asset.id]),
+  );
   const importMedia = useCallback(async () => importProjectMedia(), [importProjectMedia]);
 
   useEffect(() => {
@@ -261,11 +299,16 @@ export function MediaBin({ project, onOpenTimeline }: MediaBinProps) {
 
   async function removeAssets() {
     if (selectedAssets.length === 0 || lockedUsage) return;
+    const cloudAssetIds = selectedAssets.flatMap((asset) =>
+      asset.source.kind === "cloud" ? [asset.source.cloudAssetId] : [],
+    );
     const result = await execute({
       type: "asset.remove",
       assetIds: selectedAssets.map((asset) => asset.id),
     });
     if (!result.ok) return;
+    if (cloudAssetIds.length > 0)
+      await window.cinesim.trashCloudAssets(cloudAssetIds).catch(() => undefined);
     setPendingDialog(null);
     setSelectedAssetIds(new Set());
     setSelectionAnchor(null);
@@ -274,6 +317,13 @@ export function MediaBin({ project, onOpenTimeline }: MediaBinProps) {
   async function removeSequence(sequence: Sequence) {
     const result = await execute({ type: "sequence.remove", sequenceId: sequence.id });
     if (result.ok) setPendingDialog(null);
+  }
+
+  async function generateSelectedProxies(): Promise<void> {
+    const mediaIds = selectedProxyAssets.map((asset) => asset.id);
+    if (mediaIds.length > 0 && derivedScope)
+      await window.cinesim.requestProxyJobs(derivedScope, mediaIds);
+    setContextMenu(null);
   }
 
   return (
@@ -344,6 +394,41 @@ export function MediaBin({ project, onOpenTimeline }: MediaBinProps) {
 
           {assets.map((asset) => {
             const selected = selectedAssetIds.has(asset.id);
+            const transfer = cloudTransfers.find((candidate) => candidate.assetId === asset.id);
+            const originalDownloaded = downloadedCloudOriginals.includes(asset.id);
+            const storageState =
+              asset.source.kind === "cloud"
+                ? originalDownloaded
+                  ? {
+                      label: "Cloud original · downloaded",
+                      icon: <HardDriveDownload size={10} />,
+                    }
+                  : { label: "Cloud original", icon: <Cloud size={10} /> }
+                : transfer?.state === "waiting-for-cloud"
+                  ? { label: "Waiting for cloud", icon: <Pause size={10} /> }
+                  : transfer?.state === "failed"
+                    ? {
+                        label: "Cloud upload failed",
+                        icon: <CircleAlert size={10} className="text-red-400" />,
+                      }
+                    : transfer?.state === "paused"
+                      ? { label: "Cloud upload paused", icon: <Pause size={10} /> }
+                      : transfer?.state === "waiting-for-proxy"
+                        ? {
+                            label: "Cloud ready · finishing proxy",
+                            icon: <LoaderCircle size={10} className="animate-spin" />,
+                          }
+                        : transfer?.state === "preparing"
+                          ? {
+                              label: "Preparing cloud upload",
+                              icon: <LoaderCircle size={10} className="animate-spin" />,
+                            }
+                          : transfer?.state === "uploading"
+                            ? {
+                                label: `${Math.round((transfer.uploadedBytes / Math.max(1, transfer.bytes)) * 100)}% uploaded`,
+                                icon: <LoaderCircle size={10} className="animate-spin" />,
+                              }
+                            : { label: "Local original", icon: <Film size={10} /> };
             return (
               <div key={asset.id} data-asset-id={asset.id}>
                 <PreviewCard
@@ -360,9 +445,18 @@ export function MediaBin({ project, onOpenTimeline }: MediaBinProps) {
                     ) : undefined
                   }
                   bottomCorner={
-                    <span className="rounded bg-panel/90 px-1.5 py-0.5 text-ui-xs tabular-nums text-secondary">
-                      {formatDuration(asset.durationUs)}
-                    </span>
+                    <div className="flex items-center gap-1.5">
+                      <span
+                        className="flex items-center gap-1 rounded bg-panel/90 px-1.5 py-0.5 text-ui-xs text-secondary"
+                        title={transfer?.error ?? storageState.label}
+                      >
+                        {storageState.icon}
+                        {storageState.label}
+                      </span>
+                      <span className="rounded bg-panel/90 px-1.5 py-0.5 text-ui-xs tabular-nums text-secondary">
+                        {formatDuration(asset.durationUs)}
+                      </span>
+                    </div>
                   }
                   onClick={(event) => selectAsset(asset.id, event)}
                   onDoubleClick={() => void addToTimeline(asset)}
@@ -403,7 +497,13 @@ export function MediaBin({ project, onOpenTimeline }: MediaBinProps) {
           className="fixed z-[90] w-64 rounded-xl border border-border-strong bg-panel p-1.5 shadow-2xl shadow-black/30"
           style={{
             left: Math.min(contextMenu.x, window.innerWidth - 272),
-            top: Math.min(contextMenu.y, window.innerHeight - 150),
+            top: Math.max(
+              8,
+              Math.min(
+                contextMenu.y,
+                window.innerHeight - (contextMenu.kind === "assets" ? 280 : 150),
+              ),
+            ),
           }}
         >
           {contextMenu.kind === "assets" ? (
@@ -416,6 +516,50 @@ export function MediaBin({ project, onOpenTimeline }: MediaBinProps) {
                 <ListPlus size={14} /> Create Timeline from {selectedCount}{" "}
                 {selectedCount === 1 ? "Asset" : "Assets"}
               </button>
+              {selectedProxyAssets.length > 0 && (
+                <button
+                  role="menuitem"
+                  className="flex min-h-10 w-full items-center gap-2 rounded-lg px-2.5 text-left text-ui hover:bg-surface"
+                  onClick={() => void generateSelectedProxies()}
+                >
+                  <Film size={14} /> Generate edit {selectedCount === 1 ? "proxy" : "proxies"}
+                </button>
+              )}
+              {selectedTransfer &&
+                ["waiting-for-cloud", "paused", "failed"].includes(selectedTransfer.state) && (
+                  <button
+                    role="menuitem"
+                    className="flex min-h-10 w-full items-center gap-2 rounded-lg px-2.5 text-left text-ui hover:bg-surface"
+                    onClick={() => {
+                      void retryCloudTransfer(selectedAssets[0]!.id);
+                      setContextMenu(null);
+                    }}
+                  >
+                    <RotateCcw size={14} /> Retry cloud upload
+                  </button>
+                )}
+              {selectedCloudAsset && (
+                <button
+                  role="menuitem"
+                  className="flex min-h-10 w-full items-center gap-2 rounded-lg px-2.5 text-left text-ui hover:bg-surface"
+                  onClick={() => {
+                    const downloaded = downloadedCloudOriginals.includes(selectedCloudAsset.id);
+                    if (downloaded) void removeCloudOriginalDownload(selectedCloudAsset.id);
+                    else void keepCloudOriginalDownloaded(selectedCloudAsset.id);
+                    setContextMenu(null);
+                  }}
+                >
+                  {downloadedCloudOriginals.includes(selectedCloudAsset.id) ? (
+                    <>
+                      <X size={14} /> Remove download
+                    </>
+                  ) : (
+                    <>
+                      <HardDriveDownload size={14} /> Keep downloaded
+                    </>
+                  )}
+                </button>
+              )}
               <button
                 role="menuitem"
                 className="flex min-h-10 w-full items-center gap-2 rounded-lg px-2.5 text-left text-ui hover:bg-surface"

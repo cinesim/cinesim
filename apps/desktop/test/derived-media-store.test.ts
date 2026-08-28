@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { applyCommand, createProject } from "@cinesim/core";
+import { applyCommand, createProject, DEFAULT_SETTINGS } from "@cinesim/core";
 import type { Project } from "@cinesim/core";
 import { DerivedMediaStore } from "../src/main/derived-media/service";
 import { encodeWaveformEnvelope, WAVEFORM_FORMAT_VERSION } from "../src/shared/waveform-format";
@@ -37,6 +37,47 @@ afterEach(async () => {
 });
 
 describe("DerivedMediaStore", () => {
+  it("queues visual perception artifacts without putting a proxy ahead of them", async () => {
+    const { directory, project } = await fixture("perception-priority");
+    const store = new DerivedMediaStore();
+    await store.setProject(directory, project, undefined, {
+      ...DEFAULT_SETTINGS,
+      proxyGeneration: "manual",
+    });
+
+    const snapshot = await store.queuePerception(["asset_fixture"]);
+
+    expect(snapshot.assets.asset_fixture).toMatchObject({
+      thumbnail: { state: "queued" },
+      filmstrip: { state: "queued" },
+      waveform: { state: "queued" },
+      proxy: { state: "missing" },
+    });
+  });
+
+  it("lets cloud preparation continue after visual generation reaches a failed terminal state", async () => {
+    const { directory, project } = await fixture("perception-terminal");
+    const silentProject = {
+      ...project,
+      assets: project.assets.map((asset) => ({ ...asset, hasAudio: false })),
+    };
+    const store = new DerivedMediaStore();
+    await store.setProject(directory, silentProject, undefined, {
+      ...DEFAULT_SETTINGS,
+      proxyGeneration: "manual",
+    });
+    const scope = store.scope();
+    await store.queuePerception(["asset_fixture"]);
+    const waiting = store.waitForPerception("asset_fixture");
+
+    for (const kind of ["thumbnail", "filmstrip"] as const) {
+      const { writerId } = await store.beginWrite(scope, { assetId: "asset_fixture", kind });
+      await store.cancelWrite(writerId, "fixture-generation-failed");
+    }
+
+    await expect(waiting).resolves.toBeUndefined();
+  });
+
   it("atomically publishes bounded artifacts without exposing paths", async () => {
     const { directory, project } = await fixture("write");
     const store = new DerivedMediaStore();
@@ -403,29 +444,45 @@ describe("DerivedMediaStore", () => {
     expect(reopened.snapshot().decisionLog.at(-1)?.kind).toBe("jobs-recovered");
   });
 
-  it("queues a proxy only after repeated unhealthy warmed seeks", async () => {
-    const { directory, project } = await fixture("adaptive");
+  it("queues a proxy from the explicit automatic project setting", async () => {
+    const { directory, project } = await fixture("automatic-proxy");
     const store = new DerivedMediaStore({
       diskSpace: { capacityBytes: 100 * 1024 ** 3, availableBytes: 50 * 1024 ** 3 },
     });
     await store.setProject(directory, project);
-    const scope = store.scope();
-    for (let index = 0; index < 5; index += 1) {
-      await store.reportPerformance(scope, {
-        assetId: "asset_fixture",
-        sourceKind: "original",
-        operation: "hover-seek",
-        latencyMs: 180 + index,
-        requestsReceived: 1,
-      });
-    }
-    expect(store.snapshot().assets.asset_fixture).toMatchObject({
-      proxy: { state: "queued" },
-      performance: {
-        decision: "proxy-queued",
-        reasons: ["warm-seek-p95-over-budget"],
-      },
+    expect(store.snapshot().assets.asset_fixture?.proxy.state).toBe("queued");
+  });
+
+  it("leaves local proxies manual while always queuing cloud edit representations", async () => {
+    const local = await fixture("manual-proxy");
+    const diskSpace = { capacityBytes: 100 * 1024 ** 3, availableBytes: 50 * 1024 ** 3 };
+    const localStore = new DerivedMediaStore({ diskSpace });
+    await localStore.setProject(local.directory, local.project, undefined, {
+      ...DEFAULT_SETTINGS,
+      proxyGeneration: "manual",
     });
+    expect(localStore.snapshot().assets.asset_fixture?.proxy.state).toBe("missing");
+    await localStore.queueProxies(localStore.scope(), ["asset_fixture"]);
+    expect(localStore.snapshot().assets.asset_fixture?.proxy).toMatchObject({
+      state: "queued",
+      profileId: "balanced-1280-60-medium",
+    });
+
+    const cloud = await fixture("cloud-proxy");
+    const cloudProject = applyCommand(
+      { ...cloud.project, cloudProjectId: "cloud_project_fixture0000001" },
+      {
+        type: "asset.setSource",
+        assetId: "asset_fixture",
+        source: { kind: "cloud", cloudAssetId: "cloud_asset_fixture00000001" },
+      },
+    ).project;
+    const cloudStore = new DerivedMediaStore({ diskSpace });
+    await cloudStore.setProject(cloud.directory, cloudProject, undefined, {
+      ...DEFAULT_SETTINGS,
+      proxyGeneration: "manual",
+    });
+    expect(cloudStore.snapshot().assets.asset_fixture?.proxy.state).toBe("queued");
   });
 
   it("reports bounded worker and protocol runtime metrics", async () => {

@@ -1,5 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { applyCommand, clipEndUs, createProject, findClip, nextId, ProjectHistory } from "../src";
+import {
+  applyCommand,
+  clipEndUs,
+  clipFadeGainAt,
+  createProject,
+  findClip,
+  nextId,
+  ProjectHistory,
+} from "../src";
 import type { Asset, Project } from "../src";
 
 const asset: Asset = {
@@ -39,6 +47,45 @@ function withClip(): Project {
 }
 
 describe("editing commands", () => {
+  it("creates an immutable cloud project kind and switches asset sources through commands", () => {
+    let project = createProject({
+      name: "Cloud",
+      cloudProjectId: "cloud_project_01hzy3w3fq1h7z6y7rj3a2bcde",
+    });
+    project = applyCommand(project, { type: "asset.import", asset }).project;
+    expect(project.cloudProjectId).toBe("cloud_project_01hzy3w3fq1h7z6y7rj3a2bcde");
+
+    project = applyCommand(project, {
+      type: "asset.setSource",
+      assetId: asset.id,
+      source: { kind: "cloud", cloudAssetId: "cloud_asset_01hzy3w3fq1h7z6y7rj3a2bcde" },
+    }).project;
+    expect(project.assets[0]!.source).toEqual({
+      kind: "cloud",
+      cloudAssetId: "cloud_asset_01hzy3w3fq1h7z6y7rj3a2bcde",
+    });
+  });
+
+  it("rejects cloud-backed assets in local projects", () => {
+    const project = createProject({ name: "Local" });
+    const cloudAsset: Asset = {
+      ...asset,
+      source: { kind: "cloud", cloudAssetId: "cloud_asset_01hzy3w3fq1h7z6y7rj3a2bcde" },
+    };
+
+    expect(() => applyCommand(project, { type: "asset.import", asset: cloudAsset })).toThrow(
+      "Cloud-backed media can only be used in a cloud project",
+    );
+    const imported = applyCommand(project, { type: "asset.import", asset }).project;
+    expect(() =>
+      applyCommand(imported, {
+        type: "asset.setSource",
+        assetId: asset.id,
+        source: cloudAsset.source,
+      }),
+    ).toThrow("Cloud-backed media can only be used in a cloud project");
+  });
+
   it("adds, updates, reorders, and removes tracks through deterministic commands", () => {
     const initial = seededProject();
     const sequenceId = initial.activeSequenceId;
@@ -146,6 +193,43 @@ describe("editing commands", () => {
     expect(findClip(project, "clip_000001").clip.sourceEndUs).toBe(10_000_000);
     expect(nextId("clip", ["clip_000001"])).toBe("clip_000002");
     expect(nextId("clip", ["clip_000002"])).toBe("clip_000003");
+  });
+
+  it("sets, validates, and preserves clip fades as one canonical command", () => {
+    let project = withClip();
+    project = applyCommand(project, {
+      type: "clip.setFade",
+      clipId: "clip_000001",
+      edge: "in",
+      durationUs: 2_000_000,
+    }).project;
+    project = applyCommand(project, {
+      type: "clip.setFade",
+      clipId: "clip_000001",
+      edge: "out",
+      durationUs: 3_000_000,
+    }).project;
+    expect(findClip(project, "clip_000001").clip).toMatchObject({
+      fadeInUs: 2_000_000,
+      fadeOutUs: 3_000_000,
+    });
+    expect(clipFadeGainAt(findClip(project, "clip_000001").clip, 1_000_000)).toBe(0.5);
+    expect(clipFadeGainAt(findClip(project, "clip_000001").clip, 8_500_000)).toBe(0.5);
+    expect(() =>
+      applyCommand(project, {
+        type: "clip.setFade",
+        clipId: "clip_000001",
+        edge: "in",
+        durationUs: 8_000_000,
+      }),
+    ).toThrow(/cannot overlap/);
+    project = applyCommand(project, {
+      type: "clip.setFade",
+      clipId: "clip_000001",
+      edge: "out",
+      durationUs: 0,
+    }).project;
+    expect(findClip(project, "clip_000001").clip.fadeOutUs).toBeUndefined();
   });
 
   it("keeps linked video and audio components synchronized through edits", () => {

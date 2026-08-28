@@ -11,7 +11,6 @@ import {
   pointerSourceTimeUs,
   packLayerUniform,
   PlaybackRuntime,
-  evaluateAdaptivePolicy,
   resolveScene,
   scoreThumbnailRgba,
   sparseSampleTimes,
@@ -662,7 +661,7 @@ describe("PlaybackRuntime transport", () => {
     runtime.destroy();
   });
 
-  it("opens the resolver's canonical original source for playback audio", async () => {
+  it("uses the selected proxy source for both picture and audio", async () => {
     const audibleAsset: Asset = { ...asset, hasAudio: true };
     const openedUrls: string[] = [];
     let scheduleCalls = 0;
@@ -728,7 +727,7 @@ describe("PlaybackRuntime transport", () => {
     await flush();
 
     expect(openedUrls).toContain("cinesim-media://proxy/scoped/asset_000001");
-    expect(openedUrls).toContain("cinesim-media://asset/scoped/asset_000001?epoch=current");
+    expect(openedUrls).not.toContain("cinesim-media://asset/scoped/asset_000001?epoch=current");
     expect(openedUrls).not.toContain("cinesim-media://asset/asset_000001");
     expect(scheduleCalls).toBe(1);
     runtime.destroy();
@@ -865,58 +864,5 @@ describe("PlaybackRuntime transport", () => {
     expect(snapshot.playbackRate).toBe(0);
     unsubscribe();
     runtime.destroy();
-  });
-});
-
-describe("adaptive media policy", () => {
-  const healthy = {
-    observations: 5,
-    warmSeekP95Ms: 80,
-    deadlineMissRate: 0.01,
-    requestsReceived: 10,
-    requestsCoalesced: 0,
-    proxyState: "missing" as const,
-    diskHeadroomAvailable: true,
-  };
-
-  it("waits for meaningful observations and leaves healthy originals alone", () => {
-    expect(evaluateAdaptivePolicy({ ...healthy, observations: 4 }).decision).toBe("observing");
-    expect(evaluateAdaptivePolicy(healthy)).toEqual({
-      decision: "original-sufficient",
-      reasons: ["original-sufficient"],
-      queueProxy: false,
-    });
-  });
-
-  it("queues unhealthy sources with explicit reasons and applies hysteresis", () => {
-    expect(
-      evaluateAdaptivePolicy({
-        ...healthy,
-        warmSeekP95Ms: 180,
-        deadlineMissRate: 0.08,
-        requestsCoalesced: 3,
-      }),
-    ).toMatchObject({
-      decision: "proxy-queued",
-      queueProxy: true,
-      reasons: [
-        "warm-seek-p95-over-budget",
-        "playback-deadline-miss-rate",
-        "request-backlog-sustained",
-      ],
-    });
-    expect(evaluateAdaptivePolicy({ ...healthy, proxyState: "ready" }).decision).toBe(
-      "proxy-ready",
-    );
-  });
-
-  it("does not queue a proxy without disk headroom", () => {
-    expect(
-      evaluateAdaptivePolicy({ ...healthy, warmSeekP95Ms: 200, diskHeadroomAvailable: false }),
-    ).toMatchObject({
-      decision: "observing",
-      queueProxy: false,
-      reasons: ["warm-seek-p95-over-budget", "insufficient-disk-headroom"],
-    });
   });
 });

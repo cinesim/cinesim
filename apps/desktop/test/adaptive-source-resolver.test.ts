@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { DerivedMediaSnapshot } from "../src/shared/api";
-import { AdaptiveSourceResolver } from "../src/renderer/lib/adaptive-source-resolver";
+import { ProxySourceResolver } from "../src/renderer/lib/proxy-source-resolver";
 
 const projectScope = {
   cacheKey: "aaaaaaaaaaaaaaaaaaaaaaaa",
@@ -37,8 +37,6 @@ function snapshot(proxyState: "ready" | "failed"): DerivedMediaSnapshot {
             framesPresented: 5,
             framesObsolete: 0,
           },
-          decision: proxyState === "ready" ? "proxy-ready" : "proxy-failed",
-          reasons: [],
         },
       },
     },
@@ -66,10 +64,10 @@ function snapshot(proxyState: "ready" | "failed"): DerivedMediaSnapshot {
   };
 }
 
-describe("AdaptiveSourceResolver", () => {
+describe("ProxySourceResolver", () => {
   it("uses a valid proxy automatically", () => {
     expect(
-      new AdaptiveSourceResolver(projectScope, () => snapshot("ready")).resolve("asset_fixture"),
+      new ProxySourceResolver(projectScope, () => snapshot("ready")).resolve("asset_fixture"),
     ).toEqual({
       assetId: "asset_fixture",
       kind: "proxy",
@@ -79,7 +77,7 @@ describe("AdaptiveSourceResolver", () => {
 
   it("falls back to the original after proxy failure", () => {
     expect(
-      new AdaptiveSourceResolver(projectScope, () => snapshot("failed")).resolve("asset_fixture"),
+      new ProxySourceResolver(projectScope, () => snapshot("failed")).resolve("asset_fixture"),
     ).toEqual({
       assetId: "asset_fixture",
       kind: "original",
@@ -87,9 +85,9 @@ describe("AdaptiveSourceResolver", () => {
     });
   });
 
-  it("resolves the scoped original explicitly when audio cannot use the video-only proxy", () => {
+  it("resolves the scoped original explicitly", () => {
     expect(
-      new AdaptiveSourceResolver(projectScope, () => snapshot("ready")).resolveOriginal(
+      new ProxySourceResolver(projectScope, () => snapshot("ready")).resolveOriginal(
         "asset_fixture",
       ),
     ).toEqual({

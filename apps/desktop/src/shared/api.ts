@@ -63,8 +63,6 @@ export interface DerivedAssetSnapshot {
   performance: {
     original: SourcePerformanceSnapshot;
     proxy?: SourcePerformanceSnapshot;
-    decision: "observing" | "original-sufficient" | "proxy-queued" | "proxy-ready" | "proxy-failed";
-    reasons: string[];
   };
 }
 
@@ -334,6 +332,7 @@ export interface AgentSettingsUpdate {
 export interface RecentProject {
   name: string;
   directory: string;
+  kind: "local" | "cloud";
 }
 
 export interface EditorLayoutState {
@@ -392,7 +391,7 @@ export interface AccountUser {
   image: string | null;
 }
 
-export type AccountStatus = "local" | "signed-in" | "offline";
+export type AccountStatus = "signed-out" | "signed-in" | "offline";
 export type SignInMethod = "email" | "google";
 
 export interface AccountSnapshot {
@@ -400,20 +399,86 @@ export interface AccountSnapshot {
   cloudOrigin: string | null;
   serviceAvailable: boolean;
   googleSignIn: boolean;
+  cloudStorage?: boolean;
   user: AccountUser | null;
   detail: string | null;
+}
+
+export interface RegisteredProject {
+  id: string;
+  clientProjectId: string;
+  name: string;
+}
+
+export type CloudTransferState =
+  | "waiting-for-cloud"
+  | "preparing"
+  | "uploading"
+  | "waiting-for-proxy"
+  | "paused"
+  | "failed"
+  | "complete";
+
+export interface CloudTransferSnapshot {
+  assetId: string;
+  cloudAssetId: string | null;
+  name: string;
+  bytes: number;
+  uploadedBytes: number;
+  state: CloudTransferState;
+  error: string | null;
+}
+
+export interface CloudStorageAssetUsage {
+  id: string;
+  clientAssetId: string;
+  name: string;
+  kind: "video" | "audio" | "image";
+  bytes: number;
+  state: "preparing" | "uploading" | "ready" | "failed" | "trashed";
+  trashedAt: string | null;
+}
+
+export interface CloudStorageProjectUsage {
+  id: string;
+  clientProjectId: string;
+  name: string;
+  usedBytes: number;
+  reservedBytes: number;
+  assets: CloudStorageAssetUsage[];
+}
+
+export interface CloudStorageUsage {
+  includedBytes: number;
+  addonBytes: number;
+  usedBytes: number;
+  reservedBytes: number;
+  addonOptionsBytes: number[];
+  projects: CloudStorageProjectUsage[];
 }
 
 export interface DesktopApi {
   getAccountSnapshot(): Promise<AccountSnapshot>;
   beginAccountSignIn(method: SignInMethod): Promise<void>;
   signOutAccount(): Promise<AccountSnapshot>;
-  createProject(name: string): Promise<DesktopProjectSession | null>;
+  getCloudStorageUsage(): Promise<CloudStorageUsage>;
+  configureCloudStorageAddon(addonBytes: number): Promise<CloudStorageUsage>;
+  getCloudTransfers(): Promise<CloudTransferSnapshot[]>;
+  retryCloudTransfer(assetId: string): Promise<CloudTransferSnapshot[]>;
+  cancelCloudTransfer(assetId: string): Promise<CloudTransferSnapshot[]>;
+  getDownloadedCloudOriginals(): Promise<string[]>;
+  keepCloudOriginalDownloaded(assetId: string): Promise<string[]>;
+  removeCloudOriginalDownload(assetId: string): Promise<string[]>;
+  trashCloudAssets(cloudAssetIds: string[]): Promise<void>;
+  restoreCloudAsset(cloudAssetId: string): Promise<void>;
+  deleteCloudAsset(cloudAssetId: string): Promise<void>;
+  createProject(name: string, kind: "local" | "cloud"): Promise<DesktopProjectSession | null>;
   openProject(): Promise<DesktopProjectSession | null>;
   openRecentProject(directory: string): Promise<DesktopProjectSession>;
   importMedia(): Promise<DesktopProjectSession | null>;
   getDerivedMediaSnapshot(scope: DerivedProjectScope): Promise<DerivedMediaSnapshot>;
   requestDerivedJobs(scope: DerivedProjectScope, assetIds: string[]): Promise<DerivedMediaSnapshot>;
+  requestProxyJobs(scope: DerivedProjectScope, assetIds: string[]): Promise<DerivedMediaSnapshot>;
   beginDerivedWrite(
     scope: DerivedProjectScope,
     input: BeginDerivedWrite,
@@ -433,6 +498,7 @@ export interface DesktopApi {
   undo(): Promise<DesktopProjectSession>;
   redo(): Promise<DesktopProjectSession>;
   save(): Promise<DesktopProjectSession>;
+  updateProjectSettings(update: Partial<ProjectSettings>): Promise<DesktopProjectSession>;
   revealProject(): Promise<void>;
   forgetProject(directory: string): Promise<DesktopAppState>;
   trashProject(directory: string): Promise<DesktopAppState>;
@@ -471,6 +537,7 @@ export interface DesktopApi {
   onProjectChanged(callback: (session: DesktopProjectSession) => void): () => void;
   onDerivedMediaChanged(callback: (snapshot: DerivedMediaSnapshot) => void): () => void;
   onAccountChanged(callback: (snapshot: AccountSnapshot) => void): () => void;
+  onCloudTransfersChanged(callback: (snapshot: CloudTransferSnapshot[]) => void): () => void;
   platform: NodeJS.Platform;
 }
 

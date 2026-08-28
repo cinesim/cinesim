@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   Bot,
+  Cloud,
   ChevronLeft,
   ChevronRight,
   House,
@@ -10,6 +11,7 @@ import {
   LogOut,
   Scissors,
   SlidersHorizontal,
+  Film,
   Settings as SettingsIcon,
   User,
 } from "@cinesim/ui";
@@ -26,6 +28,7 @@ import {
   TooltipTrigger,
 } from "@cinesim/ui";
 import type { AccountSnapshot, DesktopAppState, DesktopProjectSession } from "../../../shared/api";
+import type { SettingsSection } from "../../store/renderer-store";
 import { usePersistentSidebarWidth } from "../../hooks/use-persistent-sidebar-width";
 import { AccountAvatar, accountDisplayName, GoogleMark } from "../account/account-ui";
 import { ProjectBreadcrumb } from "./project-breadcrumb";
@@ -37,7 +40,7 @@ interface AppShellProps {
   destination: "home" | "project" | "settings";
   projectSection: "media" | "edit";
   activeSequenceId: string | null;
-  settingsSection: "general" | "account" | "agents";
+  settingsSection: SettingsSection;
   account: AccountSnapshot;
   accountHydrated: boolean;
   interactionLocked: boolean;
@@ -48,7 +51,7 @@ interface AppShellProps {
   onProjectSection: (section: "media" | "edit") => void;
   onTimeline: (sequenceId: string) => void;
   onSettings: () => void;
-  onSettingsSection: (section: "general" | "account" | "agents") => void;
+  onSettingsSection: (section: SettingsSection) => void;
   onAccountSignIn: (method: "email" | "google") => Promise<AccountActionResult>;
   onAccountSignOut: () => Promise<AccountActionResult>;
   onOpenRecent: (directory: string) => void;
@@ -282,6 +285,20 @@ export function AppShell({
               >
                 <User size={15} /> Account
               </SidebarButton>
+              <SidebarButton
+                active={settingsSection === "media"}
+                onClick={() => onSettingsSection("media")}
+              >
+                <Film size={15} /> Media & proxies
+              </SidebarButton>
+              {account.status === "signed-in" && account.cloudStorage === true && (
+                <SidebarButton
+                  active={settingsSection === "storage"}
+                  onClick={() => onSettingsSection("storage")}
+                >
+                  <Cloud size={15} /> Cloud storage
+                </SidebarButton>
+              )}
               <SidebarButton
                 active={settingsSection === "agents"}
                 onClick={() => onSettingsSection("agents")}

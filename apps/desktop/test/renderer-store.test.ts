@@ -10,6 +10,7 @@ import {
 } from "@cinesim/core";
 import type { RuntimeSnapshot } from "@cinesim/engine";
 import type { DesktopApi, DesktopProjectSession } from "../src/shared/api";
+import type { AccountSnapshot } from "../src/shared/api";
 import {
   createRendererStore,
   EMPTY_APP_STATE,
@@ -35,10 +36,30 @@ function apiFixture(overrides: Partial<DesktopApi> = {}): DesktopApi {
   return {
     getSession: async () => null,
     getAppState: async () => EMPTY_APP_STATE,
-    getAccountSnapshot: async () => INITIAL_ACCOUNT_STATE,
+    getAccountSnapshot: async () => SIGNED_IN_ACCOUNT,
     ...overrides,
   } as DesktopApi;
 }
+
+const SIGNED_IN_ACCOUNT: AccountSnapshot = {
+  ...INITIAL_ACCOUNT_STATE,
+  status: "signed-in",
+  serviceAvailable: true,
+  cloudStorage: true,
+  user: {
+    id: "user_fixture",
+    name: "Cine Sim",
+    email: "cine@example.com",
+    emailVerified: true,
+    image: null,
+  },
+};
+
+const SIGNED_OUT_ACCOUNT: AccountSnapshot = {
+  ...INITIAL_ACCOUNT_STATE,
+  status: "signed-out",
+  serviceAvailable: true,
+};
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -76,13 +97,14 @@ function runtimeFixture(timeUs: number): RuntimeSnapshot {
     previewWidth: 1920,
     previewHeight: 1080,
     sourcePreviewSuppressions: 0,
+    masterPeakDb: [-60, -60],
   };
 }
 
 describe("renderer project controller", () => {
-  it("hydrates local project state without waiting for account networking", async () => {
+  it("hydrates local projects without waiting for account identity", async () => {
     const session = sessionFixture();
-    const account = deferred<typeof INITIAL_ACCOUNT_STATE>();
+    const account = deferred<AccountSnapshot>();
     const getSession = vi.fn(async () => session);
     const getAppState = vi.fn(async () => EMPTY_APP_STATE);
     const getAccountSnapshot = vi.fn(() => account.promise);
@@ -93,15 +115,115 @@ describe("renderer project controller", () => {
     const firstInitialization = store.getState().initialize();
     const secondInitialization = store.getState().initialize();
 
+    await Promise.resolve();
     await vi.waitFor(() => expect(store.getState().project.status).toBe("ready"));
     expect(store.getState().accountHydrated).toBe(false);
     expect(getSession).toHaveBeenCalledOnce();
     expect(getAppState).toHaveBeenCalledOnce();
     expect(getAccountSnapshot).toHaveBeenCalledOnce();
 
-    account.resolve(INITIAL_ACCOUNT_STATE);
+    account.resolve(SIGNED_IN_ACCOUNT);
     await Promise.all([firstInitialization, secondInitialization]);
+    expect(store.getState().project.status).toBe("ready");
     expect(store.getState().accountHydrated).toBe(true);
+    expect(getAppState).toHaveBeenCalledTimes(2);
+  });
+
+  it("refreshes account-scoped cloud recents after startup identity resolves", async () => {
+    const account = deferred<AccountSnapshot>();
+    let identityResolved = false;
+    const localProject = {
+      name: "Local",
+      directory: "/projects/local",
+      kind: "local" as const,
+    };
+    const cloudProject = {
+      name: "Cloud",
+      directory: "/projects/cloud",
+      kind: "cloud" as const,
+    };
+    const getAppState = vi.fn(async () => ({
+      ...EMPTY_APP_STATE,
+      recentProjects: identityResolved ? [cloudProject, localProject] : [localProject],
+    }));
+    const store = createRendererStore({
+      api: apiFixture({
+        getAccountSnapshot: async () => {
+          const snapshot = await account.promise;
+          identityResolved = true;
+          return snapshot;
+        },
+        getAppState,
+      }),
+    });
+
+    const initialization = store.getState().initialize();
+    await vi.waitFor(() => expect(store.getState().project.status).toBe("idle"));
+    expect(store.getState().appState.recentProjects).toEqual([localProject]);
+
+    account.resolve(SIGNED_IN_ACCOUNT);
+    await initialization;
+
+    expect(getAppState).toHaveBeenCalledTimes(2);
+    expect(store.getState().appState.recentProjects).toEqual([cloudProject, localProject]);
+  });
+
+  it("keeps a local project open after sign-out", async () => {
+    const session = sessionFixture();
+    const store = createRendererStore({
+      api: apiFixture({ getSession: async () => session }),
+    });
+    await store.getState().initialize();
+
+    store.getState().setAccount(SIGNED_OUT_ACCOUNT);
+
+    expect(store.getState().project).toEqual({ status: "ready", session });
+  });
+
+  it("closes a cloud project view after sign-out", async () => {
+    const session = sessionFixture();
+    session.project = createProject({
+      name: "Cloud fixture",
+      cloudProjectId: "cloud_project_fixture0000001",
+    });
+    const store = createRendererStore({
+      api: apiFixture({ getSession: async () => session }),
+    });
+    await store.getState().initialize();
+
+    store.getState().setAccount(SIGNED_OUT_ACCOUNT);
+
+    expect(store.getState().project).toEqual({ status: "idle" });
+    expect(store.getState().destination).toBe("home");
+  });
+
+  it("hydrates and updates disposable cloud-original downloads", async () => {
+    const getDownloadedCloudOriginals = vi.fn(async () => ["asset_fixture"]);
+    const keepCloudOriginalDownloaded = vi.fn(async () => ["asset_fixture", "asset_second"]);
+    const removeCloudOriginalDownload = vi.fn(async () => ["asset_second"]);
+    const store = createRendererStore({
+      api: apiFixture({
+        getSession: async () => sessionFixture(),
+        getDownloadedCloudOriginals,
+        keepCloudOriginalDownloaded,
+        removeCloudOriginalDownload,
+      }),
+    });
+
+    await store.getState().initialize();
+    expect(store.getState().downloadedCloudOriginals).toEqual(["asset_fixture"]);
+
+    await expect(store.getState().keepCloudOriginalDownloaded("asset_second")).resolves.toEqual({
+      ok: true,
+      value: ["asset_fixture", "asset_second"],
+    });
+    expect(store.getState().downloadedCloudOriginals).toEqual(["asset_fixture", "asset_second"]);
+
+    await expect(store.getState().removeCloudOriginalDownload("asset_fixture")).resolves.toEqual({
+      ok: true,
+      value: ["asset_second"],
+    });
+    expect(store.getState().downloadedCloudOriginals).toEqual(["asset_second"]);
   });
 
   it("keeps the previous project visible while opening and avoids a second preferences fetch", async () => {
@@ -119,6 +241,7 @@ describe("renderer project controller", () => {
       }),
     });
     await store.getState().initialize();
+    const preferenceFetchesAfterInitialization = getAppState.mock.calls.length;
 
     const result = store.getState().openRecentProject(next.directory);
     expect(store.getState().project).toMatchObject({
@@ -134,11 +257,12 @@ describe("renderer project controller", () => {
     opening.resolve(next);
     await result;
 
-    expect(getAppState).toHaveBeenCalledOnce();
+    expect(getAppState).toHaveBeenCalledTimes(preferenceFetchesAfterInitialization);
     expect(store.getState().project).toEqual({ status: "ready", session: next });
     expect(store.getState().appState.recentProjects[0]).toEqual({
       name: next.project.name,
       directory: next.directory,
+      kind: "local",
     });
   });
 

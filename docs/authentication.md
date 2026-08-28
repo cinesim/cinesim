@@ -2,6 +2,9 @@
 
 Cinesim authentication is optional and does not participate in canonical project editing. The
 desktop remains fully usable in local mode when the API, database, or network is unavailable.
+Local projects are device-wide and can be created, opened, edited, and used with local agents while
+signed out. Authentication is requested only when the user creates or opens a cloud project, views
+cloud storage, or performs another cloud-only action.
 
 ## Components
 
@@ -23,12 +26,16 @@ pnpm auth:setup
 
 This command:
 
-1. Creates ignored `apps/api/.env.local` from `.env.example` with a random Better Auth secret.
+1. Creates ignored `apps/api/.env.local` from `.env.example` with a random Better Auth secret, or
+   backfills settings added to the example without changing existing secrets or values.
 2. Starts pinned PostgreSQL and Mailpit containers.
 3. Waits for PostgreSQL readiness.
 4. Applies the committed Drizzle migrations.
 
 It does not launch Electron. The local services persist their data in named Docker volumes.
+
+The generated environment includes optional Cloudflare R2 settings. Cloud storage remains disabled
+until the account ID, bucket, access key ID, and secret access key are all filled in.
 
 Start the complete development environment with:
 
