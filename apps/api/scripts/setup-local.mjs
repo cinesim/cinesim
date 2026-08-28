@@ -100,7 +100,7 @@ async function main() {
   await ensureDocker();
   await run("docker", ["compose", "-f", composePath, "up", "-d", "postgres", "mailpit"]);
   await waitForPostgres();
-  await run("pnpm", ["db:migrate"], { cwd: packageDirectory });
+  await run("vp", ["run", "db:migrate"], { cwd: packageDirectory });
   console.log("Local authentication services are ready.");
   console.log("Mailpit inbox: http://127.0.0.1:8025");
 }

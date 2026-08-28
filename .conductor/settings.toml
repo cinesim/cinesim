@@ -6,10 +6,10 @@ run_mode = "nonconcurrent"
 
 [scripts.run.dev]
 available_in = ["local"]
-command = "CINESIM_DEV_SERVER_URL=http://127.0.0.1:$CONDUCTOR_PORT pnpm dev:local"
+command = "CINESIM_DEV_SERVER_URL=http://127.0.0.1:$CONDUCTOR_PORT vp run local:dev"
 default = true
 icon = "play"
 
 [scripts.run.test]
-command = "vp test --run"
+command = "vp run verify:fast"
 icon = "test-tube"

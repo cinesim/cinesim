@@ -106,7 +106,7 @@ storage protocol.
 Apply the committed database migration before testing:
 
 ```bash
-pnpm --filter @cinesim/api db:migrate
+vp run api:migrate
 ```
 
 No public bucket URL or R2 CORS policy is required because transfers run from Electron main. Keep

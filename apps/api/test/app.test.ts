@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vite-plus/test";
 
 const originalEnvironment = { ...process.env };
 let app: Awaited<typeof import("../src/app")>["default"];

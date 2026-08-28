@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 import type { DerivedMediaSnapshot } from "../src/shared/api";
 import { ProxySourceResolver } from "../src/renderer/lib/proxy-source-resolver";
 

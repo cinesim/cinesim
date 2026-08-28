@@ -4,19 +4,32 @@
   "private": true,
   "description": "A local-first, agent-native nonlinear video editor",
   "license": "MIT",
+  "workspaces": [
+    "apps/*",
+    "packages/*",
+    "tools/*"
+  ],
   "type": "module",
   "scripts": {
     "prepare": "vp config --no-agent",
     "dev": "vp run desktop:dev",
-    "web:dev": "vp run --filter @cinesim/web dev",
-    "web:build": "vp run --filter @cinesim/web build",
-    "dev:local": "node tools/dev-local.mjs",
-    "auth:setup": "pnpm --filter @cinesim/api local:setup",
+    "dev:web": "vp run web:dev",
+    "dev:local": "vp run local:dev",
+    "start:web": "vp run web:start",
+    "auth:setup": "vp run api:setup",
     "auth:down": "docker compose -f compose.yaml down",
     "auth:logs": "docker compose -f compose.yaml logs --tail=100 postgres mailpit",
-    "build": "vp run desktop:build",
-    "check": "vp check",
+    "db:generate": "vp run api:generate",
+    "db:migrate": "vp run api:migrate",
+    "build": "vp run build:all",
+    "build:desktop": "vp run desktop:build",
+    "build:api": "vp run api:build",
+    "build:web": "vp run web:build",
+    "check": "vp run verify:fast",
+    "ci": "vp run verify",
     "test": "vp test --run",
+    "types": "vp run typecheck",
+    "types:web": "vp run web:types",
     "fmt": "vp fmt",
     "lint": "vp lint",
     "diagnostics": "tsx tools/diagnostics.ts",
@@ -30,12 +43,22 @@
     "@webgpu/types": "0.1.72",
     "tsx": "4.23.12",
     "typescript": "7.0.2",
-    "vite": "8.2.2",
-    "vite-plus": "0.2.9",
-    "vitest": "4.1.10"
+    "vite": "catalog:",
+    "vite-plus": "catalog:"
+  },
+  "overrides": {
+    "vite": "catalog:"
   },
   "engines": {
     "node": ">=22.12.0"
   },
-  "packageManager": "pnpm@11.22.0"
+  "packageManager": "bun@1.3.13",
+  "catalog": {
+    "vite": "npm:@voidzero-dev/vite-plus-core@0.3.0",
+    "vite-plus": "0.3.0"
+  },
+  "trustedDependencies": [
+    "electron",
+    "esbuild"
+  ]
 }

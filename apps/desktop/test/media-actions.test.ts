@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 import type { Asset } from "@cinesim/core";
 import type { DerivedArtifactState, DerivedAssetSnapshot } from "../src/shared/api";
 import { assetNeedsEditProxy } from "../src/renderer/components/media/media-actions";

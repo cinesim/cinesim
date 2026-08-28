@@ -26,8 +26,11 @@ an adapter around it.
 
 ## Toolchain
 
-pnpm workspaces handle dependency resolution; Vite+ owns repository-wide formatting, linting,
-testing, task execution, and caching.
+Bun workspaces handle dependency resolution from the text `bun.lock`; Vite+ owns repository-wide
+formatting, linting, testing, task execution, and caching. Bun is deliberately only the package
+manager: Node.js remains the runtime for the desktop, API, CLI, MCP server, and development scripts.
+The root `vite.config.ts` task graph is the public command surface used by developers, CI,
+Conductor, and documentation.
 
 The desktop package has one mode-aware Vite config because Electron genuinely has three different
 targets: Node-flavored main, sandbox-compatible preload, and browser renderer. `vp run

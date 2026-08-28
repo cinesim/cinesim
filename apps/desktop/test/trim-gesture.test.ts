@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 import { DEFAULT_TRANSFORM, type Clip } from "@cinesim/core";
 import {
   IDLE_TRIM_GESTURE,
