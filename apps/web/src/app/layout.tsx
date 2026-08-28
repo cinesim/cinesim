@@ -2,6 +2,7 @@ import "@fontsource-variable/geist/wght.css";
 import "./globals.css";
 
 import type { Metadata, Viewport } from "next";
+import type { ReactNode } from "react";
 import { RootProvider } from "fumadocs-ui/provider/next";
 import { appDescription, appName } from "@/lib/shared";
 
@@ -17,7 +18,7 @@ export const viewport: Viewport = {
   themeColor: "#0a0a0a",
 };
 
-export default function RootLayout({ children }: LayoutProps<"/">) {
+export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     // The site is dark only, exactly as the design tokens describe it.
     <html lang="en" className="dark" suppressHydrationWarning>
