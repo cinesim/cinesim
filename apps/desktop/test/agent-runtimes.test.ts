@@ -1,7 +1,7 @@
 import { chmod, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vite-plus/test";
 import type { AgentTokenUsage } from "../src/shared/api";
 import type { AgentRuntimeCallbacks, AgentRuntimeEvent } from "../src/main/agents/runtimes/types";
 import { ClaudeRuntime } from "../src/main/agents/runtimes/claude";

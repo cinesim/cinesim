@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 import { audioFadeGainAt } from "../src/playback/audio-scheduler";
 
 describe("audio fade envelope", () => {

@@ -18,12 +18,14 @@ The CLI resolves the project directory in this order:
 2. `CINESIM_PROJECT`
 3. The current working directory
 
-So the simplest thing is to `cd` into the project:
+Run the CLI from the Cinesim repository and point it at the project explicitly:
 
 ```bash
-cd ~/films/documentary-cut
-pnpm cli project inspect
+cd ~/src/cinesim
+vp run cli --project ~/films/documentary-cut project inspect
 ```
+
+You can set `CINESIM_PROJECT=~/films/documentary-cut` once instead of repeating `--project` below.
 
 ## Find the IDs you need
 
@@ -32,35 +34,35 @@ when you want to pipe the output.
 
 ```bash
 # What is in this project?
-pnpm cli project inspect --json
+vp run cli --project ~/films/documentary-cut project inspect --json
 
 # Assets and their IDs
-pnpm cli assets list --json
+vp run cli --project ~/films/documentary-cut assets list --json
 
 # Tracks and clips in the active sequence
-pnpm cli timeline inspect --json
+vp run cli --project ~/films/documentary-cut timeline inspect --json
 ```
 
 Piping through `jq` makes short work of finding a target:
 
 ```bash
-pnpm cli timeline inspect --json | jq '.tracks[].clips[] | {id, timelineStartUs}'
+vp run cli --project ~/films/documentary-cut timeline inspect --json | jq '.tracks[].clips[] | {id, timelineStartUs}'
 ```
 
 ## Make an edit
 
 ```bash
 # Build a sequence from assets, in order
-pnpm cli timeline create-from-assets asset_a asset_b --name "Assembly"
+vp run cli --project ~/films/documentary-cut timeline create-from-assets asset_a asset_b --name "Assembly"
 
 # Move a clip to 12.5 seconds
-pnpm cli clip move clip_intro --to 12.5s
+vp run cli --project ~/films/documentary-cut clip move clip_intro --to 12.5s
 
 # Split at one minute two seconds
-pnpm cli clip split clip_intro --at 1m2s
+vp run cli --project ~/films/documentary-cut clip split clip_intro --at 1m2s
 
 # Trim the end back to 18 seconds
-pnpm cli clip trim-end clip_intro --at 18s
+vp run cli --project ~/films/documentary-cut clip trim-end clip_intro --at 18s
 ```
 
 Times accept `4.2s`, `250ms`, `3m`, `1h`, and clock forms like `01:23.500`. A bare number is
@@ -71,9 +73,9 @@ Each command prints a summary and the IDs it created or changed, so you can chai
 ## Add and arrange tracks
 
 ```bash
-pnpm cli track add overlay --name "Titles"
-pnpm cli track reorder track_titles --index 0
-pnpm cli track update track_titles --muted true
+vp run cli --project ~/films/documentary-cut track add overlay --name "Titles"
+vp run cli --project ~/films/documentary-cut track reorder track_titles --index 0
+vp run cli --project ~/films/documentary-cut track update track_titles --muted true
 ```
 
 Index `0` is the uppermost track.

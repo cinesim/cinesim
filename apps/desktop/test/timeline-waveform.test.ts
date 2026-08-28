@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 import type { WaveformEnvelope } from "../src/shared/waveform-format";
 import { waveformEnvelopePath } from "../src/renderer/components/timeline/timeline-waveform";
 

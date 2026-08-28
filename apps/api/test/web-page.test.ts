@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 import type { ServerConfig } from "../src/config";
 import { LOCAL_DESKTOP_CALLBACK_URL } from "../src/local-desktop-callback";
 import { authPage } from "../src/web-page";

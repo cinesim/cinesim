@@ -27,7 +27,7 @@ cloud storage, or performs another cloud-only action.
 Docker Desktop must be running. Then execute:
 
 ```bash
-pnpm auth:setup
+vp run api:setup
 ```
 
 This command:
@@ -46,7 +46,7 @@ until the account ID, bucket, access key ID, and secret access key are all fille
 Start the complete development environment with:
 
 ```bash
-pnpm dev:local
+vp run local:dev
 ```
 
 That starts the local dependencies, watches the auth browser bundle and Hono API, waits for the API
@@ -64,7 +64,7 @@ Useful local addresses:
 Stop the containers without deleting their data:
 
 ```bash
-pnpm auth:down
+vp run auth:down
 ```
 
 ## Email verification
@@ -139,9 +139,9 @@ plugins:
 
 1. Run the matching Better Auth schema generator against `apps/api/src/auth.ts`.
 2. Review the generated `apps/api/src/db/schema.ts` changes.
-3. Run `pnpm --filter @cinesim/api db:generate`.
+3. Run `vp run api:generate`.
 4. Review and commit the SQL migration and Drizzle metadata.
-5. Apply it locally with `pnpm auth:setup`.
+5. Apply it locally with `vp run api:setup`.
 
 Do not run schema migration from a server request or application startup. Committed migrations are
 the single schema history for local PostgreSQL, PlanetScale preview branches, staging, and production.

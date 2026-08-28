@@ -34,14 +34,5 @@ jobs:
       - name: Install dependencies
         run: vp install --frozen-lockfile
 
-      - name: Check formatting, lint, and types
-        run: vp check
-
-      - name: Verify TypeScript compiler
-        run: vp run typecheck
-
-      - name: Run tests
-        run: vp test --run
-
-      - name: Build desktop bundles
-        run: vp run desktop:build
+      - name: Verify checks, tests, and builds
+        run: vp run verify

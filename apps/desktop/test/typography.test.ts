@@ -1,6 +1,6 @@
 import { readFileSync, readdirSync } from "node:fs";
 import { resolve } from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 
 const root = resolve(import.meta.dirname, "../../..");
 const uiSources = ["apps/desktop/src/renderer", "packages/ui/src"];

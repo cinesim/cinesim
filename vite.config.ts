@@ -18,9 +18,54 @@ export default defineConfig({
           "vp build apps/desktop --mode preload",
           "vp build apps/desktop --mode renderer",
         ],
+        env: ["CINESIM_CLOUD_ORIGIN"],
+      },
+      "api:build": {
+        command: "vp build --config vite.config.ts",
+        cwd: "apps/api",
+      },
+      "api:setup": {
+        command: "vp run --filter @cinesim/api local:setup",
+        cache: false,
+      },
+      "api:migrate": {
+        command: "vp run --filter @cinesim/api db:migrate",
+        cache: false,
+      },
+      "api:generate": {
+        command: "vp run --filter @cinesim/api db:generate",
+        cache: false,
+      },
+      "web:dev": {
+        command: "vp run --filter @cinesim/web dev",
+        cache: false,
+      },
+      "web:start": {
+        command: "vp run --filter @cinesim/web start",
+        cache: false,
+      },
+      "web:types": {
+        command: "vp run --filter @cinesim/web types:check",
+      },
+      "web:build": {
+        command: "vp run --filter @cinesim/web build",
+        env: ["NEXT_PUBLIC_*"],
+      },
+      "local:dev": {
+        command: "node tools/dev-local.mjs",
+        cache: false,
       },
       typecheck: {
         command: "tsc --noEmit",
+      },
+      "verify:fast": {
+        command: ["vp check", "vp run typecheck", "vp run web:types", "vp test --run"],
+      },
+      "build:all": {
+        command: ["vp run desktop:build", "vp run api:build", "vp run web:build"],
+      },
+      verify: {
+        command: ["vp run verify:fast", "vp run build:all"],
       },
     },
   },
@@ -40,7 +85,7 @@ export default defineConfig({
     "*": "vp check --fix",
   },
   fmt: {
-    ignorePatterns: ["pnpm-lock.yaml", "dist/**", ".context/**"],
+    ignorePatterns: ["dist/**", ".context/**"],
     sortPackageJson: {},
   },
   lint: {

@@ -10,22 +10,31 @@ the desktop app open. You only need the second half if you want accounts or clou
 
 | Requirement    | Version         | Needed for                             |
 | -------------- | --------------- | -------------------------------------- |
-| Node.js        | 22.12 or newer  | Everything                             |
-| pnpm           | 11.22.0         | Everything                             |
+| Node.js        | 22.12 or newer  | Application and development runtime    |
+| Vite+ (`vp`)   | Current release | Toolchain and pinned Bun installation  |
 | macOS          | Current release | Desktop app (the only tested platform) |
 | Docker Desktop | Current release | Accounts and cloud projects only       |
+
+Bun is Cinesim's only package manager and is pinned in `package.json`; `vp` obtains the pinned
+version automatically. Bun is not the application runtime—Node.js remains the runtime everywhere.
+
+Install Vite+ once on macOS or Linux:
+
+```bash
+curl -fsSL https://vite.plus | bash
+```
 
 ## Run the desktop app
 
 ```bash
 git clone <repository-url> cinesim
 cd cinesim
-pnpm install
-pnpm dev
+vp install
+vp run desktop:dev
 ```
 
-`pnpm dev` builds the Electron main, preload, and renderer targets, starts a Vite dev server, and
-launches the app. It watches all three targets, so you can leave it running.
+`vp run desktop:dev` builds the Electron main, preload, and renderer targets, starts a Vite dev
+server, and launches the app. It watches all three targets, so you can leave it running.
 
 You now have a working editor. It does not need an account, a network connection, or any of the
 services below — go to the [quickstart](./quickstart.mdx) and make a cut.
@@ -35,12 +44,12 @@ services below — go to the [quickstart](./quickstart.mdx) and make a cut.
 The CLI reads and edits the same projects the desktop app does:
 
 ```bash
-pnpm cli project inspect --json
+vp run cli --project ~/films/documentary-cut project inspect --json
 ```
 
-From a clone, `pnpm cli` is the reliable invocation. The binary itself is named `cinesim` (with
-`video` as a temporary alias), which is how it will be invoked once Cinesim ships as a package. See
-the [CLI reference](../reference/cli.mdx) for the full command list.
+From the repository root, `vp run cli` is the reliable invocation. The binary itself is named
+`cinesim` (with `video` as a temporary alias), which is how it will be invoked once Cinesim ships as
+a package. See the [CLI reference](../reference/cli.mdx) for the full command list.
 
 ## Optional: accounts and cloud projects
 
@@ -50,7 +59,7 @@ control plane and an SMTP server for verification email; both run in Docker loca
 Start Docker Desktop, then:
 
 ```bash
-pnpm auth:setup
+vp run api:setup
 ```
 
 That command creates an ignored `apps/api/.env.local` with a random secret, starts pinned PostgreSQL
@@ -60,7 +69,7 @@ launch Electron, and it never overwrites secrets you have already set.
 Then start everything together:
 
 ```bash
-pnpm dev:local
+vp run local:dev
 ```
 
 This starts the local services, watches the auth browser bundle and the Hono API, waits for the API
@@ -74,7 +83,7 @@ to report ready, and then starts the desktop app.
 | PostgreSQL            | `127.0.0.1:54329`       |
 
 Verification email is captured by Mailpit rather than sent — open the inbox to click through a
-signup. Stop the containers without losing their data using `pnpm auth:down`.
+signup. Stop the containers without losing their data using `vp run auth:down`.
 
 Cloud storage itself stays disabled until you also supply Cloudflare R2 credentials. Setting those
 up is covered in [Cloud originals](../internals/cloud-storage.mdx#development-setup).

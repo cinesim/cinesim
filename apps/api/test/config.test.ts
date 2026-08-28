@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 import { readServerConfig } from "../src/config";
 
 function environment(overrides: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv {

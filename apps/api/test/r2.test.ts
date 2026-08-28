@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 import { R2ObjectStore } from "../src/cloud/r2";
 
 describe("R2 object store", () => {

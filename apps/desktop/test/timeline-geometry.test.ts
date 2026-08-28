@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 import { applyCommand, createProject } from "@cinesim/core";
 import type { Asset, Project } from "@cinesim/core";
 import {

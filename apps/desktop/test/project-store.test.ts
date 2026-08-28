@@ -1,7 +1,7 @@
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vite-plus/test";
 import { DesktopProjectStore } from "../src/main/projects/project-store";
 import { canonicalProjectSizeBytes } from "../src/main/projects/project-size";
 import { isTemporaryMediaSelection } from "../src/main/projects/media-import";

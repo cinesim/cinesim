@@ -3,8 +3,11 @@ import { spawn, spawnSync } from "node:child_process";
 const children = new Set();
 let shuttingDown = false;
 
-function start(arguments_) {
-  const child = spawn("pnpm", arguments_, { env: process.env, stdio: "inherit" });
+function start(packageName, task) {
+  const child = spawn("vp", ["run", "--filter", packageName, task], {
+    env: process.env,
+    stdio: "inherit",
+  });
   children.add(child);
   child.once("exit", (code) => {
     children.delete(child);
@@ -16,6 +19,7 @@ function start(arguments_) {
 function shutdown(code = 0) {
   if (shuttingDown) return;
   shuttingDown = true;
+  process.exitCode = code;
   for (const child of children) child.kill("SIGTERM");
   setTimeout(() => process.exit(code), 250).unref();
 }
@@ -39,7 +43,7 @@ function dockerIsReady() {
 }
 
 if (dockerIsReady()) {
-  start(["--filter", "@cinesim/api", "dev"]);
+  start("@cinesim/api", "dev");
 
   let apiReady = false;
   for (let attempt = 0; attempt < 120; attempt += 1) {
@@ -59,12 +63,11 @@ if (dockerIsReady()) {
     console.error("\nThe local Cinesim API did not become ready. Check the output above.\n");
     shutdown(1);
   } else {
-    start(["--filter", "@cinesim/desktop", "dev"]);
+    start("@cinesim/desktop", "dev");
   }
 
   process.once("SIGINT", () => shutdown());
   process.once("SIGTERM", () => shutdown());
-  await new Promise(() => undefined);
 } else {
   process.exitCode = 1;
 }

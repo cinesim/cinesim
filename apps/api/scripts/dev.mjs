@@ -25,6 +25,7 @@ let shuttingDown = false;
 function shutdown(code = 0) {
   if (shuttingDown) return;
   shuttingDown = true;
+  process.exitCode = code;
   for (const child of children) child.kill("SIGTERM");
   setTimeout(() => process.exit(code), 250).unref();
 }
@@ -42,8 +43,7 @@ async function main() {
   start("vp", ["build", "--config", "vite.config.ts", "--watch"]);
   for (let attempt = 0; attempt < 100 && !existsSync(authBundle); attempt += 1)
     await new Promise((resolvePromise) => setTimeout(resolvePromise, 100));
-  start("pnpm", ["exec", "tsx", "watch", "src/local.ts"]);
-  await new Promise(() => undefined);
+  start("vp", ["exec", "--", "tsx", "watch", "src/local.ts"]);
 }
 
 process.once("SIGINT", () => shutdown());

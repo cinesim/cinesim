@@ -32,7 +32,7 @@ export function backfillMissingEnvironmentVariables(existing, example, authSecre
   const base = existing.endsWith("\n") ? existing : `${existing}\n`;
   const separator = base.trim().length === 0 ? "" : "\n";
   return {
-    contents: `${base}${separator}# Added by pnpm auth:setup from .env.example; existing values were preserved.\n${addedLines.join("\n")}\n`,
+    contents: `${base}${separator}# Added by vp run api:setup from .env.example; existing values were preserved.\n${addedLines.join("\n")}\n`,
     addedKeys,
   };
 }

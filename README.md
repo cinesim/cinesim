@@ -4,7 +4,7 @@ Cinesim is an MIT-licensed, local-first nonlinear video editor designed so peopl
 
 ## Development
 
-Requirements: Node.js 22.12 or newer and the global [Vite+ `vp` command](https://viteplus.dev/guide/). Vite+ installs and runs the pnpm version pinned by the repository.
+Requirements: Node.js 22.12 or newer and the global [Vite+ `vp` command](https://viteplus.dev/guide/). Vite+ installs and runs the Bun version pinned by the repository; Bun is the package manager, while Cinesim continues to run on Node.js.
 
 Install Vite+ once on macOS or Linux:
 
@@ -23,8 +23,8 @@ The ordinary desktop command remains local-only and does not require an account.
 optional account flow, install Docker Desktop and run:
 
 ```bash
-pnpm auth:setup
-pnpm dev:local
+vp run api:setup
+vp run local:dev
 ```
 
 The setup creates an ignored local secret, starts PostgreSQL and Mailpit, and applies committed auth
@@ -39,21 +39,21 @@ The development command builds and watches Electron main/preload code, starts th
 Static workflows do not launch Electron:
 
 ```bash
-vp check
-vp test --run
-vp run desktop:build
+vp run verify:fast # formatting, linting, types, and tests
+vp run build:all   # desktop, API browser bundle, and Next.js site
+vp run verify      # the complete CI gate
 ```
 
-GitHub CI runs those static checks, the TypeScript compiler, the test suite, and all desktop
-bundles for pull requests and pushes to `main`.
+GitHub CI runs the complete verification gate for pull requests and pushes to `main`.
 
-Run the agent-facing adapters from a Cinesim project directory:
+Run the agent-facing adapters from the repository root, pointing them at a Cinesim project when it
+is elsewhere:
 
 ```bash
-vp run cli project inspect --json
-vp run cli timeline inspect --json
-vp run cli clip split clip_123 --at 4.2s
-vp run mcp
+vp run cli --project ~/films/documentary-cut project inspect --json
+vp run cli --project ~/films/documentary-cut timeline inspect --json
+vp run cli --project ~/films/documentary-cut clip split clip_123 --at 4.2s
+CINESIM_PROJECT=~/films/documentary-cut vp run mcp
 ```
 
 ## Project format

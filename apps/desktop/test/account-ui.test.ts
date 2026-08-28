@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 import type { AccountSnapshot } from "../src/shared/api";
 import { accountDisplayName } from "../src/renderer/components/account/account-ui";
 

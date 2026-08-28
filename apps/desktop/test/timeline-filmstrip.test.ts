@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 import { timelineFilmstripTileIndices } from "../src/renderer/components/timeline/timeline-filmstrip";
 
 const tileTimesUs = Array.from({ length: 32 }, (_, index) => index * 1_000_000);
