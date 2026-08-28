@@ -738,7 +738,7 @@ export class PlaybackRuntime {
           const timelineFromUs = Math.max(fromUs, clip.timelineStartUs);
           const timelineToUs = Math.min(toUs, clipEndUs(clip));
           const sourceFromUs = clip.sourceStartUs + timelineFromUs - clip.timelineStartUs;
-          const source = this.#source(this.#sourceResolver.resolveOriginal(asset.id));
+          const source = this.#source(this.#sourceResolver.resolve(asset.id));
           if (!source.buffers) continue;
           work.push(
             this.#audioScheduler.schedule(

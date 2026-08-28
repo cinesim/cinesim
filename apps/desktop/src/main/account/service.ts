@@ -4,10 +4,16 @@ import { electronClient } from "@better-auth/electron/client";
 import { createCinesimLogger } from "@cinesim/logging";
 import { createAuthClient } from "better-auth/client";
 import { z } from "zod";
-import type { AccountSnapshot, AccountUser, SignInMethod } from "../../shared/api";
+import type {
+  AccountSnapshot,
+  AccountUser,
+  RegisteredProject,
+  SignInMethod,
+} from "../../shared/api";
 import { parseDesktopAuthCallback } from "../../shared/auth-callback";
 import { LocalAuthCallbackServer, LOCAL_AUTH_CALLBACK_PORT } from "./loopback-callback";
 import { DesktopAuthStorage } from "./storage";
+import { DesktopAccountProfileStore } from "./profile-store";
 
 declare const __CINESIM_CLOUD_ORIGIN__: string;
 
@@ -26,6 +32,13 @@ const accountResponseSchema = z.object({
 const healthResponseSchema = z.object({
   ok: z.literal(true),
   googleSignIn: z.boolean(),
+  cloudStorage: z.boolean(),
+});
+
+const registeredProjectSchema = z.object({
+  id: z.string().regex(/^cloud_project_[a-zA-Z0-9][a-zA-Z0-9_-]{7,127}$/),
+  clientProjectId: z.string().regex(/^project_[a-zA-Z0-9][a-zA-Z0-9_-]*$/),
+  name: z.string().min(1),
 });
 
 function configuredOrigin(): string | null {
@@ -38,17 +51,18 @@ export function desktopAccountScheme(): string {
   return app.isPackaged ? "build.cinesim.desktop" : "build.cinesim.dev";
 }
 
-function localSnapshot(input: {
+function signedOutSnapshot(input: {
   origin: string | null;
   available: boolean;
   googleSignIn?: boolean;
   detail?: string;
 }): AccountSnapshot {
   return {
-    status: "local",
+    status: "signed-out",
     cloudOrigin: input.origin,
     serviceAvailable: input.available,
     googleSignIn: input.googleSignIn ?? false,
+    cloudStorage: false,
     user: null,
     detail: input.detail ?? null,
   };
@@ -70,6 +84,11 @@ interface ElectronAuthClient {
 }
 
 export class DesktopAccountService {
+  readonly #listeners = new Set<(snapshot: AccountSnapshot) => void>();
+  #publishedKey: string | null = null;
+  readonly #profile = new DesktopAccountProfileStore(
+    join(app.getPath("userData"), "account-profile.json"),
+  );
   readonly #origin = configuredOrigin();
   readonly #client: ElectronAuthClient | null = this.#origin
     ? (createAuthClient({
@@ -154,11 +173,13 @@ export class DesktopAccountService {
 
   async snapshot(): Promise<AccountSnapshot> {
     if (!this.#origin || !this.#client)
-      return localSnapshot({
-        origin: null,
-        available: false,
-        detail: "Cloud authentication is not configured in this build.",
-      });
+      return this.#publish(
+        signedOutSnapshot({
+          origin: null,
+          available: false,
+          detail: "Cloud authentication is not configured in this build.",
+        }),
+      );
 
     const cookie = this.#client.getCookie();
     try {
@@ -167,32 +188,43 @@ export class DesktopAccountService {
         signal: AbortSignal.timeout(5_000),
       });
       if (response.status === 401) {
+        this.#profile.clear();
         const health = await this.#health();
-        return localSnapshot({
-          origin: this.#origin,
-          available: true,
-          googleSignIn: health.googleSignIn,
-        });
+        return this.#publish(
+          signedOutSnapshot({
+            origin: this.#origin,
+            available: true,
+            googleSignIn: health.googleSignIn,
+          }),
+        );
       }
       if (!response.ok) throw new Error(`Account endpoint returned ${response.status}`);
       const parsed = accountResponseSchema.parse(await response.json());
-      return {
+      const health = await this.#health();
+      const user = this.#normalizeUser(parsed.user);
+      this.#profile.set(user);
+      return this.#publish({
         status: "signed-in",
         cloudOrigin: this.#origin,
         serviceAvailable: true,
-        googleSignIn: (await this.#health()).googleSignIn,
-        user: this.#normalizeUser(parsed.user),
+        googleSignIn: health.googleSignIn,
+        cloudStorage: health.cloudStorage,
+        user,
         detail: null,
-      };
+      });
     } catch {
-      return {
-        status: cookie ? "offline" : "local",
+      const user = cookie ? this.#profile.get() : null;
+      return this.#publish({
+        status: user ? "offline" : "signed-out",
         cloudOrigin: this.#origin,
         serviceAvailable: false,
         googleSignIn: false,
-        user: null,
-        detail: "The authentication service is unavailable. Local editing still works.",
-      };
+        cloudStorage: false,
+        user,
+        detail: user
+          ? "Cinesim is offline. Local projects remain available and cloud work will resume automatically."
+          : "The authentication service is unavailable. Local projects remain available without signing in.",
+      });
     }
   }
 
@@ -212,11 +244,71 @@ export class DesktopAccountService {
     if (!this.#client) return this.snapshot();
     const result = await this.#client.signOut();
     if (result.error) throw new Error(result.error.message ?? "Could not sign out");
+    this.#profile.clear();
     return this.snapshot();
   }
 
-  async #health(): Promise<{ googleSignIn: boolean }> {
-    if (!this.#origin) return { googleSignIn: false };
+  cachedUser(): AccountUser | null {
+    return this.#profile.get();
+  }
+
+  requireCachedUser(): AccountUser {
+    const user = this.cachedUser();
+    if (!user) throw new Error("Sign in before accessing cloud projects");
+    return user;
+  }
+
+  subscribe(listener: (snapshot: AccountSnapshot) => void): () => void {
+    this.#listeners.add(listener);
+    return () => this.#listeners.delete(listener);
+  }
+
+  async registerProject(input: {
+    cloudProjectId?: string | undefined;
+    clientProjectId: string;
+    name: string;
+  }): Promise<RegisteredProject> {
+    return registeredProjectSchema.parse(
+      await (
+        await this.authenticatedFetch("/api/v1/projects", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(input),
+        })
+      ).json(),
+    );
+  }
+
+  async authenticatedFetch(path: string, init: RequestInit = {}): Promise<Response> {
+    if (!path.startsWith("/api/v1/")) throw new Error("Invalid Cinesim API path");
+    if (!this.#origin || !this.#client)
+      throw new Error("Cloud storage is not configured in this build");
+    const cookie = this.#client.getCookie();
+    if (!cookie) throw new Error("Sign in to use Cinesim Cloud storage");
+    const headers = new Headers(init.headers);
+    headers.set("cookie", cookie);
+    const response = await fetch(`${this.#origin}${path}`, {
+      ...init,
+      headers,
+      signal: init.signal ?? AbortSignal.timeout(30_000),
+    });
+    if (response.status === 401) throw new Error("Sign in to use Cinesim Cloud storage");
+    if (!response.ok) {
+      const payload = (await response.json().catch(() => null)) as {
+        message?: unknown;
+        error?: unknown;
+      } | null;
+      throw new Error(
+        typeof payload?.message === "string"
+          ? payload.message
+          : `Cinesim service request failed (${response.status})`,
+      );
+    }
+    return response;
+  }
+
+  async #health(): Promise<{ googleSignIn: boolean; cloudStorage: boolean }> {
+    if (!this.#origin) return { googleSignIn: false, cloudStorage: false };
     const response = await fetch(`${this.#origin}/health`, {
       signal: AbortSignal.timeout(5_000),
     });
@@ -232,6 +324,15 @@ export class DesktopAccountService {
       emailVerified: user.emailVerified,
       image: user.image ? `user-image://${user.id}` : null,
     };
+  }
+
+  #publish(snapshot: AccountSnapshot): AccountSnapshot {
+    const key = `${snapshot.status}:${snapshot.user?.id ?? "none"}:${snapshot.cloudStorage === true}`;
+    if (key !== this.#publishedKey) {
+      this.#publishedKey = key;
+      for (const listener of this.#listeners) listener(snapshot);
+    }
+    return snapshot;
   }
 
   #registerDeepLinks(): void {

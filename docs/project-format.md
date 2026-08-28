@@ -18,7 +18,17 @@
 
 `.cinesim/assets.json` and `.cinesim/timeline.json` are deterministic machine-edited canonical files. `.cinesim/settings.toml` is canonical and intentionally comfortable to edit by hand. All carry `version = 1` semantics and future versions are rejected until a migration exists.
 
-`.video/` is local derived state. It is ignored in the project-level `.gitignore` created by Cinesim and can always be deleted and regenerated. Master media remains at its imported path; Cinesim never moves or mutates it.
+`.video/` is local generated state and is ignored in the project-level `.gitignore` created by
+Cinesim. Ordinary local-project imports reference their selected source path in place. Because
+Apple Photos can provide a temporary picker export instead of a durable path, that specific local
+import is copied to `.video/originals/<asset-id>` and depends on the managed copy until re-linked.
+
+Cloud-project imports retain an ordinary user-owned source before, during, and after private cloud
+upload; Cinesim never moves or deletes it. A temporary macOS picker export is the exception: Cinesim
+copies it into `.video/originals/` for stable upload staging, then removes only that managed copy
+after the cloud object and local proxy are verified. Cinesim commits an opaque cloud source through
+`asset.setSource`. An explicit **Keep downloaded** action streams a disposable copy to
+`.video/originals/<asset-id>` without changing canonical state.
 
 ## Timeline ordering and compatibility
 
@@ -39,8 +49,8 @@ Collection edits use the same command pathway:
   format overrides. It creates standard video/audio tracks, places assets sequentially, creates
   reciprocal audio components when needed, and makes the new timeline active in one undo step.
 - `asset.remove` takes a non-empty `assetIds` list. It removes the canonical asset references and
-  every clip using them. A usage on a locked track blocks the operation. Source media is never
-  deleted; disposable derived artifacts are pruned by the filesystem adapter after commit.
+  every clip using them. A usage on a locked track blocks the operation. Cloud originals enter the
+  account Trash through the desktop adapter; disposable derived artifacts are pruned after commit.
 - `sequence.remove` deletes an unlocked timeline and its clips without removing assets. The last
   timeline cannot be deleted, and removing the active timeline chooses the lowest remaining stable
   sequence ID as the deterministic fallback.

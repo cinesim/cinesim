@@ -1,9 +1,10 @@
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { DesktopProjectStore } from "../src/main/projects/project-store";
 import { canonicalProjectSizeBytes } from "../src/main/projects/project-size";
+import { isTemporaryMediaSelection } from "../src/main/projects/media-import";
 
 const temporaryDirectories: string[] = [];
 
@@ -40,6 +41,57 @@ afterEach(async () => {
 });
 
 describe("DesktopProjectStore", () => {
+  it("creates immutable local and cloud project kinds", async () => {
+    const parentDirectory = await mkdtemp(join(tmpdir(), "cinesim-account-project-test-"));
+    temporaryDirectories.push(parentDirectory);
+    const store = new DesktopProjectStore();
+    const session = await store.create(parentDirectory, {
+      name: "Account fixture",
+      projectId: "project_fixture_unique",
+      cloudProjectId: "cloud_project_fixture0000001",
+    });
+
+    expect(session.project).toMatchObject({
+      id: "project_fixture_unique",
+      cloudProjectId: "cloud_project_fixture0000001",
+      name: "Account fixture",
+    });
+    const reopened = new DesktopProjectStore();
+    await expect(reopened.open(session.directory)).resolves.toMatchObject({
+      project: {
+        id: "project_fixture_unique",
+        cloudProjectId: "cloud_project_fixture0000001",
+      },
+    });
+
+    const local = new DesktopProjectStore();
+    const localSession = await local.create(parentDirectory, {
+      name: "Local fixture",
+      projectId: "project_local_fixture",
+    });
+    expect(localSession.project.cloudProjectId).toBeUndefined();
+  });
+
+  it("creates a numbered sibling without touching an existing project folder", async () => {
+    const parentDirectory = await mkdtemp(join(tmpdir(), "cinesim-project-collision-test-"));
+    temporaryDirectories.push(parentDirectory);
+    const existingDirectory = join(parentDirectory, "test-proj");
+    await mkdir(existingDirectory);
+    const markerPath = join(existingDirectory, "keep.txt");
+    await writeFile(markerPath, "existing project");
+
+    const store = new DesktopProjectStore();
+    const session = await store.create(parentDirectory, {
+      name: "Test Proj",
+      projectId: "project_collision_fixture",
+      cloudProjectId: "cloud_project_collision00001",
+    });
+
+    expect(session.directory).toBe(join(parentDirectory, "test-proj-2"));
+    await expect(readFile(markerPath, "utf8")).resolves.toBe("existing project");
+    expect(session.project.cloudProjectId).toBe("cloud_project_collision00001");
+  });
+
   it("measures canonical project files without counting disposable video output", async () => {
     const parentDirectory = await mkdtemp(join(tmpdir(), "cinesim-size-test-"));
     temporaryDirectories.push(parentDirectory);
@@ -74,6 +126,59 @@ describe("DesktopProjectStore", () => {
       durationUs: 1_000_000,
       hasAudio: true,
     });
+  });
+
+  it("copies temporary picker media into disposable originals without modifying the source", async () => {
+    const parentDirectory = await mkdtemp(join(tmpdir(), "cinesim-managed-import-test-"));
+    temporaryDirectories.push(parentDirectory);
+    const mediaPath = join(parentDirectory, "photos-tone.wav");
+    const mediaBytes = createSilentWave();
+    await writeFile(mediaPath, mediaBytes);
+
+    const store = new DesktopProjectStore();
+    const created = await store.create(parentDirectory, "Managed import fixture");
+    const session = await store.inspectAndImportMedia(mediaPath, { managedCopy: true });
+
+    const asset = session.project.assets[0]!;
+    expect(asset.name).toBe("photos-tone.wav");
+    expect(asset.source).toEqual({
+      kind: "local",
+      path: join(created.directory, ".video", "originals", asset.id),
+    });
+    await expect(readFile(mediaPath)).resolves.toEqual(Buffer.from(mediaBytes));
+    await expect(readFile((asset.source as { path: string }).path)).resolves.toEqual(
+      Buffer.from(mediaBytes),
+    );
+  });
+
+  it("recognizes only macOS temporary-directory media as temporary picker output", async () => {
+    const temporaryRoot = await mkdtemp(join(tmpdir(), "cinesim-picker-root-"));
+    const outsideRoot = await mkdtemp(join(tmpdir(), "cinesim-picker-outside-"));
+    temporaryDirectories.push(temporaryRoot, outsideRoot);
+    const nested = join(temporaryRoot, "com.apple.Photos");
+    await mkdir(nested);
+    const photosPath = join(nested, "export.mov");
+    const outsidePath = join(outsideRoot, "source.mov");
+    await Promise.all([writeFile(photosPath, "photos"), writeFile(outsidePath, "outside")]);
+
+    await expect(
+      isTemporaryMediaSelection(photosPath, {
+        platform: "darwin",
+        temporaryDirectory: temporaryRoot,
+      }),
+    ).resolves.toBe(true);
+    await expect(
+      isTemporaryMediaSelection(outsidePath, {
+        platform: "darwin",
+        temporaryDirectory: temporaryRoot,
+      }),
+    ).resolves.toBe(false);
+    await expect(
+      isTemporaryMediaSelection(photosPath, {
+        platform: "linux",
+        temporaryDirectory: temporaryRoot,
+      }),
+    ).resolves.toBe(false);
   });
 
   it("serializes concurrent canonical writes through one desktop writer", async () => {

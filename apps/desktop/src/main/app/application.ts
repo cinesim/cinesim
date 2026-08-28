@@ -16,6 +16,8 @@ import { registerAppIpc } from "./ipc";
 import type { ApplicationLifecycle } from "./lifecycle";
 import { registerAccountIpc } from "../account/ipc";
 import type { DesktopAccountService } from "../account/service";
+import { registerCloudIpc } from "../cloud/ipc";
+import { CloudMediaManager } from "../cloud/manager";
 
 const log = createCinesimLogger({ service: "desktop" });
 
@@ -35,6 +37,19 @@ export class DesktopApplication implements ApplicationLifecycle {
       join(app.getPath("userData"), "agent-settings.json"),
     );
     await Promise.all([appState.load(), agentSettings.load()]);
+    appState.setAccount(this.accountService.cachedUser()?.id ?? null);
+    const cloudMedia = new CloudMediaManager(
+      join(app.getPath("userData"), "cloud-transfers.json"),
+      this.accountService,
+      this.projectStore,
+    );
+    await cloudMedia.load();
+    const unsubscribeAccount = this.accountService.subscribe((snapshot) => {
+      appState.setAccount(snapshot.user?.id ?? null);
+      if (snapshot.status === "signed-in" && snapshot.cloudStorage === true)
+        void cloudMedia.resumeAvailable();
+    });
+    app.once("will-quit", unsubscribeAccount);
 
     const diagnosticProject = process.env.CINESIM_DIAGNOSTIC_PROJECT;
     if (
@@ -49,7 +64,7 @@ export class DesktopApplication implements ApplicationLifecycle {
       );
     }
 
-    await registerMediaProtocol(this.projectStore);
+    await registerMediaProtocol(this.projectStore, cloudMedia);
     this.projectStore.derivedMedia.subscribe((snapshot) => {
       for (const target of BrowserWindow.getAllWindows())
         target.webContents.send("derived:changed", snapshot);
@@ -73,12 +88,19 @@ export class DesktopApplication implements ApplicationLifecycle {
     this.#agents = agents;
     await agents.load();
 
-    registerProjectIpc(this.projectStore, appState, agents);
+    registerProjectIpc(this.projectStore, appState, agents, this.accountService, cloudMedia);
     registerDerivedMediaIpc(this.projectStore.derivedMedia);
     registerAppStateIpc(appState, this.projectStore);
     registerAgentIpc(agents, agentSettings);
     registerAppIpc(log, this.#eventLoopMonitor);
-    registerAccountIpc(this.accountService);
+    registerAccountIpc(this.accountService, async () => {
+      appState.setAccount(null);
+      if (this.projectStore.project?.cloudProjectId) {
+        if (this.projectStore.directory) await agents.stopProject(this.projectStore.directory);
+        await this.projectStore.close();
+      }
+    });
+    registerCloudIpc(cloudMedia);
 
     this.#openWindow();
     app.on("activate", () => {

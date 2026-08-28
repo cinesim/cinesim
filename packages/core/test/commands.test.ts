@@ -39,6 +39,45 @@ function withClip(): Project {
 }
 
 describe("editing commands", () => {
+  it("creates an immutable cloud project kind and switches asset sources through commands", () => {
+    let project = createProject({
+      name: "Cloud",
+      cloudProjectId: "cloud_project_01hzy3w3fq1h7z6y7rj3a2bcde",
+    });
+    project = applyCommand(project, { type: "asset.import", asset }).project;
+    expect(project.cloudProjectId).toBe("cloud_project_01hzy3w3fq1h7z6y7rj3a2bcde");
+
+    project = applyCommand(project, {
+      type: "asset.setSource",
+      assetId: asset.id,
+      source: { kind: "cloud", cloudAssetId: "cloud_asset_01hzy3w3fq1h7z6y7rj3a2bcde" },
+    }).project;
+    expect(project.assets[0]!.source).toEqual({
+      kind: "cloud",
+      cloudAssetId: "cloud_asset_01hzy3w3fq1h7z6y7rj3a2bcde",
+    });
+  });
+
+  it("rejects cloud-backed assets in local projects", () => {
+    const project = createProject({ name: "Local" });
+    const cloudAsset: Asset = {
+      ...asset,
+      source: { kind: "cloud", cloudAssetId: "cloud_asset_01hzy3w3fq1h7z6y7rj3a2bcde" },
+    };
+
+    expect(() => applyCommand(project, { type: "asset.import", asset: cloudAsset })).toThrow(
+      "Cloud-backed media can only be used in a cloud project",
+    );
+    const imported = applyCommand(project, { type: "asset.import", asset }).project;
+    expect(() =>
+      applyCommand(imported, {
+        type: "asset.setSource",
+        assetId: asset.id,
+        source: cloudAsset.source,
+      }),
+    ).toThrow("Cloud-backed media can only be used in a cloud project");
+  });
+
   it("adds, updates, reorders, and removes tracks through deterministic commands", () => {
     const initial = seededProject();
     const sequenceId = initial.activeSequenceId;

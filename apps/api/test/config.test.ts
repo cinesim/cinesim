@@ -21,6 +21,9 @@ describe("Cinesim API configuration", () => {
     expect(config.port).toBe(8787);
     expect(config.authOrigin).toBe("http://127.0.0.1:8787");
     expect(config.google).toBeNull();
+    expect(config.r2).toBeNull();
+    expect(config.cloudIncludedBytes).toBe(10 * 1024 ** 3);
+    expect(config.cloudAddonOptionsBytes).toEqual([0]);
   });
 
   it("requires Google credentials as a pair", () => {
@@ -35,6 +38,31 @@ describe("Cinesim API configuration", () => {
         environment({ CINESIM_ENV: "production", BETTER_AUTH_URL: "http://localhost:8787" }),
       ),
     ).toThrow(/HTTPS/);
+  });
+
+  it("requires Cloudflare R2 credentials as a complete set", () => {
+    expect(() => readServerConfig(environment({ CLOUDFLARE_R2_ACCOUNT_ID: "account-id" }))).toThrow(
+      /R2 storage requires/,
+    );
+  });
+
+  it("enables R2 only with a complete private bucket configuration", () => {
+    const config = readServerConfig(
+      environment({
+        CLOUDFLARE_R2_ACCOUNT_ID: "account-id",
+        CLOUDFLARE_R2_BUCKET: "cinesim-originals-dev",
+        CLOUDFLARE_R2_ACCESS_KEY_ID: "access-key",
+        CLOUDFLARE_R2_SECRET_ACCESS_KEY: "secret-key",
+        CINESIM_CLOUD_INCLUDED_BYTES: "21474836480",
+        CINESIM_CLOUD_ADDON_OPTIONS_BYTES: "214748364800,0,53687091200",
+      }),
+    );
+    expect(config.r2).toMatchObject({
+      accountId: "account-id",
+      bucket: "cinesim-originals-dev",
+    });
+    expect(config.cloudIncludedBytes).toBe(20 * 1024 ** 3);
+    expect(config.cloudAddonOptionsBytes).toEqual([0, 50 * 1024 ** 3, 200 * 1024 ** 3]);
   });
 
   it("accepts a production-ready HTTPS configuration", () => {

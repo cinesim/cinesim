@@ -14,6 +14,9 @@ const config: ServerConfig = {
   smtpUrl: "not-rendered",
   emailFrom: "not-rendered",
   google: null,
+  r2: null,
+  cloudIncludedBytes: 10 * 1024 ** 3,
+  cloudAddonOptionsBytes: [0],
 };
 
 describe("authentication page", () => {

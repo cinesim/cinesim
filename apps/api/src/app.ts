@@ -6,9 +6,22 @@ import { serverConfig } from "./config";
 import { db } from "./db/client";
 import { LOCAL_DESKTOP_CALLBACK_ORIGIN } from "./local-desktop-callback";
 import { authPage } from "./web-page";
+import { R2ObjectStore } from "./cloud/r2";
+import { CloudStorageService } from "./cloud/service";
+import { createCloudRoutes } from "./cloud/routes";
+import { createProjectRoutes } from "./projects/routes";
+import { ProjectRegistryService } from "./projects/service";
 
 const config = serverConfig();
 const app = new Hono();
+const projectRegistry = new ProjectRegistryService();
+const cloudStorage = config.r2
+  ? new CloudStorageService(
+      new R2ObjectStore(config.r2),
+      config.cloudIncludedBytes,
+      config.cloudAddonOptionsBytes,
+    )
+  : null;
 
 app.use(
   "*",
@@ -46,6 +59,7 @@ app.get("/health", (context) =>
     ok: true,
     environment: config.environment,
     googleSignIn: Boolean(config.google),
+    cloudStorage: Boolean(cloudStorage),
   }),
 );
 
@@ -67,6 +81,9 @@ app.get("/api/v1/account", async (context) => {
     },
   });
 });
+
+app.route("/api/v1/cloud", createCloudRoutes(cloudStorage));
+app.route("/api/v1/projects", createProjectRoutes(projectRegistry));
 
 app.on(["GET", "POST"], "/api/auth/*", (context) => auth.handler(context.req.raw));
 

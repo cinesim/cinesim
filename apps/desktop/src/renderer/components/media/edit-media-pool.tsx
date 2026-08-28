@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { useDraggable } from "@dnd-kit/core";
-import { Film, Plus } from "@cinesim/ui";
+import { Cloud, Film, Plus } from "@cinesim/ui";
 import {
   Button,
   Empty,
@@ -127,9 +127,19 @@ function DraggableAssetCard({
           />
         }
         bottomCorner={
-          <span className="rounded bg-panel/90 px-1 py-0.5 text-[10px] tabular-nums text-secondary">
-            {formatDuration(asset.durationUs)}
-          </span>
+          <div className="flex items-center gap-1">
+            {asset.source.kind === "cloud" && (
+              <span
+                className="grid size-5 place-items-center rounded bg-panel/90 text-secondary"
+                title="Cloud original"
+              >
+                <Cloud size={10} />
+              </span>
+            )}
+            <span className="rounded bg-panel/90 px-1 py-0.5 text-[10px] tabular-nums text-secondary">
+              {formatDuration(asset.durationUs)}
+            </span>
+          </div>
         }
         action={
           <Button

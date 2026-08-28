@@ -21,6 +21,10 @@ export interface GenerateProxyRequest {
   width: number;
   height: number;
   frameRate?: number;
+  assetKind: "video" | "audio";
+  maxLongEdge: number;
+  frameRateCap: 30 | 60;
+  quality: "low" | "medium" | "high";
 }
 
 export interface ProxyChunkAck {

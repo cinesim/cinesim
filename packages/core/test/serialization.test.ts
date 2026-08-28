@@ -5,6 +5,8 @@ import {
   joinProjectFiles,
   splitProjectFiles,
   stableJson,
+  settingsFromToml,
+  settingsToToml,
 } from "../src";
 import type { Asset } from "../src";
 
@@ -25,6 +27,39 @@ describe("canonical serialization", () => {
     const loaded = joinProjectFiles(files.manifest, files.assets, files.timeline);
     expect(loaded).toEqual(project);
     expect(stableJson(files)).toBe(stableJson(splitProjectFiles(loaded)));
+  });
+
+  it("round-trips opaque cloud project and asset references", () => {
+    const asset: Asset = {
+      id: "asset_000001",
+      kind: "video",
+      name: "cloud.mov",
+      source: { kind: "cloud", cloudAssetId: "cloud_asset_01hzy3w3fq1h7z6y7rj3a2bcde" },
+      durationUs: 1_000_000,
+    };
+    let project = createProject({
+      name: "Cloud",
+      cloudProjectId: "cloud_project_01hzy3w3fq1h7z6y7rj3a2bcde",
+    });
+    project = applyCommand(project, { type: "asset.import", asset }).project;
+    const files = splitProjectFiles(project);
+    expect(files.manifest.cloudProjectId).toBe(project.cloudProjectId);
+    expect(joinProjectFiles(files.manifest, files.assets, files.timeline)).toEqual(project);
+    expect(stableJson(files)).not.toContain("r2.cloudflarestorage.com");
+  });
+
+  it("migrates legacy settings to the balanced automatic proxy defaults", () => {
+    const settings = settingsFromToml(
+      `version = 1\nautosave = true\n\n[preview]\nquality = "half"\nbackground_color = "#09090b"\n\n[perception]\nfilmstrip_interval_seconds = 5\n`,
+    );
+    expect(settings).toMatchObject({
+      proxyGeneration: "automatic",
+      proxyProfile: "balanced",
+      proxyMaxLongEdge: 1280,
+      proxyFrameRateCap: 60,
+      proxyQuality: "medium",
+    });
+    expect(settingsFromToml(settingsToToml(settings))).toEqual(settings);
   });
 
   it("rejects future versions", () => {

@@ -1,9 +1,10 @@
 import { randomBytes } from "node:crypto";
 import { existsSync } from "node:fs";
-import { copyFile, readFile, writeFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 import { spawn } from "node:child_process";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { backfillMissingEnvironmentVariables, populateAuthSecret } from "./environment-file.mjs";
 
 const packageDirectory = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const workspaceDirectory = resolve(packageDirectory, "../..");
@@ -29,15 +30,22 @@ function run(command, arguments_, options = {}) {
 }
 
 async function ensureEnvironment() {
-  if (existsSync(environmentPath)) return;
-  await copyFile(examplePath, environmentPath);
-  const example = await readFile(environmentPath, "utf8");
+  const example = await readFile(examplePath, "utf8");
   const secret = randomBytes(32).toString("base64url");
-  await writeFile(
-    environmentPath,
-    example.replace("replace-with-at-least-32-random-characters", secret),
-    { mode: 0o600 },
-  );
+
+  if (existsSync(environmentPath)) {
+    const existing = await readFile(environmentPath, "utf8");
+    const backfilled = backfillMissingEnvironmentVariables(existing, example, secret);
+    if (backfilled.addedKeys.length === 0) return;
+
+    await writeFile(environmentPath, backfilled.contents, { mode: 0o600 });
+    console.log(
+      `Updated apps/api/.env.local with missing settings: ${backfilled.addedKeys.join(", ")}`,
+    );
+    return;
+  }
+
+  await writeFile(environmentPath, populateAuthSecret(example, secret), { mode: 0o600 });
   console.log("Created apps/api/.env.local with a random local-only auth secret.");
 }
 
@@ -88,8 +96,8 @@ async function waitForPostgres() {
 }
 
 async function main() {
-  await ensureDocker();
   await ensureEnvironment();
+  await ensureDocker();
   await run("docker", ["compose", "-f", composePath, "up", "-d", "postgres", "mailpit"]);
   await waitForPostgres();
   await run("pnpm", ["db:migrate"], { cwd: packageDirectory });

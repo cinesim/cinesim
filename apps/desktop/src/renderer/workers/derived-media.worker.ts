@@ -14,9 +14,12 @@ import {
   Input,
   Mp4OutputFormat,
   Output,
+  QUALITY_HIGH,
+  QUALITY_LOW,
   QUALITY_MEDIUM,
   StreamTarget,
   UrlSource,
+  getFirstEncodableAudioCodec,
   getFirstEncodableVideoCodec,
 } from "mediabunny";
 import type { StreamTargetChunk } from "mediabunny";
@@ -356,20 +359,33 @@ async function generateProxy(request: Extract<DerivedWorkerRequest, { type: "pro
   try {
     if (!(await input.canRead())) throw new Error("unsupported-container");
     activity(request.jobId, "container-ready", started);
-    const track = await input.getPrimaryVideoTrack();
-    if (!track) throw new Error("source-undecodable");
+    const [track, audioTrack] = await Promise.all([
+      input.getPrimaryVideoTrack(),
+      input.getPrimaryAudioTrack(),
+    ]);
+    if (request.assetKind === "video" && !track) throw new Error("source-undecodable");
+    if (request.assetKind === "audio" && !audioTrack) throw new Error("source-undecodable");
     activity(request.jobId, "track-ready", started);
-    if (!(await track.canDecode())) throw new Error("source-undecodable");
+    if (track && !(await track.canDecode())) throw new Error("source-undecodable");
+    if (audioTrack && !(await audioTrack.canDecode())) throw new Error("source-undecodable");
     activity(request.jobId, "decoder-ready", started);
-    const scale = Math.min(1, 1280 / Math.max(request.width, request.height));
+    const quality =
+      request.quality === "low"
+        ? QUALITY_LOW
+        : request.quality === "high"
+          ? QUALITY_HIGH
+          : QUALITY_MEDIUM;
+    const scale = Math.min(1, request.maxLongEdge / Math.max(request.width, request.height));
     const width = even(request.width * scale);
     const height = even(request.height * scale);
-    const codec = await getFirstEncodableVideoCodec(["avc", "hevc"], {
-      width,
-      height,
-      quality: QUALITY_MEDIUM,
-    });
-    if (!codec) throw new Error("proxy-encoder-unavailable");
+    const [codec, audioCodec] = await Promise.all([
+      track
+        ? getFirstEncodableVideoCodec(["avc", "hevc"], { width, height, quality })
+        : Promise.resolve(null),
+      audioTrack ? getFirstEncodableAudioCodec(["aac"], { quality }) : Promise.resolve(null),
+    ]);
+    if (track && !codec) throw new Error("proxy-encoder-unavailable");
+    if (audioTrack && !audioCodec) throw new Error("proxy-audio-encoder-unavailable");
     const writable = new WritableStream<StreamTargetChunk>({
       write: async (chunk) => {
         assertActive(request.jobId);
@@ -399,18 +415,20 @@ async function generateProxy(request: Extract<DerivedWorkerRequest, { type: "pro
       input,
       output,
       tracks: "primary",
-      video: {
-        width,
-        height,
-        fit: "contain",
-        frameRate: Math.min(60, Math.max(1, request.frameRate ?? 30)),
-        codec,
-        quality: QUALITY_MEDIUM,
-        keyFrameInterval: 0.75,
-        hardwareAcceleration: "prefer-hardware",
-        forceTranscode: true,
-      },
-      audio: { discard: true },
+      video: track
+        ? {
+            width,
+            height,
+            fit: "contain",
+            frameRate: Math.min(request.frameRateCap, Math.max(1, request.frameRate ?? 30)),
+            codec: codec!,
+            quality,
+            keyFrameInterval: 0.75,
+            hardwareAcceleration: "prefer-hardware",
+            forceTranscode: true,
+          }
+        : { discard: true },
+      audio: audioTrack ? { codec: audioCodec!, quality, forceTranscode: true } : { discard: true },
       tags: {},
       showWarnings: false,
     });

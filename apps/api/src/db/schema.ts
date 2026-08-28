@@ -8,6 +8,7 @@ import {
   integer,
   index,
   uniqueIndex,
+  primaryKey,
 } from "drizzle-orm/pg-core";
 
 export const user = pgTable("user", {
@@ -93,9 +94,151 @@ export const rateLimit = pgTable("rate_limit", {
   lastRequest: bigint("last_request", { mode: "number" }).notNull(),
 });
 
+export const cloudProject = pgTable(
+  "cloud_project",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    clientProjectId: text("client_project_id").notNull(),
+    name: text("name").notNull(),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at")
+      .defaultNow()
+      .$onUpdate(() => /* @__PURE__ */ new Date())
+      .notNull(),
+  },
+  (table) => [
+    index("cloud_project_userId_idx").on(table.userId),
+    uniqueIndex("cloud_project_userId_clientProjectId_uidx").on(
+      table.userId,
+      table.clientProjectId,
+    ),
+  ],
+);
+
+export const cloudAsset = pgTable(
+  "cloud_asset",
+  {
+    id: text("id").primaryKey(),
+    projectId: text("project_id")
+      .notNull()
+      .references(() => cloudProject.id, { onDelete: "cascade" }),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    clientAssetId: text("client_asset_id").notNull(),
+    objectKey: text("object_key").notNull().unique(),
+    originalName: text("original_name").notNull(),
+    mediaKind: text("media_kind").notNull(),
+    contentType: text("content_type").notNull(),
+    bytes: bigint("bytes", { mode: "number" }).notNull(),
+    reservedBytes: bigint("reserved_bytes", { mode: "number" }).notNull(),
+    checksumSha256: text("checksum_sha256").notNull(),
+    state: text("state").notNull(),
+    r2Etag: text("r2_etag"),
+    trashedAt: timestamp("trashed_at"),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at")
+      .defaultNow()
+      .$onUpdate(() => /* @__PURE__ */ new Date())
+      .notNull(),
+  },
+  (table) => [
+    index("cloud_asset_userId_idx").on(table.userId),
+    index("cloud_asset_projectId_idx").on(table.projectId),
+    uniqueIndex("cloud_asset_projectId_clientAssetId_uidx").on(
+      table.projectId,
+      table.clientAssetId,
+    ),
+  ],
+);
+
+export const cloudUpload = pgTable(
+  "cloud_upload",
+  {
+    id: text("id").primaryKey(),
+    assetId: text("asset_id")
+      .notNull()
+      .unique()
+      .references(() => cloudAsset.id, { onDelete: "cascade" }),
+    r2UploadId: text("r2_upload_id").notNull(),
+    partSize: integer("part_size").notNull(),
+    sourceSize: bigint("source_size", { mode: "number" }).notNull(),
+    sourceMtimeMs: bigint("source_mtime_ms", { mode: "number" }).notNull(),
+    sourceEdgeHash: text("source_edge_hash").notNull(),
+    state: text("state").notNull(),
+    expiresAt: timestamp("expires_at").notNull(),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at")
+      .defaultNow()
+      .$onUpdate(() => /* @__PURE__ */ new Date())
+      .notNull(),
+  },
+  (table) => [index("cloud_upload_assetId_idx").on(table.assetId)],
+);
+
+export const cloudUploadPart = pgTable(
+  "cloud_upload_part",
+  {
+    uploadId: text("upload_id")
+      .notNull()
+      .references(() => cloudUpload.id, { onDelete: "cascade" }),
+    partNumber: integer("part_number").notNull(),
+    etag: text("etag").notNull(),
+    bytes: integer("bytes").notNull(),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (table) => [primaryKey({ columns: [table.uploadId, table.partNumber] })],
+);
+
+export const storageEntitlement = pgTable("storage_entitlement", {
+  userId: text("user_id")
+    .primaryKey()
+    .references(() => user.id, { onDelete: "cascade" }),
+  storageNamespace: text("storage_namespace").notNull().unique(),
+  includedBytes: bigint("included_bytes", { mode: "number" }).notNull(),
+  addonBytes: bigint("addon_bytes", { mode: "number" }).notNull().default(0),
+  usedBytes: bigint("used_bytes", { mode: "number" }).notNull().default(0),
+  reservedBytes: bigint("reserved_bytes", { mode: "number" }).notNull().default(0),
+  updatedAt: timestamp("updated_at")
+    .defaultNow()
+    .$onUpdate(() => /* @__PURE__ */ new Date())
+    .notNull(),
+});
+
 export const userRelations = relations(user, ({ many }) => ({
   sessions: many(session),
   accounts: many(account),
+  cloudProjects: many(cloudProject),
+  cloudAssets: many(cloudAsset),
+}));
+
+export const cloudProjectRelations = relations(cloudProject, ({ one, many }) => ({
+  user: one(user, { fields: [cloudProject.userId], references: [user.id] }),
+  assets: many(cloudAsset),
+}));
+
+export const cloudAssetRelations = relations(cloudAsset, ({ one }) => ({
+  user: one(user, { fields: [cloudAsset.userId], references: [user.id] }),
+  project: one(cloudProject, {
+    fields: [cloudAsset.projectId],
+    references: [cloudProject.id],
+  }),
+  upload: one(cloudUpload),
+}));
+
+export const cloudUploadRelations = relations(cloudUpload, ({ one, many }) => ({
+  asset: one(cloudAsset, { fields: [cloudUpload.assetId], references: [cloudAsset.id] }),
+  parts: many(cloudUploadPart),
+}));
+
+export const cloudUploadPartRelations = relations(cloudUploadPart, ({ one }) => ({
+  upload: one(cloudUpload, {
+    fields: [cloudUploadPart.uploadId],
+    references: [cloudUpload.id],
+  }),
 }));
 
 export const sessionRelations = relations(session, ({ one }) => ({

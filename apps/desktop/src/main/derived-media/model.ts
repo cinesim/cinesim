@@ -11,11 +11,11 @@ import type {
   SourcePerformanceSnapshot,
 } from "../../shared/api";
 
-export const DERIVED_GENERATOR_VERSION = "4";
+export const DERIVED_GENERATOR_VERSION = "5";
 export const INDEX_FILE = join(".video", "cache", "media-intelligence.json");
 export const MAX_WRITERS = 4;
 export const MAX_CHUNK_BYTES = 4 * 1024 * 1024;
-export const MAX_ARTIFACT_BYTES = 2 * 1024 * 1024 * 1024;
+export const MAX_ARTIFACT_BYTES = 20 * 1024 * 1024 * 1024;
 export const MAX_DECISION_EVENTS = 100;
 export const MAX_RETIRED_WRITERS = 256;
 

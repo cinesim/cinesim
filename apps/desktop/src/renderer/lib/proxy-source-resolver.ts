@@ -1,10 +1,9 @@
 import type { AssetId } from "@cinesim/core";
 import type { MediaSourceDescriptor, MediaSourceResolver } from "@cinesim/engine";
-import type { DerivedMediaSnapshot } from "../../shared/api";
-import type { DerivedProjectScope } from "../../shared/api";
+import type { DerivedMediaSnapshot, DerivedProjectScope } from "../../shared/api";
 import { derivedArtifactUrl, originalMediaUrl } from "./media-url";
 
-export class AdaptiveSourceResolver implements MediaSourceResolver {
+export class ProxySourceResolver implements MediaSourceResolver {
   constructor(
     private readonly projectScope: DerivedProjectScope,
     private readonly getDerivedMedia: () => DerivedMediaSnapshot | null,
@@ -19,7 +18,7 @@ export class AdaptiveSourceResolver implements MediaSourceResolver {
       proxy?.state === "ready" &&
       proxy.profileId &&
       proxy.updatedAt
-    ) {
+    )
       return {
         assetId,
         kind: "proxy",
@@ -32,7 +31,6 @@ export class AdaptiveSourceResolver implements MediaSourceResolver {
           proxy.profileId,
         ),
       };
-    }
     return this.resolveOriginal(assetId);
   }
 

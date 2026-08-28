@@ -4,6 +4,7 @@ import { Readable } from "node:stream";
 import { protocol } from "electron";
 import type { DerivedArtifactKind, DerivedProjectScope } from "../../shared/api";
 import type { DesktopProjectStore } from "../projects/project-store";
+import type { CloudMediaManager } from "../cloud/manager";
 import { parseDerivedProjectScope } from "./ipc-validation";
 import { DERIVED_GENERATOR_VERSION } from "./service";
 
@@ -82,7 +83,10 @@ function streamedMediaResponse(
   });
 }
 
-export async function registerMediaProtocol(store: DesktopProjectStore): Promise<void> {
+export async function registerMediaProtocol(
+  store: DesktopProjectStore,
+  cloudMedia: CloudMediaManager,
+): Promise<void> {
   protocol.handle("cinesim-media", async (request) => {
     const requestStarted = performance.now();
     let diagnosticAssetId: string | undefined;
@@ -162,8 +166,38 @@ export async function registerMediaProtocol(store: DesktopProjectStore): Promise
           requestStarted,
         });
       }
-      const path = store.assetPath(assetId);
-      if (!path) return new Response("Unknown asset", { status: 404 });
+      const asset = store.project?.assets.find((candidate) => candidate.id === assetId);
+      if (!asset) return new Response("Unknown asset", { status: 404 });
+      if (asset.source.kind === "cloud") {
+        const downloadedPath = await cloudMedia.downloadedOriginalPath(asset.id);
+        if (!downloadedPath) return cloudMedia.readOriginal(asset.source.cloudAssetId, request);
+        const size = (await stat(downloadedPath)).size;
+        if (request.method === "HEAD")
+          return new Response(null, {
+            headers: {
+              "Accept-Ranges": "bytes",
+              "Access-Control-Allow-Origin": "*",
+              "Content-Length": String(size),
+              "Content-Type": "application/octet-stream",
+              "Cache-Control": "no-store",
+            },
+          });
+        const match = range?.match(/^bytes=(\d+)-(\d*)$/);
+        const start = match ? Number(match[1]) : 0;
+        const requestedEnd = match?.[2] ? Number(match[2]) + 1 : size;
+        return streamedMediaResponse(store, {
+          path: downloadedPath,
+          size,
+          mimeType: "application/octet-stream",
+          assetId,
+          start,
+          endExclusive: requestedEnd,
+          range: Boolean(range),
+          cacheControl: "no-store",
+          requestStarted,
+        });
+      }
+      const path = asset.source.path;
       const size = (await stat(path)).size;
       if (request.method === "HEAD") {
         store.derivedMedia.recordProtocolRead({

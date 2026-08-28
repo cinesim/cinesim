@@ -2,16 +2,20 @@
 
 This report distinguishes implemented behavior from code paths that require interactive Electron/media testing. The repository was built without launching Electron at the user's request.
 
-## Optional local authentication
+## Optional accounts and project kinds
 
-The repository includes a local Better Auth slice with Hono, PostgreSQL, Drizzle migrations, Mailpit
+The repository includes a Better Auth slice with Hono, PostgreSQL, Drizzle migrations, Mailpit
 email verification, conditional Google OAuth, and Better Auth's Electron PKCE integration. Local
 development uses a loopback-only callback because macOS custom protocols require a packaged app;
 packaged builds retain the declared custom-protocol callback.
 The renderer exposes only account snapshots and sign-in/sign-out intents; OS-backed Electron
-`safeStorage` encrypts persisted cookies. Settings and the sidebar represent local, offline, and
-signed-in states without coupling authentication to project editing. Interactive browser, email, and
-custom-protocol behavior still requires the requested user-run Electron test.
+`safeStorage` encrypts persisted cookies. The desktop is not account-gated: local projects and local
+agents work while signed out, and their recent-project state is shared by users of the Mac. Cloud
+projects form a separate immutable kind and request sign-in only at cloud create/open boundaries. A
+cached account identity allows its cloud projects to reopen offline; cloud recents and resumable
+transfers remain isolated by account. PostgreSQL stores the account-owned cloud project catalog and
+media control plane, while every project's canonical editing files remain local. Interactive
+browser, email, and custom-protocol behavior still requires the requested user-run Electron test.
 
 ## Monorepo
 
@@ -53,7 +57,13 @@ Canonical, Git-tracked state:
 - `.cinesim/settings.toml`: human-readable preview, autosave, and perception preferences
 - `AGENTS.md`: project-specific creative/agent direction
 
-Generated local state is entirely under ignored `.video/{cache,proxies,thumbnails,waveforms,filmstrips,frames,runtime}`. Project creation writes this layout and a project-level `.gitignore`. Canonical saves validate and split state, pretty-print deterministically, write temporary files, and atomically rename them.
+Generated local state is under ignored `.video/{cache,originals,proxies,thumbnails,waveforms,filmstrips,frames,runtime}`.
+`originals/` contains explicit disposable downloads, temporary staging copies for cloud uploads,
+and durable copies of macOS temporary picker exports used by local projects. Ordinary imported
+source paths are referenced in place and are never moved or deleted. Cloud finalization removes
+only a verified Cinesim-owned staging path. Project creation writes this layout and a project-level
+`.gitignore`. Canonical saves validate and split state, pretty-print deterministically, write
+temporary files, and atomically rename them.
 
 ## Command and history architecture
 
@@ -69,13 +79,33 @@ The WebGPU compositor imports each `VideoFrame` with `GPUDevice.importExternalTe
 
 A dedicated renderer worker uses Mediabunny sparse canvas sinks to generate deterministic representative JPEG thumbnails and bounded 32-tile filmstrip contact sheets. Audio-only and embedded video audio are sequentially reduced into compact, deterministic, versioned waveform peak envelopes under `.video/waveforms/`. A project-scoped main-process store fingerprints bounded source edges, atomically publishes artifacts, recovers interrupted jobs, serves validated derived-media protocol routes, accounts for storage, and evicts proxies/filmstrips/waveforms before thumbnails.
 
-Live hover/playback observations feed a pure adaptive policy with minimum samples, explicit reason codes, disk-headroom gating, and proxy hysteresis. When the original persistently misses interaction budgets, the worker creates a video-only, 1280-long-edge editing proxy through Mediabunny conversion and a backpressured streamed writer. Proxy conversion and perception decoding pause under foreground pressure, resume after an idle grace period, and never block canonical edits. Valid proxies are adopted automatically while audio continues from the original.
+Projects choose explicit Automatic or Manual proxy generation and a named Space saver, Balanced,
+High quality, or advanced Custom profile. Cloud originals always require a local proxy. The worker
+creates edit representations through Mediabunny conversion and a backpressured streamed writer;
+proxy conversion and perception decoding pause under foreground pressure, resume after an idle
+grace period, and never block canonical edits. Valid proxies are adopted automatically.
 
 Audio uses Mediabunny `AudioBufferSink`. A Web Audio scheduler anchors timeline microseconds to `AudioContext.currentTime`, schedules short rolling windows, stops on pause/seek, and reschedules across clip boundaries. AudioWorklet is deferred pending profiling.
 
 ## Desktop UI
 
-Implemented surfaces include project create/open/forget/Trash, media import/bin, explorer-style asset selection, timeline creation from ordered selected assets, cascading asset removal, representative thumbnails, silent filmstrip card skimming, exact Media Pool source hover preview in the WebGPU Viewer, and duration-aware asset/clip drag previews with deterministic snapping and collision feedback. The timeline supports canonical creation/removal; video/audio/overlay track creation, rename, mute, lock, reorder, and safe removal; adjustable track height and zoom; selection/trim/blade tools; transient trim feedback; split/delete; filmstrip frames; and source-range-cropped waveforms. Video assets with audio are represented exclusively as reciprocal linked video and audio clip components on separate tracks; linked edits remain atomic and older embedded representations are upgraded on load. The viewer distinguishes source and timeline modes, restores the timeline frame after hover, initializes the current timeline frame even when paused, resizes responsively, provides fit/50/100/200% display scales, configurable grids and safe-area guides, fullscreen, exact frame stepping, and Space/J-K-L/Home/arrow transport shortcuts. The bug control opens a dedicated Metrics sidebar that is mutually exclusive with the Agents sidebar and reports bounded runtime, adaptive, artifact, job, GPU, and storage diagnostics. Zustand stores only ephemeral UI state; canonical project snapshots remain outside it.
+Implemented surfaces include collapsible Cloud and Local project groups, inline cloud sign-in,
+project create/open/forget/Trash, media import/bin, cloud upload states, keep/remove download,
+explorer-style asset selection, timeline creation from ordered selected assets, cascading asset
+removal, representative thumbnails, silent filmstrip card skimming, exact Media Pool source hover
+preview in the WebGPU Viewer, and duration-aware asset/clip drag previews with deterministic
+snapping and collision feedback. The timeline supports canonical creation/removal;
+video/audio/overlay track creation, rename, mute, lock, reorder, and safe removal; adjustable track
+height and zoom; selection/trim/blade tools; transient trim feedback; split/delete; filmstrip
+frames; and source-range-cropped waveforms. Video assets with audio are represented exclusively as
+reciprocal linked video and audio clip components on separate tracks; linked edits remain atomic and
+older embedded representations are upgraded on load. The viewer distinguishes source and timeline
+modes, restores the timeline frame after hover, initializes the current timeline frame even when
+paused, resizes responsively, provides fit/50/100/200% display scales, configurable grids and
+safe-area guides, fullscreen, exact frame stepping, and Space/J-K-L/Home/arrow transport shortcuts.
+The bug control opens a dedicated Metrics sidebar that is mutually exclusive with the Agents
+sidebar and reports bounded runtime, artifact, job, GPU, and storage diagnostics. Zustand stores
+only ephemeral UI state; canonical project snapshots remain outside it.
 
 The Edit workspace has persistent splitters for the Media Pool, Inspector, Notes, and Timeline. Media Pool, Inspector, and Notes visibility and final panel sizes are stored per project in the desktop's noncanonical UI state; resize movement does not write project files or create undo history.
 
@@ -99,26 +129,38 @@ The MCP stdio server exposes project/asset/timeline inspection, asset removal, t
 
 - TypeScript whole-repository check: passed
 - Vite+ format and lint check: passed with no warnings
-- All 176 semantic tests in 37 files, including authentication boundaries and account presentation, frame-cadenced playback, overlapping seek/audio isolation, source-preview restoration, waveform bounds/serving/render geometry, adaptive policy, derived storage/writers, canonical track operations/layering, timeline interaction geometry, source resolution, agent integration, and shortcuts: passed
+- All 207 semantic tests in 42 files, including optional-auth project boundaries, account presentation,
+  cloud transfer containment, frame-cadenced playback, overlapping seek/audio isolation,
+  source-preview restoration, waveform bounds/serving/render geometry, proxy configuration, derived
+  storage/writers, canonical track operations/layering, timeline interaction geometry, source
+  resolution, agent integration, and shortcuts: passed
 - Vite production builds for main, preload, and renderer: passed
 - CLI help smoke check: passed
 - Electron application launch: intentionally not run
 
-Tests cover command semantics, track compatibility/order, invalid edits/overlaps, stable ID allocation, undo/redo, deterministic serialization and version rejection, protocol errors, timeline-to-source mapping, monotonic timing, sequential frame scheduling, latest-only coalescing, source-preview isolation/restoration, deterministic perception sampling/scoring, bounded waveform encoding/writes/recovery, drag/drop and trim geometry, adaptive decisions, and original/proxy resolution.
+Tests cover command semantics, project/source-kind boundaries, track compatibility/order, invalid
+edits/overlaps, stable ID allocation, undo/redo, deterministic serialization and version rejection,
+protocol errors, timeline-to-source mapping, monotonic timing, sequential frame scheduling,
+latest-only coalescing, source-preview isolation/restoration, deterministic perception
+sampling/scoring, bounded waveform encoding/writes/recovery, drag/drop and trim geometry, configured
+proxy behavior, temporary import containment, cloud upload finalization, and original/proxy
+resolution.
 
 ## Performance measurements
 
-No benchmark numbers are reported. The Metrics sidebar now exposes live FPS, seek latency, request coalescing, dropped frames, CPU GPU-submit duration, artifact jobs, adaptive reasons, and storage, but measuring representative media still requires the interactive Electron validation matrix left to the user.
+No benchmark numbers are reported. The Metrics sidebar now exposes live FPS, seek latency, request
+coalescing, dropped frames, CPU GPU-submit duration, artifact jobs, and storage, but measuring
+representative media still requires the interactive Electron validation matrix left to the user.
 
 ## Known limitations and deviations
 
 - Electron/WebCodecs/WebGPU/Web Audio behavior is compiled but not interactively verified.
 - Exact-frame artifact generation remains lookup-only/unimplemented; thumbnails, filmstrips, and waveforms are generated through the bounded perception worker.
-- Worker-based thumbnail, filmstrip, and adaptive proxy paths are compiled but still require real-media Electron validation across the codec matrix.
+- Worker-based thumbnail, filmstrip, and configured proxy paths are compiled but still require real-media Electron validation across the codec matrix.
 - Audio scheduling is a V1 rolling Web Audio buffer path, not an AudioWorklet mixer.
 - Audio embedded in a video clip follows that clip; linked/unlinked A/V editing is not modeled.
 - The Lexical notes surface is a working draft surface but does not write `AGENTS.md` or `script.md`.
-- V1 supports one active flat sequence, rejects overlaps per track, and has no transitions, nested timelines, keyframes, export/render, or cloud features.
+- V1 supports one active flat sequence and rejects overlaps per track; it has no transitions, nested timelines, keyframes, or export/render.
 - The derived worker is emitted as a separate chunk; the renderer application chunk remains large (about 1.5 MB minified), so lazy route/vendor splitting is pending.
 - The embedded agent MCP bridge shares Electron main's single project writer, but concurrent desktop and external CLI/stdio-MCP writes do not yet use a cross-process project lock or desktop file watcher.
 - Local provider integration currently targets Claude Code's streaming JSON protocol and Codex's `app-server` protocol. Compatibility still depends on the installed CLI version and requires interactive desktop validation against each provider.
@@ -126,5 +168,5 @@ No benchmark numbers are reported. The Metrics sidebar now exposes live FPS, see
 ## Highest-value next steps
 
 1. Run the media validation matrix, fix any platform codec/GPU findings, and capture honest playback/seek/memory metrics.
-2. Tune adaptive thresholds from captured media-matrix measurements and add exact-frame jobs to the existing bounded worker/storage path.
+2. Tune proxy profiles from captured media-matrix measurements and add exact-frame jobs to the existing bounded worker/storage path.
 3. Add cross-process project locking/file watching, then exercise desktop ↔ CLI ↔ MCP live synchronization in integration tests.

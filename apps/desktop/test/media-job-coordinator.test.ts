@@ -79,8 +79,6 @@ function snapshot(
             framesPresented: 0,
             framesObsolete: 0,
           },
-          decision: "observing",
-          reasons: [],
         },
       },
     },

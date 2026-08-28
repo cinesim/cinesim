@@ -16,11 +16,21 @@ export interface LocalAssetSource {
   path: string;
 }
 
+export type CloudProjectId = `cloud_project_${string}`;
+export type CloudAssetId = `cloud_asset_${string}`;
+
+export interface CloudAssetSource {
+  kind: "cloud";
+  cloudAssetId: CloudAssetId;
+}
+
+export type AssetSource = LocalAssetSource | CloudAssetSource;
+
 export interface Asset {
   id: AssetId;
   kind: "video" | "audio" | "image";
   name: string;
-  source: LocalAssetSource;
+  source: AssetSource;
   durationUs: TimeUs;
   width?: number;
   height?: number;
@@ -90,6 +100,7 @@ export interface Sequence {
 export interface Project {
   version: 1;
   id: ProjectId;
+  cloudProjectId?: CloudProjectId;
   name: string;
   activeSequenceId: SequenceId;
   assets: Asset[];
@@ -102,6 +113,11 @@ export interface ProjectSettings {
   defaultFilmstripIntervalSeconds: number;
   previewQuality: "full" | "half" | "quarter";
   backgroundColor: string;
+  proxyGeneration: "automatic" | "manual";
+  proxyProfile: "space-saver" | "balanced" | "high-quality" | "custom";
+  proxyMaxLongEdge: number;
+  proxyFrameRateCap: 30 | 60;
+  proxyQuality: "low" | "medium" | "high";
 }
 
 export const DEFAULT_TRANSFORM: Transform = {
@@ -119,6 +135,11 @@ export const DEFAULT_SETTINGS: ProjectSettings = {
   defaultFilmstripIntervalSeconds: 5,
   previewQuality: "half",
   backgroundColor: "#09090b",
+  proxyGeneration: "automatic",
+  proxyProfile: "balanced",
+  proxyMaxLongEdge: 1280,
+  proxyFrameRateCap: 60,
+  proxyQuality: "medium",
 };
 
 export function clipDurationUs(clip: Clip): TimeUs {

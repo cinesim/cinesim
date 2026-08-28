@@ -30,6 +30,7 @@ describe("Hono authentication surface", () => {
       ok: true,
       environment: "test",
       googleSignIn: false,
+      cloudStorage: false,
     });
     expect(response.headers.get("cache-control")).toBe("no-store");
   });
@@ -44,5 +45,11 @@ describe("Hono authentication surface", () => {
     expect(body).not.toContain("Your projects remain local");
     expect(body).not.toContain("brand-mark");
     expect(body).not.toContain("test-secret-with-at-least-32-characters");
+  });
+
+  it("requires an account before exposing the project registry", async () => {
+    const response = await app.request("/api/v1/projects");
+    expect(response.status).toBe(401);
+    expect(await response.json()).toEqual({ error: "unauthorized" });
   });
 });

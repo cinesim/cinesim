@@ -1,0 +1,42 @@
+import { ipcMain } from "electron";
+import type { CloudMediaManager } from "./manager";
+
+function assetId(value: unknown): string {
+  if (typeof value !== "string" || !/^asset_[a-zA-Z0-9][a-zA-Z0-9_-]*$/.test(value))
+    throw new Error("Invalid asset ID");
+  return value;
+}
+
+function cloudAssetId(value: unknown): string {
+  if (typeof value !== "string" || !/^cloud_asset_[a-zA-Z0-9][a-zA-Z0-9_-]{7,127}$/.test(value))
+    throw new Error("Invalid cloud asset ID");
+  return value;
+}
+
+export function registerCloudIpc(manager: CloudMediaManager): void {
+  ipcMain.handle("cloud:usage", () => manager.usage());
+  ipcMain.handle("cloud:configure-addon", (_event, value: unknown) => {
+    if (typeof value !== "number") throw new Error("Invalid storage allowance");
+    return manager.configureAddon(value);
+  });
+  ipcMain.handle("cloud:transfers", () => manager.snapshots());
+  ipcMain.handle("cloud:retry", (_event, value: unknown) => manager.retry(assetId(value)));
+  ipcMain.handle("cloud:cancel", (_event, value: unknown) => manager.cancel(assetId(value)));
+  ipcMain.handle("cloud:downloaded-originals", () => manager.downloadedOriginals());
+  ipcMain.handle("cloud:keep-downloaded", (_event, value: unknown) =>
+    manager.keepDownloaded(assetId(value)),
+  );
+  ipcMain.handle("cloud:remove-download", (_event, value: unknown) =>
+    manager.removeDownload(assetId(value)),
+  );
+  ipcMain.handle("cloud:trash-assets", (_event, value: unknown) => {
+    if (!Array.isArray(value) || value.length > 100) throw new Error("Invalid cloud asset request");
+    return manager.trashAssets(value.map(cloudAssetId));
+  });
+  ipcMain.handle("cloud:restore-asset", (_event, value: unknown) =>
+    manager.restoreAsset(cloudAssetId(value)),
+  );
+  ipcMain.handle("cloud:delete-asset", (_event, value: unknown) =>
+    manager.deleteAsset(cloudAssetId(value)),
+  );
+}

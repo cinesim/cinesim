@@ -47,6 +47,9 @@ function RendererControllerEffects({ api, store }: { api: DesktopApi; store: Ren
     store,
     (state) => sessionFromLifecycle(state.project)?.derivedScope.epoch ?? null,
   );
+  const projectSettingsKey = useStore(store, (state) =>
+    JSON.stringify(sessionFromLifecycle(state.project)?.settings ?? null),
+  );
   const foregroundPressure = useStore(store, (state) =>
     state.timelineDragging
       ? "dragging"
@@ -67,19 +70,32 @@ function RendererControllerEffects({ api, store }: { api: DesktopApi; store: Ren
     const unsubscribeAccount = api.onAccountChanged((snapshot) => {
       store.getState().setAccount(snapshot);
     });
+    const unsubscribeCloud = api.onCloudTransfersChanged((snapshot) => {
+      store.getState().setCloudTransfers(snapshot);
+    });
     return () => {
       unsubscribeProject();
       unsubscribeAccount();
+      unsubscribeCloud();
     };
   }, [api, store]);
 
   useEffect(() => {
     const initialProject = projectRef.current;
-    if (!initialProject || !projectDirectory || !derivedCacheKey || !derivedEpoch) return;
+    const projectSettings = sessionFromLifecycle(store.getState().project)?.settings;
+    if (
+      !initialProject ||
+      !projectSettings ||
+      !projectDirectory ||
+      !derivedCacheKey ||
+      !derivedEpoch
+    )
+      return;
     const coordinator = new MediaJobCoordinator(
       initialProject,
       { cacheKey: derivedCacheKey, epoch: derivedEpoch },
       (snapshot) => store.getState().setDerivedMedia(projectDirectory, snapshot),
+      projectSettings,
     );
     mediaJobsRef.current = coordinator;
     void coordinator.start().catch(() => {
@@ -97,8 +113,10 @@ function RendererControllerEffects({ api, store }: { api: DesktopApi; store: Ren
   }, [derivedCacheKey, derivedEpoch, projectDirectory, store]);
 
   useEffect(() => {
-    if (project) void mediaJobsRef.current?.updateProject(project).catch(() => undefined);
-  }, [project]);
+    const projectSettings = sessionFromLifecycle(store.getState().project)?.settings;
+    if (project && projectSettings)
+      void mediaJobsRef.current?.updateProject(project, projectSettings).catch(() => undefined);
+  }, [project, projectSettingsKey, store]);
 
   useEffect(() => {
     mediaJobsRef.current?.setForegroundPressure(foregroundPressure);

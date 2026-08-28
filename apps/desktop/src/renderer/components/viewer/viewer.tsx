@@ -31,7 +31,7 @@ import type { DerivedProjectScope } from "../../../shared/api";
 import { PlaybackRuntime, WebGpuCompositor } from "@cinesim/engine";
 import type { PreviewMode } from "@cinesim/engine";
 import { formatTimecode } from "../../lib/format";
-import { AdaptiveSourceResolver } from "../../lib/adaptive-source-resolver";
+import { ProxySourceResolver } from "../../lib/proxy-source-resolver";
 import { useRendererStore, useRendererStoreApi } from "../../store/renderer-store-context";
 
 export interface ViewerController {
@@ -230,7 +230,7 @@ export function Viewer({
     const reportPlaybackError = (caught: Error) => setError(caught.message);
     const compositor = new WebGpuCompositor(canvas, { onError: reportPlaybackError });
     const playback = new PlaybackRuntime(projectRef.current, compositor, {
-      sourceResolver: new AdaptiveSourceResolver(
+      sourceResolver: new ProxySourceResolver(
         { cacheKey: derivedCacheKey, epoch: derivedEpoch },
         () => store.getState().derivedMedia,
       ),
@@ -397,6 +397,11 @@ export function Viewer({
           <span className="rounded bg-surface px-1.5 py-0.5 text-[10px] font-semibold text-secondary tabular-nums">
             {runtime.playbackRate > 0 ? "+" : "−"}
             {Math.abs(runtime.playbackRate)}×
+          </span>
+        )}
+        {runtime?.activeSourceKind && (
+          <span className="rounded bg-surface px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-muted">
+            {runtime.activeSourceKind === "proxy" ? "Proxy" : "Original"}
           </span>
         )}
         <DropdownSelect

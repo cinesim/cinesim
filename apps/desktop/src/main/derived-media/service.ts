@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import {
   mkdir,
+  lstat,
   open,
   readFile,
   readdir,
@@ -11,8 +12,8 @@ import {
   statfs,
 } from "node:fs/promises";
 import { dirname, join, relative, resolve, sep } from "node:path";
-import type { Asset, Project } from "@cinesim/core";
-import { evaluateAdaptivePolicy } from "@cinesim/engine";
+import { DEFAULT_SETTINGS } from "@cinesim/core";
+import type { Asset, Project, ProjectSettings } from "@cinesim/core";
 import { createCinesimLogger } from "@cinesim/logging";
 import type {
   BeginDerivedWrite,
@@ -74,6 +75,7 @@ export class DerivedMediaStore {
   #directory: string | null = null;
   #scope: DerivedProjectScope | null = null;
   #project: Project | null = null;
+  #settings: ProjectSettings = DEFAULT_SETTINGS;
   #index: PersistedIndex = emptyIndex();
   #writers = new Map<string, WriterSession>();
   #retiredWriters = new Set<string>();
@@ -102,6 +104,7 @@ export class DerivedMediaStore {
     directory: string,
     project: Project,
     prepared?: PreparedDerivedProject,
+    settings: ProjectSettings = DEFAULT_SETTINGS,
   ): Promise<void> {
     const canonicalDirectory = await realpath(directory);
     await this.#serialize(async () => {
@@ -115,6 +118,7 @@ export class DerivedMediaStore {
         epoch: randomUUID(),
       };
       this.#project = project;
+      this.#settings = structuredClone(settings);
       this.#latencies.clear();
       this.#deadlines.clear();
       this.#runtimeTracker.reset();
@@ -152,7 +156,9 @@ export class DerivedMediaStore {
       }
       await Promise.all(project.assets.map((asset) => this.#ensureAsset(asset)));
       await this.#refreshStorage();
-      for (const asset of project.assets) this.#applyAdaptiveDecision(asset.id);
+      for (const asset of project.assets)
+        if (this.#settings.proxyGeneration === "automatic" || asset.source.kind === "cloud")
+          await this.#queueProxyRecord(asset);
       if (recovered)
         this.#log({ kind: "jobs-recovered", detail: "Interrupted jobs returned to the queue" });
       if (recovered)
@@ -192,6 +198,27 @@ export class DerivedMediaStore {
     this.#project = project;
   }
 
+  async updateSettings(settings: ProjectSettings): Promise<void> {
+    await this.#serialize(async () => {
+      this.#settings = structuredClone(settings);
+      const project = this.#requireProject();
+      for (const asset of project.assets)
+        if (settings.proxyGeneration === "automatic" || asset.source.kind === "cloud")
+          await this.#queueProxyRecord(asset);
+      if (settings.proxyGeneration === "manual")
+        for (const [assetId, record] of Object.entries(this.#index.assets))
+          if (
+            record.proxy.state === "queued" &&
+            project.assets.find((asset) => asset.id === assetId)?.source.kind !== "cloud"
+          ) {
+            record.proxy.state = "missing";
+            delete record.proxy.progress;
+          }
+      await this.#persist();
+      this.#emit();
+    });
+  }
+
   async pruneRemovedAssets(): Promise<void> {
     await this.#serialize(() => this.#pruneRemovedAssetsNow());
   }
@@ -202,6 +229,7 @@ export class DerivedMediaStore {
       this.#directory = null;
       this.#scope = null;
       this.#project = null;
+      this.#settings = DEFAULT_SETTINGS;
       this.#index = emptyIndex();
       this.#latencies.clear();
       this.#deadlines.clear();
@@ -267,25 +295,126 @@ export class DerivedMediaStore {
   async requestJobs(scope: DerivedProjectScope, assetIds: string[]): Promise<DerivedMediaSnapshot> {
     return this.#serialize(async () => {
       this.assertScope(scope);
-      if (assetIds.length > 500) throw new Error("Too many derived job requests");
-      const persistenceSignature = projectOpenPersistenceSignature(this.#index);
-      const project = this.#requireProject();
-      for (const assetId of new Set(assetIds)) {
-        const asset = project.assets.find((candidate) => candidate.id === assetId);
-        if (!asset || (asset.kind !== "video" && asset.kind !== "audio")) continue;
-        const record = await this.#ensureAsset(asset);
-        const kinds: DerivedArtifactKind[] = [];
-        if (asset.kind === "video") kinds.push("thumbnail", "filmstrip");
-        if (asset.kind === "audio" || asset.hasAudio === true) kinds.push("waveform");
-        for (const kind of kinds) {
-          const artifact = record[kind];
-          if (artifact.state === "missing") artifact.state = "queued";
-        }
+      return this.#queueRequestedArtifacts(assetIds, true);
+    });
+  }
+
+  async queuePerception(assetIds: string[]): Promise<DerivedMediaSnapshot> {
+    return this.#serialize(() => this.#queueRequestedArtifacts(assetIds, false));
+  }
+
+  async waitForPerception(assetId: string, signal?: AbortSignal): Promise<void> {
+    const terminal = (snapshot: DerivedMediaSnapshot): boolean => {
+      const asset = this.#requireAsset(assetId);
+      const record = snapshot.assets[assetId];
+      if (!record) return false;
+      const kinds: DerivedArtifactKind[] = [];
+      if (asset.kind === "video") kinds.push("thumbnail", "filmstrip");
+      if (asset.kind === "audio" || asset.hasAudio === true) kinds.push("waveform");
+      return kinds.every(
+        (kind) => record[kind].state === "ready" || record[kind].state === "failed",
+      );
+    };
+    if (terminal(this.snapshot())) return;
+    if (signal?.aborted) throw new Error("Cloud transfer canceled");
+    await new Promise<void>((resolve, reject) => {
+      let stop: () => void = () => undefined;
+      let settled = false;
+      const abort = () => {
+        settled = true;
+        stop();
+        reject(new Error("Cloud transfer canceled"));
+      };
+      stop = this.subscribe((snapshot) => {
+        if (!terminal(snapshot)) return;
+        settled = true;
+        stop();
+        signal?.removeEventListener("abort", abort);
+        resolve();
+      });
+      if (settled) stop();
+      else {
+        signal?.addEventListener("abort", abort, { once: true });
+        if (signal?.aborted) abort();
       }
-      if (projectOpenPersistenceSignature(this.#index) !== persistenceSignature)
-        await this.#persist();
+    });
+  }
+
+  async queueProxy(assetId: string): Promise<DerivedMediaSnapshot> {
+    return this.#serialize(async () => {
+      const asset = this.#requireAsset(assetId);
+      if (asset.kind !== "video" && asset.kind !== "audio")
+        throw new Error("This media type does not support edit proxies yet");
+      await this.#queueProxyRecord(asset, true);
+      await this.#persist();
       this.#emit();
       return this.snapshot();
+    });
+  }
+
+  async #queueRequestedArtifacts(
+    assetIds: string[],
+    queueConfiguredProxies: boolean,
+  ): Promise<DerivedMediaSnapshot> {
+    if (assetIds.length > 500) throw new Error("Too many derived job requests");
+    const persistenceSignature = projectOpenPersistenceSignature(this.#index);
+    const project = this.#requireProject();
+    for (const assetId of new Set(assetIds)) {
+      const asset = project.assets.find((candidate) => candidate.id === assetId);
+      if (!asset || (asset.kind !== "video" && asset.kind !== "audio")) continue;
+      const record = await this.#ensureAsset(asset);
+      const kinds: DerivedArtifactKind[] = [];
+      if (asset.kind === "video") kinds.push("thumbnail", "filmstrip");
+      if (asset.kind === "audio" || asset.hasAudio === true) kinds.push("waveform");
+      for (const kind of kinds) {
+        const artifact = record[kind];
+        if (artifact.state === "missing") artifact.state = "queued";
+      }
+      if (
+        queueConfiguredProxies &&
+        (this.#settings.proxyGeneration === "automatic" || asset.source.kind === "cloud")
+      )
+        await this.#queueProxyRecord(asset);
+    }
+    if (projectOpenPersistenceSignature(this.#index) !== persistenceSignature)
+      await this.#persist();
+    this.#emit();
+    return this.snapshot();
+  }
+
+  async queueProxies(
+    scope: DerivedProjectScope,
+    assetIds: string[],
+  ): Promise<DerivedMediaSnapshot> {
+    this.assertScope(scope);
+    if (assetIds.length === 0 || assetIds.length > 100)
+      throw new Error("Invalid proxy job request");
+    for (const assetId of new Set(assetIds)) await this.queueProxy(assetId);
+    return this.snapshot();
+  }
+
+  async waitForProxy(assetId: string, signal?: AbortSignal): Promise<void> {
+    const current = this.snapshot().assets[assetId]?.proxy;
+    if (current?.state === "ready") return;
+    if (current?.state === "failed") throw new Error("The edit proxy could not be generated");
+    await new Promise<void>((resolve, reject) => {
+      const stop = this.subscribe((snapshot) => {
+        const proxy = snapshot.assets[assetId]?.proxy;
+        if (proxy?.state === "ready") {
+          stop();
+          signal?.removeEventListener("abort", abort);
+          resolve();
+        } else if (proxy?.state === "failed") {
+          stop();
+          signal?.removeEventListener("abort", abort);
+          reject(new Error("The edit proxy could not be generated"));
+        }
+      });
+      const abort = () => {
+        stop();
+        reject(new Error("Cloud transfer canceled"));
+      };
+      signal?.addEventListener("abort", abort, { once: true });
     });
   }
 
@@ -413,7 +542,8 @@ export class DerivedMediaStore {
         detail: `${writer.kind} generated (${result.bytes} bytes)`,
       });
       await this.#refreshStorage();
-      this.#applyAdaptiveDecision(writer.assetId);
+      if (writer.kind === "proxy" && this.#settings.proxyGeneration === "automatic")
+        await this.#queueProxyRecord(this.#requireAsset(writer.assetId));
       await this.#evictIfNeeded();
       await this.#persist();
       this.#emit();
@@ -487,7 +617,6 @@ export class DerivedMediaStore {
       if (failureCode) artifact.failureCode = failureCode;
       else delete artifact.failureCode;
       artifact.updatedAt = new Date().toISOString();
-      this.#applyAdaptiveDecision(writer.assetId);
       await this.#persist();
       this.#emit();
       const context = {
@@ -542,7 +671,6 @@ export class DerivedMediaStore {
         this.#deadlines.set(key, deadlines);
         summary.deadlineMissRate = deadlines.missed / deadlines.total;
       }
-      if (this.#applyAdaptiveDecision(observation.assetId)) await this.#persist();
       this.#emit();
     });
   }
@@ -573,8 +701,14 @@ export class DerivedMediaStore {
   }
 
   async #ensureAsset(asset: Asset): Promise<PersistedAsset> {
-    const fingerprint = await fingerprintSource(asset.source.path);
     const current = this.#index.assets[asset.id];
+    // Moving a verified original to cloud does not change its bytes. Preserve the local edit
+    // representation instead of invalidating it solely because the source locator changed.
+    if (asset.source.kind === "cloud" && current) return current;
+    const fingerprint =
+      asset.source.kind === "local"
+        ? await fingerprintSource(asset.source.path)
+        : { size: 0, mtimeMs: 0, edgeHash: asset.source.cloudAssetId };
     if (current && fingerprintsEqual(current.sourceFingerprint, fingerprint)) return current;
     if (current) {
       for (const artifact of [
@@ -605,7 +739,7 @@ export class DerivedMediaStore {
       filmstrip: emptyArtifact(),
       waveform: emptyArtifact(),
       proxy: emptyArtifact(),
-      performance: { original: emptyPerformance(), decision: "observing", reasons: [] },
+      performance: { original: emptyPerformance() },
     };
     this.#index.assets[asset.id] = record;
     return record;
@@ -648,8 +782,10 @@ export class DerivedMediaStore {
 
   async #removeInterruptedTemps(): Promise<void> {
     await Promise.all(
-      ["thumbnails", "filmstrips", "waveforms", "proxies"].map(async (folder) => {
+      ["thumbnails", "filmstrips", "waveforms", "proxies", "originals"].map(async (folder) => {
         const directory = this.#containedPath(join(".video", folder));
+        const info = await lstat(directory).catch(() => null);
+        if (!info?.isDirectory() || info.isSymbolicLink()) return;
         const names = await readdir(directory).catch(() => []);
         await Promise.all(
           names
@@ -719,10 +855,13 @@ export class DerivedMediaStore {
         folder: "frames",
         matches: (name: string) => name.startsWith(`${assetId}-`) && name.endsWith(".png"),
       },
+      { folder: "originals", matches: (name: string) => name === assetId },
     ];
     await Promise.all(
       candidates.map(async ({ folder, matches }) => {
         const directory = this.#containedPath(join(".video", folder));
+        const info = await lstat(directory).catch(() => null);
+        if (!info?.isDirectory() || info.isSymbolicLink()) return;
         const names = await readdir(directory).catch(() => []);
         await Promise.all(
           names
@@ -745,7 +884,14 @@ export class DerivedMediaStore {
         })),
       )
       .filter(
-        (candidate) => candidate.artifact.state === "ready" && candidate.artifact.relativePath,
+        (candidate) =>
+          candidate.artifact.state === "ready" &&
+          candidate.artifact.relativePath &&
+          !(
+            candidate.kind === "proxy" &&
+            this.#project?.assets.find((asset) => asset.id === candidate.assetId)?.source.kind ===
+              "cloud"
+          ),
       )
       .sort((left, right) => {
         const priority = { proxy: 0, filmstrip: 1, waveform: 2 } as const;
@@ -771,36 +917,45 @@ export class DerivedMediaStore {
     await this.#refreshStorage();
   }
 
-  #applyAdaptiveDecision(assetId: string): boolean {
-    const record = this.#index.assets[assetId];
-    if (!record) return false;
-    const result = evaluateAdaptivePolicy({
-      ...record.performance.original,
-      proxyState: record.proxy.state,
-      diskHeadroomAvailable:
-        this.#diskHeadroomAvailable &&
-        this.#index.storage.totalBytes < this.#index.storage.budgetBytes * 0.9,
-    });
-    const previousDecision = record.performance.decision;
-    const previousReasons = record.performance.reasons.join(",");
-    const previousProxyState = record.proxy.state;
-    record.performance.decision = result.decision;
-    record.performance.reasons = result.reasons;
-    if (result.queueProxy && record.proxy.state === "missing") record.proxy.state = "queued";
-    if (
-      previousDecision !== record.performance.decision ||
-      previousReasons !== record.performance.reasons.join(",")
-    )
+  async #queueProxyRecord(asset: Asset, required = false): Promise<void> {
+    if (asset.kind !== "video" && asset.kind !== "audio") return;
+    if (!this.#diskHeadroomAvailable) {
+      if (required) throw new Error("Insufficient disk headroom for a proxy");
+      return;
+    }
+    const record = await this.#ensureAsset(asset);
+    const profileId = this.#proxyProfileId();
+    if (record.proxy.state === "ready" && record.proxy.profileId !== profileId) {
+      if (record.proxy.relativePath)
+        await rm(this.#containedPath(record.proxy.relativePath), { force: true });
+      record.proxy.state = "missing";
+      delete record.proxy.relativePath;
+      delete record.proxy.bytes;
+      delete record.proxy.updatedAt;
+      delete record.proxy.lastAccessAt;
+    }
+    if (record.proxy.state === "queued") record.proxy.profileId = profileId;
+    if (record.proxy.state === "missing" || record.proxy.state === "failed") {
+      record.proxy.state = "queued";
+      record.proxy.progress = 0;
+      record.proxy.profileId = profileId;
+      delete record.proxy.failureCode;
       this.#log({
-        assetId,
-        kind: "adaptive-decision",
-        detail: `${record.performance.decision}: ${record.performance.reasons.join(", ")}`,
+        assetId: asset.id,
+        kind: "proxy-queued",
+        detail: `Edit proxy queued with ${profileId}`,
       });
-    return (
-      previousDecision !== record.performance.decision ||
-      previousReasons !== record.performance.reasons.join(",") ||
-      previousProxyState !== record.proxy.state
-    );
+    }
+  }
+
+  #proxyProfileId(): string {
+    const settings = this.#settings;
+    return [
+      settings.proxyProfile,
+      settings.proxyMaxLongEdge,
+      settings.proxyFrameRateCap,
+      settings.proxyQuality,
+    ].join("-");
   }
 
   #containedPath(relativePath: string): string {
