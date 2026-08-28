@@ -125,6 +125,46 @@ describe("renderer project controller", () => {
     await Promise.all([firstInitialization, secondInitialization]);
     expect(store.getState().project.status).toBe("ready");
     expect(store.getState().accountHydrated).toBe(true);
+    expect(getAppState).toHaveBeenCalledTimes(2);
+  });
+
+  it("refreshes account-scoped cloud recents after startup identity resolves", async () => {
+    const account = deferred<AccountSnapshot>();
+    let identityResolved = false;
+    const localProject = {
+      name: "Local",
+      directory: "/projects/local",
+      kind: "local" as const,
+    };
+    const cloudProject = {
+      name: "Cloud",
+      directory: "/projects/cloud",
+      kind: "cloud" as const,
+    };
+    const getAppState = vi.fn(async () => ({
+      ...EMPTY_APP_STATE,
+      recentProjects: identityResolved ? [cloudProject, localProject] : [localProject],
+    }));
+    const store = createRendererStore({
+      api: apiFixture({
+        getAccountSnapshot: async () => {
+          const snapshot = await account.promise;
+          identityResolved = true;
+          return snapshot;
+        },
+        getAppState,
+      }),
+    });
+
+    const initialization = store.getState().initialize();
+    await vi.waitFor(() => expect(store.getState().project.status).toBe("idle"));
+    expect(store.getState().appState.recentProjects).toEqual([localProject]);
+
+    account.resolve(SIGNED_IN_ACCOUNT);
+    await initialization;
+
+    expect(getAppState).toHaveBeenCalledTimes(2);
+    expect(store.getState().appState.recentProjects).toEqual([cloudProject, localProject]);
   });
 
   it("keeps a local project open after sign-out", async () => {
@@ -200,6 +240,7 @@ describe("renderer project controller", () => {
       }),
     });
     await store.getState().initialize();
+    const preferenceFetchesAfterInitialization = getAppState.mock.calls.length;
 
     const result = store.getState().openRecentProject(next.directory);
     expect(store.getState().project).toMatchObject({
@@ -215,7 +256,7 @@ describe("renderer project controller", () => {
     opening.resolve(next);
     await result;
 
-    expect(getAppState).toHaveBeenCalledOnce();
+    expect(getAppState).toHaveBeenCalledTimes(preferenceFetchesAfterInitialization);
     expect(store.getState().project).toEqual({ status: "ready", session: next });
     expect(store.getState().appState.recentProjects[0]).toEqual({
       name: next.project.name,

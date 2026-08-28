@@ -398,11 +398,14 @@ export function createRendererStore({ api, storage }: RendererStoreDependencies)
         if (get().project.status !== "booting") return Promise.resolve();
 
         initialization = (async () => {
-          const hydrateAccount = api
-            .getAccountSnapshot()
-            .catch(() => INITIAL_ACCOUNT_STATE)
-            .then((account) => set({ account, accountHydrated: true }));
-          await Promise.all([hydrateAccountWorkspace(), hydrateAccount]);
+          const workspace = hydrateAccountWorkspace();
+          const account = await api.getAccountSnapshot().catch(() => INITIAL_ACCOUNT_STATE);
+          set({ account, accountHydrated: true });
+          await workspace;
+          if (account.user) {
+            const accountAppState = await api.getAppState().catch(() => null);
+            if (accountAppState) set({ appState: accountAppState });
+          }
         })();
         return initialization;
       },

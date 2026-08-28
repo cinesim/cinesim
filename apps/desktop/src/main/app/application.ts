@@ -37,6 +37,7 @@ export class DesktopApplication implements ApplicationLifecycle {
       join(app.getPath("userData"), "agent-settings.json"),
     );
     await Promise.all([appState.load(), agentSettings.load()]);
+    appState.setAccount(this.accountService.cachedUser()?.id ?? null);
     const cloudMedia = new CloudMediaManager(
       join(app.getPath("userData"), "cloud-transfers.json"),
       this.accountService,
