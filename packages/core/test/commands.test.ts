@@ -1,5 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { applyCommand, clipEndUs, createProject, findClip, nextId, ProjectHistory } from "../src";
+import {
+  applyCommand,
+  clipEndUs,
+  clipFadeGainAt,
+  createProject,
+  findClip,
+  nextId,
+  ProjectHistory,
+} from "../src";
 import type { Asset, Project } from "../src";
 
 const asset: Asset = {
@@ -185,6 +193,43 @@ describe("editing commands", () => {
     expect(findClip(project, "clip_000001").clip.sourceEndUs).toBe(10_000_000);
     expect(nextId("clip", ["clip_000001"])).toBe("clip_000002");
     expect(nextId("clip", ["clip_000002"])).toBe("clip_000003");
+  });
+
+  it("sets, validates, and preserves clip fades as one canonical command", () => {
+    let project = withClip();
+    project = applyCommand(project, {
+      type: "clip.setFade",
+      clipId: "clip_000001",
+      edge: "in",
+      durationUs: 2_000_000,
+    }).project;
+    project = applyCommand(project, {
+      type: "clip.setFade",
+      clipId: "clip_000001",
+      edge: "out",
+      durationUs: 3_000_000,
+    }).project;
+    expect(findClip(project, "clip_000001").clip).toMatchObject({
+      fadeInUs: 2_000_000,
+      fadeOutUs: 3_000_000,
+    });
+    expect(clipFadeGainAt(findClip(project, "clip_000001").clip, 1_000_000)).toBe(0.5);
+    expect(clipFadeGainAt(findClip(project, "clip_000001").clip, 8_500_000)).toBe(0.5);
+    expect(() =>
+      applyCommand(project, {
+        type: "clip.setFade",
+        clipId: "clip_000001",
+        edge: "in",
+        durationUs: 8_000_000,
+      }),
+    ).toThrow(/cannot overlap/);
+    project = applyCommand(project, {
+      type: "clip.setFade",
+      clipId: "clip_000001",
+      edge: "out",
+      durationUs: 0,
+    }).project;
+    expect(findClip(project, "clip_000001").clip.fadeOutUs).toBeUndefined();
   });
 
   it("keeps linked video and audio components synchronized through edits", () => {

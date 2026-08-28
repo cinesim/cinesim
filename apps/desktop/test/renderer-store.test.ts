@@ -97,6 +97,7 @@ function runtimeFixture(timeUs: number): RuntimeSnapshot {
     previewWidth: 1920,
     previewHeight: 1080,
     sourcePreviewSuppressions: 0,
+    masterPeakDb: [-60, -60],
   };
 }
 

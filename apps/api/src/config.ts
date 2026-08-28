@@ -8,6 +8,11 @@ const shouldLoadLocalEnvironment =
 if (shouldLoadLocalEnvironment && existsSync(localEnvironmentPath))
   process.loadEnvFile(localEnvironmentPath);
 
+const optionalEnvironmentValue = z.preprocess(
+  (value) => (typeof value === "string" && value.trim() === "" ? undefined : value),
+  z.string().min(1).optional(),
+);
+
 const environmentSchema = z
   .object({
     CINESIM_ENV: z.enum(["development", "test", "preview", "staging", "production"]),
@@ -26,10 +31,10 @@ const environmentSchema = z
     EMAIL_FROM: z.string().min(3),
     GOOGLE_CLIENT_ID: z.string().optional(),
     GOOGLE_CLIENT_SECRET: z.string().optional(),
-    CLOUDFLARE_R2_ACCOUNT_ID: z.string().min(1).optional(),
-    CLOUDFLARE_R2_BUCKET: z.string().min(1).optional(),
-    CLOUDFLARE_R2_ACCESS_KEY_ID: z.string().min(1).optional(),
-    CLOUDFLARE_R2_SECRET_ACCESS_KEY: z.string().min(1).optional(),
+    CLOUDFLARE_R2_ACCOUNT_ID: optionalEnvironmentValue,
+    CLOUDFLARE_R2_BUCKET: optionalEnvironmentValue,
+    CLOUDFLARE_R2_ACCESS_KEY_ID: optionalEnvironmentValue,
+    CLOUDFLARE_R2_SECRET_ACCESS_KEY: optionalEnvironmentValue,
     CINESIM_CLOUD_INCLUDED_BYTES: z.coerce
       .number()
       .int()

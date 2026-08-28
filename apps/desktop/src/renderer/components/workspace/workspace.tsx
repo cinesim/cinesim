@@ -159,6 +159,9 @@ export function Workspace({
   const selectClip = useRendererStore((state) => state.selectClip);
   const selectedClipId = useRendererStore((state) => state.selectedClipId);
   const playheadUs = useRendererStore((state) => state.playheadUs);
+  const playbackPlaying = useRendererStore(
+    (state) => state.playbackRuntime?.snapshot.playing ?? false,
+  );
   const setPlayheadUs = useRendererStore((state) => state.setPlayheadUs);
   const setTool = useRendererStore((state) => state.setTool);
   const toggleSnapping = useRendererStore((state) => state.toggleSnapping);
@@ -419,6 +422,14 @@ export function Workspace({
               project={editorProject}
               onCommand={command}
               onSeek={(timeUs) => void viewerControllerRef.current?.seekTimeline(timeUs)}
+              onTogglePlayback={() => {
+                if (playbackPlaying) viewerControllerRef.current?.pauseTimeline();
+                else viewerControllerRef.current?.playTimeline();
+              }}
+              onGoToStart={() => void viewerControllerRef.current?.seekTimeline(0)}
+              onStepFrames={(deltaFrames) =>
+                void viewerControllerRef.current?.stepFrames(deltaFrames)
+              }
             />
           </div>
         </EditorDndProvider>

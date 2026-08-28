@@ -43,6 +43,8 @@ export const clipSchema = z.object({
   timelineStartUs: timeUs,
   sourceStartUs: timeUs,
   sourceEndUs: timeUs,
+  fadeInUs: timeUs.optional(),
+  fadeOutUs: timeUs.optional(),
   transform: transformSchema,
 });
 

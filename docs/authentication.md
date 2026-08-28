@@ -26,12 +26,16 @@ pnpm auth:setup
 
 This command:
 
-1. Creates ignored `apps/api/.env.local` from `.env.example` with a random Better Auth secret.
+1. Creates ignored `apps/api/.env.local` from `.env.example` with a random Better Auth secret, or
+   backfills settings added to the example without changing existing secrets or values.
 2. Starts pinned PostgreSQL and Mailpit containers.
 3. Waits for PostgreSQL readiness.
 4. Applies the committed Drizzle migrations.
 
 It does not launch Electron. The local services persist their data in named Docker volumes.
+
+The generated environment includes optional Cloudflare R2 settings. Cloud storage remains disabled
+until the account ID, bucket, access key ID, and secret access key are all filled in.
 
 Start the complete development environment with:
 

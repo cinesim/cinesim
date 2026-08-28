@@ -8,14 +8,37 @@ export interface PlaybackAudioScheduler {
     sourceFromUs: TimeUs,
     timelineFromUs: TimeUs,
     durationUs?: TimeUs,
+    envelope?: AudioFadeEnvelope,
   ): Promise<void>;
+  samplePeakDb?(): readonly [number, number];
   resume(): Promise<void>;
   stop(): void;
   destroy(): Promise<void>;
 }
 
+export interface AudioFadeEnvelope {
+  timelineStartUs: TimeUs;
+  timelineEndUs: TimeUs;
+  fadeInUs: TimeUs;
+  fadeOutUs: TimeUs;
+}
+
+export function audioFadeGainAt(envelope: AudioFadeEnvelope, timelineUs: TimeUs): number {
+  const durationUs = Math.max(0, envelope.timelineEndUs - envelope.timelineStartUs);
+  const elapsedUs = timelineUs - envelope.timelineStartUs;
+  if (durationUs === 0 || elapsedUs < 0 || elapsedUs > durationUs) return 0;
+  const fadeInUs = Math.min(durationUs, Math.max(0, envelope.fadeInUs));
+  const fadeOutUs = Math.min(durationUs, Math.max(0, envelope.fadeOutUs));
+  const fadeInGain = fadeInUs > 0 ? Math.min(1, elapsedUs / fadeInUs) : 1;
+  const fadeOutGain = fadeOutUs > 0 ? Math.min(1, (durationUs - elapsedUs) / fadeOutUs) : 1;
+  return Math.max(0, Math.min(fadeInGain, fadeOutGain));
+}
+
 export class WebAudioScheduler implements PlaybackAudioScheduler {
   readonly #context: AudioContext;
+  readonly #master: GainNode;
+  readonly #analysers: readonly [AnalyserNode, AnalyserNode];
+  readonly #meterSamples: readonly [Float32Array<ArrayBuffer>, Float32Array<ArrayBuffer>];
   #scheduled = new Set<AudioBufferSourceNode>();
   #generation = 0;
   #transportTimelineUs: TimeUs = 0;
@@ -23,6 +46,28 @@ export class WebAudioScheduler implements PlaybackAudioScheduler {
 
   constructor(context = new AudioContext({ latencyHint: "interactive" })) {
     this.#context = context;
+    this.#master = context.createGain();
+    this.#master.channelCount = 2;
+    this.#master.channelCountMode = "explicit";
+    this.#master.channelInterpretation = "speakers";
+    this.#master.connect(context.destination);
+    const splitter = context.createChannelSplitter(2);
+    const silent = context.createGain();
+    silent.gain.value = 0;
+    silent.connect(context.destination);
+    this.#master.connect(splitter);
+    const left = context.createAnalyser();
+    const right = context.createAnalyser();
+    left.fftSize = 4096;
+    right.fftSize = 4096;
+    left.smoothingTimeConstant = 0.4;
+    right.smoothingTimeConstant = 0.4;
+    splitter.connect(left, 0);
+    splitter.connect(right, 1);
+    left.connect(silent);
+    right.connect(silent);
+    this.#analysers = [left, right];
+    this.#meterSamples = [new Float32Array(left.fftSize), new Float32Array(right.fftSize)];
   }
 
   get currentTimeUs(): TimeUs {
@@ -40,24 +85,48 @@ export class WebAudioScheduler implements PlaybackAudioScheduler {
     sourceFromUs: TimeUs,
     timelineFromUs: TimeUs,
     durationUs = 1_500_000,
+    envelope?: AudioFadeEnvelope,
   ): Promise<void> {
     const generation = this.#generation;
     for await (const chunk of source.buffers(sourceFromUs, sourceFromUs + durationUs)) {
       if (generation !== this.#generation) return;
       const node = this.#context.createBufferSource();
       node.buffer = chunk.buffer;
-      node.connect(this.#context.destination);
+      const gain = this.#context.createGain();
+      node.connect(gain);
+      gain.connect(this.#master);
       this.#scheduled.add(node);
       node.onended = () => this.#scheduled.delete(node);
       const timelineOffsetSeconds = (timelineFromUs - this.#transportTimelineUs) / 1_000_000;
       const sourceOffsetSeconds = (chunk.timestampUs - sourceFromUs) / 1_000_000;
-      node.start(
-        Math.max(
-          this.#context.currentTime,
-          this.#transportContextTime + timelineOffsetSeconds + sourceOffsetSeconds,
-        ),
+      const startAt = Math.max(
+        this.#context.currentTime,
+        this.#transportContextTime + timelineOffsetSeconds + sourceOffsetSeconds,
       );
+      if (envelope) {
+        const chunkTimelineStartUs = timelineFromUs + chunk.timestampUs - sourceFromUs;
+        const chunkTimelineEndUs =
+          chunkTimelineStartUs + Math.round(chunk.buffer.duration * 1_000_000);
+        scheduleFadeAutomation(
+          gain.gain,
+          startAt,
+          chunkTimelineStartUs,
+          chunkTimelineEndUs,
+          envelope,
+        );
+      }
+      node.start(startAt);
     }
+  }
+
+  samplePeakDb(): readonly [number, number] {
+    return this.#analysers.map((analyser, index) => {
+      const samples = this.#meterSamples[index as 0 | 1];
+      analyser.getFloatTimeDomainData(samples);
+      let peak = 0;
+      for (const sample of samples) peak = Math.max(peak, Math.abs(sample));
+      return peak > 0 ? Math.max(-60, 20 * Math.log10(peak)) : -60;
+    }) as unknown as readonly [number, number];
   }
 
   async resume(): Promise<void> {
@@ -73,5 +142,31 @@ export class WebAudioScheduler implements PlaybackAudioScheduler {
   async destroy(): Promise<void> {
     this.stop();
     await this.#context.close();
+  }
+}
+
+function scheduleFadeAutomation(
+  gain: AudioParam,
+  contextStart: number,
+  timelineStartUs: TimeUs,
+  timelineEndUs: TimeUs,
+  envelope: AudioFadeEnvelope,
+): void {
+  const points = [
+    timelineStartUs,
+    envelope.timelineStartUs + envelope.fadeInUs,
+    envelope.timelineEndUs - envelope.fadeOutUs,
+    timelineEndUs,
+  ]
+    .filter((timeUs) => timeUs >= timelineStartUs && timeUs <= timelineEndUs)
+    .sort((left, right) => left - right)
+    .filter((timeUs, index, values) => index === 0 || timeUs !== values[index - 1]);
+  const firstUs = points[0] ?? timelineStartUs;
+  gain.setValueAtTime(audioFadeGainAt(envelope, firstUs), contextStart);
+  for (const timeUs of points.slice(1)) {
+    gain.linearRampToValueAtTime(
+      audioFadeGainAt(envelope, timeUs),
+      contextStart + (timeUs - timelineStartUs) / 1_000_000,
+    );
   }
 }

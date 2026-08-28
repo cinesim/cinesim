@@ -48,6 +48,10 @@ export interface Clip {
   timelineStartUs: TimeUs;
   sourceStartUs: TimeUs;
   sourceEndUs: TimeUs;
+  /** Linear fade from silence/transparent at the clip's timeline start. */
+  fadeInUs?: TimeUs;
+  /** Linear fade to silence/transparent at the clip's timeline end. */
+  fadeOutUs?: TimeUs;
   transform: Transform;
 }
 
@@ -148,6 +152,19 @@ export function clipDurationUs(clip: Clip): TimeUs {
 
 export function clipEndUs(clip: Clip): TimeUs {
   return clip.timelineStartUs + clipDurationUs(clip);
+}
+
+export function clipFadeGainAt(clip: Clip, timelineTimeUs: TimeUs): number {
+  const durationUs = clipDurationUs(clip);
+  if (durationUs <= 0) return 0;
+  const elapsedUs = timelineTimeUs - clip.timelineStartUs;
+  if (elapsedUs < 0 || elapsedUs >= durationUs) return 0;
+  const fadeInUs = Math.min(durationUs, Math.max(0, clip.fadeInUs ?? 0));
+  const fadeOutUs = Math.min(durationUs, Math.max(0, clip.fadeOutUs ?? 0));
+  const fadeInGain = fadeInUs > 0 ? Math.min(1, elapsedUs / fadeInUs) : 1;
+  const remainingUs = durationUs - elapsedUs;
+  const fadeOutGain = fadeOutUs > 0 ? Math.min(1, remainingUs / fadeOutUs) : 1;
+  return Math.max(0, Math.min(fadeInGain, fadeOutGain));
 }
 
 export function canSplitClipAt(clip: Clip, atUs: TimeUs): boolean {

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useDraggable, useDroppable } from "@dnd-kit/core";
+import { ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Pause, Play } from "lucide-react";
 import {
   Scissors,
   MousePointer2,
@@ -29,7 +30,6 @@ import {
   MenuItem,
   MenuLabel,
   MenuTrigger,
-  PaneHeader,
   Separator,
 } from "@cinesim/ui";
 import { canSplitClipAt, clipDurationUs, getSequence, sequenceDurationUs } from "@cinesim/core";
@@ -50,16 +50,85 @@ import {
   timelineMajorSecondStep,
 } from "../../lib/timeline-scale";
 import { quantizeToFrame, timelineSnapCandidates } from "../../lib/timeline-geometry";
+import { formatTimecode } from "../../lib/format";
 import type { ActionResult } from "../../store/renderer-store";
 import { useRendererStore } from "../../store/renderer-store-context";
 import { useEditorDnd } from "../workspace/editor-dnd-context";
 import { TimelineFilmstrip } from "./timeline-filmstrip";
+import { MasterLevelMeter } from "./master-level-meter";
 import { TimelineWaveform } from "./timeline-waveform";
 
 interface TimelineProps {
   project: Project;
   onCommand: (command: EditorCommand) => Promise<ActionResult<unknown>>;
   onSeek?: (timeUs: number) => void;
+  onTogglePlayback?: () => void;
+  onGoToStart?: () => void;
+  onStepFrames?: (deltaFrames: number) => void;
+}
+
+export type TimelinePaletteId = "northern-lights" | "desert-bloom" | "coastal";
+
+const TIMELINE_PALETTES: ReadonlyArray<{
+  id: TimelinePaletteId;
+  name: string;
+  colors: { video: string; overlay: string; audio: string; image: string };
+}> = [
+  {
+    id: "northern-lights",
+    name: "Northern Lights",
+    colors: { video: "#506fa3", overlay: "#80649b", audio: "#397968", image: "#aa7a42" },
+  },
+  {
+    id: "desert-bloom",
+    name: "Desert Bloom",
+    colors: { video: "#a85e58", overlay: "#895d82", audio: "#688263", image: "#b18445" },
+  },
+  {
+    id: "coastal",
+    name: "Coastal",
+    colors: { video: "#397d91", overlay: "#6870a0", audio: "#438273", image: "#9b7652" },
+  },
+];
+
+function timelinePaletteColor(
+  paletteId: TimelinePaletteId,
+  track: Track,
+  asset: Asset | undefined,
+): string {
+  const palette = TIMELINE_PALETTES.find((candidate) => candidate.id === paletteId)!;
+  if (track.kind === "audio") return palette.colors.audio;
+  if (track.kind === "overlay") return palette.colors.overlay;
+  return asset?.kind === "image" ? palette.colors.image : palette.colors.video;
+}
+
+export function fadeDurationFromDrag({
+  edge,
+  initialDurationUs,
+  deltaX,
+  pixelsPerUs,
+  maximumDurationUs,
+  frameRate,
+}: {
+  edge: "in" | "out";
+  initialDurationUs: number;
+  deltaX: number;
+  pixelsPerUs: number;
+  maximumDurationUs: number;
+  frameRate: number;
+}): number {
+  const rawDurationUs = initialDurationUs + (edge === "in" ? deltaX : -deltaX) / pixelsPerUs;
+  const frameDurationUs = 1_000_000 / Math.max(1, frameRate);
+  const quantized = Math.round(rawDurationUs / frameDurationUs) * frameDurationUs;
+  return Math.round(Math.min(maximumDurationUs, Math.max(0, quantized)));
+}
+
+interface FadeGesture {
+  pointerId: number;
+  edge: "in" | "out";
+  startClientX: number;
+  initialDurationUs: number;
+  previewDurationUs: number;
 }
 
 interface ClipBlockProps {
@@ -75,6 +144,7 @@ interface ClipBlockProps {
   frameRate: number;
   snappingEnabled: boolean;
   snapCandidatesUs: readonly number[];
+  paletteId: TimelinePaletteId;
 }
 
 function ClipBlock({
@@ -90,6 +160,7 @@ function ClipBlock({
   frameRate,
   snappingEnabled,
   snapCandidatesUs,
+  paletteId,
 }: ClipBlockProps) {
   const tool = useRendererStore((state) => state.tool);
   const selectClip = useRendererStore((state) => state.selectClip);
@@ -100,6 +171,8 @@ function ClipBlock({
   });
   const [trimGesture, setTrimGesture] = useState<TrimGestureState>(IDLE_TRIM_GESTURE);
   const trimGestureRef = useRef<TrimGestureState>(IDLE_TRIM_GESTURE);
+  const [fadeGesture, setFadeGesture] = useState<FadeGesture | null>(null);
+  const fadeGestureRef = useRef<FadeGesture | null>(null);
   const previewRange = trimPreviewRange(trimGesture);
   const previewClip = trimPreviewClip(trimGesture) ?? clip;
   const name = asset?.name ?? clip.assetId;
@@ -112,13 +185,84 @@ function ClipBlock({
       ? previewRange.timelineEndUs - previewRange.timelineStartUs
       : clipDurationUs(clip)) * pixelsPerUs,
   );
+  const clipColor = timelinePaletteColor(paletteId, track, asset);
+  const fadeInUs =
+    fadeGesture?.edge === "in" ? fadeGesture.previewDurationUs : (clip.fadeInUs ?? 0);
+  const fadeOutUs =
+    fadeGesture?.edge === "out" ? fadeGesture.previewDurationUs : (clip.fadeOutUs ?? 0);
+  const fadeInPx = Math.min(width, fadeInUs * pixelsPerUs);
+  const fadeOutPx = Math.min(width, fadeOutUs * pixelsPerUs);
+  const fadeCurveTop = 8;
+  const fadeCurveBottom = Math.max(fadeCurveTop + 1, trackHeight - 5);
+  const fadeOutStartX = width - fadeOutPx;
+  const fadeInCurve = `M 0 ${fadeCurveBottom} C ${fadeInPx * 0.38} ${fadeCurveBottom}, ${fadeInPx * 0.68} ${fadeCurveTop}, ${fadeInPx} ${fadeCurveTop}`;
+  const fadeOutCurve = `M ${fadeOutStartX} ${fadeCurveTop} C ${fadeOutStartX + fadeOutPx * 0.32} ${fadeCurveTop}, ${width - fadeOutPx * 0.38} ${fadeCurveBottom}, ${width} ${fadeCurveBottom}`;
 
   useEffect(
     () => () => {
       trimGestureRef.current = IDLE_TRIM_GESTURE;
+      fadeGestureRef.current = null;
     },
     [],
   );
+
+  function beginFade(edge: "in" | "out", event: React.PointerEvent<HTMLButtonElement>) {
+    event.stopPropagation();
+    event.preventDefault();
+    const gesture: FadeGesture = {
+      pointerId: event.pointerId,
+      edge,
+      startClientX: event.clientX,
+      initialDurationUs: edge === "in" ? (clip.fadeInUs ?? 0) : (clip.fadeOutUs ?? 0),
+      previewDurationUs: edge === "in" ? (clip.fadeInUs ?? 0) : (clip.fadeOutUs ?? 0),
+    };
+    fadeGestureRef.current = gesture;
+    setFadeGesture(gesture);
+    event.currentTarget.setPointerCapture(event.pointerId);
+  }
+
+  function updateFade(event: React.PointerEvent<HTMLButtonElement>): FadeGesture | null {
+    const gesture = fadeGestureRef.current;
+    if (!gesture || gesture.pointerId !== event.pointerId) return null;
+    const otherDurationUs = gesture.edge === "in" ? (clip.fadeOutUs ?? 0) : (clip.fadeInUs ?? 0);
+    const next = {
+      ...gesture,
+      previewDurationUs: fadeDurationFromDrag({
+        edge: gesture.edge,
+        initialDurationUs: gesture.initialDurationUs,
+        deltaX: event.clientX - gesture.startClientX,
+        pixelsPerUs,
+        maximumDurationUs: Math.max(0, clipDurationUs(clip) - otherDurationUs),
+        frameRate,
+      }),
+    };
+    fadeGestureRef.current = next;
+    setFadeGesture(next);
+    return next;
+  }
+
+  function finishFade(event: React.PointerEvent<HTMLButtonElement>) {
+    const gesture = updateFade(event);
+    fadeGestureRef.current = null;
+    setFadeGesture(null);
+    if (event.currentTarget.hasPointerCapture(event.pointerId))
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    if (gesture && gesture.previewDurationUs !== gesture.initialDurationUs)
+      void onCommand({
+        type: "clip.setFade",
+        clipId: clip.id,
+        edge: gesture.edge,
+        durationUs: gesture.previewDurationUs,
+      });
+  }
+
+  function cancelFade(event: React.PointerEvent<HTMLButtonElement>) {
+    if (fadeGestureRef.current?.pointerId !== event.pointerId) return;
+    fadeGestureRef.current = null;
+    setFadeGesture(null);
+    if (event.currentTarget.hasPointerCapture(event.pointerId))
+      event.currentTarget.releasePointerCapture(event.pointerId);
+  }
 
   function trim(which: "start" | "end", event: React.PointerEvent) {
     event.stopPropagation();
@@ -188,10 +332,7 @@ function ClipBlock({
     <div
       ref={setNodeRef}
       className={cn(
-        "absolute top-0 overflow-hidden border text-left shadow-sm outline-none transition-[border-color,filter]",
-        track.kind === "audio"
-          ? "border-clip-border bg-clip-audio"
-          : "border-clip-border bg-clip-video",
+        "group/clip absolute top-0 overflow-hidden border text-left shadow-sm outline-none transition-[border-color,filter]",
         selected && "border-primary ring-1 ring-primary",
         isDragging && "z-30 opacity-35",
         trimGesture.status === "trimming" && "z-30 ring-1 ring-primary",
@@ -201,9 +342,11 @@ function ClipBlock({
         left,
         width,
         height: trackHeight,
+        backgroundColor: clipColor,
+        borderColor: selected ? undefined : `color-mix(in srgb, ${clipColor} 72%, black)`,
       }}
     >
-      {asset?.kind === "video" && !isAudioComponent && derived && derivedAsset && (
+      {asset && asset.kind !== "audio" && !isAudioComponent && derived && derivedAsset && (
         <TimelineFilmstrip
           asset={asset}
           clip={previewClip}
@@ -233,18 +376,98 @@ function ClipBlock({
         className="absolute inset-0 z-20 text-left outline-none focus-visible:ring-2 focus-visible:ring-focus"
         onClick={activate}
       >
-        <span
-          className={cn(
-            "clip-texture pointer-events-none absolute inset-0",
-            asset?.kind === "video" && !isAudioComponent ? "opacity-15" : "opacity-40",
-          )}
-        />
+        <span className="pointer-events-none absolute inset-x-0 bottom-0 z-10 h-6 bg-gradient-to-t from-black/75 to-transparent" />
+        <span className="pointer-events-none absolute bottom-1 left-1.5 right-1.5 z-20 truncate text-[10px] font-semibold text-white drop-shadow-sm">
+          {name}
+        </span>
         {preparationLabel && (
           <span className="absolute right-1.5 top-1 rounded bg-black/35 px-1 py-0.5 text-[9px] font-medium text-white/85">
             {preparationLabel}
           </span>
         )}
       </button>
+      <svg
+        aria-hidden="true"
+        className="pointer-events-none absolute inset-0 z-[24] overflow-visible drop-shadow-sm"
+        width={width}
+        height={trackHeight}
+        viewBox={`0 0 ${width} ${trackHeight}`}
+        preserveAspectRatio="none"
+      >
+        {fadeInPx > 0.5 && (
+          <>
+            <path
+              d={`M 0 0 H ${fadeInPx} V ${fadeCurveTop} C ${fadeInPx * 0.68} ${fadeCurveTop}, ${fadeInPx * 0.38} ${fadeCurveBottom}, 0 ${fadeCurveBottom} Z`}
+              fill="rgba(0, 0, 0, 0.28)"
+            />
+            <path
+              d={fadeInCurve}
+              fill="none"
+              stroke="rgba(255, 255, 255, 0.8)"
+              strokeWidth="1.25"
+              vectorEffect="non-scaling-stroke"
+            />
+          </>
+        )}
+        {fadeOutPx > 0.5 && (
+          <>
+            <path
+              d={`M ${fadeOutStartX} 0 H ${width} V ${fadeCurveBottom} C ${width - fadeOutPx * 0.38} ${fadeCurveBottom}, ${fadeOutStartX + fadeOutPx * 0.32} ${fadeCurveTop}, ${fadeOutStartX} ${fadeCurveTop} Z`}
+              fill="rgba(0, 0, 0, 0.28)"
+            />
+            <path
+              d={fadeOutCurve}
+              fill="none"
+              stroke="rgba(255, 255, 255, 0.8)"
+              strokeWidth="1.25"
+              vectorEffect="non-scaling-stroke"
+            />
+          </>
+        )}
+      </svg>
+      {!track.locked && (
+        <>
+          <button
+            type="button"
+            aria-label={`Adjust fade in for ${name}`}
+            title={`Fade in · ${(fadeInUs / 1_000_000).toFixed(2)}s`}
+            className={cn(
+              "absolute top-[3px] z-[26] size-2.5 -translate-x-1/2 cursor-ew-resize rounded-[1px] border border-white/70 bg-neutral-400 shadow-[0_0_0_1px_rgba(0,0,0,0.75)] transition-[opacity,background-color] hover:bg-white hover:opacity-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-white",
+              selected || fadeInUs > 0
+                ? "opacity-90"
+                : "opacity-0 group-hover/clip:opacity-90 focus-visible:opacity-100",
+            )}
+            style={{ left: Math.min(width - 5, Math.max(5, fadeInPx)) }}
+            onPointerDown={(event) => beginFade("in", event)}
+            onPointerMove={updateFade}
+            onPointerUp={finishFade}
+            onPointerCancel={cancelFade}
+            onLostPointerCapture={cancelFade}
+          />
+          <button
+            type="button"
+            aria-label={`Adjust fade out for ${name}`}
+            title={`Fade out · ${(fadeOutUs / 1_000_000).toFixed(2)}s`}
+            className={cn(
+              "absolute top-[3px] z-[26] size-2.5 -translate-x-1/2 cursor-ew-resize rounded-[1px] border border-white/70 bg-neutral-400 shadow-[0_0_0_1px_rgba(0,0,0,0.75)] transition-[opacity,background-color] hover:bg-white hover:opacity-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-white",
+              selected || fadeOutUs > 0
+                ? "opacity-90"
+                : "opacity-0 group-hover/clip:opacity-90 focus-visible:opacity-100",
+            )}
+            style={{ left: Math.min(width - 5, Math.max(5, width - fadeOutPx)) }}
+            onPointerDown={(event) => beginFade("out", event)}
+            onPointerMove={updateFade}
+            onPointerUp={finishFade}
+            onPointerCancel={cancelFade}
+            onLostPointerCapture={cancelFade}
+          />
+        </>
+      )}
+      {fadeGesture && (
+        <span className="pointer-events-none absolute left-1/2 top-5 z-40 -translate-x-1/2 rounded bg-black/80 px-1.5 py-0.5 text-[9px] font-semibold text-white tabular-nums">
+          {(fadeGesture.previewDurationUs / 1_000_000).toFixed(2)}s
+        </span>
+      )}
       {tool === "trim" && !track.locked && (
         <>
           <button
@@ -288,7 +511,6 @@ function prepStatus(
     (artifact) => artifact.state === "running" || artifact.state === "queued",
   );
   if (perception) return artifactStatus("Preparing", perception);
-  if (asset.proxy.state === "ready") return "Proxy ready";
   if (
     asset.proxy.state === "failed" ||
     asset.thumbnail.state === "failed" ||
@@ -318,6 +540,7 @@ function TimelineTrackRow({
   frameRate,
   snappingEnabled,
   playheadUs,
+  paletteId,
 }: {
   track: Track;
   assets: Map<string, Asset>;
@@ -331,6 +554,7 @@ function TimelineTrackRow({
   frameRate: number;
   snappingEnabled: boolean;
   playheadUs: number;
+  paletteId: TimelinePaletteId;
 }) {
   const selectClip = useRendererStore((state) => state.selectClip);
   const { proposal } = useEditorDnd();
@@ -376,6 +600,7 @@ function TimelineTrackRow({
           frameRate={frameRate}
           snappingEnabled={snappingEnabled}
           snapCandidatesUs={[...timelineSnapCandidates(project, clip.id), playheadUs]}
+          paletteId={paletteId}
         />
       ))}
       {trackProposal && (
@@ -392,7 +617,8 @@ function TimelineTrackRow({
             height: trackHeight,
           }}
         >
-          {proposalAsset?.kind === "video" &&
+          {proposalAsset &&
+            proposalAsset.kind !== "audio" &&
             !isAudioProposal &&
             derived?.assets[proposalAsset.id] && (
               <TimelineFilmstrip
@@ -432,12 +658,14 @@ function TrackHeader({
   total,
   height,
   onCommand,
+  paletteId,
 }: {
   track: Track;
   index: number;
   total: number;
   height: number;
   onCommand: (command: EditorCommand) => Promise<ActionResult<unknown>>;
+  paletteId: TimelinePaletteId;
 }) {
   const [renaming, setRenaming] = useState(false);
   const [name, setName] = useState(track.name);
@@ -462,8 +690,13 @@ function TrackHeader({
   }
 
   const kindLabel = track.kind === "audio" ? "A" : track.kind === "overlay" ? "O" : "V";
+  const trackColor = timelinePaletteColor(paletteId, track, undefined);
   return (
-    <div className="grid content-center gap-0.5 border-b border-border px-2" style={{ height }}>
+    <div
+      className="relative grid content-center gap-0.5 border-b border-border px-2"
+      style={{ height }}
+    >
+      <span className="absolute inset-y-0 left-0 w-1" style={{ background: trackColor }} />
       <div className="flex min-w-0 items-center gap-1.5">
         <span className="grid size-5 shrink-0 place-items-center rounded bg-surface text-[10px] font-semibold text-muted">
           {kindLabel}
@@ -471,7 +704,7 @@ function TrackHeader({
         {renaming ? (
           <input
             ref={renameInputRef}
-            className="h-6 min-w-0 flex-1 rounded border border-border-strong bg-panel-muted px-1.5 text-ui-xs text-primary outline-none focus-visible:ring-2 focus-visible:ring-focus"
+            className="h-6 min-w-0 flex-1 rounded border border-border-strong bg-panel-muted px-1.5 text-[10px] text-primary outline-none focus-visible:ring-2 focus-visible:ring-focus"
             value={name}
             onChange={(event) => setName(event.target.value)}
             onBlur={commitName}
@@ -486,7 +719,7 @@ function TrackHeader({
         ) : (
           <button
             type="button"
-            className="min-w-0 flex-1 truncate text-left text-ui-xs font-medium text-secondary hover:text-primary"
+            className="min-w-0 flex-1 truncate text-left text-[10px] leading-4 font-medium text-secondary hover:text-primary"
             title={`${track.name} · Double-click to rename`}
             onDoubleClick={() => setRenaming(true)}
           >
@@ -561,7 +794,14 @@ function TrackHeader({
   );
 }
 
-export function Timeline({ project, onCommand, onSeek }: TimelineProps) {
+export function Timeline({
+  project,
+  onCommand,
+  onSeek,
+  onTogglePlayback,
+  onGoToStart,
+  onStepFrames,
+}: TimelineProps) {
   const zoom = useRendererStore((state) => state.timelineZoom);
   const setZoom = useRendererStore((state) => state.setTimelineZoom);
   const trackHeight = useRendererStore((state) => state.timelineTrackHeight);
@@ -575,6 +815,13 @@ export function Timeline({ project, onCommand, onSeek }: TimelineProps) {
   const snappingEnabled = useRendererStore((state) => state.snappingEnabled);
   const toggleSnapping = useRendererStore((state) => state.toggleSnapping);
   const derived = useRendererStore((state) => state.derivedMedia);
+  const playback = useRendererStore((state) => state.playbackRuntime?.snapshot ?? null);
+  const [paletteId, setPaletteId] = useState<TimelinePaletteId>(() => {
+    const stored = localStorage.getItem("cinesim.timelinePalette");
+    return TIMELINE_PALETTES.some((palette) => palette.id === stored)
+      ? (stored as TimelinePaletteId)
+      : "northern-lights";
+  });
   const [timelineViewportWidth, setTimelineViewportWidth] = useState(0);
   const headerScrollRef = useRef<HTMLDivElement>(null);
   const timelineScrollRef = useRef<HTMLDivElement>(null);
@@ -592,6 +839,11 @@ export function Timeline({ project, onCommand, onSeek }: TimelineProps) {
     ? sequence.tracks.flatMap((track) => track.clips).find((clip) => clip.id === selectedClipId)
     : undefined;
   const canSplitSelection = Boolean(selectedClip && canSplitClipAt(selectedClip, playheadUs));
+
+  function selectPalette(next: TimelinePaletteId): void {
+    setPaletteId(next);
+    localStorage.setItem("cinesim.timelinePalette", next);
+  }
 
   useEffect(() => {
     const viewport = timelineScrollRef.current;
@@ -629,164 +881,245 @@ export function Timeline({ project, onCommand, onSeek }: TimelineProps) {
 
   return (
     <section className="flex min-h-0 flex-col bg-panel-muted">
-      <PaneHeader size="sm" className="gap-1">
-        <Button
-          size="icon"
-          variant={tool === "select" ? "secondary" : "ghost"}
-          aria-label="Selection tool"
-          onClick={() => setTool("select")}
-        >
-          <MousePointer2 size={14} />
-        </Button>
-        <Button
-          size="icon"
-          variant={tool === "trim" ? "secondary" : "ghost"}
-          aria-label="Trim tool"
-          title="Trim tool (T)"
-          onClick={() => setTool("trim")}
-        >
-          <MoveHorizontal size={14} />
-        </Button>
-        <Button
-          size="icon"
-          variant={tool === "blade" ? "secondary" : "ghost"}
-          aria-label="Blade tool"
-          onClick={() => setTool("blade")}
-        >
-          <Scissors size={14} />
-        </Button>
-        <Separator orientation="vertical" className="mx-1 h-4 self-auto" />
-        <Menu>
-          <MenuTrigger
-            aria-label="Add timeline track"
-            title="Add timeline track"
-            className="grid size-8 place-items-center rounded-md text-secondary hover:bg-surface hover:text-primary"
+      <div className="grid h-12 shrink-0 grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center border-b border-border bg-panel px-2">
+        <div className="flex min-w-0 items-center gap-0.5">
+          <Button
+            size="icon"
+            variant={tool === "select" ? "secondary" : "ghost"}
+            aria-label="Selection tool"
+            title="Selection tool (V)"
+            onClick={() => setTool("select")}
           >
-            <Plus size={14} />
-          </MenuTrigger>
-          <MenuContent align="start" className="w-48">
-            <MenuGroup>
-              <MenuLabel>Add track</MenuLabel>
-              <MenuItem
-                onClick={() =>
-                  void onCommand({ type: "track.add", sequenceId: sequence.id, kind: "video" })
-                }
-              >
-                <Video size={14} /> Video track
-              </MenuItem>
-              <MenuItem
-                onClick={() =>
-                  void onCommand({ type: "track.add", sequenceId: sequence.id, kind: "audio" })
-                }
-              >
-                <AudioLines size={14} /> Audio track
-              </MenuItem>
-              <MenuItem
-                onClick={() =>
-                  void onCommand({ type: "track.add", sequenceId: sequence.id, kind: "overlay" })
-                }
-              >
-                <Layers size={14} /> Overlay track
-              </MenuItem>
-            </MenuGroup>
-          </MenuContent>
-        </Menu>
-        <Menu>
-          <MenuTrigger
-            aria-label="Timeline view options"
-            title="Timeline view options"
-            className="grid size-8 place-items-center rounded-md text-secondary hover:bg-surface hover:text-primary"
+            <MousePointer2 size={14} />
+          </Button>
+          <Button
+            size="icon"
+            variant={tool === "trim" ? "secondary" : "ghost"}
+            aria-label="Trim tool"
+            title="Trim tool (T)"
+            onClick={() => setTool("trim")}
           >
-            <MenuIcon size={14} />
-          </MenuTrigger>
-          <MenuContent align="start" className="w-56 p-2">
-            <MenuGroup>
-              <MenuLabel>Track appearance</MenuLabel>
-              <label className="grid gap-1 px-2 py-1 text-ui-xs text-muted">
-                Height
-                <input
-                  aria-label="Timeline track height"
-                  className="h-1 accent-accent"
-                  type="range"
-                  min={40}
-                  max={112}
-                  step={4}
-                  value={trackHeight}
-                  onChange={(event) => setTrackHeight(Number(event.target.value))}
-                />
-              </label>
-            </MenuGroup>
-          </MenuContent>
-        </Menu>
-        <Separator orientation="vertical" className="mx-1 h-4 self-auto" />
-        <Button
-          size="icon"
-          variant={snappingEnabled ? "secondary" : "ghost"}
-          aria-label={snappingEnabled ? "Disable snapping" : "Enable snapping"}
-          aria-pressed={snappingEnabled}
-          title="Snapping (S)"
-          onClick={toggleSnapping}
-        >
-          <Magnet size={14} />
-        </Button>
-        <Separator orientation="vertical" className="mx-1 h-4 self-auto" />
-        <Button
-          size="icon"
-          variant="ghost"
-          aria-label="Split selected clip"
-          disabled={!canSplitSelection}
-          onClick={() =>
-            selectedClipId &&
-            canSplitSelection &&
-            void onCommand({ type: "clip.split", clipId: selectedClipId, atUs: playheadUs })
-          }
-        >
-          <Scissors size={14} />
-        </Button>
-        <Button
-          size="icon"
-          variant="danger"
-          aria-label="Delete selected clip"
-          disabled={!selectedClipId}
-          onClick={() =>
-            selectedClipId &&
-            void onCommand({ type: "clip.remove", clipId: selectedClipId }).then((result) => {
-              if (result.ok) selectClip(null);
-            })
-          }
-        >
-          <Trash2 size={14} />
-        </Button>
-        <Button
-          className="ml-auto"
-          size="icon"
-          variant="ghost"
-          aria-label="Zoom out"
-          disabled={zoom <= minimumZoom + Number.EPSILON}
-          onClick={() => setZoom(Math.max(minimumZoom, zoom / 1.25))}
-        >
-          <ZoomOut size={13} />
-        </Button>
-        <input
-          aria-label="Timeline zoom"
-          className="h-1 w-20 accent-accent"
-          type="range"
-          min={minimumZoom}
-          max={MAX_TIMELINE_ZOOM}
-          step="any"
-          value={zoom}
-          onChange={(event) => setZoom(Number(event.target.value))}
-        />
-        <Button
-          size="icon"
-          variant="ghost"
-          aria-label="Zoom in"
-          onClick={() => setZoom(zoom * 1.25)}
-        >
-          <ZoomIn size={13} />
-        </Button>
-      </PaneHeader>
-      <div className="grid min-h-0 flex-1 grid-cols-[168px_1fr] overflow-hidden">
+            <MoveHorizontal size={14} />
+          </Button>
+          <Button
+            size="icon"
+            variant={tool === "blade" ? "secondary" : "ghost"}
+            aria-label="Blade tool"
+            title="Blade tool (B)"
+            onClick={() => setTool("blade")}
+          >
+            <Scissors size={14} />
+          </Button>
+          <Separator orientation="vertical" className="mx-1 h-4 self-auto" />
+          <Menu>
+            <MenuTrigger
+              aria-label="Add timeline track"
+              title="Add timeline track"
+              className="grid size-8 place-items-center rounded-md text-secondary hover:bg-surface hover:text-primary"
+            >
+              <Plus size={14} />
+            </MenuTrigger>
+            <MenuContent align="start" className="w-48">
+              <MenuGroup>
+                <MenuLabel>Add track</MenuLabel>
+                <MenuItem
+                  onClick={() =>
+                    void onCommand({ type: "track.add", sequenceId: sequence.id, kind: "video" })
+                  }
+                >
+                  <Video size={14} /> Video track
+                </MenuItem>
+                <MenuItem
+                  onClick={() =>
+                    void onCommand({ type: "track.add", sequenceId: sequence.id, kind: "audio" })
+                  }
+                >
+                  <AudioLines size={14} /> Audio track
+                </MenuItem>
+                <MenuItem
+                  onClick={() =>
+                    void onCommand({ type: "track.add", sequenceId: sequence.id, kind: "overlay" })
+                  }
+                >
+                  <Layers size={14} /> Overlay track
+                </MenuItem>
+              </MenuGroup>
+            </MenuContent>
+          </Menu>
+          <Menu>
+            <MenuTrigger
+              aria-label="Timeline view options"
+              title="Timeline view options"
+              className="grid size-8 place-items-center rounded-md text-secondary hover:bg-surface hover:text-primary"
+            >
+              <MenuIcon size={14} />
+            </MenuTrigger>
+            <MenuContent align="start" className="w-60 p-2">
+              <MenuGroup>
+                <MenuLabel>Track appearance</MenuLabel>
+                <label className="grid gap-1 px-2 py-1 text-ui-xs text-muted">
+                  Height
+                  <input
+                    aria-label="Timeline track height"
+                    className="h-1 accent-accent"
+                    type="range"
+                    min={40}
+                    max={112}
+                    step={4}
+                    value={trackHeight}
+                    onChange={(event) => setTrackHeight(Number(event.target.value))}
+                  />
+                </label>
+                <MenuLabel>Clip palette</MenuLabel>
+                {TIMELINE_PALETTES.map((palette) => (
+                  <MenuItem key={palette.id} onClick={() => selectPalette(palette.id)}>
+                    <span className="flex gap-0.5">
+                      {Object.values(palette.colors).map((color) => (
+                        <span
+                          key={color}
+                          className="size-2 rounded-full"
+                          style={{ background: color }}
+                        />
+                      ))}
+                    </span>
+                    <span className="flex-1">{palette.name}</span>
+                    {paletteId === palette.id && <span aria-hidden="true">✓</span>}
+                  </MenuItem>
+                ))}
+              </MenuGroup>
+            </MenuContent>
+          </Menu>
+          <Button
+            size="icon"
+            variant={snappingEnabled ? "secondary" : "ghost"}
+            aria-label={snappingEnabled ? "Disable snapping" : "Enable snapping"}
+            aria-pressed={snappingEnabled}
+            title="Snapping (S)"
+            onClick={toggleSnapping}
+          >
+            <Magnet size={14} />
+          </Button>
+          <Button
+            size="icon"
+            variant="ghost"
+            aria-label="Split selected clip"
+            disabled={!canSplitSelection}
+            onClick={() =>
+              selectedClipId &&
+              canSplitSelection &&
+              void onCommand({ type: "clip.split", clipId: selectedClipId, atUs: playheadUs })
+            }
+          >
+            <Scissors size={14} />
+          </Button>
+          <Button
+            size="icon"
+            variant="danger"
+            aria-label="Delete selected clip"
+            disabled={!selectedClipId}
+            onClick={() =>
+              selectedClipId &&
+              void onCommand({ type: "clip.remove", clipId: selectedClipId }).then((result) => {
+                if (result.ok) selectClip(null);
+              })
+            }
+          >
+            <Trash2 size={14} />
+          </Button>
+        </div>
+
+        <div className="flex h-full items-center gap-1">
+          <span className="mr-2 inline-flex h-9 min-w-[100px] items-center justify-center px-2 text-center text-[13px] leading-none font-semibold text-primary tabular-nums">
+            {formatTimecode(playheadUs, sequence.frameRate)}
+          </span>
+          <Button
+            size="icon-lg"
+            variant="ghost"
+            aria-label="Go to timeline beginning"
+            title="Go to beginning (Home)"
+            onClick={onGoToStart}
+          >
+            <ChevronsLeft size={20} strokeWidth={1.8} />
+          </Button>
+          <Button
+            size="icon-lg"
+            variant="ghost"
+            aria-label="Previous frame"
+            title="Previous frame (Left Arrow)"
+            onClick={() => onStepFrames?.(-1)}
+          >
+            <ChevronLeft size={20} strokeWidth={1.8} />
+          </Button>
+          <Button
+            size="icon-lg"
+            variant="ghost"
+            aria-label={playback?.playing ? "Pause" : "Play"}
+            title="Play or pause (Space)"
+            onClick={onTogglePlayback}
+          >
+            {playback?.playing ? (
+              <Pause size={20} fill="currentColor" strokeWidth={1.8} />
+            ) : (
+              <Play className="ml-0.5" size={20} fill="currentColor" strokeWidth={1.8} />
+            )}
+          </Button>
+          <Button
+            size="icon-lg"
+            variant="ghost"
+            aria-label="Next frame"
+            title="Next frame (Right Arrow)"
+            onClick={() => onStepFrames?.(1)}
+          >
+            <ChevronRight size={20} strokeWidth={1.8} />
+          </Button>
+          <Button
+            size="icon-lg"
+            variant="ghost"
+            aria-label="Go to timeline end"
+            title="Go to end (End)"
+            onClick={() => onSeek?.(sequenceDuration)}
+          >
+            <ChevronsRight size={20} strokeWidth={1.8} />
+          </Button>
+          {playback?.playing && Math.abs(playback.playbackRate) !== 1 && (
+            <span className="px-1 text-[9px] font-semibold text-muted tabular-nums">
+              {playback.playbackRate > 0 ? "+" : "−"}
+              {Math.abs(playback.playbackRate)}×
+            </span>
+          )}
+        </div>
+
+        <div className="flex min-w-0 items-center justify-end gap-1">
+          <Button
+            size="icon"
+            variant="ghost"
+            aria-label="Zoom out"
+            disabled={zoom <= minimumZoom + Number.EPSILON}
+            onClick={() => setZoom(Math.max(minimumZoom, zoom / 1.25))}
+          >
+            <ZoomOut size={13} />
+          </Button>
+          <input
+            aria-label="Timeline zoom"
+            className="h-1 w-20 accent-accent"
+            type="range"
+            min={minimumZoom}
+            max={MAX_TIMELINE_ZOOM}
+            step="any"
+            value={zoom}
+            onChange={(event) => setZoom(Number(event.target.value))}
+          />
+          <Button
+            size="icon"
+            variant="ghost"
+            aria-label="Zoom in"
+            onClick={() => setZoom(zoom * 1.25)}
+          >
+            <ZoomIn size={13} />
+          </Button>
+        </div>
+      </div>
+      <div className="grid min-h-0 flex-1 grid-cols-[168px_minmax(0,1fr)_72px] overflow-hidden">
         <div
           ref={headerScrollRef}
           className="relative z-20 overflow-hidden border-r border-border bg-panel"
@@ -803,6 +1136,7 @@ export function Timeline({ project, onCommand, onSeek }: TimelineProps) {
               total={sequence.tracks.length}
               height={trackHeight}
               onCommand={onCommand}
+              paletteId={paletteId}
             />
           ))}
         </div>
@@ -852,6 +1186,7 @@ export function Timeline({ project, onCommand, onSeek }: TimelineProps) {
                 frameRate={sequence.frameRate}
                 snappingEnabled={snappingEnabled}
                 playheadUs={playheadUs}
+                paletteId={paletteId}
               />
             ))}
             <div
@@ -862,6 +1197,7 @@ export function Timeline({ project, onCommand, onSeek }: TimelineProps) {
             </div>
           </div>
         </div>
+        <MasterLevelMeter />
       </div>
     </section>
   );

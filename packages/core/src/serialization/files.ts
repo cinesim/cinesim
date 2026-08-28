@@ -197,6 +197,8 @@ export function joinProjectFiles(
         }
         if (clip.sourceEndUs <= clip.sourceStartUs)
           throw new Error(`Clip ${clip.id} has an invalid source range`);
+        if ((clip.fadeInUs ?? 0) + (clip.fadeOutUs ?? 0) > clip.sourceEndUs - clip.sourceStartUs)
+          throw new Error(`Clip ${clip.id} has invalid overlapping fades`);
       }
     }
   }
@@ -247,11 +249,24 @@ export function canonicalizeProject(project: Project): Project {
     // Track order is authored state: for visual tracks it also determines layer order.
     // Preserve it while canonicalizing the unordered collections around it.
     for (const track of sequence.tracks) {
-      track.clips.sort((left, right) =>
-        left.timelineStartUs === right.timelineStartUs
-          ? left.id.localeCompare(right.id)
-          : left.timelineStartUs - right.timelineStartUs,
-      );
+      track.clips = track.clips
+        .map((clip): Clip => ({
+          id: clip.id,
+          assetId: clip.assetId,
+          mediaKind: clip.mediaKind,
+          ...(clip.linkedClipId ? { linkedClipId: clip.linkedClipId } : {}),
+          timelineStartUs: clip.timelineStartUs,
+          sourceStartUs: clip.sourceStartUs,
+          sourceEndUs: clip.sourceEndUs,
+          ...(clip.fadeInUs ? { fadeInUs: clip.fadeInUs } : {}),
+          ...(clip.fadeOutUs ? { fadeOutUs: clip.fadeOutUs } : {}),
+          transform: { ...clip.transform },
+        }))
+        .sort((left, right) =>
+          left.timelineStartUs === right.timelineStartUs
+            ? left.id.localeCompare(right.id)
+            : left.timelineStartUs - right.timelineStartUs,
+        );
     }
   }
   return copy;

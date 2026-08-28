@@ -1,14 +1,5 @@
-import { useCallback, useEffect, useRef, useState } from "react";
-import {
-  Check,
-  Grid3X3,
-  Maximize2,
-  Pause,
-  Play,
-  SkipBack,
-  StepBack,
-  StepForward,
-} from "@cinesim/ui";
+import { useEffect, useRef, useState } from "react";
+import { Check, Grid3X3, Maximize2 } from "@cinesim/ui";
 import {
   Button,
   cn,
@@ -30,7 +21,6 @@ import type { Project } from "@cinesim/core";
 import type { DerivedProjectScope } from "../../../shared/api";
 import { PlaybackRuntime, WebGpuCompositor } from "@cinesim/engine";
 import type { PreviewMode } from "@cinesim/engine";
-import { formatTimecode } from "../../lib/format";
 import { ProxySourceResolver } from "../../lib/proxy-source-resolver";
 import { useRendererStore, useRendererStoreApi } from "../../store/renderer-store-context";
 
@@ -39,6 +29,9 @@ export interface ViewerController {
   enterAssetPreview(assetId: `asset_${string}`, sourceTimeUs: number): void;
   updateAssetPreview(sourceTimeUs: number): void;
   exitAssetPreview(): Promise<void>;
+  playTimeline(): void;
+  pauseTimeline(): void;
+  stepFrames(deltaFrames: number): Promise<void>;
 }
 
 type ViewerScale = "fit" | "0.5" | "1" | "2";
@@ -67,8 +60,6 @@ const DEFAULT_GUIDES: ViewerGuides = {
   actionSafe: false,
   titleSafe: false,
 };
-
-const VIEWER_CONTROLS_HIDE_DELAY_MS = 2_000;
 
 function isInteractiveShortcutTarget(target: EventTarget | null): boolean {
   if (!(target instanceof Element)) return false;
@@ -167,12 +158,10 @@ export function Viewer({
   const runtimeRef = useRef<PlaybackRuntime | null>(null);
   const projectRef = useRef(project);
   const refreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const controlsTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [stageSize, setStageSize] = useState({ width: 0, height: 0 });
   const [viewerScale, setViewerScale] = useState<ViewerScale>("fit");
   const [guides, setGuides] = useState(DEFAULT_GUIDES);
-  const [controlsVisible, setControlsVisible] = useState(true);
   const store = useRendererStoreApi();
   const runtime = useRendererStore((state) =>
     state.playbackRuntime?.projectDirectory === projectDirectory &&
@@ -181,48 +170,12 @@ export function Viewer({
       : null,
   );
   const setRuntime = useRendererStore((state) => state.setPlaybackRuntime);
-  const playheadUs = useRendererStore((state) => state.playheadUs);
   const sequence = getSequence(project);
   const durationUs = sequenceDurationUs(sequence);
   const displaySize = viewerDisplaySize(sequence, stageSize, viewerScale);
-  const previewMode = runtime?.mode.kind === "asset" ? runtime.mode : null;
-  const previewAsset = previewMode
-    ? project.assets.find((asset) => asset.id === previewMode.assetId)
-    : null;
-  const displayTimeUs =
-    runtime?.mode.kind === "asset" ? runtime.mode.sourceTimeUs : Math.min(playheadUs, durationUs);
-  const displayFrameRate = previewAsset?.frameRate ?? sequence.frameRate;
-  const showTimelineScrubber = runtime?.mode.kind !== "asset";
-  const scrubberProgress =
-    durationUs > 0 ? Math.min(100, Math.max(0, (playheadUs / durationUs) * 100)) : 0;
-
-  const showControls = useCallback(() => {
-    if (controlsTimerRef.current) clearTimeout(controlsTimerRef.current);
-    controlsTimerRef.current = null;
-    setControlsVisible((visible) => {
-      if (visible) return visible;
-      return true;
-    });
-  }, []);
-
-  const hideControlsSoon = useCallback(() => {
-    if (controlsTimerRef.current) clearTimeout(controlsTimerRef.current);
-    controlsTimerRef.current = setTimeout(() => {
-      setControlsVisible(false);
-      controlsTimerRef.current = null;
-    }, VIEWER_CONTROLS_HIDE_DELAY_MS);
-  }, []);
-
   useEffect(() => {
     projectRef.current = project;
   }, [project]);
-
-  useEffect(
-    () => () => {
-      if (controlsTimerRef.current) clearTimeout(controlsTimerRef.current);
-    },
-    [],
-  );
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -378,10 +331,6 @@ export function Viewer({
     return () => window.removeEventListener("keydown", shortcut);
   }, [store]);
 
-  async function seek(value: number) {
-    await runtimeRef.current?.seekTimeline(Math.round(value));
-  }
-
   async function toggleFullscreen(): Promise<void> {
     if (document.fullscreenElement) await document.exitFullscreen();
     else await sectionRef.current?.requestFullscreen();
@@ -390,9 +339,7 @@ export function Viewer({
   return (
     <section ref={sectionRef} className="relative flex min-h-0 flex-col bg-panel-muted">
       <PaneHeader size="sm" className="gap-2 px-3">
-        <span className="min-w-0 flex-1 truncate text-ui-xs font-medium text-secondary tabular-nums">
-          {formatTimecode(displayTimeUs, displayFrameRate)}
-        </span>
+        <span className="flex-1" />
         {runtime?.playing && Math.abs(runtime.playbackRate) !== 1 && (
           <span className="rounded bg-surface px-1.5 py-0.5 text-[10px] font-semibold text-secondary tabular-nums">
             {runtime.playbackRate > 0 ? "+" : "−"}
@@ -412,16 +359,20 @@ export function Viewer({
           onValueChange={setViewerScale}
         />
         <GuideMenu guides={guides} onChange={setGuides} />
+        <Button
+          size="icon"
+          variant="ghost"
+          aria-label="Fullscreen viewer"
+          title="Fullscreen viewer"
+          onClick={() => void toggleFullscreen()}
+        >
+          <Maximize2 size={14} />
+        </Button>
         <span className="rounded bg-surface px-2 py-1 text-ui-xs text-muted tabular-nums">
           {sequence.width} × {sequence.height} · {sequence.frameRate} fps
         </span>
       </PaneHeader>
-      <div
-        ref={stageRef}
-        className="relative min-h-0 flex-1 overflow-auto bg-canvas"
-        onPointerEnter={showControls}
-        onPointerLeave={hideControlsSoon}
-      >
+      <div ref={stageRef} className="relative min-h-0 flex-1 overflow-auto bg-canvas">
         <div
           className="grid place-items-center p-5"
           style={{
@@ -458,98 +409,6 @@ export function Viewer({
             {error}
           </div>
         )}
-      </div>
-      <div
-        className={cn(
-          "absolute bottom-4 left-1/2 z-20 flex min-h-12 -translate-x-1/2 items-center gap-2 rounded-full border border-border-strong bg-panel/95 py-1.5 pl-3 pr-1.5 shadow-lg shadow-black/15 will-change-[opacity,transform]",
-          "transition-[opacity,transform] duration-150 ease-out",
-          showTimelineScrubber ? "w-[34rem] max-w-[calc(100%-2rem)]" : "w-fit",
-          controlsVisible
-            ? "translate-y-0 opacity-100"
-            : "pointer-events-none translate-y-3 opacity-0",
-        )}
-        onPointerEnter={showControls}
-        onPointerLeave={hideControlsSoon}
-      >
-        {showTimelineScrubber && (
-          <input
-            aria-label="Viewer playhead"
-            className="viewer-scrubber h-1 min-w-0 flex-1 cursor-ew-resize appearance-none bg-transparent"
-            type="range"
-            min={0}
-            max={Math.max(1, durationUs)}
-            value={Math.min(playheadUs, durationUs)}
-            style={{
-              background: `linear-gradient(to right, rgb(255 255 255 / 0.92) 0%, rgb(255 255 255 / 0.92) ${scrubberProgress}%, rgb(255 255 255 / 0.28) ${scrubberProgress}%, rgb(255 255 255 / 0.28) 100%)`,
-            }}
-            onChange={(event) => void seek(Number(event.target.value))}
-          />
-        )}
-        <div className="flex shrink-0 items-center gap-0.5">
-          <Button
-            size="icon-sm"
-            variant="ghost"
-            aria-label="Go to beginning"
-            title="Go to beginning (Home)"
-            onClick={() => {
-              const playback = runtimeRef.current;
-              if (playback) goToDisplayedStart(playback, runtime?.mode);
-            }}
-          >
-            <SkipBack size={14} />
-          </Button>
-          <Button
-            size="icon-sm"
-            variant="ghost"
-            aria-label="Previous frame"
-            title="Previous frame (Left Arrow)"
-            onClick={() => {
-              const playback = runtimeRef.current;
-              if (playback) stepDisplayedFrame(playback, projectRef.current, runtime?.mode, -1);
-            }}
-          >
-            <StepBack size={14} />
-          </Button>
-          <Button
-            className="mx-1 rounded-full"
-            size="icon"
-            variant="secondary"
-            aria-label={runtime?.playing ? "Pause" : "Play"}
-            title="Play or pause (Space)"
-            onClick={() =>
-              runtime?.playing
-                ? runtimeRef.current?.pause()
-                : runtimeRef.current?.setPlaybackRate(1)
-            }
-          >
-            {runtime?.playing ? (
-              <Pause size={15} fill="currentColor" />
-            ) : (
-              <Play className="ml-0.5" size={15} fill="currentColor" />
-            )}
-          </Button>
-          <Button
-            size="icon-sm"
-            variant="ghost"
-            aria-label="Next frame"
-            title="Next frame (Right Arrow)"
-            onClick={() => {
-              const playback = runtimeRef.current;
-              if (playback) stepDisplayedFrame(playback, projectRef.current, runtime?.mode, 1);
-            }}
-          >
-            <StepForward size={14} />
-          </Button>
-        </div>
-        <Button
-          size="icon"
-          variant="ghost"
-          aria-label="Fullscreen viewer"
-          title="Fullscreen viewer"
-          onClick={() => void toggleFullscreen()}
-        >
-          <Maximize2 size={14} />
-        </Button>
       </div>
     </section>
   );

@@ -8,7 +8,10 @@ const example = `CINESIM_ENV=development
 BETTER_AUTH_SECRET=replace-with-at-least-32-random-characters
 CLOUDFLARE_R2_ACCOUNT_ID=
 CLOUDFLARE_R2_BUCKET=
+CLOUDFLARE_R2_ACCESS_KEY_ID=
+CLOUDFLARE_R2_SECRET_ACCESS_KEY=
 CINESIM_CLOUD_INCLUDED_BYTES=10737418240
+CINESIM_CLOUD_ADDON_OPTIONS_BYTES=0,53687091200,214748364800
 `;
 
 describe("local environment setup", () => {
@@ -18,7 +21,7 @@ describe("local environment setup", () => {
     );
   });
 
-  it("adds missing settings without changing existing values", () => {
+  it("adds missing Cloudflare settings without changing existing values", () => {
     const existing = `CINESIM_ENV=custom
 BETTER_AUTH_SECRET=existing-secret
 CLOUDFLARE_R2_ACCOUNT_ID=existing-account
@@ -26,7 +29,13 @@ CLOUDFLARE_R2_ACCOUNT_ID=existing-account
 
     const result = backfillMissingEnvironmentVariables(existing, example, "generated-secret");
 
-    expect(result.addedKeys).toEqual(["CLOUDFLARE_R2_BUCKET", "CINESIM_CLOUD_INCLUDED_BYTES"]);
+    expect(result.addedKeys).toEqual([
+      "CLOUDFLARE_R2_BUCKET",
+      "CLOUDFLARE_R2_ACCESS_KEY_ID",
+      "CLOUDFLARE_R2_SECRET_ACCESS_KEY",
+      "CINESIM_CLOUD_INCLUDED_BYTES",
+      "CINESIM_CLOUD_ADDON_OPTIONS_BYTES",
+    ]);
     expect(result.contents).toContain("CINESIM_ENV=custom");
     expect(result.contents).toContain("BETTER_AUTH_SECRET=existing-secret");
     expect(result.contents).toContain("CLOUDFLARE_R2_ACCOUNT_ID=existing-account");

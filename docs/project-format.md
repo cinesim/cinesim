@@ -36,6 +36,8 @@ Sequence track order is authored canonical state, not an incidental JSON order. 
 
 Every canonical clip declares a `mediaKind` of `video` or `audio`; playback and presentation never infer embedded audio from a visual clip. Audio-only assets may be placed only on audio tracks, while video and image components may be placed on video or overlay tracks. Adding a video asset with audio atomically creates reciprocal linked video and audio clips. The command chooses an available audio track or creates one when necessary, and linked move, trim, split, and remove edits remain one command and one undo step. Pre-component project files are deterministically upgraded to this representation during load. Loading a project or applying a clip command rejects incompatible placements and malformed links.
 
+Optional `fadeInUs` and `fadeOutUs` clip fields define linear opacity or audio-gain envelopes in integer microseconds. `clip.setFade` is the only editing pathway for them; the combined fades cannot exceed the clip duration. A timeline handle drag commits one command and one undo step. Trims clamp existing fades to the new duration, while splits preserve the outer fades and clear the two new interior edges.
+
 Tracks are changed through the shared command pathway:
 
 - `track.add` takes `sequenceId`, `kind`, and an optional `name`. Core allocates the next project-wide stable track ID. Video and overlay tracks enter at the top of the visual stack; audio tracks enter at the bottom of the audio stack.

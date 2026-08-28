@@ -74,14 +74,17 @@ export function TimelineFilmstrip({
       filmstrip.updatedAt!,
     );
     return (
-      <div aria-hidden="true" className="pointer-events-none absolute inset-0 flex overflow-hidden">
+      <div
+        aria-hidden="true"
+        className="pointer-events-none absolute inset-0 flex overflow-hidden bg-black/15"
+      >
         {tileIndices.map((tileIndex, cellIndex) => {
           const column = tileIndex % columns;
           const row = Math.floor(tileIndex / columns);
           return (
             <span
               key={`${cellIndex}:${tileIndex}`}
-              className="h-full min-w-0 flex-1 bg-cover bg-no-repeat opacity-70"
+              className="h-full min-w-0 flex-1 border-r border-black/30 bg-cover bg-center bg-no-repeat opacity-95 last:border-r-0"
               style={{
                 backgroundImage: `url("${imageUrl}")`,
                 backgroundSize: `${columns * 100}% ${rows * 100}%`,
@@ -107,7 +110,7 @@ export function TimelineFilmstrip({
       )}
       alt=""
       draggable={false}
-      className="pointer-events-none absolute inset-0 h-full w-full object-cover opacity-55"
+      className="pointer-events-none absolute inset-0 h-full w-full object-cover opacity-95"
     />
   );
 }

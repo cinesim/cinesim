@@ -2,6 +2,7 @@ import {
   DEFAULT_TRANSFORM,
   clipCarriesAudio,
   clipEndUs,
+  clipFadeGainAt,
   getSequence,
   sequenceDurationUs,
 } from "@cinesim/core";
@@ -59,6 +60,7 @@ export interface RuntimeSnapshot {
   previewWidth: number;
   previewHeight: number;
   sourcePreviewSuppressions: number;
+  masterPeakDb: readonly [number, number];
 }
 
 export interface PlaybackRuntimeOptions {
@@ -605,7 +607,15 @@ export class PlaybackRuntime {
       layers.map(async (layer) => {
         const descriptor = this.#sourceResolver.resolve(layer.asset.id);
         const frame = await this.#source(descriptor).getFrame(layer.sourceTimeUs);
-        return frame ? { frame, transform: layer.clip.transform } : null;
+        return frame
+          ? {
+              frame,
+              transform: {
+                ...layer.clip.transform,
+                opacity: layer.clip.transform.opacity * clipFadeGainAt(layer.clip, mode.timeUs),
+              },
+            }
+          : null;
       }),
     );
     const active = layers.at(-1);
@@ -629,7 +639,15 @@ export class PlaybackRuntime {
           this.#sequentialCursors.set(key, cursor);
         }
         const frame = await cursor.frameAt(layer.sourceTimeUs);
-        return frame ? { frame, transform: layer.clip.transform } : null;
+        return frame
+          ? {
+              frame,
+              transform: {
+                ...layer.clip.transform,
+                opacity: layer.clip.transform.opacity * clipFadeGainAt(layer.clip, timeUs),
+              },
+            }
+          : null;
       }),
     );
     for (const [key, cursor] of this.#sequentialCursors) {
@@ -746,6 +764,12 @@ export class PlaybackRuntime {
               sourceFromUs,
               timelineFromUs,
               timelineToUs - timelineFromUs,
+              {
+                timelineStartUs: clip.timelineStartUs,
+                timelineEndUs: clipEndUs(clip),
+                fadeInUs: clip.fadeInUs ?? 0,
+                fadeOutUs: clip.fadeOutUs ?? 0,
+              },
             ),
           );
         }
@@ -813,6 +837,7 @@ export class PlaybackRuntime {
       previewWidth: sequence.width,
       previewHeight: sequence.height,
       sourcePreviewSuppressions: this.#sourcePreviewSuppressions,
+      masterPeakDb: this.#audioScheduler?.samplePeakDb?.() ?? [-60, -60],
     };
     this.#lastSnapshotAt = now;
     this.#renderedSinceSnapshot = 0;

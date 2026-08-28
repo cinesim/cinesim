@@ -19,9 +19,21 @@ describe("canonical serialization", () => {
       source: { kind: "local", path: "/tmp/a.mp4" },
       durationUs: 1_000_000,
     };
-    const project = applyCommand(createProject({ name: "Round trip" }), {
+    let project = applyCommand(createProject({ name: "Round trip" }), {
       type: "asset.import",
       asset,
+    }).project;
+    project = applyCommand(project, {
+      type: "clip.add",
+      trackId: "track_000001",
+      assetId: asset.id,
+      timelineStartUs: 0,
+    }).project;
+    project = applyCommand(project, {
+      type: "clip.setFade",
+      clipId: "clip_000001",
+      edge: "in",
+      durationUs: 200_000,
     }).project;
     const files = splitProjectFiles(project);
     const loaded = joinProjectFiles(files.manifest, files.assets, files.timeline);
@@ -67,6 +79,34 @@ describe("canonical serialization", () => {
     expect(() =>
       joinProjectFiles({ ...files.manifest, version: 2 }, files.assets, files.timeline),
     ).toThrow();
+  });
+
+  it("rejects persisted fades that overlap", () => {
+    const asset: Asset = {
+      id: "asset_000001",
+      kind: "video",
+      name: "fade.mov",
+      source: { kind: "local", path: "/tmp/fade.mov" },
+      durationUs: 1_000_000,
+    };
+    let project = applyCommand(createProject({ name: "Invalid fade" }), {
+      type: "asset.import",
+      asset,
+    }).project;
+    project = applyCommand(project, {
+      type: "clip.add",
+      trackId: "track_000001",
+      assetId: asset.id,
+      timelineStartUs: 0,
+    }).project;
+    const files = splitProjectFiles(project);
+    Object.assign(files.timeline.sequences[0]!.tracks[0]!.clips[0]!, {
+      fadeInUs: 600_000,
+      fadeOutUs: 600_000,
+    });
+    expect(() => joinProjectFiles(files.manifest, files.assets, files.timeline)).toThrow(
+      /overlapping fades/,
+    );
   });
 
   it("rejects broken asset references", () => {

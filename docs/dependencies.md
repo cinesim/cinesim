@@ -14,6 +14,7 @@ Runtime dependencies:
 | class-variance-authority            | Component variants                   | Apache-2.0   |
 | tailwind-merge                      | Tailwind class composition           | MIT          |
 | Hugeicons Free / React              | Free icon data and React renderer    | MIT          |
+| Lucide React                        | Timeline transport controls          | ISC          |
 | dnd-kit                             | Timeline drag/drop                   | MIT          |
 | Zustand                             | Ephemeral renderer state             | MIT          |
 | TanStack Router                     | Renderer routing                     | MIT          |

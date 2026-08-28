@@ -53,6 +53,16 @@ function assertNoOverlap(track: Track, candidate: Clip, ignoredId?: ClipId): voi
   }
 }
 
+function clampClipFades(clip: Clip): void {
+  const durationUs = clipEndUs(clip) - clip.timelineStartUs;
+  const fadeInUs = Math.min(durationUs, clip.fadeInUs ?? 0);
+  const fadeOutUs = Math.min(durationUs - fadeInUs, clip.fadeOutUs ?? 0);
+  if (fadeInUs > 0) clip.fadeInUs = fadeInUs;
+  else delete clip.fadeInUs;
+  if (fadeOutUs > 0) clip.fadeOutUs = fadeOutUs;
+  else delete clip.fadeOutUs;
+}
+
 function allClipIds(project: Project): string[] {
   return project.sequences.flatMap((sequence) =>
     sequence.tracks.flatMap((track) => track.clips.map((clip) => clip.id)),
@@ -619,6 +629,8 @@ export function applyCommand(inputProject: Project, command: EditorCommand): Com
       if (linkedTrimmed) assertNoOverlap(linked!.track, linkedTrimmed, linkedTrimmed.id);
       Object.assign(clip, trimmed);
       if (linked && linkedTrimmed) Object.assign(linked.clip, linkedTrimmed);
+      clampClipFades(clip);
+      if (linked) clampClipFades(linked.clip);
       sortClips(track);
       if (linked) sortClips(linked.track);
       return result(project, command, `Trimmed start of ${clip.id}`, [
@@ -652,11 +664,33 @@ export function applyCommand(inputProject: Project, command: EditorCommand): Com
       if (linkedTrimmed) assertNoOverlap(linked!.track, linkedTrimmed, linkedTrimmed.id);
       Object.assign(clip, trimmed);
       if (linked && linkedTrimmed) Object.assign(linked.clip, linkedTrimmed);
+      clampClipFades(clip);
+      if (linked) clampClipFades(linked.clip);
       return result(project, command, `Trimmed end of ${clip.id}`, [
         track.id,
         clip.id,
         ...(linked ? [linked.track.id, linked.clip.id] : []),
       ]);
+    }
+
+    case "clip.setFade": {
+      assertTime(command.durationUs, "durationUs");
+      const { clip, track } = findClip(project, command.clipId);
+      if (track.locked) throw new CommandError("TRACK_LOCKED", `Track is locked: ${track.id}`);
+      const durationUs = clipEndUs(clip) - clip.timelineStartUs;
+      const otherDurationUs = command.edge === "in" ? (clip.fadeOutUs ?? 0) : (clip.fadeInUs ?? 0);
+      if (command.durationUs + otherDurationUs > durationUs) {
+        throw new CommandError("INVALID_FADE", "Clip fades cannot overlap");
+      }
+      const key = command.edge === "in" ? "fadeInUs" : "fadeOutUs";
+      if (command.durationUs === 0) delete clip[key];
+      else clip[key] = command.durationUs;
+      return result(
+        project,
+        command,
+        `${command.durationUs === 0 ? "Cleared" : "Set"} ${command.edge === "in" ? "fade in" : "fade out"} on ${clip.id}`,
+        [track.id, clip.id],
+      );
     }
 
     case "clip.split": {
@@ -683,6 +717,7 @@ export function applyCommand(inputProject: Project, command: EditorCommand): Com
         timelineStartUs: command.atUs,
         sourceStartUs: sourceSplitUs,
       };
+      delete right.fadeInUs;
       const linkedSourceSplitUs = linked
         ? linked.clip.sourceStartUs + (command.atUs - linked.clip.timelineStartUs)
         : null;
@@ -696,8 +731,15 @@ export function applyCommand(inputProject: Project, command: EditorCommand): Com
               sourceStartUs: linkedSourceSplitUs,
             }
           : null;
+      if (linkedRight) delete linkedRight.fadeInUs;
       clip.sourceEndUs = sourceSplitUs;
+      delete clip.fadeOutUs;
       if (linked && linkedSourceSplitUs !== null) linked.clip.sourceEndUs = linkedSourceSplitUs;
+      if (linked) delete linked.clip.fadeOutUs;
+      clampClipFades(clip);
+      clampClipFades(right);
+      if (linked) clampClipFades(linked.clip);
+      if (linkedRight) clampClipFades(linkedRight);
       track.clips.push(right);
       sortClips(track);
       if (linked && linkedRight) {

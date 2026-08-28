@@ -46,6 +46,19 @@ describe("Cinesim API configuration", () => {
     );
   });
 
+  it("keeps R2 disabled when generated optional credentials are blank", () => {
+    const config = readServerConfig(
+      environment({
+        CLOUDFLARE_R2_ACCOUNT_ID: "",
+        CLOUDFLARE_R2_BUCKET: "",
+        CLOUDFLARE_R2_ACCESS_KEY_ID: "",
+        CLOUDFLARE_R2_SECRET_ACCESS_KEY: "",
+      }),
+    );
+
+    expect(config.r2).toBeNull();
+  });
+
   it("enables R2 only with a complete private bucket configuration", () => {
     const config = readServerConfig(
       environment({

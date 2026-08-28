@@ -67,6 +67,12 @@ export const editorCommandSchema = z.discriminatedUnion("type", [
   }),
   z.object({ type: z.literal("clip.trimStart"), clipId, atUs: timeUs }),
   z.object({ type: z.literal("clip.trimEnd"), clipId, atUs: timeUs }),
+  z.object({
+    type: z.literal("clip.setFade"),
+    clipId,
+    edge: z.enum(["in", "out"]),
+    durationUs: timeUs,
+  }),
   z.object({ type: z.literal("clip.split"), clipId, atUs: timeUs }),
 ]);
 
