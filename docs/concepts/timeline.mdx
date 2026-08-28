@@ -1,0 +1,72 @@
+---
+title: The timeline
+description: How sequences, tracks, clips, and linked audio are modeled, and what determines layer order.
+---
+
+A sequence is one flat timeline: an ordered stack of tracks, each holding clips that reference your
+assets. V1 supports one active sequence at a time and rejects overlapping clips on a track.
+
+## Tracks
+
+Tracks come in three kinds, and a track's kind decides what can be placed on it.
+
+| Kind    | Holds                      | Stack  |
+| ------- | -------------------------- | ------ |
+| Video   | Video and image components | Visual |
+| Overlay | Visual layers above video  | Visual |
+| Audio   | Audio components           | Audio  |
+
+Audio-only assets can go only on audio tracks. Video and image components can go on either video or
+overlay tracks. Placements that break these rules are rejected rather than silently coerced.
+
+### Layer order is authored state
+
+Track order is part of your project, not an accident of how the JSON was written. Index `0` is the
+uppermost track, and upper visual tracks composite over lower ones. That order survives save and
+load, and it matches what you see in the UI.
+
+New tracks enter where you would expect: video and overlay tracks at the top of the visual stack,
+audio tracks at the bottom of the audio stack. Reordering takes a zero-based destination index.
+
+You can rename, mute, lock, reorder, add, and remove tracks. Removal is deliberately conservative —
+a track must be unlocked and empty first, so you cannot lose clips to a misclick.
+
+## Clips
+
+Every clip declares whether it is `video` or `audio`. Nothing infers media kind at playback time
+from context.
+
+A clip has a position on the timeline, a source range within its asset, and a transform. Each clip
+carries a stable ID that does not change as you edit around it, which is what lets the CLI and
+agents refer to a specific clip reliably.
+
+### Linked audio
+
+Adding a video asset that has sound creates two clips at once — a video clip and an audio clip that
+reference each other. Cinesim picks an available audio track or creates one.
+
+Linked clips behave as a unit. Moving, trimming, splitting, or deleting either one applies to both,
+as a single edit and a single undo step. There is no separate "unlink" model in V1: audio embedded
+in a video clip follows that clip.
+
+### Fades
+
+Clips can carry linear fade-in and fade-out envelopes — opacity for video, gain for audio. Combined
+fades cannot exceed the clip's duration.
+
+Editing around a fade keeps it coherent: trimming clamps existing fades to the new length, and
+splitting keeps the outer fades while clearing the two new interior edges.
+
+## Timing
+
+All canonical timing is integer microseconds. There is no floating-point drift and no frame-rate
+assumption baked into the stored project, which is why the same edit produces the same result in the
+desktop app, the CLI, and MCP tools.
+
+When you type times into the CLI you can use friendlier forms — `4.2s`, `250ms`, `3m`, `01:23.500` —
+and they are converted to microseconds at the boundary.
+
+## Next
+
+- [Commands and history](./commands-and-history.mdx) — how edits are applied and undone.
+- [Edit on the timeline](../guides/edit-timeline.mdx) — doing this in the app.

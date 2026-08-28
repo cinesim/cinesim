@@ -1,0 +1,89 @@
+---
+title: MCP reference
+description: The tools Cinesim exposes to a connected coding agent, with their inputs and safety annotations.
+---
+
+Cinesim ships an MCP server that exposes project inspection and timeline editing to a coding agent.
+Every tool delegates to the same [command layer](../concepts/commands-and-history.mdx) the desktop
+app uses — there is no separate agent editing path.
+
+For connecting an agent in the app, see [Work with an agent](../guides/work-with-agents.mdx).
+
+## Transport and scope
+
+Inside the desktop app, Electron main owns the server and gives each agent session a
+bearer-authenticated endpoint bound to loopback, scoped to one session and one open project.
+
+Standalone, the server runs over stdio and reads `CINESIM_PROJECT` for the project directory,
+falling back to the current directory:
+
+```bash
+CINESIM_PROJECT=~/films/documentary-cut pnpm mcp
+```
+
+## Conventions
+
+- IDs are prefixed strings and are validated by pattern: `asset_…`, `clip_…`, `track_…`,
+  `sequence_…`.
+- All times are integer microseconds. Unlike the CLI, MCP takes no friendly time strings.
+- Every tool returns a text block and structured content — a summary plus the IDs it created or
+  changed.
+- Failures return an error result carrying the validation message, and change nothing.
+
+## Inspection
+
+Read-only and idempotent.
+
+| Tool               | Input     | Returns                                           |
+| ------------------ | --------- | ------------------------------------------------- |
+| `project_inspect`  | —         | Project identity, directory, timeline counts      |
+| `assets_list`      | —         | Canonical media references and technical metadata |
+| `asset_inspect`    | `assetId` | One asset by stable ID                            |
+| `timeline_inspect` | —         | Tracks and clips with stable IDs and timing       |
+
+## Assets
+
+| Tool           | Input        | Notes                                                               |
+| -------------- | ------------ | ------------------------------------------------------------------- |
+| `asset_delete` | `assetIds[]` | Destructive. Removes referencing clips; never deletes source media. |
+
+## Timeline
+
+| Tool                          | Input                 | Notes                                                 |
+| ----------------------------- | --------------------- | ----------------------------------------------------- |
+| `timeline_create_from_assets` | `assetIds[]`, `name?` | Places the ordered assets sequentially in one command |
+| `timeline_delete`             | `sequenceId`          | Destructive. Preserves the source assets.             |
+
+## Tracks
+
+| Tool            | Input                                   | Notes                                          |
+| --------------- | --------------------------------------- | ---------------------------------------------- |
+| `track_add`     | `sequenceId`, `kind`, `name?`           | `kind` is `video`, `audio`, or `overlay`       |
+| `track_update`  | `trackId`, `name?`, `muted?`, `locked?` | Pass at least one change                       |
+| `track_reorder` | `trackId`, `index`                      | Zero-based; `0` is uppermost                   |
+| `track_delete`  | `trackId`                               | Destructive. Track must be unlocked and empty. |
+
+## Clips
+
+| Tool          | Input                                                                                      | Notes                                                      |
+| ------------- | ------------------------------------------------------------------------------------------ | ---------------------------------------------------------- |
+| `clip_add`    | `trackId`, `assetId`, `timelineStartUs`, `audioTrackId?`, `sourceStartUs?`, `sourceEndUs?` | Creates the linked audio clip when the asset carries sound |
+| `clip_move`   | `clipId`, `timelineStartUs`, `trackId?`                                                    | Optionally moves to another compatible track               |
+| `clip_trim`   | `clipId`, `edge`, `atUs`                                                                   | `edge` is `start` or `end`. Destructive.                   |
+| `clip_split`  | `clipId`, `atUs`                                                                           | Preserves outer fades, clears the new interior edges       |
+| `clip_delete` | `clipId`                                                                                   | Destructive. Linked clips are removed together.            |
+
+## Derived media
+
+Read-only. These report where an artifact would be and whether it exists; they do not generate it.
+
+| Tool            | Input             | Returns                                           |
+| --------------- | ----------------- | ------------------------------------------------- |
+| `filmstrip_get` | `assetId`         | Path and availability of the contact sheet        |
+| `frame_get`     | `assetId`, `atUs` | Path and availability of an exact extracted frame |
+
+## What is not exposed
+
+There is no tool for creating or deleting projects, importing media, changing settings, moving
+files, or reaching outside the open project. An agent operating through MCP cannot write canonical
+files directly or bypass any validation an ordinary edit obeys.

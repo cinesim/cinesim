@@ -1,0 +1,74 @@
+---
+title: Project settings
+description: Every key in .cinesim/settings.toml, with types and defaults.
+---
+
+`.cinesim/settings.toml` holds per-project editing preferences. It is canonical — validated on load
+and versioned like the rest of the project — but written to be comfortable to edit by hand.
+
+## Default file
+
+```toml
+version = 1
+autosave = true
+
+[preview]
+quality = "half"
+background_color = "#09090b"
+
+[perception]
+filmstrip_interval_seconds = 5
+
+[proxy]
+generation = "automatic"
+profile = "balanced"
+max_long_edge = 1280
+frame_rate_cap = 60
+quality = "medium"
+```
+
+## Top level
+
+| Key        | Type    | Default | Description                                              |
+| ---------- | ------- | ------- | -------------------------------------------------------- |
+| `version`  | `1`     | `1`     | Schema version. A future value is rejected.              |
+| `autosave` | boolean | `true`  | Persist canonical state automatically after each command |
+
+## `[preview]`
+
+| Key                | Values                    | Default   | Description                        |
+| ------------------ | ------------------------- | --------- | ---------------------------------- |
+| `quality`          | `full`, `half`, `quarter` | `half`    | Viewer decode resolution           |
+| `background_color` | `#rrggbb`                 | `#09090b` | Viewer background behind the frame |
+
+Lower preview quality costs image detail and buys decode headroom. It does not affect canonical
+state.
+
+## `[perception]`
+
+| Key                          | Type            | Default | Description                       |
+| ---------------------------- | --------------- | ------- | --------------------------------- |
+| `filmstrip_interval_seconds` | positive number | `5`     | Seconds between filmstrip samples |
+
+A shorter interval gives finer scrubbing at the cost of a larger contact sheet.
+
+## `[proxy]`
+
+| Key              | Values                                              | Default     | Description                                   |
+| ---------------- | --------------------------------------------------- | ----------- | --------------------------------------------- |
+| `generation`     | `automatic`, `manual`                               | `automatic` | Whether proxies are built without being asked |
+| `profile`        | `space-saver`, `balanced`, `high-quality`, `custom` | `balanced`  | Named preset                                  |
+| `max_long_edge`  | integer 320–7680                                    | `1280`      | Long-edge pixel target                        |
+| `frame_rate_cap` | `30` or `60`                                        | `60`        | Frame-rate ceiling                            |
+| `quality`        | `low`, `medium`, `high`                             | `medium`    | Encoder quality                               |
+
+The named profiles set the three keys below them. Choose `custom` to control them individually. See
+[Tune proxies](../guides/tune-proxies.mdx) for how to pick.
+
+An asset backed by a cloud original always gets a proxy, even under `manual`.
+
+## Validation
+
+Settings are validated on load. An out-of-range value or unknown enum member fails the load with a
+structured error rather than being silently clamped, so a typo surfaces immediately instead of
+quietly changing how your project behaves.

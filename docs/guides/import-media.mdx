@@ -1,0 +1,82 @@
+---
+title: Import media
+description: Bring footage into a project and understand exactly what Cinesim does with your files.
+---
+
+Import brings media into the Media Pool so you can place it on a timeline. This page covers what
+happens to your files, what gets generated, and the two cases where Cinesim makes a copy.
+
+## Import files
+
+1. Open **Media** (<kbd>⌘1</kbd>).
+2. Choose **Import media** (<kbd>⌘I</kbd>).
+3. Select one or more video or audio files.
+
+Each file becomes an asset with a stable ID. Cinesim reads its metadata, then queues background work
+to make it editable.
+
+## What happens to your files
+
+Nothing. Cinesim records the path you selected and reads from it in place. It does not copy, move,
+rename, or delete your media, and removing an asset from a project never deletes the underlying
+file.
+
+Keep your footage at the path you imported it from. If you move it, the project still opens, but
+clips referencing it cannot resolve their media.
+
+## What gets generated
+
+Under `.video/`, in the background:
+
+| Artifact   | Purpose                                      |
+| ---------- | -------------------------------------------- |
+| Thumbnail  | Media Pool card image                        |
+| Filmstrip  | Scrubbing a card, and frames on the timeline |
+| Waveform   | Audio display on the timeline                |
+| Edit proxy | Smooth playback and scrubbing                |
+
+The thumbnail publishes as soon as it is encoded, so cards fill in quickly. All of it is disposable
+— delete `.video/` and Cinesim rebuilds what it needs.
+
+Derived work yields to you. Proxy conversion and decoding pause during playback, seeking, hover
+preview, and timeline dragging, then resume after a brief idle period. Background work never blocks
+an edit.
+
+## When Cinesim does make a copy
+
+Two cases, both explicit:
+
+**Apple Photos exports.** macOS hands you a file in a temporary directory that can disappear. For
+those selections only, Cinesim makes a verified copy at `.video/originals/<asset-id>` and uses it as
+the source. The Photos export itself is never modified.
+
+**Cloud downloads.** In a cloud project, **Keep downloaded** in an asset's context menu streams a
+verified copy to `.video/originals/<asset-id>` so it is available offline. The action becomes
+**Remove download**, which deletes only that copy. The canonical source stays cloud-backed either
+way.
+
+## Cloud projects
+
+In a [cloud project](../concepts/projects.mdx#local-and-cloud-projects), importing also queues the
+original for private upload under your account. This is automatic — there is no per-file prompt.
+
+The order matters: Cinesim finishes the thumbnail, filmstrip, and waveform first, then the edit
+proxy, and only commits the cloud source once both the upload and the local proxy are verified. Your
+original file is never moved or deleted at any point.
+
+Transfers are resumable. If you quit mid-upload, the transfer reopens as **Paused** and retrying
+checks the source size, modification time, and hash before asking the server which parts already
+arrived — so an interrupted upload resumes rather than restarts. If the service is unreachable, the
+asset shows **Waiting for cloud** and the original stays where it is.
+
+## Supported media
+
+Cinesim decodes what Chromium can decode. There is no bundled FFmpeg, so footage in codecs Chromium
+does not support cannot be proxied or played.
+
+Still-image import is not currently exposed in the media picker.
+
+## Next
+
+- [Edit on the timeline](./edit-timeline.mdx) — put these assets to work.
+- [Tune proxies](./tune-proxies.mdx) — trade quality against disk space.

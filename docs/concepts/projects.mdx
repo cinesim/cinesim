@@ -1,0 +1,73 @@
+---
+title: Projects
+description: What a Cinesim project is on disk, which files are canonical, and how Local and Cloud projects differ.
+---
+
+A Cinesim project is a directory. There is no database, no library, and no proprietary bundle — just
+files you can read, diff, move, and commit.
+
+## Canonical and derived
+
+Every file in a project is one of two kinds, and the distinction governs almost everything else.
+
+**Canonical** state is the project. `cinesim.json` identifies it and points at the files under
+`.cinesim/`, which hold your assets, timeline, and settings. Cinesim only writes these through
+validated commands, and serializes them deterministically — sorted, pretty-printed, and free of
+timestamps — so a Git diff shows the edit you made and nothing else.
+
+**Derived** state lives entirely under `.video/`: proxies, thumbnails, filmstrips, waveforms,
+caches, and runtime scratch data. It exists to make editing fast. You can delete the whole directory
+at any time and Cinesim will rebuild what it needs. Project creation writes a `.gitignore` that
+excludes it.
+
+```text
+documentary-cut/
+├── cinesim.json          canonical
+├── AGENTS.md             canonical, yours to write
+├── .cinesim/             canonical
+└── .video/               derived — disposable
+```
+
+Nothing derived is ever the source of truth, and nothing canonical is ever large. That is what makes
+a project cheap to version and safe to hand to someone else.
+
+For the exact contents of each file, see [Project files](../reference/project-files.mdx).
+
+## Your media stays where it is
+
+Importing a file records a reference to it. Cinesim does not move, rename, copy, or delete your
+footage, and deleting an asset from a project does not delete the file it points at.
+
+The practical consequence: keep your source media at the path you imported it from. If it moves, the
+project still opens, but those clips cannot resolve their media.
+
+## Local and Cloud projects
+
+You choose one of two project kinds when you create a project, and the choice is permanent. A
+project cannot be converted or mix both models — that ambiguity is exactly what the split exists to
+prevent.
+
+|                      | Local               | Cloud                                   |
+| -------------------- | ------------------- | --------------------------------------- |
+| Account required     | No                  | Yes, to create or open                  |
+| Works offline        | Always              | Yes, from the local proxy               |
+| Where originals live | Your disk, in place | Your disk **and** private cloud storage |
+| Canonical files      | Identical           | Identical                               |
+
+**Local** is the default and the simpler model. It works signed out, offline, and from an ordinary
+folder. Originals are never queued for upload.
+
+**Cloud** additionally stores a private copy of each supported original under your account, while
+you keep editing from a local proxy. The file you selected is never moved or deleted. The canonical
+project records only an opaque `cloud_asset_…` locator — credentials, bucket names, object keys, and
+signed URLs never enter your project files.
+
+<Callout type="idea">
+  If you are not sure, start Local. You can create, edit, inspect, script, and automate a local
+  project without ever signing in.
+</Callout>
+
+## Next
+
+- [The timeline](./timeline.mdx) — how sequences, tracks, and clips fit together.
+- [Commands and history](./commands-and-history.mdx) — why every edit behaves the same everywhere.

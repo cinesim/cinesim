@@ -1,0 +1,78 @@
+---
+title: Edit on the timeline
+description: Build a sequence, trim clips, shape fades, and manage tracks in the Edit workspace.
+---
+
+This page assumes you have assets in the Media Pool. For the model behind any of it, see
+[The timeline](../concepts/timeline.mdx).
+
+## Build a sequence from assets
+
+Select assets in the Media Pool in the order you want them, then create a timeline from the
+selection. Cinesim places them end to end, creates the tracks it needs, and makes the new sequence
+active — in one undo step.
+
+Video files with sound produce linked video and audio clips on separate tracks. They stay in sync
+through every subsequent edit.
+
+## Choose a tool
+
+| Key          | Tool      | Use it to              |
+| ------------ | --------- | ---------------------- |
+| <kbd>A</kbd> | Selection | Move clips, drag edges |
+| <kbd>T</kbd> | Trim      | Adjust an edit point   |
+| <kbd>B</kbd> | Blade     | Cut at the pointer     |
+
+Press <kbd>S</kbd> to toggle snapping. While you drag, Cinesim previews the result and shows collision
+feedback when a placement would overlap; the edit commits when you release.
+
+## Trim, split, and delete
+
+Drag a clip's edge to trim it. Trimming clamps any existing fades to the new duration.
+
+Split the selected clip at the playhead with <kbd>⌘&#92;</kbd>, or cut anywhere with the Blade tool. A
+split preserves the outer fades and clears the two new interior edges.
+
+Delete the selection with <kbd>⌫</kbd>. On linked clips, every one of these applies to the pair as a
+single edit.
+
+## Shape fades
+
+Drag a clip's fade handle to set a linear fade-in or fade-out — opacity on video, gain on audio.
+Combined fades cannot exceed the clip's duration, and the drag commits as one undo step.
+
+## Manage tracks
+
+Add video, overlay, or audio tracks and rename, mute, lock, or reorder them. Index `0` is the
+uppermost track, and upper visual tracks composite over lower ones.
+
+To remove a track, first unlock it and clear its clips — Cinesim refuses to remove a track that
+still holds anything.
+
+Adjust track height and timeline zoom to taste; neither is a project edit, so neither enters undo
+history.
+
+## Play back your cut
+
+| Key                                    | Action                  |
+| -------------------------------------- | ----------------------- |
+| <kbd>Space</kbd>                       | Play or pause           |
+| <kbd>J</kbd> <kbd>K</kbd> <kbd>L</kbd> | Reverse, pause, forward |
+| <kbd>←</kbd> <kbd>→</kbd>              | Previous or next frame  |
+| <kbd>Home</kbd>                        | Go to the beginning     |
+
+The viewer offers fit, 50%, 100%, and 200% display scales, configurable grids and safe-area guides,
+and fullscreen. Its header reports whether you are watching **Proxy** or **Original** media.
+
+Hovering an asset in the Media Pool previews that source in the viewer and restores your timeline
+frame when you leave — timeline transport and source preview stay separate.
+
+## Undo
+
+Press <kbd>⌘Z</kbd> to reverse one completed gesture, not a fragment of one. Panel resizes, selection, zoom,
+and track height are interface state and never appear in history.
+
+## Next
+
+- [Reference: keyboard shortcuts](../reference/keyboard-shortcuts.mdx) — the complete table.
+- [Edit from the terminal](./edit-from-the-terminal.mdx) — the same operations, scripted.

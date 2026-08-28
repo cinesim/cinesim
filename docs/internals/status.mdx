@@ -1,0 +1,87 @@
+---
+title: Project status
+description: What is built, what is verified, and what is known to be missing or unfinished.
+---
+
+Cinesim compiles, type-checks, tests, and builds. What it has not had is a full interactive pass on
+real media — the app has not been run against a broad codec and GPU matrix. This page separates
+those two things so nobody has to guess which is which.
+
+<Callout type="warn">
+  Anything under [Not yet verified](#not-yet-verified) is implemented and passing its unit tests but
+  has not been exercised in a running Electron app with real footage.
+</Callout>
+
+## Built and tested
+
+**Project model.** Deterministic serialization, version rejection, stable ID allocation,
+undo and redo, and the full command set: asset import and cascading removal; timeline creation from
+ordered assets and safe removal; track add, update, remove, and reorder; clip add, remove, move,
+trim, and split.
+
+**Command pathway.** Zod-validated protocol commands dispatched to one implementation in
+`@cinesim/core`, shared by the desktop app, CLI, and MCP adapters.
+
+**Playback engine.** Monotonic clock, frame-cadenced scheduling, bounded sequential cursors,
+latest-only seek coalescing, source-preview isolation and restoration, WebGPU composition, and Web
+Audio scheduling.
+
+**Derived media.** Bounded thumbnail, filmstrip, and waveform generation with atomic publication,
+storage accounting, recovery, and eviction ordering.
+
+**Accounts and cloud.** Better Auth with Hono, PostgreSQL, Drizzle migrations, Mailpit email
+verification, conditional Google OAuth, and Electron PKCE. Cloud project catalog, quota reservation,
+resumable multipart upload, and transfer containment.
+
+**Desktop UI.** Home with separate Cloud and Local groups; media import and bin; timeline creation
+from ordered selection; track creation, rename, mute, lock, reorder, and safe removal; selection,
+trim, and blade tools; snapping and collision feedback; filmstrip frames and waveforms; viewer with
+source and timeline modes, display scales, grids, safe-area guides, fullscreen, frame stepping, and
+transport shortcuts; Metrics and Agents sidebars; settings.
+
+**Local agents.** Claude Code and Codex sessions with normalized transcripts, per-session model and
+effort controls, approval modes, a session-scoped MCP endpoint, and Git-object turn checkpoints with
+diff and restore.
+
+Verification currently passing: whole-repository TypeScript check, Vite+ format and lint with no
+warnings, 207 tests across 42 files, production builds for main, preload, and renderer, and a CLI
+smoke check.
+
+## Not yet verified
+
+- Electron, WebCodecs, WebGPU, and Web Audio behavior against real media across a codec matrix.
+- Worker-based thumbnail, filmstrip, and proxy paths with real footage.
+- Interactive browser, email, and custom-protocol authentication flows.
+- Provider compatibility with specific installed versions of Claude Code and Codex.
+
+No benchmark numbers are published. The Metrics sidebar exposes live FPS, seek latency, request
+coalescing, dropped frames, GPU-submit duration, artifact jobs, and storage — but representative
+measurements need the interactive pass above.
+
+## Known limitations
+
+**Editing model.** V1 supports one active flat sequence and rejects overlaps per track. There are no
+transitions, nested timelines, keyframes, or export and render. Audio embedded in a video clip
+follows that clip; linked and unlinked A/V editing is not modeled.
+
+**Concurrency.** The agent MCP bridge shares Electron main's single project writer, but concurrent
+desktop and external CLI or MCP writes have no cross-process lock or file watcher. Treat one writer
+at a time as a requirement, not a suggestion.
+
+**Media.** Exact-frame artifact generation is lookup-only. There is no bundled FFmpeg, so footage
+Chromium cannot decode cannot be proxied. Still-image import is not exposed in the media picker.
+
+**Audio.** Scheduling is a rolling Web Audio buffer, not an AudioWorklet mixer.
+
+**Other.** The Lexical notes surface is a working draft and does not write `AGENTS.md` or
+`script.md`. The renderer application chunk is around 1.5 MB minified; lazy route and vendor
+splitting is pending.
+
+## Next steps
+
+1. Run the media validation matrix, fix platform codec and GPU findings, and capture honest
+   playback, seek, and memory metrics.
+2. Tune proxy profiles from those measurements, and add exact-frame jobs to the existing bounded
+   worker and storage path.
+3. Add cross-process project locking and file watching, then exercise desktop ↔ CLI ↔ MCP live
+   synchronization in integration tests.

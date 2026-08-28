@@ -1,0 +1,56 @@
+---
+title: Commands and history
+description: Every edit is a validated command, which is what lets the app, the CLI, and agents share one project.
+---
+
+Cinesim has exactly one way to change a project: submit a command. The desktop app, the CLI, and the
+MCP server are all adapters over the same command layer — none of them has a private path to your
+files.
+
+## One pathway
+
+A command is validated before anything is written. It checks IDs exist, that a placement is
+compatible with its track, that timing is in range, and that project rules hold. Invalid commands
+fail with a structured error and change nothing.
+
+This is why an edit made by an agent is indistinguishable from an edit you made by hand: they are
+the same command, with the same validation, producing the same canonical bytes. There is no
+agent-only file format and no agent-only escape hatch.
+
+It also sets the ceiling on what any tool can do. An agent connected to your project cannot write
+canonical files directly, cannot bypass a lock, and cannot invent an edit the app itself could not
+perform.
+
+## One gesture, one undo step
+
+While you drag or trim, Cinesim shows an ephemeral preview. Nothing is committed until you release.
+
+So a completed drag becomes a single command in history, not a trail of pointer updates. Undo takes
+you back to the state before the gesture, which is what you actually want. Panel resizes and
+selection changes never enter history at all — they are interface state, not project state.
+
+Undo and redo work by restoring immutable snapshots of the project taken at each committed command.
+
+## Safe by default on removal
+
+Destructive commands carry extra conditions, chosen so that the dangerous version of an action is
+never the default:
+
+- A track must be unlocked and empty before it can be removed.
+- Deleting an asset removes the clips that reference it, but never touches the source file on disk.
+- The last sequence in a project cannot be deleted.
+- A clip on a locked track blocks operations that would modify it.
+
+## Determinism
+
+Canonical files are written the same way every time: unordered collections sorted, track order
+preserved, integers rather than floats, no timestamps. Writes go to a temporary file and are then
+atomically renamed, so a crash mid-save cannot leave a half-written project.
+
+Unknown schema versions are rejected outright rather than opened optimistically. A project written
+by a future version of Cinesim will refuse to load until a migration exists.
+
+## Next
+
+- [Edit from the terminal](../guides/edit-from-the-terminal.mdx) — driving commands yourself.
+- [Work with an agent](../guides/work-with-agents.mdx) — letting a coding agent drive them.

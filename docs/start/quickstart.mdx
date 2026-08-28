@@ -1,0 +1,85 @@
+---
+title: Quickstart
+description: Create a project, import footage, build a sequence, and trim it — in about ten minutes.
+---
+
+By the end of this page you will have a project folder on disk, a timeline built from your own
+footage, and a trimmed cut you can play back. You do not need an account.
+
+## 1. Create a project
+
+Open Cinesim and choose **New project**, then **Local**. Give it a name and pick a folder you
+control.
+
+Cinesim creates an ordinary directory:
+
+```text
+documentary-cut/
+├── cinesim.json          project identity and file locations
+├── AGENTS.md             creative direction for agents; yours to edit
+├── .gitignore            excludes .video/
+├── .cinesim/             canonical state: assets, timeline, settings
+└── .video/               generated media; safe to delete
+```
+
+Everything except `.video/` is worth committing to Git. See [Projects](../concepts/projects.mdx)
+for what each file holds.
+
+## 2. Import footage
+
+Go to **Media** (<kbd>⌘1</kbd>) and choose **Import media** (<kbd>⌘I</kbd>). Select some video
+files.
+
+Cinesim references your files where they already are — it does not copy, move, or rename them. Keep
+them at that path while you work. In the background it generates thumbnails, filmstrips, waveforms,
+and an edit proxy under `.video/`, which is what keeps scrubbing responsive.
+
+<Callout type="info">
+  One exception: media exported from Apple Photos arrives as a temporary file that can disappear, so
+  Cinesim makes its own copy under `.video/originals/`. [Import media](../guides/import-media.mdx)
+  covers the details.
+</Callout>
+
+## 3. Build a sequence
+
+Select several assets in the Media Pool in the order you want them, then create a timeline from the
+selection.
+
+Cinesim lays the clips end to end, creates the video and audio tracks it needs, and makes the new
+sequence active. A video file with sound becomes two linked clips — one on a video track, one on an
+audio track — that move and trim together as a single edit.
+
+## 4. Trim the cut
+
+Switch to **Edit** (<kbd>⌘2</kbd>). Three tools cover most of the work:
+
+| Key          | Tool      | Use it to                       |
+| ------------ | --------- | ------------------------------- |
+| <kbd>A</kbd> | Selection | Move clips and drag their edges |
+| <kbd>T</kbd> | Trim      | Adjust an edit point precisely  |
+| <kbd>B</kbd> | Blade     | Cut a clip at the pointer       |
+
+Press <kbd>S</kbd> to toggle snapping. Split the selected clip at the playhead
+with <kbd>⌘&#92;</kbd> and remove it with <kbd>⌫</kbd>.
+
+Drags and trims show a live preview while you hold the pointer down and commit when you release. One
+gesture is one undo step, so <kbd>⌘Z</kbd> reverses the whole move rather than a fraction of it.
+
+## 5. Play it back
+
+Press <kbd>Space</kbd> to play and pause. <kbd>J</kbd> <kbd>K</kbd> <kbd>L</kbd> run reverse, pause, and
+forward. <kbd>←</kbd> and <kbd>→</kbd> step one frame; <kbd>Home</kbd> returns to the start.
+
+The viewer header tells you whether you are watching **Proxy** or **Original** footage. Proxy is
+normal and expected while editing.
+
+## What you have now
+
+A project directory you can move, back up, or commit. Nothing about it depends on Cinesim being
+installed — the canonical files are plain JSON and TOML you can read.
+
+## Next
+
+- [Edit on the timeline](../guides/edit-timeline.mdx) — trims, fades, tracks, and layer order.
+- [Work with an agent](../guides/work-with-agents.mdx) — hand part of the edit to Claude Code or Codex.
+- [Edit from the terminal](../guides/edit-from-the-terminal.mdx) — the same edits, scripted.

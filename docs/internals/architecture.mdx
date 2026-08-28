@@ -1,0 +1,175 @@
+---
+title: Architecture
+description: How Cinesim is put together, and why each major piece was built the way it was.
+---
+
+This page is for people working on Cinesim rather than with it. It records the decisions that are
+expensive to reverse and the reasoning behind them.
+
+## Package layout
+
+```text
+apps/desktop      Electron main, preload, React renderer, the NLE UI
+apps/api          Hono server: Better Auth, cloud media control plane
+apps/web          Next.js marketing site and documentation
+packages/core     Deterministic project model, commands, history, serialization
+packages/engine   Mediabunny sources, playback clock, Web Audio, WebGPU
+packages/protocol Zod contracts, dispatcher, queries, events, errors
+packages/ui       Base UI + CVA primitives
+tools/cli         Filesystem adapter and the cinesim command
+tools/mcp         MCP stdio adapter
+```
+
+The load-bearing constraint is that `packages/core` depends on nothing environmental — no
+filesystem, no network, no authentication, no database. Everything that touches the outside world is
+an adapter around it.
+
+## Toolchain
+
+pnpm workspaces handle dependency resolution; Vite+ owns repository-wide formatting, linting,
+testing, task execution, and caching.
+
+The desktop package has one mode-aware Vite config because Electron genuinely has three different
+targets: Node-flavored main, sandbox-compatible preload, and browser renderer. `vp run
+desktop:build` invokes the same Vite implementation for all three.
+
+**We do not use `electron-vite`.** Current Electron builds are straightforward Vite library builds.
+Coupling another wrapper to Vite+'s fast-moving Vite version would duplicate configuration and
+reduce transparency for no gain. The development launcher only coordinates watch processes; it is
+not a second bundler.
+
+The API has a small Vite config used solely to bundle its system-browser authentication client.
+Hono itself remains a standards-based server entry point.
+
+## Project state
+
+`cinesim.json` is the stable entry point. Complex canonical collections live in deterministic JSON
+under `.cinesim/`; hand-edited preferences live in `.cinesim/settings.toml`. The generated `.video/`
+tree holds only disposable state and is ignored as a unit.
+
+Core uses integer microseconds throughout. IDs are stable prefixed strings. Unordered collections
+are sorted before serialization while sequence track arrays preserve authored layer order. Unknown
+schema versions are rejected rather than opened optimistically. Disk adapters use
+temp-file-plus-rename atomic replacement.
+
+Undo and redo store immutable project snapshots per committed command. This is the simplest correct
+V1 behavior, and it falls out naturally that a completed drag is one undo step while ephemeral
+pointer previews stay UI-only.
+
+## Command pathway
+
+React, the CLI, and MCP submit the same Zod-validated protocol commands. Protocol dispatch delegates
+to the single deterministic implementation in `@cinesim/core`. Only Electron main or a Node adapter
+persists the returned canonical state.
+
+There is deliberately no second write path. An agent, a script, and a mouse drag are the same
+command by the time they reach core.
+
+## Media access and playback
+
+Mediabunny 1.55 is used unmodified as an MPL-2.0 runtime dependency.
+
+Main-process metadata inspection uses `FilePathSource`, which does lazy random access. Renderer
+playback uses `UrlSource` against an asset-ID-only custom Electron protocol with byte-range
+responses. Preload never exposes raw paths.
+
+`VideoSampleSink` supplies decoded samples backed by WebCodecs. The runtime maps monotonic clock
+time to sequence-frame timestamps and resolves active clips. Forward transport uses bounded
+sequential cursors and admits one playback frame operation at a time, which prevents display-refresh
+callbacks from repeatedly obsoleting a slow decode. Reverse playback and explicit seek or preview
+requests use latest-only random access. Side effects are generation-gated, and obsolete `VideoFrame`
+objects are closed before composition.
+
+Temporary asset preview is kept separate from timeline transport, and React receives throttled
+snapshots and intents rather than frame objects.
+
+Audio uses Mediabunny's `AudioBufferSink` with Web Audio scheduling. V1 treats
+`AudioContext.currentTime` as the scheduling reference when audio is active, though transport time
+still comes from the replaceable clock abstraction. An AudioWorklet is deferred until profiling
+shows buffered main-thread scheduling is insufficient.
+
+## Composition
+
+The preview compositor is WebGPU-first.
+`GPUDevice.importExternalTexture({ source: videoFrame })` feeds a WGSL pipeline with no CPU pixel
+readback. Transform and opacity are uniforms. The pipeline accepts multiple layers even though V1
+usually resolves one visible video clip per track. Frames close after submission, canvas resize is
+explicit, and device loss triggers reinitialization.
+
+Canvas2D is limited to filmstrip and thumbnail generation, where a CPU-readable image is the point.
+
+## Workers and derived media
+
+Decode-heavy derived work runs in one dedicated renderer worker.
+
+Sparse Mediabunny canvas sinks and OffscreenCanvas produce bounded thumbnails and filmstrip contact
+sheets. Sequential audio buffers reduce to a deterministic mono min/max envelope of at most 4,096
+peaks; the versioned little-endian `CSWF` artifact is at most 16,400 bytes and retains no decoded
+audio.
+
+The same worker builds video editing proxies through Mediabunny conversion, selecting a supported
+MP4 codec at runtime and streaming bounded chunks with renderer-to-main acknowledgements so encoder
+backpressure reaches the filesystem writer. Foreground playback, seeks, hover preview, and timeline
+dragging defer new jobs and pause active work between bounded units; an idle grace period resumes
+it.
+
+Main owns source fingerprints, validated contained paths, atomic writer sessions, artifact serving,
+storage budgets, recovery, and eviction. Waveform writers declare an exact duration-derived byte
+bound, and publication validates format version, peak count, and final size. Eviction takes proxies,
+filmstrips, and waveforms before thumbnails, and never takes cloud-backed proxies.
+
+No FFmpeg-backed Mediabunny codec extension is included, so footage Chromium cannot decode cannot be
+proxied by this path.
+
+## Security
+
+The renderer has no Node access. `contextIsolation`, sandboxing, web security, permission denial,
+navigation blocking, and a strict Content Security Policy are all enabled. Preload exposes
+individually validated calls rather than `ipcRenderer`. Media access is restricted to asset IDs
+already present in the open project.
+
+## Accounts
+
+The optional account system is a separate Hono application backed by Better Auth and PostgreSQL. It
+does not enter `packages/core` or canonical project state.
+
+Authentication uses the system browser and a PKCE-bound custom-protocol return. Electron main owns
+the encrypted cookie; the renderer receives only sanitized account state and narrow sign-in and
+sign-out methods. Local development uses ordinary PostgreSQL and SMTP so the same committed
+migrations and server configuration can later target PlanetScale and a production mail provider.
+
+See [Authentication](./authentication.mdx) and [Cloud originals](./cloud-storage.mdx).
+
+## Agent orchestration
+
+Cinesim treats Claude Code and Codex as local provider runtimes rather than reimplementing an agent
+loop. Claude is driven with newline-delimited streaming JSON, Codex with the `app-server` JSON-RPC
+protocol, and a small normalization layer converts both into one persistent UI event model.
+
+Provider session IDs are retained for normal continuation. Reverting a checkpoint deliberately
+clears provider context so conversation state cannot silently disagree with restored project state.
+
+Providers get no direct canonical write access. They connect to a bearer-authenticated loopback MCP
+endpoint scoped to one agent session and one open project. Electron main owns that endpoint and
+submits every mutation to `DesktopProjectStore`, preserving the same validation, command history,
+renderer notification, and single-writer boundary as a manual edit.
+
+Agent checkpoints borrow T3 Code's Git-object approach without creating worktrees. A temporary index
+snapshots only `cinesim.json` and `.cinesim/` into hidden refs in an ignored bare repository under
+`.video/runtime/`. Media is referenced in place and never copied. Turn diffs and restoration stay
+cheap, local, inspectable, and independent of the user's branch or working tree.
+
+## Research basis
+
+Decisions were checked against current stable documentation for Vite+, Electron security and custom
+protocols, React 19 and the React Compiler, Mediabunny sources and sinks, WebCodecs, WebGPU, Web
+Audio, and the official MCP TypeScript SDK. Open-source editor structures (including FreeCut) and
+agent orchestrators (including T3 Code) were comparison points only; no third-party source was
+copied.
+
+- [Vite+ configuration](https://viteplus.dev/config/) and [workspace task runner](https://viteplus.dev/guide/run)
+- [Electron security checklist](https://www.electronjs.org/docs/latest/tutorial/security) and [custom protocols](https://www.electronjs.org/docs/latest/api/protocol)
+- [Mediabunny file sources](https://mediabunny.dev/guide/reading-media-files) and [decoded media sinks](https://mediabunny.dev/guide/media-sinks)
+- [WebCodecs rendering and resource lifetime](https://developer.mozilla.org/en-US/docs/Web/API/WebCodecs_API/Using_the_WebCodecs_API)
+- [React Compiler](https://react.dev/learn/react-compiler/introduction)
+- [MCP TypeScript SDK](https://github.com/modelcontextprotocol/typescript-sdk)

@@ -1,0 +1,72 @@
+---
+title: Tune proxies
+description: Choose how Cinesim generates edit proxies, trading quality against disk space and encode time.
+---
+
+A proxy is a smaller, easier-to-decode version of an asset that Cinesim edits against so scrubbing
+and playback stay responsive. Proxies live in `.video/` and are disposable.
+
+Every project picks its own policy, stored in
+[`.cinesim/settings.toml`](../reference/settings.mdx#proxy).
+
+## Generation mode
+
+| Mode        | Behavior                                                         |
+| ----------- | ---------------------------------------------------------------- |
+| `automatic` | Cinesim generates a proxy for each asset as needed. The default. |
+| `manual`    | Proxies are generated only when you ask for one.                 |
+
+One exception overrides `manual`: an asset backed by a cloud original always needs a local proxy, so
+Cinesim queues a missing one regardless of mode.
+
+## Profiles
+
+| Profile        | Long edge  | Frame rate cap | Quality              |
+| -------------- | ---------- | -------------- | -------------------- |
+| `space-saver`  | 960 px     | 30 fps         | Low                  |
+| `balanced`     | 1280 px    | 60 fps         | Medium — the default |
+| `high-quality` | 1920 px    | 60 fps         | High                 |
+| `custom`       | Your value | 30 or 60 fps   | Your value           |
+
+Pick `space-saver` on a laptop with limited disk, or when you are cutting long interviews where
+image detail does not drive the edit. Pick `high-quality` when you are judging focus or grade off
+the proxy.
+
+`custom` unlocks the individual keys — set `max_long_edge` between 320 and 7680, `frame_rate_cap` to
+30 or 60, and `quality` to `low`, `medium`, or `high`.
+
+## Edit the settings directly
+
+`.cinesim/settings.toml` is canonical but meant to be edited by hand:
+
+```toml
+[proxy]
+generation = "automatic"
+profile = "space-saver"
+```
+
+Changing the profile does not invalidate proxies you already have. Delete the relevant files under
+`.video/` if you want them rebuilt at the new setting.
+
+## What is in a proxy
+
+Video proxies include their audio track, and audio-only sources get an MP4/AAC edit representation.
+The viewer header reports **Proxy** or **Original** so you always know which you are watching.
+
+Cinesim selects a supported MP4 codec at runtime. Because there is no bundled FFmpeg, footage
+Chromium cannot decode cannot be proxied by this path.
+
+## Performance behavior
+
+Proxy conversion streams in bounded chunks with backpressure, so encoding cannot outrun the disk
+writer. It pauses under foreground pressure — playback, seeking, hover preview, timeline dragging —
+and resumes after an idle grace period. It never blocks a canonical edit.
+
+When storage runs short, Cinesim evicts proxies, filmstrips, and waveforms before thumbnails.
+Cloud-backed proxies are never evicted automatically, since they cannot be rebuilt from a local
+original.
+
+## Next
+
+- [Settings reference](../reference/settings.mdx) — every key in `settings.toml`.
+- [Import media](./import-media.mdx) — what else gets generated on import.

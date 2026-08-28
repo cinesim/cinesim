@@ -1,0 +1,103 @@
+---
+title: Project files
+description: Every file in a Cinesim project directory, what it holds, and whether it is canonical.
+---
+
+For why the split exists, see [Projects](../concepts/projects.mdx).
+
+## Directory layout
+
+```text
+documentary-cut/
+├── cinesim.json
+├── AGENTS.md
+├── .gitignore
+├── .cinesim/
+│   ├── assets.json
+│   ├── timeline.json
+│   └── settings.toml
+└── .video/
+    ├── cache/
+    ├── filmstrips/
+    ├── frames/
+    ├── originals/
+    ├── proxies/
+    ├── runtime/
+    ├── thumbnails/
+    └── waveforms/
+```
+
+| Path                     | Contents                                      | Canonical |
+| ------------------------ | --------------------------------------------- | --------- |
+| `cinesim.json`           | Project identity and canonical file locations | Yes       |
+| `AGENTS.md`              | Creative direction for agents                 | Yes       |
+| `.gitignore`             | Excludes `.video/`                            | Yes       |
+| `.cinesim/assets.json`   | Asset references and metadata                 | Yes       |
+| `.cinesim/timeline.json` | Sequences, tracks, clips, transforms          | Yes       |
+| `.cinesim/settings.toml` | Project editing settings                      | Yes       |
+| `.video/`                | Generated media and runtime state             | No        |
+
+## `cinesim.json`
+
+The root manifest. It identifies the project and points at the canonical files:
+
+```json
+{
+  "version": 1,
+  "id": "project_example",
+  "name": "Example",
+  "activeSequenceId": "sequence_main",
+  "files": {
+    "assets": ".cinesim/assets.json",
+    "timeline": ".cinesim/timeline.json",
+    "settings": ".cinesim/settings.toml"
+  }
+}
+```
+
+## `.cinesim/`
+
+`assets.json` and `timeline.json` are machine-written and serialized deterministically — unordered
+collections sorted, track order preserved, integer microseconds, no timestamps. Two identical
+projects produce identical bytes.
+
+`settings.toml` is equally canonical but written to be edited by hand. See the
+[settings reference](./settings.mdx).
+
+All three carry `version = 1`. A file with a future version is rejected rather than opened
+optimistically.
+
+## `AGENTS.md`
+
+Created with the project, and yours after that. It tells connected agents how to behave in this
+project — Cinesim writes a starter block covering the canonical/derived split and leaves everything
+below its final line to you.
+
+## `.video/`
+
+Disposable local state. Delete any of it and Cinesim rebuilds what it needs.
+
+| Directory     | Contents                                                        |
+| ------------- | --------------------------------------------------------------- |
+| `cache/`      | Transient working data                                          |
+| `filmstrips/` | Contact sheets for scrubbing                                    |
+| `frames/`     | Exact extracted frames                                          |
+| `originals/`  | Managed copies: Photos exports, cloud downloads, upload staging |
+| `proxies/`    | Edit proxies                                                    |
+| `runtime/`    | Runtime scratch, including `agent-checkpoints.git`              |
+| `thumbnails/` | Media Pool card images                                          |
+| `waveforms/`  | Audio peak envelopes                                            |
+
+`originals/` is the only place Cinesim keeps media it owns, and it only ever holds copies it made
+itself. Media you imported from your own filesystem is referenced in place and never appears here.
+
+<Callout type="warn">
+  Do not hand-edit `assets.json` or `timeline.json` while the project is open in the app, the CLI,
+  or an agent session. Those writers assume they own the file, and there is no cross-process lock
+  yet.
+</Callout>
+
+## Version control
+
+Commit everything except `.video/`, which the generated `.gitignore` already excludes. Canonical
+files are small and diff cleanly, so project history stays readable.
