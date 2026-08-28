@@ -1,7 +1,7 @@
 "$schema" = "https://conductor.build/schemas/settings.repo.schema.json"
 
 [scripts]
-setup = "NO_COLOR=1 vp install"
+setup = "NO_COLOR=1 VP_GIT_HOOKS=0 vp install --frozen-lockfile && NO_COLOR=1 vp hooks enable"
 run_mode = "nonconcurrent"
 
 [scripts.run.dev]
