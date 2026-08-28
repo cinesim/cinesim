@@ -6,6 +6,8 @@ coverage/
 *.log
 *.tsbuildinfo
 .vite/
+.next/
+.source/
 .vite-hooks/_/
 .env
 .env.*

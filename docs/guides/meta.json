@@ -1,0 +1,11 @@
+{
+  "title": "Guides",
+  "pages": [
+    "import-media",
+    "edit-timeline",
+    "work-with-agents",
+    "edit-from-the-terminal",
+    "tune-proxies"
+  ],
+  "defaultOpen": true
+}

@@ -1,0 +1,99 @@
+---
+title: Edit from the terminal
+description: Inspect and edit a project with the CLI, using the same commands the desktop app runs.
+---
+
+The CLI is an adapter over the [command layer](../concepts/commands-and-history.mdx), not a separate
+implementation. Anything it does, the app could have done, with the same validation and the same
+canonical result.
+
+This page is a working introduction. For every command and flag, see the
+[CLI reference](../reference/cli.mdx).
+
+## Point it at a project
+
+The CLI resolves the project directory in this order:
+
+1. `--project <directory>`
+2. `CINESIM_PROJECT`
+3. The current working directory
+
+So the simplest thing is to `cd` into the project:
+
+```bash
+cd ~/films/documentary-cut
+pnpm cli project inspect
+```
+
+## Find the IDs you need
+
+Editing commands take stable IDs, so inspection comes first. Add `--json` to any inspect command
+when you want to pipe the output.
+
+```bash
+# What is in this project?
+pnpm cli project inspect --json
+
+# Assets and their IDs
+pnpm cli assets list --json
+
+# Tracks and clips in the active sequence
+pnpm cli timeline inspect --json
+```
+
+Piping through `jq` makes short work of finding a target:
+
+```bash
+pnpm cli timeline inspect --json | jq '.tracks[].clips[] | {id, timelineStartUs}'
+```
+
+## Make an edit
+
+```bash
+# Build a sequence from assets, in order
+pnpm cli timeline create-from-assets asset_a asset_b --name "Assembly"
+
+# Move a clip to 12.5 seconds
+pnpm cli clip move clip_intro --to 12.5s
+
+# Split at one minute two seconds
+pnpm cli clip split clip_intro --at 1m2s
+
+# Trim the end back to 18 seconds
+pnpm cli clip trim-end clip_intro --at 18s
+```
+
+Times accept `4.2s`, `250ms`, `3m`, `1h`, and clock forms like `01:23.500`. A bare number is
+seconds.
+
+Each command prints a summary and the IDs it created or changed, so you can chain steps in a script.
+
+## Add and arrange tracks
+
+```bash
+pnpm cli track add overlay --name "Titles"
+pnpm cli track reorder track_titles --index 0
+pnpm cli track update track_titles --muted true
+```
+
+Index `0` is the uppermost track.
+
+## Know what will be refused
+
+Commands validate before writing, so a bad edit costs you an error rather than a corrupted project:
+
+- A locked track cannot be reordered or removed.
+- A track must be empty before removal.
+- Deleting an asset removes its clips but never the source file.
+- The last sequence cannot be deleted.
+
+## A caveat on concurrent edits
+
+There is no cross-process lock yet. Running CLI edits against a project that is open in the desktop
+app can produce writes the app does not know about. For now, close the project in the app first, or
+treat the CLI as the only writer for that session.
+
+## Next
+
+- [CLI reference](../reference/cli.mdx) — every command.
+- [Work with an agent](./work-with-agents.mdx) — the same commands, driven by a model.

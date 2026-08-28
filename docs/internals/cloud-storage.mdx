@@ -1,4 +1,11 @@
-# Cloud originals
+---
+title: Cloud originals
+description: How Cloud projects store originals privately while the canonical project stays local and portable.
+---
+
+Cloud projects keep a private copy of each supported original under your account while you edit from
+a local proxy. This page covers how that is built and how to run it locally. For the user-facing
+difference between project kinds, see [Projects](../concepts/projects.mdx).
 
 Cinesim offers separate, immutable **Cloud** and **Local** project kinds. The Home page lists Cloud
 above Local and explains the distinction without blocking signed-out use. Local projects never
@@ -69,19 +76,13 @@ days. Expired multipart uploads and expired Trash are reconciled whenever accoun
 
 ## Proxy policy
 
-The performance-driven adaptive policy has been removed. Each project now has explicit settings in
-`.cinesim/settings.toml`:
+Proxy generation mode and profile are per-project settings in `.cinesim/settings.toml`. See
+[Tune proxies](../guides/tune-proxies.mdx) and the
+[settings reference](../reference/settings.mdx#proxy).
 
-- **Automatic** or **Manual** generation.
-- **Space saver**: 960-pixel long edge, 30 fps cap, low quality.
-- **Balanced**: 1280-pixel long edge, 60 fps cap, medium quality (the default).
-- **High quality**: 1920-pixel long edge, 60 fps cap, high quality.
-- **Custom** long edge, frame-rate cap, and quality for advanced users.
-
-Video proxies include their audio track, and audio-only sources receive an MP4/AAC edit
-representation. Playback reports **Proxy** or **Original** in the viewer header. A cloud original
-always queues a missing proxy even when the project is set to Manual, and cloud-backed proxies are
-not candidates for automatic cache eviction.
+Two rules are specific to cloud assets: an original backed by cloud storage always queues a missing
+proxy even when the project is set to `manual`, and cloud-backed proxies are never candidates for
+automatic cache eviction, because they cannot be rebuilt from a local original.
 
 ## Development setup
 

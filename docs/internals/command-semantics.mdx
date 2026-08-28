@@ -1,0 +1,74 @@
+---
+title: Command semantics
+description: The exact rules each canonical command enforces, and what it guarantees to callers.
+---
+
+Every edit in Cinesim goes through one of the commands below. The desktop app, the CLI, and MCP are
+adapters — they do not implement editing behavior of their own. This page is the contract those
+adapters rely on.
+
+For the files these commands write, see [Project files](../reference/project-files.mdx).
+
+## Guarantees
+
+- Validation runs before any write. A rejected command changes nothing.
+- Each command is one entry in history and one undo step.
+- IDs are stable and deterministically allocated from the existing set.
+- Timing is integer microseconds; there is no float path into canonical state.
+- Canonical writes are validated, split, deterministically pretty-printed, written to a temporary
+  file, and atomically renamed.
+
+## Track order and compatibility
+
+Sequence track order is authored canonical state, not incidental JSON order. It survives save and
+load and matches the UI: index `0` is uppermost, and upper visual tracks composite over lower video
+and overlay tracks.
+
+Every canonical clip declares a `mediaKind` of `video` or `audio`. Playback and presentation never
+infer embedded audio from a visual clip. Audio-only assets may be placed only on audio tracks; video
+and image components may be placed on video or overlay tracks. Loading a project or applying a clip
+command rejects incompatible placements and malformed links.
+
+Adding a video asset carrying audio atomically creates reciprocal linked video and audio clips. The
+command picks an available audio track or creates one. Linked move, trim, split, and remove edits
+stay one command and one undo step. Pre-component project files are deterministically upgraded to
+this representation on load.
+
+## Fades
+
+Optional `fadeInUs` and `fadeOutUs` fields define linear opacity or audio-gain envelopes in integer
+microseconds. `clip.setFade` is the only editing pathway for them, and combined fades cannot exceed
+the clip duration.
+
+A timeline handle drag commits one command and one undo step. Trims clamp existing fades to the new
+duration; splits preserve the outer fades and clear the two new interior edges.
+
+## Track commands
+
+| Command         | Input                                                    | Rules                                                                                                                                                         |
+| --------------- | -------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `track.add`     | `sequenceId`, `kind`, `name?`                            | Core allocates the next project-wide stable ID. Video and overlay tracks enter at the top of the visual stack; audio tracks at the bottom of the audio stack. |
+| `track.update`  | `trackId`, and at least one of `name`, `muted`, `locked` | Names are trimmed and may not be empty.                                                                                                                       |
+| `track.reorder` | `trackId`, zero-based `index`                            | Locked tracks cannot be reordered.                                                                                                                            |
+| `track.remove`  | `trackId`                                                | The track must be unlocked and empty.                                                                                                                         |
+
+## Collection commands
+
+**`sequence.createFromAssets`** takes an ordered, non-empty `assetIds` list plus optional name and
+format overrides. It creates standard video and audio tracks, places assets sequentially, creates
+reciprocal audio components where needed, and makes the new timeline active — all in one undo step.
+
+**`asset.remove`** takes a non-empty `assetIds` list. It removes the canonical asset references and
+every clip using them. A usage on a locked track blocks the operation. Cloud originals enter account
+Trash through the desktop adapter; disposable derived artifacts are pruned after commit. Source
+media on disk is never touched.
+
+**`sequence.remove`** deletes an unlocked timeline and its clips without removing assets. The last
+timeline cannot be deleted. Removing the active timeline selects the lowest remaining stable
+sequence ID as a deterministic fallback.
+
+## Outside core
+
+Desktop project removal is deliberately not an editing command. Forgetting a project only removes
+app metadata. Moving a project to Trash closes active services and hands the exact validated project
+directory to the operating system Trash.

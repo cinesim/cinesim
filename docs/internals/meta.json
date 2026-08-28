@@ -1,0 +1,13 @@
+{
+  "title": "Internals",
+  "description": "How Cinesim is built.",
+  "pages": [
+    "architecture",
+    "command-semantics",
+    "authentication",
+    "cloud-storage",
+    "dependencies",
+    "status"
+  ],
+  "defaultOpen": true
+}

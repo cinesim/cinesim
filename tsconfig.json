@@ -25,6 +25,7 @@
       "@cinesim/ui": ["./packages/ui/src/index.ts"]
     }
   },
+  "exclude": ["apps/web"],
   "include": [
     "apps/**/*.ts",
     "apps/**/*.tsx",

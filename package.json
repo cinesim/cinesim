@@ -8,6 +8,8 @@
   "scripts": {
     "prepare": "vp config --no-agent",
     "dev": "vp run desktop:dev",
+    "web:dev": "vp run --filter @cinesim/web dev",
+    "web:build": "vp run --filter @cinesim/web build",
     "dev:local": "node tools/dev-local.mjs",
     "auth:setup": "pnpm --filter @cinesim/api local:setup",
     "auth:down": "docker compose -f compose.yaml down",

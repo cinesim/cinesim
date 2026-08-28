@@ -28,7 +28,7 @@ pnpm dev:local
 ```
 
 The setup creates an ignored local secret, starts PostgreSQL and Mailpit, and applies committed auth
-migrations. See [local authentication](docs/authentication.md) for email verification, Google OAuth,
+migrations. See [local authentication](docs/internals/authentication.mdx) for email verification, Google OAuth,
 service addresses, and the production mapping.
 
 `vp install` also installs the repository's Vite+ pre-commit hook. The hook runs formatting,
@@ -87,7 +87,7 @@ Cloud projects require sign-in and automatically store supported originals priva
 edit proxy is ready. Users can explicitly keep or remove a disposable downloaded original under
 `.video/originals/`; external source files are never moved or deleted.
 
-See [technical decisions](docs/technical-decisions.md), [project format](docs/project-format.md),
-[cloud originals](docs/cloud-storage.md), and [dependency licenses](docs/dependencies.md).
+See [architecture](docs/internals/architecture.mdx), [project format](docs/reference/project-files.mdx),
+[cloud originals](docs/internals/cloud-storage.mdx), and [dependency licenses](docs/internals/dependencies.mdx).
 
-The detailed [V1 implementation status](docs/implementation-status.md) records exactly what is implemented, what was verified without launching Electron, known limitations, and the next engineering steps.
+[Project status](docs/internals/status.mdx) records what is built, what still needs interactive verification, known limitations, and the next engineering steps.

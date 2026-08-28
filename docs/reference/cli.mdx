@@ -1,0 +1,233 @@
+---
+title: CLI reference
+description: Every command, argument, and flag in the Cinesim CLI.
+---
+
+The CLI inspects and edits projects through the same validated command layer as the desktop app. For
+a walkthrough, see [Edit from the terminal](../guides/edit-from-the-terminal.mdx).
+
+## Invocation
+
+From a clone of the repository:
+
+```bash
+pnpm cli <command>
+```
+
+The binary is named `cinesim`, with `video` as a temporary alias.
+
+## Global options
+
+| Option                      | Description                                                                     |
+| --------------------------- | ------------------------------------------------------------------------------- |
+| `-p, --project <directory>` | Project directory. Falls back to `CINESIM_PROJECT`, then the current directory. |
+| `-V, --version`             | Print the version.                                                              |
+| `-h, --help`                | Print help for the program or any subcommand.                                   |
+
+Every command below accepts `--json`, which emits structured JSON instead of the default output.
+
+## Time values
+
+Commands that take a time accept:
+
+| Form        | Example                              | Meaning               |
+| ----------- | ------------------------------------ | --------------------- |
+| Bare number | `12`                                 | Seconds               |
+| Suffixed    | `4.2s`, `250ms`, `500us`, `3m`, `1h` | The named unit        |
+| Clock       | `01:23`, `01:23.500`, `1:02:03`      | `mm:ss` or `hh:mm:ss` |
+
+All are converted to integer microseconds.
+
+## project
+
+### `project inspect`
+
+Print the project, its settings, its directory, and collection counts.
+
+```bash
+cinesim project inspect --json
+```
+
+## assets
+
+### `assets list`
+
+List every asset in the project with its ID and metadata.
+
+```bash
+cinesim assets list --json
+```
+
+## asset
+
+### `asset inspect <asset-id>`
+
+Print one asset.
+
+```bash
+cinesim asset inspect asset_example --json
+```
+
+### `asset delete <asset-ids...>`
+
+Remove one or more assets and every clip referencing them. Never deletes source media. Blocked if a
+referencing clip sits on a locked track.
+
+```bash
+cinesim asset delete asset_a asset_b
+```
+
+## timeline
+
+### `timeline inspect`
+
+Print the active sequence with its tracks and clips.
+
+```bash
+cinesim timeline inspect --json
+```
+
+### `timeline create-from-assets <asset-ids...>`
+
+Create a sequence from an ordered list of assets, placed sequentially. Creates the tracks it needs,
+adds reciprocal audio clips where a video asset carries sound, and makes the new sequence active.
+
+| Option          | Description               |
+| --------------- | ------------------------- |
+| `--name <name>` | Name for the new sequence |
+
+```bash
+cinesim timeline create-from-assets asset_a asset_b --name "Assembly"
+```
+
+### `timeline delete <sequence-id>`
+
+Delete a sequence and its clips, leaving assets untouched. The last remaining sequence cannot be
+deleted.
+
+```bash
+cinesim timeline delete sequence_rough
+```
+
+## track
+
+### `track add <kind>`
+
+Add a track. `kind` is `video`, `audio`, or `overlay`.
+
+| Option                     | Description                                  |
+| -------------------------- | -------------------------------------------- |
+| `--sequence <sequence-id>` | Target sequence. Defaults to the active one. |
+| `--name <name>`            | Track name                                   |
+
+```bash
+cinesim track add overlay --name "Titles"
+```
+
+### `track update <track-id>`
+
+Change a track's name, mute state, or lock state. Pass at least one.
+
+| Option               | Description                         |
+| -------------------- | ----------------------------------- |
+| `--name <name>`      | New name. Trimmed; cannot be empty. |
+| `--muted <boolean>`  | `true` or `false`                   |
+| `--locked <boolean>` | `true` or `false`                   |
+
+```bash
+cinesim track update track_titles --muted true
+```
+
+### `track reorder <track-id>`
+
+Move a track to a zero-based index, where `0` is uppermost. Locked tracks cannot be reordered.
+
+| Option            | Description                                   |
+| ----------------- | --------------------------------------------- |
+| `--index <index>` | **Required.** Non-negative destination index. |
+
+```bash
+cinesim track reorder track_titles --index 0
+```
+
+### `track delete <track-id>`
+
+Remove a track. It must be unlocked and empty.
+
+```bash
+cinesim track delete track_titles
+```
+
+## clip
+
+### `clip move <clip-id>`
+
+Move a clip along the timeline, optionally to another compatible track.
+
+| Option               | Description                       |
+| -------------------- | --------------------------------- |
+| `--to <time>`        | **Required.** New timeline start. |
+| `--track <track-id>` | Destination track                 |
+
+```bash
+cinesim clip move clip_intro --to 12.5s
+```
+
+### `clip split <clip-id>`
+
+Split a clip at a timeline position. Outer fades are preserved; the two new interior edges are
+cleared.
+
+| Option        | Description                   |
+| ------------- | ----------------------------- |
+| `--at <time>` | **Required.** Split position. |
+
+```bash
+cinesim clip split clip_intro --at 1m2s
+```
+
+### `clip trim-start <clip-id>` / `clip trim-end <clip-id>`
+
+Move a clip's in or out point. Existing fades are clamped to the new duration.
+
+| Option        | Description                      |
+| ------------- | -------------------------------- |
+| `--at <time>` | **Required.** New edge position. |
+
+```bash
+cinesim clip trim-end clip_intro --at 18s
+```
+
+### `clip delete <clip-id>`
+
+Remove a clip. Linked video and audio clips are removed together as one edit.
+
+```bash
+cinesim clip delete clip_intro
+```
+
+## Derived media
+
+These commands report the path to a generated artifact and whether it exists yet. They do not
+trigger generation.
+
+### `filmstrip <asset-id>`
+
+```bash
+cinesim filmstrip asset_example --json
+```
+
+### `frame <asset-id>`
+
+| Option        | Description                   |
+| ------------- | ----------------------------- |
+| `--at <time>` | **Required.** Frame position. |
+
+```bash
+cinesim frame asset_example --at 4.2s --json
+```
+
+## Exit behavior
+
+Commands exit `0` on success. On failure they print `cinesim: <message>` to stderr and exit non-zero
+without writing anything.

@@ -1,0 +1,75 @@
+---
+title: Work with an agent
+description: Connect Claude Code or Codex to a project, supervise its edits, and roll back a turn you do not want.
+---
+
+Cinesim runs your installed coding agent against the open project through a scoped connection. The
+agent gets the same command layer you do — no more, no less. This page covers setting one up and
+keeping control of it.
+
+## Set up a provider
+
+Open **Settings → Agents**. Cinesim discovers installed Claude Code and Codex executables and shows
+their login status. For each provider you can set the executable path, model, reasoning effort, and
+approval mode, and choose which one is the default.
+
+## Choose an approval mode
+
+| Mode                          | Behavior                                              |
+| ----------------------------- | ----------------------------------------------------- |
+| **Supervised**                | Cinesim asks you in the UI before each canonical edit |
+| **Auto-accept Cinesim edits** | The same validated commands run without prompting     |
+
+Supervised is the default. Both modes go through identical validation — the mode only decides
+whether you are asked first. You cannot change an agent's model or approval mode while it is
+running; stop it first.
+
+## Start a session
+
+Open a project, then open the agents sidebar (<kbd>⌥⌘B</kbd> on macOS) and start a session.
+
+Cinesim gives that session a bearer-authenticated MCP endpoint bound to loopback, scoped to one
+agent session and one open project. The agent submits edits through that endpoint; it never gets
+write access to canonical files, and one mutating agent runs per project at a time.
+
+## Write requests it can act on
+
+Ask for outcomes that are checkable in the project rather than open-ended direction:
+
+- "Inspect this timeline and summarize the current track layout."
+- "Create a new sequence from these selected assets."
+- "Move `clip_intro` to the 12-second mark."
+- "Find clips shorter than two seconds and list them before changing anything."
+
+Asking for a read-only pass before a destructive one is a good habit — the agent can enumerate what
+it intends to touch, and you approve the plan rather than the aftermath.
+
+You can also give an agent standing direction by editing `AGENTS.md` in the project root. Cinesim
+writes a starter file when it creates the project; everything below its final line is yours.
+
+## Review and roll back
+
+Every turn is checkpointed. Before and after each turn, Cinesim snapshots canonical state using Git
+plumbing in `.video/runtime/agent-checkpoints.git` — a bare repository that needs no worktree and
+never contains media.
+
+The sidebar shows the canonical diff stat for the turn, and you can restore the before-turn
+checkpoint. Restoring reloads the project and starts a fresh provider context on your next message,
+so the conversation cannot silently disagree with the project it is describing.
+
+Ordinary undo still works too, since agent edits are ordinary commands.
+
+## What agents cannot do
+
+- Write canonical files directly.
+- Bypass validation, locks, or the rules any other edit obeys.
+- Move, modify, or delete your source media.
+- Reach outside the open project.
+
+Claude's own tools are restricted to project reads plus the Cinesim MCP namespace; Codex runs
+read-only and performs its edits through that namespace.
+
+## Next
+
+- [MCP reference](../reference/mcp.mdx) — the exact tools an agent is offered.
+- [Commands and history](../concepts/commands-and-history.mdx) — the guarantees behind all of this.
