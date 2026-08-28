@@ -402,10 +402,8 @@ export function createRendererStore({ api, storage }: RendererStoreDependencies)
           const account = await api.getAccountSnapshot().catch(() => INITIAL_ACCOUNT_STATE);
           set({ account, accountHydrated: true });
           await workspace;
-          if (account.user) {
-            const accountAppState = await api.getAppState().catch(() => null);
-            if (accountAppState) set({ appState: accountAppState });
-          }
+          const accountAppState = await api.getAppState().catch(() => null);
+          if (accountAppState) set({ appState: accountAppState });
         })();
         return initialization;
       },
@@ -698,7 +696,7 @@ export function createRendererStore({ api, storage }: RendererStoreDependencies)
       },
       refreshAccount: async () => {
         try {
-          set({ account: await api.getAccountSnapshot(), accountHydrated: true });
+          get().setAccount(await api.getAccountSnapshot());
         } catch {
           set({
             account: {

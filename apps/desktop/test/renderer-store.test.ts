@@ -168,6 +168,74 @@ describe("renderer project controller", () => {
     expect(store.getState().appState.recentProjects).toEqual([cloudProject, localProject]);
   });
 
+  it("removes cached cloud recents when startup account validation signs out", async () => {
+    let identityResolved = false;
+    const localProject = {
+      name: "Local",
+      directory: "/projects/local",
+      kind: "local" as const,
+    };
+    const cloudProject = {
+      name: "Cloud",
+      directory: "/projects/cloud",
+      kind: "cloud" as const,
+    };
+    const getAppState = vi.fn(async () => ({
+      ...EMPTY_APP_STATE,
+      recentProjects: identityResolved ? [localProject] : [cloudProject, localProject],
+    }));
+    const store = createRendererStore({
+      api: apiFixture({
+        getAccountSnapshot: async () => {
+          identityResolved = true;
+          return SIGNED_OUT_ACCOUNT;
+        },
+        getAppState,
+      }),
+    });
+
+    await store.getState().initialize();
+
+    expect(getAppState).toHaveBeenCalledTimes(2);
+    expect(store.getState().account).toEqual(SIGNED_OUT_ACCOUNT);
+    expect(store.getState().appState.recentProjects).toEqual([localProject]);
+  });
+
+  it("reconciles account-scoped recents when an account refresh signs out", async () => {
+    let signedOut = false;
+    const localProject = {
+      name: "Local",
+      directory: "/projects/local",
+      kind: "local" as const,
+    };
+    const cloudProject = {
+      name: "Cloud",
+      directory: "/projects/cloud",
+      kind: "cloud" as const,
+    };
+    const getAppState = vi.fn(async () => ({
+      ...EMPTY_APP_STATE,
+      recentProjects: signedOut ? [localProject] : [cloudProject, localProject],
+    }));
+    const store = createRendererStore({
+      api: apiFixture({
+        getAccountSnapshot: async () => (signedOut ? SIGNED_OUT_ACCOUNT : SIGNED_IN_ACCOUNT),
+        getAppState,
+      }),
+    });
+    await store.getState().initialize();
+    expect(store.getState().appState.recentProjects).toEqual([cloudProject, localProject]);
+
+    signedOut = true;
+    await store.getState().refreshAccount();
+    await vi.waitFor(() =>
+      expect(store.getState().appState.recentProjects).toEqual([localProject]),
+    );
+
+    expect(store.getState().account).toEqual(SIGNED_OUT_ACCOUNT);
+    expect(getAppState).toHaveBeenCalledTimes(3);
+  });
+
   it("keeps a local project open after sign-out", async () => {
     const session = sessionFixture();
     const store = createRendererStore({
