@@ -2,8 +2,8 @@ import { Hono } from "hono";
 import { z } from "zod";
 import { auth } from "../auth";
 import {
+  type EditingTranscriptionGateway,
   MAX_TRANSCRIPTION_AUDIO_BYTES,
-  type OpenRouterTranscriptionGateway,
   TranscriptionGatewayError,
 } from "./service";
 
@@ -29,7 +29,7 @@ async function authenticatedUserId(headers: Headers): Promise<string | null> {
   return (await auth.api.getSession({ headers }))?.user.id ?? null;
 }
 
-export function createTranscriptionRoutes(service: OpenRouterTranscriptionGateway | null) {
+export function createTranscriptionRoutes(service: EditingTranscriptionGateway | null) {
   const routes = new Hono<{ Variables: { userId: string } }>();
 
   routes.use("*", async (context, next) => {

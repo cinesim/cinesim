@@ -48,10 +48,10 @@ function artifact(assetId: Asset["id"], words: TranscriptArtifactWord[]): Transc
     assetId,
     sourceFingerprint: { size: 100, mtimeMs: 200, edgeHash: "a".repeat(64) },
     generator: {
-      gateway: "openrouter",
+      gateway: "direct",
       provider: "deepgram",
       model: "deepgram/nova-3",
-      version: "openrouter-deepgram-nova-3@1",
+      version: "deepgram-nova-3@2",
     },
     options: {
       language: null,

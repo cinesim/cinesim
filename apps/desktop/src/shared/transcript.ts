@@ -3,7 +3,7 @@ import { clipEndUs, normalizeTimelineRanges } from "@cinesim/core";
 import type { DerivedProjectScope, SourceFingerprint } from "./api";
 
 export const TRANSCRIPT_ARTIFACT_VERSION = 1 as const;
-export const TRANSCRIPT_GENERATOR_VERSION = "openrouter-deepgram-nova-3@1" as const;
+export const TRANSCRIPT_GENERATOR_VERSION = "deepgram-nova-3@2" as const;
 export const TRANSCRIPTION_MODEL = "deepgram/nova-3" as const;
 export const DEFAULT_SILENCE_THRESHOLD_US = 500_000;
 
@@ -49,7 +49,7 @@ export interface TranscriptArtifact {
   assetId: AssetId;
   sourceFingerprint: SourceFingerprint;
   generator: {
-    gateway: "openrouter";
+    gateway: "direct";
     provider: "deepgram";
     model: typeof TRANSCRIPTION_MODEL;
     version: typeof TRANSCRIPT_GENERATOR_VERSION;

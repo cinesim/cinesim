@@ -56,6 +56,7 @@ interface GatewayTranscript {
     confidence?: number;
     speaker?: string;
     utteranceId?: string;
+    paragraphId?: string;
     detectedLanguage?: string;
   }>;
   utterances: Array<{
@@ -102,6 +103,7 @@ const gatewayTranscriptSchema = z.object({
         confidence: z.number().min(0).max(1).optional(),
         speaker: z.string().min(1).max(128).optional(),
         utteranceId: z.string().min(1).max(128).optional(),
+        paragraphId: z.string().min(1).max(128).optional(),
         detectedLanguage: z.string().min(1).max(32).optional(),
       })
       .refine((word) => word.endSeconds > word.startSeconds),
@@ -447,6 +449,7 @@ export class TranscriptStore {
           ...(providerWord.confidence === undefined ? {} : { confidence: providerWord.confidence }),
           ...(providerWord.speaker ? { speakerClusterId: `speaker-${providerWord.speaker}` } : {}),
           ...(utteranceId ? { utteranceId } : {}),
+          ...(providerWord.paragraphId ? { paragraphId: providerWord.paragraphId } : {}),
           ...(providerWord.detectedLanguage
             ? { detectedLanguage: providerWord.detectedLanguage }
             : {}),
@@ -470,7 +473,7 @@ export class TranscriptStore {
       assetId: job.asset.id,
       sourceFingerprint: job.sourceFingerprint,
       generator: {
-        gateway: "openrouter",
+        gateway: "direct",
         provider: "deepgram",
         model: TRANSCRIPTION_MODEL,
         version: TRANSCRIPT_GENERATOR_VERSION,

@@ -1,8 +1,6 @@
-export const OPENROUTER_TRANSCRIPTION_ENDPOINT =
-  "https://openrouter.ai/api/v1/audio/transcriptions";
-export const OPENROUTER_TRANSCRIPTION_MODEL = "deepgram/nova-3";
+export const TRANSCRIPTION_MODEL = "deepgram/nova-3" as const;
 export const MAX_TRANSCRIPTION_AUDIO_BYTES = 24 * 1024 * 1024;
-const MAX_TRANSCRIPTION_RESPONSE_BYTES = 64 * 1024 * 1024;
+export const MAX_TRANSCRIPTION_RESPONSE_BYTES = 64 * 1024 * 1024;
 
 export type TranscriptionAudioFormat = "wav" | "mp3" | "flac" | "m4a" | "ogg" | "webm" | "aac";
 
@@ -22,6 +20,7 @@ export interface GatewayTranscriptWord {
   confidence?: number;
   speaker?: string;
   utteranceId?: string;
+  paragraphId?: string;
   detectedLanguage?: string;
 }
 
@@ -37,7 +36,7 @@ export interface GatewayTranscriptUtterance {
 
 export interface GatewayTranscript {
   requestId: string | null;
-  model: typeof OPENROUTER_TRANSCRIPTION_MODEL;
+  model: typeof TRANSCRIPTION_MODEL;
   text: string;
   language: string | null;
   durationSeconds: number | null;
@@ -48,6 +47,10 @@ export interface GatewayTranscript {
     seconds?: number;
     cost?: number;
   };
+}
+
+export interface EditingTranscriptionGateway {
+  transcribe(input: TranscriptionGatewayInput): Promise<GatewayTranscript>;
 }
 
 export class TranscriptionGatewayError extends Error {
@@ -61,107 +64,93 @@ export class TranscriptionGatewayError extends Error {
   }
 }
 
-interface MultipartBody {
-  body: ReadableStream<Uint8Array>;
-  contentType: string;
-}
-
-function multipartField(name: string, value: string): string {
-  return `Content-Disposition: form-data; name="${name}"\r\n\r\n${value}\r\n`;
-}
-
-export function createOpenRouterMultipart(
-  input: TranscriptionGatewayInput,
-  boundary = `cinesim-${crypto.randomUUID()}`,
-): MultipartBody {
-  const encoder = new TextEncoder();
-  const providerOptions = {
-    options: {
-      deepgram: {
-        model: "nova-3",
-        diarize: true,
-        utterances: true,
-        paragraphs: true,
-        smart_format: true,
-        punctuate: true,
-        filler_words: true,
-        profanity_filter: false,
-        redact: false,
-        detect_language: input.language === null,
-        ...(input.language === null ? { language: "multi" } : { language: input.language }),
-        ...(input.keyterms.length > 0 ? { keyterm: input.keyterms } : {}),
-      },
-    },
-  };
-  const fields = [
-    multipartField("model", OPENROUTER_TRANSCRIPTION_MODEL),
-    ...(input.language ? [multipartField("language", input.language)] : []),
-    multipartField("provider", JSON.stringify(providerOptions)),
-  ]
-    .map((field) => `--${boundary}\r\n${field}`)
-    .join("");
-  const prefix = encoder.encode(
-    `${fields}--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="audio.${input.format}"\r\nContent-Type: ${input.contentType}\r\n\r\n`,
-  );
-  const suffix = encoder.encode(`\r\n--${boundary}--\r\n`);
-  const reader = input.audio.getReader();
-  let prefixSent = false;
-  let audioBytes = 0;
-
-  return {
-    contentType: `multipart/form-data; boundary=${boundary}`,
-    body: new ReadableStream<Uint8Array>({
-      async pull(controller) {
-        if (!prefixSent) {
-          prefixSent = true;
-          controller.enqueue(prefix);
-          return;
-        }
-        const next = await reader.read();
-        if (!next.done) {
-          audioBytes += next.value.byteLength;
-          if (audioBytes > MAX_TRANSCRIPTION_AUDIO_BYTES) {
-            await reader.cancel("audio_too_large");
-            controller.error(
-              new TranscriptionGatewayError(
-                "audio_too_large",
-                "Transcription audio chunks must be smaller than 24 MiB",
-                413,
-              ),
-            );
-            return;
-          }
-          controller.enqueue(next.value);
-          return;
-        }
-        controller.enqueue(suffix);
-        controller.close();
-      },
-      async cancel(reason) {
-        await reader.cancel(reason);
-      },
-    }),
-  };
-}
-
-function objectValue(value: unknown): Record<string, unknown> | null {
+export function objectValue(value: unknown): Record<string, unknown> | null {
   return value !== null && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : null;
 }
 
-function finiteNumber(value: unknown): number | null {
+export function finiteNumber(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
-function optionalString(value: unknown): string | undefined {
+export function optionalString(value: unknown): string | undefined {
   return typeof value === "string" && value.length > 0 ? value : undefined;
 }
 
-function findTimedWords(
+export function boundedAudioStream(source: ReadableStream<Uint8Array>): ReadableStream<Uint8Array> {
+  const reader = source.getReader();
+  let audioBytes = 0;
+  return new ReadableStream<Uint8Array>({
+    async pull(controller) {
+      const next = await reader.read();
+      if (next.done) {
+        controller.close();
+        return;
+      }
+      audioBytes += next.value.byteLength;
+      if (audioBytes > MAX_TRANSCRIPTION_AUDIO_BYTES) {
+        await reader.cancel("audio_too_large");
+        controller.error(
+          new TranscriptionGatewayError(
+            "audio_too_large",
+            "Transcription audio chunks must be smaller than 24 MiB",
+            413,
+          ),
+        );
+        return;
+      }
+      controller.enqueue(next.value);
+    },
+    async cancel(reason) {
+      await reader.cancel(reason);
+    },
+  });
+}
+
+export async function readJsonResponse(response: Response, provider: string): Promise<unknown> {
+  const declaredBytes = Number(response.headers.get("content-length") ?? "0");
+  if (declaredBytes > MAX_TRANSCRIPTION_RESPONSE_BYTES) {
+    throw new TranscriptionGatewayError(
+      "provider_response_too_large",
+      `${provider} returned an unexpectedly large transcript`,
+    );
+  }
+  if (!response.body) return null;
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let receivedBytes = 0;
+  while (true) {
+    const next = await reader.read();
+    if (next.done) break;
+    receivedBytes += next.value.byteLength;
+    if (receivedBytes > MAX_TRANSCRIPTION_RESPONSE_BYTES) {
+      await reader.cancel("provider_response_too_large");
+      throw new TranscriptionGatewayError(
+        "provider_response_too_large",
+        `${provider} returned an unexpectedly large transcript`,
+      );
+    }
+    chunks.push(next.value);
+  }
+  const bytes = new Uint8Array(receivedBytes);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  try {
+    return JSON.parse(new TextDecoder().decode(bytes)) as unknown;
+  } catch {
+    return null;
+  }
+}
+
+function findWordsPayload(
   value: unknown,
 ): { owner: Record<string, unknown>; words: unknown[] } | null {
   const queue: Array<{ value: unknown; depth: number }> = [{ value, depth: 0 }];
+  let emptyWords: { owner: Record<string, unknown>; words: unknown[] } | null = null;
   let visited = 0;
   while (queue.length > 0 && visited < 200) {
     const item = queue.shift();
@@ -170,6 +159,7 @@ function findTimedWords(
     const object = objectValue(item.value);
     if (!object) continue;
     const words = object.words;
+    if (Array.isArray(words) && !emptyWords) emptyWords = { owner: object, words };
     if (
       Array.isArray(words) &&
       words.some((word) => {
@@ -188,7 +178,29 @@ function findTimedWords(
       }
     }
   }
-  return null;
+  return emptyWords;
+}
+
+function findNestedArray(value: unknown, key: string): unknown[] {
+  const queue: Array<{ value: unknown; depth: number }> = [{ value, depth: 0 }];
+  let visited = 0;
+  while (queue.length > 0 && visited < 200) {
+    const item = queue.shift();
+    if (!item) break;
+    visited += 1;
+    const object = objectValue(item.value);
+    if (!object) continue;
+    if (Array.isArray(object[key])) return object[key] as unknown[];
+    if (item.depth >= 6) continue;
+    for (const child of Object.values(object)) {
+      if (Array.isArray(child)) {
+        for (const entry of child.slice(0, 16)) queue.push({ value: entry, depth: item.depth + 1 });
+      } else if (objectValue(child)) {
+        queue.push({ value: child, depth: item.depth + 1 });
+      }
+    }
+  }
+  return [];
 }
 
 function normalizeWords(words: readonly unknown[]): GatewayTranscriptWord[] {
@@ -224,10 +236,10 @@ function normalizeWords(words: readonly unknown[]): GatewayTranscriptWord[] {
 }
 
 function normalizeUtterances(
-  payload: Record<string, unknown>,
+  payload: unknown,
   words: readonly GatewayTranscriptWord[],
 ): GatewayTranscriptUtterance[] {
-  const raw = Array.isArray(payload.utterances) ? payload.utterances : [];
+  const raw = findNestedArray(payload, "utterances");
   const utterances: GatewayTranscriptUtterance[] = [];
   for (let index = 0; index < raw.length; index += 1) {
     const value = objectValue(raw[index]);
@@ -280,125 +292,68 @@ function normalizeUtterances(
   return utterances;
 }
 
-export function normalizeOpenRouterTranscript(
+function assignParagraphs(
   payload: unknown,
-  generationId?: string | null,
-): GatewayTranscript {
+  words: readonly GatewayTranscriptWord[],
+): GatewayTranscriptWord[] {
+  const raw = findNestedArray(payload, "paragraphs");
+  const ranges = raw.flatMap((value, index) => {
+    const paragraph = objectValue(value);
+    const startSeconds = finiteNumber(paragraph?.start);
+    const endSeconds = finiteNumber(paragraph?.end);
+    return startSeconds !== null && endSeconds !== null && endSeconds > startSeconds
+      ? [{ id: `paragraph-${String(index + 1).padStart(6, "0")}`, startSeconds, endSeconds }]
+      : [];
+  });
+  if (ranges.length === 0) return [...words];
+  return words.map((word) => {
+    const midpoint = word.startSeconds + (word.endSeconds - word.startSeconds) / 2;
+    const paragraph = ranges.find(
+      (candidate) => midpoint >= candidate.startSeconds && midpoint <= candidate.endSeconds,
+    );
+    return paragraph ? { ...word, paragraphId: paragraph.id } : word;
+  });
+}
+
+export function normalizeDeepgramTranscript(payload: unknown): GatewayTranscript {
   const root = objectValue(payload);
   if (!root) {
     throw new TranscriptionGatewayError(
       "invalid_provider_response",
-      "OpenRouter returned invalid JSON",
+      "Deepgram returned invalid JSON",
     );
   }
-  const timed = findTimedWords(root);
+  const timed = findWordsPayload(root);
   if (!timed) {
     throw new TranscriptionGatewayError(
       "word_timestamps_unavailable",
-      "Nova-3 returned text without the word timestamps required for transcript editing",
+      "Deepgram Nova-3 returned no word timestamps for transcript editing",
     );
   }
-  const words = normalizeWords(timed.words);
-  if (words.length === 0) {
+  const words = assignParagraphs(root, normalizeWords(timed.words));
+  const nativeText = typeof timed.owner.transcript === "string" ? timed.owner.transcript : "";
+  if (words.length === 0 && nativeText.trim().length > 0) {
     throw new TranscriptionGatewayError(
       "word_timestamps_unavailable",
-      "Nova-3 returned no usable word timestamps",
+      "Deepgram Nova-3 returned no usable word timestamps",
     );
   }
   const metadata = objectValue(root.metadata);
-  const usage = objectValue(root.usage);
-  const text =
-    optionalString(root.text) ??
-    optionalString(timed.owner.transcript) ??
-    words.map((word) => word.text).join(" ");
+  const text = nativeText || words.map((word) => word.text).join(" ");
   const language =
-    optionalString(root.language) ??
     optionalString(timed.owner.detected_language) ??
-    optionalString(metadata?.language) ??
     words.find((word) => word.detectedLanguage)?.detectedLanguage ??
     null;
-  const durationSeconds =
-    finiteNumber(root.duration) ??
-    finiteNumber(metadata?.duration) ??
-    finiteNumber(usage?.seconds) ??
-    words.at(-1)?.endSeconds ??
-    null;
+  const durationSeconds = finiteNumber(metadata?.duration) ?? words.at(-1)?.endSeconds ?? null;
   const confidence = finiteNumber(timed.owner.confidence);
   return {
-    requestId:
-      generationId ??
-      optionalString(metadata?.request_id) ??
-      optionalString(root.request_id) ??
-      null,
-    model: OPENROUTER_TRANSCRIPTION_MODEL,
+    requestId: optionalString(metadata?.request_id) ?? null,
+    model: TRANSCRIPTION_MODEL,
     text,
     language,
     durationSeconds,
     ...(confidence === null ? {} : { confidence }),
     words,
-    utterances: normalizeUtterances(timed.owner, words),
-    ...(usage
-      ? {
-          usage: {
-            ...(finiteNumber(usage.seconds) === null
-              ? {}
-              : { seconds: finiteNumber(usage.seconds)! }),
-            ...(finiteNumber(usage.cost) === null ? {} : { cost: finiteNumber(usage.cost)! }),
-          },
-        }
-      : {}),
+    utterances: normalizeUtterances(root, words),
   };
-}
-
-export class OpenRouterTranscriptionGateway {
-  constructor(
-    private readonly apiKey: string,
-    private readonly fetchImplementation: typeof fetch = fetch,
-  ) {}
-
-  async transcribe(input: TranscriptionGatewayInput): Promise<GatewayTranscript> {
-    const multipart = createOpenRouterMultipart(input);
-    const timeout = AbortSignal.timeout(75_000);
-    const signal = input.signal ? AbortSignal.any([input.signal, timeout]) : timeout;
-    let response: Response;
-    try {
-      response = await this.fetchImplementation(OPENROUTER_TRANSCRIPTION_ENDPOINT, {
-        method: "POST",
-        headers: {
-          authorization: `Bearer ${this.apiKey}`,
-          "content-type": multipart.contentType,
-          "http-referer": "https://cinesim.build",
-          "x-title": "Cinesim",
-        },
-        body: multipart.body,
-        signal,
-        // Required by Node's fetch when the request body is a stream.
-        duplex: "half",
-      } as RequestInit & { duplex: "half" });
-    } catch (error) {
-      if (error instanceof TranscriptionGatewayError) throw error;
-      throw new TranscriptionGatewayError(
-        "provider_unavailable",
-        error instanceof Error ? error.message : "OpenRouter transcription request failed",
-      );
-    }
-    const responseBytes = Number(response.headers.get("content-length") ?? "0");
-    if (responseBytes > MAX_TRANSCRIPTION_RESPONSE_BYTES) {
-      throw new TranscriptionGatewayError(
-        "provider_response_too_large",
-        "OpenRouter returned an unexpectedly large transcript",
-      );
-    }
-    const payload = (await response.json().catch(() => null)) as unknown;
-    if (!response.ok) {
-      const message = optionalString(objectValue(payload)?.message);
-      const nestedError = objectValue(objectValue(payload)?.error);
-      throw new TranscriptionGatewayError(
-        `provider_${response.status}`,
-        message ?? optionalString(nestedError?.message) ?? `OpenRouter returned ${response.status}`,
-        response.status >= 400 && response.status < 500 ? 400 : 502,
-      );
-    }
-    return normalizeOpenRouterTranscript(payload, response.headers.get("x-generation-id"));
-  }
 }

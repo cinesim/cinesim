@@ -10,15 +10,17 @@ range command used by every other adapter.
 
 ## Provider boundary
 
-The Cinesim API owns the OpenRouter credential. An authenticated account may stream a bounded audio
+The Cinesim API owns the Deepgram credential. An authenticated account may stream a bounded audio
 chunk to `POST /api/v1/transcriptions`; there is currently no plan or billing entitlement check, so
 every signed-in user has the same access when the gateway is configured. The desktop never receives
 the service key, and the route cannot be used without a valid user session.
 
-The gateway calls OpenRouter's dedicated
-[`/api/v1/audio/transcriptions`](https://openrouter.ai/docs/guides/overview/multimodal/stt)
-endpoint with `deepgram/nova-3`. Deepgram documents Nova-3 as its highest-performing general-purpose
-batch ASR model for meetings, multi-speaker, multilingual, noisy, and far-field audio; see its
+The editing gateway calls Deepgram's native pre-recorded
+[`/v1/listen`](https://developers.deepgram.com/reference/speech-to-text/listen-pre-recorded)
+endpoint with Nova-3. The native response preserves the word timings, confidence, speaker labels,
+and utterance boundaries required to turn transcript selections into exact media ranges. Deepgram
+documents Nova-3 as its general-purpose batch ASR model for meetings, multi-speaker, multilingual,
+noisy, and far-field audio; see its
 [`Models & Languages` reference](https://developers.deepgram.com/docs/models-languages-overview).
 
 Requests enable the features useful to document editing:
@@ -32,15 +34,18 @@ Requests enable the features useful to document editing:
 - no profanity filtering or personal-information redaction, because either would silently change
   the source record. A future privacy control can opt into redaction explicitly.
 
-OpenRouter's generic response contract only guarantees transcript text and usage. Cinesim additionally
-requires the routed provider response to preserve timed words (native Deepgram data or an equivalent
-verbose word array). If those timestamps are absent, the gateway returns
-`word_timestamps_unavailable` and the asset shows a failed state. Cinesim never fabricates uniform
-word timings: fake timing would make a text deletion remove the wrong media.
+If the native response omits timestamps, the gateway returns `word_timestamps_unavailable` and the
+asset shows a failed state. Cinesim never fabricates uniform word timings: fake timing would make a
+text deletion remove the wrong media. Requests set `mip_opt_out=true` to opt out of Deepgram's model
+improvement program, but audio still leaves the local machine for transcription. Product UI must
+say so before starting the first remote transcription.
 
-The provider is currently listed by OpenRouter as zero-retention, but audio still leaves the local
-machine for transcription. Product UI must say so before starting the first remote transcription;
-zero-retention routing is not a claim that the operation is local.
+The OpenRouter adapter remains available as a separate text-transcription boundary. It accepts an
+arbitrary model slug and optional provider settings and normalizes OpenRouter's documented
+text-and-usage response without pretending it contains editing timestamps. It is intentionally not
+wired to `POST /api/v1/transcriptions`: OpenRouter does not promise native Deepgram words in its
+normalized response. `OPENROUTER_API_KEY` is reserved for future features that only require text;
+editable Nova-3 transcripts require `DEEPGRAM_API_KEY`.
 
 The desktop records this acknowledgement in local UI state keyed by the signed-in user ID. It is not
 a canonical project setting and does not enter command history. A different account on the same Mac
@@ -49,10 +54,9 @@ must acknowledge the remote boundary independently.
 ## Streaming and bounds
 
 Media is not read wholly into memory and is not serialized as base64. The desktop extracts bounded
-audio chunks, and the API streams each chunk into an OpenRouter multipart request with backpressure.
-Chunks are capped at 24 MiB so the request remains below OpenRouter's 25 MiB multipart limit.
-OpenRouter also documents an approximately 60-second upstream processing timeout, so long recordings
-must be segmented and stitched by source time rather than sent as one request.
+audio chunks, and the API streams each chunk as the request body to Deepgram with backpressure.
+Chunks are capped at 24 MiB and long recordings are segmented and stitched by source time rather
+than sent as one request.
 
 The API accepts `wav`, `mp3`, `flac`, `m4a`, `ogg`, `webm`, and `aac`. A provider response is bounded
 before parsing. Diagnostics record request/generation IDs and failure codes, never audio or full
@@ -64,7 +68,7 @@ Validated artifacts live under `.video/transcripts/` and are disposable. An arti
 for the tuple of:
 
 - asset ID and source fingerprint;
-- `deepgram/nova-3` through the OpenRouter gateway;
+- `deepgram/nova-3` through the direct Deepgram gateway;
 - generator schema version;
 - requested/detected language;
 - diarization, formatting, and vocabulary options.

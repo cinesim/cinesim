@@ -51,7 +51,7 @@ export const transcriptArtifactSchema = z
     assetId: z.string().regex(/^asset_[a-zA-Z0-9][a-zA-Z0-9_-]*$/),
     sourceFingerprint: fingerprintSchema,
     generator: z.object({
-      gateway: z.literal("openrouter"),
+      gateway: z.literal("direct"),
       provider: z.literal("deepgram"),
       model: z.literal(TRANSCRIPTION_MODEL),
       version: z.literal(TRANSCRIPT_GENERATOR_VERSION),

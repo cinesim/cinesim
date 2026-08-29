@@ -112,8 +112,8 @@ function TranscriptionSettings() {
       ) : (
         <>
           <Notice className="mb-5 rounded-lg bg-panel" size="default">
-            Transcription sends bounded audio chunks through OpenRouter to Deepgram. Audio leaves
-            this Mac; the generated transcript remains disposable data under
+            Transcription sends bounded audio chunks directly to Deepgram. Audio leaves this Mac;
+            the generated transcript remains disposable data under
             <code className="mx-1 rounded bg-panel-muted px-1 py-0.5 text-primary">.video</code>.
             Choosing automatic generation authorizes this remote processing for newly encountered
             speech media while you are signed in.
@@ -153,7 +153,7 @@ function TranscriptionSettings() {
                   })
                 }
               >
-                <option value="deepgram/nova-3">Deepgram Nova-3 · OpenRouter</option>
+                <option value="deepgram/nova-3">Deepgram Nova-3 · Direct</option>
               </Select>
             </SettingRow>
           </div>

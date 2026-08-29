@@ -13,6 +13,7 @@ const config: ServerConfig = {
   databaseUrl: "not-rendered",
   smtpUrl: "not-rendered",
   emailFrom: "not-rendered",
+  deepgramApiKey: null,
   google: null,
   r2: null,
   openRouterApiKey: null,

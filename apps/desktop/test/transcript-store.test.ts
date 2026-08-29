@@ -130,7 +130,7 @@ describe("transcript artifact store", () => {
       sourceFingerprint: fingerprint,
       language: "en",
       generator: {
-        gateway: "openrouter",
+        gateway: "direct",
         provider: "deepgram",
         model: "deepgram/nova-3",
         requestId: "request-a,request-b",
@@ -246,10 +246,10 @@ describe("transcript artifact store", () => {
         assetId: asset.id,
         sourceFingerprint: fingerprint,
         generator: {
-          gateway: "openrouter",
+          gateway: "direct",
           provider: "deepgram",
           model: "deepgram/nova-3",
-          version: "openrouter-deepgram-nova-3@1",
+          version: "deepgram-nova-3@2",
         },
         options: {
           language: null,

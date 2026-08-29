@@ -12,7 +12,7 @@ import { createCloudRoutes } from "./cloud/routes";
 import { createProjectRoutes } from "./projects/routes";
 import { ProjectRegistryService } from "./projects/service";
 import { createTranscriptionRoutes } from "./transcriptions/routes";
-import { OpenRouterTranscriptionGateway } from "./transcriptions/service";
+import { DeepgramTranscriptionGateway } from "./transcriptions/deepgram";
 
 const config = serverConfig();
 const app = new Hono();
@@ -24,8 +24,8 @@ const cloudStorage = config.r2
       config.cloudAddonOptionsBytes,
     )
   : null;
-const transcriptionGateway = config.openRouterApiKey
-  ? new OpenRouterTranscriptionGateway(config.openRouterApiKey)
+const transcriptionGateway = config.deepgramApiKey
+  ? new DeepgramTranscriptionGateway(config.deepgramApiKey)
   : null;
 
 app.use(

@@ -52,16 +52,16 @@ export function useTranscriptionConsent(
         <DialogHeader>
           <DialogTitle>Send audio for transcription?</DialogTitle>
           <DialogDescription>
-            Cinesim will send bounded audio chunks through OpenRouter to Deepgram Nova-3. Audio
-            leaves this Mac. The resulting transcript stays in the project&apos;s disposable
+            Cinesim will send bounded audio chunks directly to Deepgram Nova-3. Audio leaves this
+            Mac. The resulting transcript stays in the project&apos;s disposable
             <code className="mx-1 rounded bg-panel-muted px-1 py-0.5 text-primary">.video</code>
             data and is not a canonical project edit.
           </DialogDescription>
         </DialogHeader>
         <p className="text-ui-xs leading-5 text-muted">
-          OpenRouter currently lists the routed Deepgram provider as zero-retention, but this is
-          still a remote operation. Cinesim keeps the service credential on the authenticated API
-          and never includes full transcript text in diagnostics.
+          Cinesim requests Deepgram&apos;s model-improvement opt-out, but this is still a remote
+          operation. Cinesim keeps the service credential on the authenticated API and never
+          includes full transcript text in diagnostics.
         </p>
         <DialogFooter>
           <Button variant="ghost" onClick={() => setPendingAssetIds(null)}>
