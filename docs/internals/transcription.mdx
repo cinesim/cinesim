@@ -1,0 +1,116 @@
+---
+title: Transcription and transcript editing
+description: The authenticated Nova-3 gateway, disposable artifacts, and deterministic timeline projection.
+---
+
+Cinesim treats a transcript as derived perception data over canonical media, never as a second edit
+decision list. Words come from an asset-level artifact; the Cut workspace maps those source times
+through the active sequence's clips. Deleting transcript time submits the same validated atomic
+range command used by every other adapter.
+
+## Provider boundary
+
+The Cinesim API owns the Deepgram credential. An authenticated account may stream a bounded audio
+chunk to `POST /api/v1/transcriptions`; there is currently no plan or billing entitlement check, so
+every signed-in user has the same access when the gateway is configured. The desktop never receives
+the service key, and the route cannot be used without a valid user session.
+
+The editing gateway calls Deepgram's native pre-recorded
+[`/v1/listen`](https://developers.deepgram.com/reference/speech-to-text/listen-pre-recorded)
+endpoint with Nova-3. The native response preserves the word timings, confidence, speaker labels,
+and utterance boundaries required to turn transcript selections into exact media ranges. Deepgram
+documents Nova-3 as its general-purpose batch ASR model for meetings, multi-speaker, multilingual,
+noisy, and far-field audio; see its
+[`Models & Languages` reference](https://developers.deepgram.com/docs/models-languages-overview).
+
+Requests enable the features useful to document editing:
+
+- word start/end times and confidence;
+- speaker diarization and utterance boundaries;
+- paragraphs, punctuation, and smart formatting;
+- filler-word retention, so editors may search for and remove verbal tics;
+- multilingual/language detection by default, or an explicit language when supplied;
+- bounded keyterm prompting for names and project vocabulary;
+- no profanity filtering or personal-information redaction, because either would silently change
+  the source record. A future privacy control can opt into redaction explicitly.
+
+If the native response omits timestamps, the gateway returns `word_timestamps_unavailable` and the
+asset shows a failed state. Cinesim never fabricates uniform word timings: fake timing would make a
+text deletion remove the wrong media. Requests set `mip_opt_out=true` to opt out of Deepgram's model
+improvement program, but audio still leaves the local machine for transcription. Product UI must
+say so before starting the first remote transcription.
+
+The OpenRouter adapter remains available as a separate text-transcription boundary. It accepts an
+arbitrary model slug and optional provider settings and normalizes OpenRouter's documented
+text-and-usage response without pretending it contains editing timestamps. It is intentionally not
+wired to `POST /api/v1/transcriptions`: OpenRouter does not promise native Deepgram words in its
+normalized response. `OPENROUTER_API_KEY` is reserved for future features that only require text;
+editable Nova-3 transcripts require `DEEPGRAM_API_KEY`.
+
+The desktop records this acknowledgement in local UI state keyed by the signed-in user ID. It is not
+a canonical project setting and does not enter command history. A different account on the same Mac
+must acknowledge the remote boundary independently.
+
+## Streaming and bounds
+
+Media is not read wholly into memory and is not serialized as base64. The desktop extracts bounded
+audio chunks, and the API streams each chunk as the request body to Deepgram with backpressure.
+Chunks are capped at 24 MiB and long recordings are segmented and stitched by source time rather
+than sent as one request.
+
+The API accepts `wav`, `mp3`, `flac`, `m4a`, `ogg`, `webm`, and `aac`. A provider response is bounded
+before parsing. Diagnostics record request/generation IDs and failure codes, never audio or full
+transcript text.
+
+## Artifact model
+
+Validated artifacts live under `.video/transcripts/` and are disposable. An artifact is valid only
+for the tuple of:
+
+- asset ID and source fingerprint;
+- `deepgram/nova-3` through the direct Deepgram gateway;
+- generator schema version;
+- requested/detected language;
+- diarization, formatting, and vocabulary options.
+
+Words use integer source microseconds and stable IDs within one artifact revision. A projected word
+also carries its artifact word ID, asset ID, canonical clip/link IDs, and clamped timeline interval.
+Regenerating against a changed fingerprint or model creates a new artifact revision, so callers must
+not retain old word IDs.
+
+User-authored speaker names, merges, and text corrections are intentionally not part of the first
+artifact schema. If introduced, they belong in a versioned deterministic file under `.cinesim/` and
+must be changed only by validated commands.
+
+## Deterministic projection decisions
+
+- A word is included in a clip when its midpoint lies in the clip's source range. Its mapped seek
+  interval is then clamped to the clip boundaries.
+- Reciprocal linked A/V clips emit spoken words once.
+- A 500 ms gap between adjacent words in one source clip becomes a filled media-silence token.
+  Gaps between clips remain separate hollow timeline-gap tokens.
+- Text selection maps to one exact range per canonical clip. It does not silently absorb an
+  unselected cross-clip gap.
+- Collapsed Timeline units are packed in narrative order. Transcript-bearing overlaps are combined
+  into one overlapping-dialogue interval instead of being presented as false sequential speech.
+- B-roll and secondary audio that overlap a narrative unit appear as badges. Supporting material
+  with no narrative coverage remains a neutral unit.
+- Delete uses sequence-wide ripple with no automatic padding. Lift remains an explicit secondary
+  action.
+- Timeline presentation is derived from rendered height: below 120 px is collapsed, 120–259 px is
+  compact, and 260 px or taller is full. Cut defaults to 80 px and Edit can be resized to the same
+  minimum.
+
+These are pure selectors over project state and artifacts. They never mutate or cache canonical
+state.
+
+## Atomic edits and history
+
+`sequence.deleteRanges` accepts up to 500 exact ranges and a `lift | ripple` mode. Core sorts and
+merges touching ranges, splits every intersected clip, creates deterministic IDs, preserves
+reciprocal links, clamps fades, and validates resulting track overlap before returning. Ripple mode
+shifts later material on every affected track. If any affected track is locked, the whole command
+fails against a cloned project and no partial mutation can be persisted.
+
+One command commit produces one undo entry even when a selection crosses clips or creates several
+fragments. React only owns the ephemeral selection and sends exact ranges through the protocol.

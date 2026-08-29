@@ -70,4 +70,24 @@ describe("protocol command dispatch", () => {
     expect(malformedRemoval.ok).toBe(false);
     if (!malformedRemoval.ok) expect(malformedRemoval.error.code).toBe("INVALID_COMMAND");
   });
+
+  it("validates atomic sequence range edits at the protocol boundary", () => {
+    const project = createProject({ name: "Protocol" });
+    const empty = dispatchCommand(project, {
+      type: "sequence.deleteRanges",
+      sequenceId: project.activeSequenceId,
+      ranges: [],
+      mode: "ripple",
+    });
+    expect(empty.ok).toBe(false);
+
+    const inverted = dispatchCommand(project, {
+      type: "sequence.deleteRanges",
+      sequenceId: project.activeSequenceId,
+      ranges: [{ startUs: 20, endUs: 10 }],
+      mode: "lift",
+    });
+    expect(inverted.ok).toBe(false);
+    if (!inverted.ok) expect(inverted.error.code).toBe("INVALID_RANGE");
+  });
 });

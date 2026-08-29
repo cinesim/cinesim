@@ -29,6 +29,8 @@ const environmentSchema = z
     DATABASE_URL: z.string().min(1),
     SMTP_URL: z.url(),
     EMAIL_FROM: z.string().min(3),
+    DEEPGRAM_API_KEY: optionalEnvironmentValue,
+    OPENROUTER_API_KEY: optionalEnvironmentValue,
     GOOGLE_CLIENT_ID: z.string().optional(),
     GOOGLE_CLIENT_SECRET: z.string().optional(),
     CLOUDFLARE_R2_ACCOUNT_ID: optionalEnvironmentValue,
@@ -99,6 +101,8 @@ export interface ServerConfig {
   databaseUrl: string;
   smtpUrl: string;
   emailFrom: string;
+  deepgramApiKey: string | null;
+  openRouterApiKey: string | null;
   google: { clientId: string; clientSecret: string } | null;
   r2: {
     accountId: string;
@@ -131,6 +135,8 @@ export function readServerConfig(environment: NodeJS.ProcessEnv): ServerConfig {
     databaseUrl: value.DATABASE_URL,
     smtpUrl: value.SMTP_URL,
     emailFrom: value.EMAIL_FROM,
+    deepgramApiKey: value.DEEPGRAM_API_KEY ?? null,
+    openRouterApiKey: value.OPENROUTER_API_KEY ?? null,
     google:
       value.GOOGLE_CLIENT_ID && value.GOOGLE_CLIENT_SECRET
         ? { clientId: value.GOOGLE_CLIENT_ID, clientSecret: value.GOOGLE_CLIENT_SECRET }

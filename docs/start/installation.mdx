@@ -66,6 +66,17 @@ That command creates an ignored `apps/api/.env.local` with a random secret, star
 and Mailpit containers, waits for the database, and applies the committed migrations. It does not
 launch Electron, and it never overwrites secrets you have already set.
 
+Editable transcripts use the server-side Deepgram gateway. Put a project API key in that ignored
+environment file and restart the API:
+
+```text
+DEEPGRAM_API_KEY=...
+```
+
+The key is read only by the Hono API. It is never included in the Electron main, preload, renderer,
+project files, or account preferences. `OPENROUTER_API_KEY` remains an optional server setting for
+future text-only transcription features, but it does not enable editable transcripts.
+
 Then start everything together:
 
 ```bash

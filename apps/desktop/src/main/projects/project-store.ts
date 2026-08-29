@@ -30,6 +30,8 @@ import { createCinesimLogger } from "@cinesim/logging";
 import { dispatchCommand } from "@cinesim/protocol";
 import type { DesktopProjectSession } from "../../shared/api";
 import { DerivedMediaStore } from "../derived-media/service";
+import type { DesktopAccountService } from "../account/service";
+import { TranscriptStore } from "../transcripts/service";
 import { inspectMedia } from "./media-import";
 
 const log = createCinesimLogger({ service: "desktop-commands" });
@@ -91,11 +93,18 @@ async function createAvailableProjectDirectory(
 
 export class DesktopProjectStore {
   readonly derivedMedia = new DerivedMediaStore();
+  readonly transcripts: TranscriptStore;
   #directory: string | null = null;
   #history: ProjectHistory | null = null;
   #settings: ProjectSettings = DEFAULT_SETTINGS;
   #revision = 0;
   #operationQueue: Promise<unknown> = Promise.resolve();
+
+  constructor(accountService: DesktopAccountService | null = null) {
+    this.transcripts = new TranscriptStore(accountService, (assetId) =>
+      this.derivedMedia.sourceFingerprint(assetId),
+    );
+  }
 
   get directory(): string | null {
     return this.#directory;
@@ -135,6 +144,7 @@ export class DesktopProjectStore {
       this.#revision = 1;
       await this.#ensureLayout();
       await this.derivedMedia.setProject(directory, project, undefined, this.#settings);
+      await this.transcripts.setProject(directory, project, this.derivedMedia.scope());
       return this.#persist();
     });
   }
@@ -172,6 +182,11 @@ export class DesktopProjectStore {
           this.#history.project,
           preparedDerived,
           this.#settings,
+        );
+        await this.transcripts.setProject(
+          directory,
+          this.#history.project,
+          this.derivedMedia.scope(),
         );
         const derivedDurationMs = performance.now() - derivedStartedAt;
         const session = this.session();
@@ -219,6 +234,7 @@ export class DesktopProjectStore {
         "filmstrips",
         "frames",
         "runtime",
+        "transcripts",
       ].map((folder) => mkdir(join(directory, ".video", folder), { recursive: true })),
     ]);
     await Promise.all([
@@ -267,6 +283,7 @@ export class DesktopProjectStore {
         }
         this.#history!.commit(dispatched.value.command);
         this.derivedMedia.updateProject(this.#history!.project);
+        await this.transcripts.updateProject(this.#history!.project);
         this.#revision += 1;
         await this.#persist();
         await this.derivedMedia
@@ -305,6 +322,7 @@ export class DesktopProjectStore {
       this.#requireProject();
       this.#history!.undo();
       this.derivedMedia.updateProject(this.#history!.project);
+      await this.transcripts.updateProject(this.#history!.project);
       this.#revision += 1;
       const session = await this.#persist();
       await this.derivedMedia
@@ -321,6 +339,7 @@ export class DesktopProjectStore {
       this.#requireProject();
       this.#history!.redo();
       this.derivedMedia.updateProject(this.#history!.project);
+      await this.transcripts.updateProject(this.#history!.project);
       this.#revision += 1;
       const session = await this.#persist();
       await this.derivedMedia
@@ -381,6 +400,7 @@ export class DesktopProjectStore {
   async close(): Promise<void> {
     await this.#serialize(async () => {
       await this.derivedMedia.clearProject();
+      await this.transcripts.clearProject();
       this.#directory = null;
       this.#history = null;
       this.#settings = DEFAULT_SETTINGS;

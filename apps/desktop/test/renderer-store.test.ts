@@ -11,6 +11,7 @@ import {
 import type { RuntimeSnapshot } from "@cinesim/engine";
 import type { DesktopApi, DesktopProjectSession } from "../src/shared/api";
 import type { AccountSnapshot } from "../src/shared/api";
+import type { TranscriptArtifact, TranscriptSnapshot } from "../src/shared/transcript";
 import {
   createRendererStore,
   EMPTY_APP_STATE,
@@ -102,6 +103,32 @@ function runtimeFixture(timeUs: number): RuntimeSnapshot {
 }
 
 describe("renderer project controller", () => {
+  it("retains loaded transcript artifacts when metadata-only updates arrive", async () => {
+    const session = sessionFixture();
+    const store = createRendererStore({ api: apiFixture() });
+    await store.getState().receiveExternalSession(session);
+    const artifact = {
+      version: 1,
+      assetId: "asset_000001",
+      words: [],
+      utterances: [],
+    } as unknown as TranscriptArtifact;
+    const loaded: TranscriptSnapshot = {
+      projectDirectory: session.directory,
+      projectScope: session.derivedScope,
+      assets: {
+        asset_000001: { assetId: "asset_000001", state: "ready", artifact },
+      },
+    };
+    store.getState().setTranscripts(session.directory, loaded);
+    store.getState().setTranscripts(session.directory, {
+      ...loaded,
+      assets: { asset_000001: { assetId: "asset_000001", state: "ready" } },
+    });
+
+    expect(store.getState().transcripts?.assets.asset_000001?.artifact).toBe(artifact);
+  });
+
   it("hydrates local projects without waiting for account identity", async () => {
     const session = sessionFixture();
     const account = deferred<AccountSnapshot>();

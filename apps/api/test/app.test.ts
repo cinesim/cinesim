@@ -31,6 +31,7 @@ describe("Hono authentication surface", () => {
       environment: "test",
       googleSignIn: false,
       cloudStorage: false,
+      transcription: false,
     });
     expect(response.headers.get("cache-control")).toBe("no-store");
   });
@@ -49,6 +50,16 @@ describe("Hono authentication surface", () => {
 
   it("requires an account before exposing the project registry", async () => {
     const response = await app.request("/api/v1/projects");
+    expect(response.status).toBe(401);
+    expect(await response.json()).toEqual({ error: "unauthorized" });
+  });
+
+  it("requires an account before accepting transcription audio", async () => {
+    const response = await app.request("/api/v1/transcriptions?format=wav", {
+      method: "POST",
+      headers: { "content-type": "audio/wav" },
+      body: new Uint8Array([1, 2, 3]),
+    });
     expect(response.status).toBe(401);
     expect(await response.json()).toEqual({ error: "unauthorized" });
   });

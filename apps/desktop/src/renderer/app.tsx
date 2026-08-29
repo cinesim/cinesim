@@ -8,7 +8,11 @@ import { AppShell, toggleAuxiliaryMode } from "./components/shell/app-shell";
 import { TopBar } from "./components/shell/top-bar";
 import { Workspace } from "./components/workspace/workspace";
 import { useDelayedBusy } from "./hooks/use-delayed-busy";
-import { editorLayoutFromState, sessionFromLifecycle } from "./store/renderer-store";
+import {
+  cutLayoutFromState,
+  editorLayoutFromState,
+  sessionFromLifecycle,
+} from "./store/renderer-store";
 import { useRendererStore } from "./store/renderer-store-context";
 
 export function App() {
@@ -27,6 +31,7 @@ export function App() {
   const auxiliaryMode = useRendererStore((state) => state.auxiliaryMode);
   const error = useRendererStore((state) => state.operationError);
   const editorLayout = useRendererStore(editorLayoutFromState);
+  const cutLayout = useRendererStore(cutLayoutFromState);
   const navigate = useRendererStore((state) => state.navigate);
   const showProjectSection = useRendererStore((state) => state.showProjectSection);
   const showTimeline = useRendererStore((state) => state.showTimeline);
@@ -159,6 +164,7 @@ export function App() {
               inspectorOpen={inspectorOpen}
               notesOpen={notesOpen}
               editorLayout={editorLayout}
+              cutLayout={cutLayout}
               onOpenTimeline={showTimeline}
             />
           ) : (

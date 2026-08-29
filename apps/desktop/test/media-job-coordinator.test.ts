@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 import { applyCommand, createProject } from "@cinesim/core";
 import type { Project } from "@cinesim/core";
 import type { DerivedMediaSnapshot, DesktopApi, FinalizeDerivedWrite } from "../src/shared/api";
+import type { TranscriptSnapshot } from "../src/shared/transcript";
 import type {
   DerivedWorkerRequest,
   DerivedWorkerResponse,
@@ -36,7 +37,7 @@ class FakeWorker {
   terminate(): void {}
 }
 
-function project(): Project {
+function project(hasAudio = false): Project {
   return applyCommand(createProject({ name: "Coordinator" }), {
     type: "asset.import",
     asset: {
@@ -47,6 +48,7 @@ function project(): Project {
       durationUs: 2_000_000,
       width: 1280,
       height: 720,
+      hasAudio,
     },
   }).project;
 }
@@ -106,15 +108,55 @@ function snapshot(
   };
 }
 
-function setup(initial: DerivedMediaSnapshot) {
+function setup(initial: DerivedMediaSnapshot, initialTranscripts?: TranscriptSnapshot) {
   const current = structuredClone(initial);
   let derivedMediaListener: ((snapshot: DerivedMediaSnapshot) => void) | null = null;
+  let transcriptListener: ((snapshot: TranscriptSnapshot) => void) | null = null;
+  const transcriptSnapshot: TranscriptSnapshot =
+    initialTranscripts ??
+    ({
+      projectDirectory: "/tmp/project",
+      projectScope,
+      assets: {},
+    } satisfies TranscriptSnapshot);
   const finalized: { writerId: string; result: FinalizeDerivedWrite }[] = [];
+  const transcribedChunks: unknown[] = [];
+  const finalizedTranscriptJobs: string[] = [];
+  const requestedTranscriptAssets: string[][] = [];
+  const failTranscriptJob = vi.fn(async () => transcriptSnapshot);
   const begun: { assetId: string; kind: string; expectedBytes?: number }[] = [];
   const canceled: { writerId: string; failureCode?: string; detail?: string }[] = [];
   const api = {
     getDerivedMediaSnapshot: vi.fn(async () => current),
     requestDerivedJobs: vi.fn(async () => current),
+    requestTranscriptJobs: vi.fn(async (_scope, assetIds: string[]) => {
+      requestedTranscriptAssets.push(assetIds);
+      for (const assetId of assetIds) {
+        const record = transcriptSnapshot.assets[assetId as `asset_${string}`];
+        if (record) record.state = "queued";
+      }
+      return transcriptSnapshot;
+    }),
+    getTranscriptSnapshot: vi.fn(async () => transcriptSnapshot),
+    beginTranscriptJob: vi.fn(async () => ({
+      jobId: "00000000-0000-4000-8000-000000000099",
+    })),
+    transcribeAudioChunk: vi.fn(async (_scope, input) => {
+      transcribedChunks.push(input);
+    }),
+    finalizeTranscriptJob: vi.fn(async (_scope, jobId) => {
+      finalizedTranscriptJobs.push(jobId);
+      if (transcriptSnapshot.assets.asset_fixture)
+        transcriptSnapshot.assets.asset_fixture.state = "ready";
+      return transcriptSnapshot;
+    }),
+    failTranscriptJob,
+    onTranscriptsChanged: vi.fn((listener: (snapshot: TranscriptSnapshot) => void) => {
+      transcriptListener = listener;
+      return () => {
+        transcriptListener = null;
+      };
+    }),
     onDerivedMediaChanged: vi.fn((listener: (snapshot: DerivedMediaSnapshot) => void) => {
       derivedMediaListener = listener;
       return () => {
@@ -163,7 +205,12 @@ function setup(initial: DerivedMediaSnapshot) {
     begun,
     finalized,
     canceled,
+    transcribedChunks,
+    finalizedTranscriptJobs,
+    requestedTranscriptAssets,
+    failTranscriptJob,
     emitDerivedMedia: (next: DerivedMediaSnapshot) => derivedMediaListener?.(next),
+    emitTranscripts: (next: TranscriptSnapshot) => transcriptListener?.(next),
   };
 }
 
@@ -175,6 +222,157 @@ afterEach(() => {
 });
 
 describe("MediaJobCoordinator", () => {
+  it("tracks transcript progress without mutating a frozen contextBridge snapshot", async () => {
+    const record = Object.freeze({ assetId: "asset_fixture", state: "queued" as const });
+    const transcripts = Object.freeze({
+      projectDirectory: "/tmp/project",
+      projectScope: Object.freeze({ ...projectScope }),
+      assets: Object.freeze({ asset_fixture: record }),
+    }) as TranscriptSnapshot;
+    setup(snapshot("ready", "ready", "ready"), transcripts);
+    const published: TranscriptSnapshot[] = [];
+    const coordinator = new MediaJobCoordinator(
+      project(true),
+      projectScope,
+      () => undefined,
+      undefined,
+      (next) => published.push(next),
+    );
+    await coordinator.start();
+    await vi.waitFor(() =>
+      expect(FakeWorker.instance?.sent).toContainEqual(
+        expect.objectContaining({ type: "transcript" }),
+      ),
+    );
+
+    FakeWorker.instance!.emit({
+      type: "transcript-progress",
+      jobId: "00000000-0000-4000-8000-000000000099",
+      progress: 0.5,
+    });
+
+    await vi.waitFor(() => expect(published.at(-1)?.assets.asset_fixture?.progress).toBe(0.5));
+    expect("progress" in record).toBe(false);
+    await coordinator.destroy();
+  });
+
+  it("bounds progress publications and isolates subscriber failures from transcript jobs", async () => {
+    const transcripts: TranscriptSnapshot = {
+      projectDirectory: "/tmp/project",
+      projectScope,
+      assets: {
+        asset_fixture: { assetId: "asset_fixture", state: "queued" },
+      },
+    };
+    const { failTranscriptJob } = setup(snapshot("ready", "ready", "ready"), transcripts);
+    const publishedProgress: number[] = [];
+    vi.stubGlobal("reportError", vi.fn());
+    const coordinator = new MediaJobCoordinator(
+      project(true),
+      projectScope,
+      () => undefined,
+      undefined,
+      (next) => {
+        const progress = next.assets.asset_fixture?.progress;
+        if (progress !== undefined) publishedProgress.push(progress);
+        if (publishedProgress.length === 2) throw new Error("presentation update failed");
+      },
+    );
+    await coordinator.start();
+    await vi.waitFor(() =>
+      expect(FakeWorker.instance?.sent).toContainEqual(
+        expect.objectContaining({ type: "transcript" }),
+      ),
+    );
+
+    for (let percent = 1; percent <= 99; percent += 1) {
+      FakeWorker.instance!.emit({
+        type: "transcript-progress",
+        jobId: "00000000-0000-4000-8000-000000000099",
+        progress: percent / 100,
+      });
+    }
+
+    await vi.waitFor(() => expect(publishedProgress.at(-1)).toBeGreaterThanOrEqual(0.95));
+    expect(publishedProgress.length).toBeLessThanOrEqual(21);
+    expect(globalThis.reportError).toHaveBeenCalledWith(expect.any(Error));
+    expect(failTranscriptJob).not.toHaveBeenCalled();
+    await coordinator.destroy();
+  });
+
+  it("queues missing speech media when account preferences enable automatic transcription", async () => {
+    const withAudio = project();
+    withAudio.assets[0]!.hasAudio = true;
+    const transcripts: TranscriptSnapshot = {
+      projectDirectory: "/tmp/project",
+      projectScope,
+      assets: {
+        asset_fixture: { assetId: "asset_fixture", state: "missing" },
+      },
+    };
+    const { requestedTranscriptAssets } = setup(snapshot("ready", "ready", "ready"), transcripts);
+    const coordinator = new MediaJobCoordinator(
+      withAudio,
+      projectScope,
+      () => undefined,
+      undefined,
+      () => undefined,
+      { generation: "automatic", model: "deepgram/nova-3" },
+    );
+
+    await coordinator.start();
+
+    expect(requestedTranscriptAssets).toEqual([["asset_fixture"]]);
+    await coordinator.destroy();
+  });
+
+  it("extracts and uploads transcript chunks with worker backpressure", async () => {
+    const transcripts: TranscriptSnapshot = {
+      projectDirectory: "/tmp/project",
+      projectScope,
+      assets: {
+        asset_fixture: { assetId: "asset_fixture", state: "queued" },
+      },
+    };
+    const { transcribedChunks, finalizedTranscriptJobs } = setup(
+      snapshot("ready", "ready", "ready"),
+      transcripts,
+    );
+    const coordinator = new MediaJobCoordinator(project(true), projectScope, () => undefined);
+    await coordinator.start();
+    await vi.waitFor(() =>
+      expect(FakeWorker.instance?.sent).toContainEqual(
+        expect.objectContaining({
+          type: "transcript",
+          jobId: "00000000-0000-4000-8000-000000000099",
+          chunkDurationUs: 300_000_000,
+        }),
+      ),
+    );
+
+    FakeWorker.instance!.emit({
+      type: "transcript-chunk",
+      jobId: "00000000-0000-4000-8000-000000000099",
+      chunkIndex: 0,
+      sourceStartUs: 0,
+      sourceEndUs: 2_000_000,
+      data: new Uint8Array([1, 2, 3]).buffer,
+    });
+    await vi.waitFor(() => expect(transcribedChunks).toHaveLength(1));
+    expect(FakeWorker.instance?.sent).toContainEqual({
+      type: "transcript-chunk-ack",
+      jobId: "00000000-0000-4000-8000-000000000099",
+      chunkIndex: 0,
+    });
+
+    FakeWorker.instance!.emit({
+      type: "transcript-complete",
+      jobId: "00000000-0000-4000-8000-000000000099",
+    });
+    await vi.waitFor(() => expect(finalizedTranscriptJobs).toHaveLength(1));
+    await coordinator.destroy();
+  });
+
   it("ignores snapshots emitted for another project with the same asset IDs", async () => {
     const { emitDerivedMedia } = setup(snapshot("ready", "ready"));
     const coordinator = new MediaJobCoordinator(project(), projectScope, () => undefined);

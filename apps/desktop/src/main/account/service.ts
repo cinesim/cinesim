@@ -33,6 +33,7 @@ const healthResponseSchema = z.object({
   ok: z.literal(true),
   googleSignIn: z.boolean(),
   cloudStorage: z.boolean(),
+  transcription: z.boolean(),
 });
 
 const registeredProjectSchema = z.object({
@@ -55,6 +56,7 @@ function signedOutSnapshot(input: {
   origin: string | null;
   available: boolean;
   googleSignIn?: boolean;
+  transcription?: boolean;
   detail?: string;
 }): AccountSnapshot {
   return {
@@ -63,6 +65,7 @@ function signedOutSnapshot(input: {
     serviceAvailable: input.available,
     googleSignIn: input.googleSignIn ?? false,
     cloudStorage: false,
+    transcription: input.transcription ?? false,
     user: null,
     detail: input.detail ?? null,
   };
@@ -195,6 +198,7 @@ export class DesktopAccountService {
             origin: this.#origin,
             available: true,
             googleSignIn: health.googleSignIn,
+            transcription: health.transcription,
           }),
         );
       }
@@ -209,6 +213,7 @@ export class DesktopAccountService {
         serviceAvailable: true,
         googleSignIn: health.googleSignIn,
         cloudStorage: health.cloudStorage,
+        transcription: health.transcription,
         user,
         detail: null,
       });
@@ -220,6 +225,7 @@ export class DesktopAccountService {
         serviceAvailable: false,
         googleSignIn: false,
         cloudStorage: false,
+        transcription: false,
         user,
         detail: user
           ? "Cinesim is offline. Local projects remain available and cloud work will resume automatically."
@@ -307,8 +313,12 @@ export class DesktopAccountService {
     return response;
   }
 
-  async #health(): Promise<{ googleSignIn: boolean; cloudStorage: boolean }> {
-    if (!this.#origin) return { googleSignIn: false, cloudStorage: false };
+  async #health(): Promise<{
+    googleSignIn: boolean;
+    cloudStorage: boolean;
+    transcription: boolean;
+  }> {
+    if (!this.#origin) return { googleSignIn: false, cloudStorage: false, transcription: false };
     const response = await fetch(`${this.#origin}/health`, {
       signal: AbortSignal.timeout(5_000),
     });

@@ -22,8 +22,22 @@ describe("Cinesim API configuration", () => {
     expect(config.authOrigin).toBe("http://127.0.0.1:8787");
     expect(config.google).toBeNull();
     expect(config.r2).toBeNull();
+    expect(config.deepgramApiKey).toBeNull();
+    expect(config.openRouterApiKey).toBeNull();
     expect(config.cloudIncludedBytes).toBe(10 * 1024 ** 3);
     expect(config.cloudAddonOptionsBytes).toEqual([0]);
+  });
+
+  it("keeps the Deepgram transcript-editing key server-side and optional", () => {
+    expect(readServerConfig(environment({ DEEPGRAM_API_KEY: "test-deepgram-key" }))).toMatchObject({
+      deepgramApiKey: "test-deepgram-key",
+    });
+  });
+
+  it("keeps the OpenRouter transcription key server-side and optional", () => {
+    expect(
+      readServerConfig(environment({ OPENROUTER_API_KEY: "test-openrouter-key" })),
+    ).toMatchObject({ openRouterApiKey: "test-openrouter-key" });
   });
 
   it("requires Google credentials as a pair", () => {

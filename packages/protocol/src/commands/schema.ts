@@ -24,6 +24,15 @@ export const editorCommandSchema = z.discriminatedUnion("type", [
   }),
   z.object({ type: z.literal("sequence.remove"), sequenceId }),
   z.object({
+    type: z.literal("sequence.deleteRanges"),
+    sequenceId,
+    ranges: z
+      .array(z.object({ startUs: timeUs, endUs: timeUs }))
+      .min(1)
+      .max(500),
+    mode: z.enum(["lift", "ripple"]),
+  }),
+  z.object({
     type: z.literal("track.add"),
     sequenceId,
     kind: z.enum(["video", "audio", "overlay"]),

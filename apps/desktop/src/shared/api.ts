@@ -1,4 +1,5 @@
 import type { CommandResult, EditorCommand, Project, ProjectSettings } from "@cinesim/core";
+import type { TranscriptAudioChunkInput, TranscriptSnapshot } from "./transcript";
 
 export interface DesktopProjectSession {
   directory: string;
@@ -342,6 +343,24 @@ export interface EditorLayoutState {
   timelineHeight: number;
 }
 
+export interface CutLayoutState {
+  rightColumnWidth: number;
+  viewerHeight: number;
+  timelineHeight: number;
+}
+
+export type TranscriptionModel = "deepgram/nova-3";
+
+export interface TranscriptionSettings {
+  generation: "manual" | "automatic";
+  model: TranscriptionModel;
+}
+
+export const DEFAULT_TRANSCRIPTION_SETTINGS: TranscriptionSettings = {
+  generation: "manual",
+  model: "deepgram/nova-3",
+};
+
 export const DEFAULT_EDITOR_LAYOUT: EditorLayoutState = {
   mediaPoolWidth: 248,
   inspectorWidth: 260,
@@ -353,7 +372,19 @@ export const EDITOR_LAYOUT_LIMITS = {
   mediaPoolWidth: { min: 180, max: 480 },
   inspectorWidth: { min: 220, max: 480 },
   notesWidth: { min: 220, max: 480 },
-  timelineHeight: { min: 160, max: 720 },
+  timelineHeight: { min: 64, max: 720 },
+} as const;
+
+export const DEFAULT_CUT_LAYOUT: CutLayoutState = {
+  rightColumnWidth: 420,
+  viewerHeight: 360,
+  timelineHeight: 80,
+};
+
+export const CUT_LAYOUT_LIMITS = {
+  rightColumnWidth: { min: 300, max: 680 },
+  viewerHeight: { min: 220, max: 720 },
+  timelineHeight: { min: 64, max: 720 },
 } as const;
 
 export interface DesktopAppState {
@@ -363,6 +394,8 @@ export interface DesktopAppState {
   inspectorOpenByProject: Record<string, boolean>;
   notesOpenByProject: Record<string, boolean>;
   editorLayoutsByProject: Record<string, EditorLayoutState>;
+  cutLayoutsByProject: Record<string, CutLayoutState>;
+  transcriptionSettings: TranscriptionSettings;
 }
 
 export type ElectronProcessGroupKind = "main" | "renderer" | "gpu" | "utility" | "other";
@@ -400,6 +433,7 @@ export interface AccountSnapshot {
   serviceAvailable: boolean;
   googleSignIn: boolean;
   cloudStorage?: boolean;
+  transcription: boolean;
   user: AccountUser | null;
   detail: string | null;
 }
@@ -479,6 +513,24 @@ export interface DesktopApi {
   getDerivedMediaSnapshot(scope: DerivedProjectScope): Promise<DerivedMediaSnapshot>;
   requestDerivedJobs(scope: DerivedProjectScope, assetIds: string[]): Promise<DerivedMediaSnapshot>;
   requestProxyJobs(scope: DerivedProjectScope, assetIds: string[]): Promise<DerivedMediaSnapshot>;
+  getTranscriptSnapshot(
+    scope: DerivedProjectScope,
+    assetIds?: string[],
+  ): Promise<TranscriptSnapshot>;
+  requestTranscriptJobs(
+    scope: DerivedProjectScope,
+    assetIds: string[],
+  ): Promise<TranscriptSnapshot>;
+  cancelTranscriptJobs(scope: DerivedProjectScope, assetIds: string[]): Promise<TranscriptSnapshot>;
+  beginTranscriptJob(scope: DerivedProjectScope, assetId: string): Promise<{ jobId: string }>;
+  transcribeAudioChunk(scope: DerivedProjectScope, input: TranscriptAudioChunkInput): Promise<void>;
+  finalizeTranscriptJob(scope: DerivedProjectScope, jobId: string): Promise<TranscriptSnapshot>;
+  failTranscriptJob(
+    scope: DerivedProjectScope,
+    jobId: string,
+    failureCode: string,
+    detail?: string,
+  ): Promise<TranscriptSnapshot>;
   beginDerivedWrite(
     scope: DerivedProjectScope,
     input: BeginDerivedWrite,
@@ -510,6 +562,8 @@ export interface DesktopApi {
   setProjectInspectorOpen(open: boolean): Promise<DesktopAppState>;
   setProjectNotesOpen(open: boolean): Promise<DesktopAppState>;
   setProjectEditorLayout(layout: EditorLayoutState): Promise<DesktopAppState>;
+  setProjectCutLayout(layout: CutLayoutState): Promise<DesktopAppState>;
+  setTranscriptionSettings(settings: TranscriptionSettings): Promise<DesktopAppState>;
   getAgentSettings(): Promise<AgentSettings>;
   updateAgentSettings(update: AgentSettingsUpdate): Promise<AgentSettings>;
   refreshAgentProviders(): Promise<AgentProviderStatus[]>;
@@ -536,6 +590,7 @@ export interface DesktopApi {
   onAgentsChanged(callback: (snapshot: AgentProjectSnapshot) => void): () => void;
   onProjectChanged(callback: (session: DesktopProjectSession) => void): () => void;
   onDerivedMediaChanged(callback: (snapshot: DerivedMediaSnapshot) => void): () => void;
+  onTranscriptsChanged(callback: (snapshot: TranscriptSnapshot) => void): () => void;
   onAccountChanged(callback: (snapshot: AccountSnapshot) => void): () => void;
   onCloudTransfersChanged(callback: (snapshot: CloudTransferSnapshot[]) => void): () => void;
   platform: NodeJS.Platform;

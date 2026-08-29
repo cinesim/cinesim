@@ -45,8 +45,8 @@ describe("keyboard shortcuts", () => {
     };
 
     expect(projectSectionForShortcut({ ...commandEvent, key: "1" })).toBe("media");
-    expect(projectSectionForShortcut({ ...commandEvent, key: "2" })).toBe("edit");
-    expect(projectSectionForShortcut({ ...commandEvent, key: "3" })).toBeNull();
+    expect(projectSectionForShortcut({ ...commandEvent, key: "2" })).toBe("cut");
+    expect(projectSectionForShortcut({ ...commandEvent, key: "3" })).toBe("edit");
   });
 
   it("rejects project-section shortcuts with extra modifiers", () => {

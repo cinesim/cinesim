@@ -5,25 +5,31 @@ import type {
   DerivedMediaSnapshot,
   DerivedProjectScope,
   FinalizeDerivedWrite,
+  TranscriptionSettings,
 } from "../../shared/api";
+import { DEFAULT_TRANSCRIPTION_SETTINGS } from "../../shared/api";
+import type { TranscriptSnapshot } from "../../shared/transcript";
 import type { DerivedWorkerRequest, DerivedWorkerResponse } from "./derived-worker-api";
 import { waveformByteLength, waveformPeakCount } from "../../shared/waveform-format";
 
 interface ActiveJob {
   jobId: string;
   assetId: string;
-  kind: "perception" | "proxy";
+  kind: "perception" | "proxy" | "transcript";
   startedAtMs: number;
   writers: Partial<Record<DerivedArtifactKind, string>>;
 }
 
 const WORKER_INACTIVITY_TIMEOUT_MS = 120_000;
+const TRANSCRIPT_PROGRESS_STEPS = 20;
 
 export class MediaJobCoordinator {
   #project: Project;
   #settings: ProjectSettings;
+  #transcriptionSettings: TranscriptionSettings;
   readonly #projectScope: DerivedProjectScope;
   #snapshot: DerivedMediaSnapshot | null = null;
+  #transcriptSnapshot: TranscriptSnapshot | null = null;
   #worker: Worker | null = null;
   #active: ActiveJob | null = null;
   #unsubscribe: (() => void) | null = null;
@@ -33,17 +39,22 @@ export class MediaJobCoordinator {
   #messageQueue: Promise<void> = Promise.resolve();
   #foregroundPressure: "idle" | "hover-skimming" | "seeking" | "playing" | "dragging" = "idle";
   readonly #onSnapshot: (snapshot: DerivedMediaSnapshot) => void;
+  readonly #onTranscriptSnapshot: (snapshot: TranscriptSnapshot) => void;
 
   constructor(
     project: Project,
     projectScope: DerivedProjectScope,
     onSnapshot: (snapshot: DerivedMediaSnapshot) => void,
     settings: ProjectSettings = DEFAULT_SETTINGS,
+    onTranscriptSnapshot: (snapshot: TranscriptSnapshot) => void = () => undefined,
+    transcriptionSettings: TranscriptionSettings = DEFAULT_TRANSCRIPTION_SETTINGS,
   ) {
     this.#project = project;
     this.#settings = settings;
     this.#projectScope = projectScope;
     this.#onSnapshot = onSnapshot;
+    this.#onTranscriptSnapshot = onTranscriptSnapshot;
+    this.#transcriptionSettings = transcriptionSettings;
   }
 
   async start(): Promise<void> {
@@ -52,7 +63,20 @@ export class MediaJobCoordinator {
     this.#unsubscribe = window.cinesim.onDerivedMediaChanged((snapshot) => {
       this.#acceptSnapshot(snapshot);
     });
-    this.#acceptSnapshot(await window.cinesim.getDerivedMediaSnapshot(this.#projectScope));
+    const unsubscribeTranscripts = window.cinesim.onTranscriptsChanged((snapshot) => {
+      this.#acceptTranscriptSnapshot(snapshot);
+    });
+    const unsubscribeDerived = this.#unsubscribe;
+    this.#unsubscribe = () => {
+      unsubscribeDerived?.();
+      unsubscribeTranscripts();
+    };
+    const [derived, transcripts] = await Promise.all([
+      window.cinesim.getDerivedMediaSnapshot(this.#projectScope),
+      window.cinesim.getTranscriptSnapshot(this.#projectScope),
+    ]);
+    this.#acceptSnapshot(derived);
+    this.#acceptTranscriptSnapshot(transcripts);
     await this.updateProject(this.#project);
   }
 
@@ -78,6 +102,15 @@ export class MediaJobCoordinator {
     };
   }
 
+  #notifyTranscriptSnapshot(snapshot: TranscriptSnapshot): void {
+    try {
+      this.#onTranscriptSnapshot(snapshot);
+    } catch (error) {
+      // A presentation subscriber must never turn a valid media job into a failed artifact.
+      globalThis.reportError?.(error);
+    }
+  }
+
   async updateProject(project: Project, settings: ProjectSettings = this.#settings): Promise<void> {
     this.#project = project;
     this.#settings = settings;
@@ -86,6 +119,34 @@ export class MediaJobCoordinator {
       .filter((asset) => asset.kind === "video" || asset.kind === "audio")
       .map((asset) => asset.id);
     this.#acceptSnapshot(await window.cinesim.requestDerivedJobs(this.#projectScope, mediaIds));
+    this.#acceptTranscriptSnapshot(await window.cinesim.getTranscriptSnapshot(this.#projectScope));
+    await this.#queueAutomaticTranscripts();
+  }
+
+  async updateTranscriptionSettings(settings: TranscriptionSettings): Promise<void> {
+    this.#transcriptionSettings = settings;
+    await this.#queueAutomaticTranscripts();
+  }
+
+  async #queueAutomaticTranscripts(): Promise<void> {
+    if (
+      this.#destroyed ||
+      this.#transcriptionSettings.generation !== "automatic" ||
+      !this.#transcriptSnapshot
+    )
+      return;
+    const assetIds = this.#project.assets.flatMap((asset) => {
+      if (asset.kind === "image" || (asset.kind === "video" && asset.hasAudio !== true)) return [];
+      return this.#transcriptSnapshot?.assets[asset.id]?.state === "missing" ? [asset.id] : [];
+    });
+    if (!assetIds.length) return;
+    try {
+      this.#acceptTranscriptSnapshot(
+        await window.cinesim.requestTranscriptJobs(this.#projectScope, assetIds),
+      );
+    } catch {
+      // Account/service availability is reflected by account health; manual controls remain usable.
+    }
   }
 
   async destroy(): Promise<void> {
@@ -105,6 +166,11 @@ export class MediaJobCoordinator {
           window.cinesim.cancelDerivedWrite(writerId).catch(() => undefined),
         ),
       );
+      if (this.#active.kind === "transcript") {
+        await window.cinesim
+          .failTranscriptJob(this.#projectScope, this.#active.jobId, "canceled")
+          .catch(() => undefined);
+      }
     }
     this.#active = null;
     this.#worker?.terminate();
@@ -127,7 +193,12 @@ export class MediaJobCoordinator {
     if (pressure !== "idle") {
       this.#clearWorkerInactivityTimer();
       this.#worker.postMessage({
-        type: active.kind === "proxy" ? "proxy-pause" : "perception-pause",
+        type:
+          active.kind === "proxy"
+            ? "proxy-pause"
+            : active.kind === "transcript"
+              ? "transcript-pause"
+              : "perception-pause",
         jobId: active.jobId,
       } satisfies DerivedWorkerRequest);
       return;
@@ -135,7 +206,12 @@ export class MediaJobCoordinator {
     this.#resumeTimer = setTimeout(() => {
       if (this.#active?.jobId === active.jobId) {
         this.#worker?.postMessage({
-          type: active.kind === "proxy" ? "proxy-resume" : "perception-resume",
+          type:
+            active.kind === "proxy"
+              ? "proxy-resume"
+              : active.kind === "transcript"
+                ? "transcript-resume"
+                : "perception-resume",
           jobId: active.jobId,
         } satisfies DerivedWorkerRequest);
         this.#armWorkerInactivityTimer(active.jobId);
@@ -153,6 +229,33 @@ export class MediaJobCoordinator {
       return;
     this.#snapshot = snapshot;
     this.#onSnapshot(snapshot);
+    void this.#schedule();
+  }
+
+  #acceptTranscriptSnapshot(snapshot: TranscriptSnapshot): void {
+    if (
+      this.#destroyed ||
+      snapshot.projectScope.cacheKey !== this.#projectScope.cacheKey ||
+      snapshot.projectScope.epoch !== this.#projectScope.epoch
+    ) {
+      return;
+    }
+    // Values crossing contextBridge are copied and frozen. Keep an explicitly mutable local copy
+    // for ephemeral progress updates rather than mutating the bridge-owned payload.
+    this.#transcriptSnapshot = structuredClone(snapshot);
+    this.#notifyTranscriptSnapshot(snapshot);
+    const active = this.#active;
+    if (
+      active?.kind === "transcript" &&
+      snapshot.assets[active.assetId as Asset["id"]]?.failureCode === "canceled"
+    ) {
+      this.#worker?.postMessage({
+        type: "cancel",
+        jobId: active.jobId,
+      } satisfies DerivedWorkerRequest);
+      this.#clearWorkerInactivityTimer();
+      this.#active = null;
+    }
     void this.#schedule();
   }
 
@@ -182,7 +285,14 @@ export class MediaJobCoordinator {
           (candidate.kind === "video" || candidate.kind === "audio") &&
           this.#snapshot!.assets[candidate.id]?.proxy.state === "queued",
       );
-      if (proxyAsset) await this.#startProxy(proxyAsset);
+      if (proxyAsset) {
+        await this.#startProxy(proxyAsset);
+        return;
+      }
+      const transcriptAsset = this.#project.assets.find(
+        (candidate) => this.#transcriptSnapshot?.assets[candidate.id]?.state === "queued",
+      );
+      if (transcriptAsset) await this.#startTranscript(transcriptAsset);
       return;
     }
     const record = this.#snapshot.assets[asset.id]!;
@@ -286,11 +396,41 @@ export class MediaJobCoordinator {
     }
   }
 
+  async #startTranscript(asset: Asset): Promise<void> {
+    if (!this.#worker || this.#active) return;
+    try {
+      const { jobId } = await window.cinesim.beginTranscriptJob(this.#projectScope, asset.id);
+      this.#active = {
+        jobId,
+        assetId: asset.id,
+        kind: "transcript",
+        startedAtMs: performance.now(),
+        writers: {},
+      };
+      this.#worker.postMessage({
+        type: "transcript",
+        jobId,
+        assetId: asset.id,
+        projectScope: this.#projectScope,
+        durationUs: asset.durationUs,
+        chunkDurationUs: 300_000_000,
+      } satisfies DerivedWorkerRequest);
+      this.#armWorkerInactivityTimer(jobId);
+      this.setForegroundPressure(this.#foregroundPressure);
+    } catch (error) {
+      await this.#failActive(
+        "transcript-start-failed",
+        error instanceof Error ? error.message : "Transcript job could not start",
+      );
+    }
+  }
+
   async #handleWorkerMessage(message: DerivedWorkerResponse): Promise<void> {
     const active = this.#active;
     if (!active || message.jobId !== active.jobId || this.#destroyed) return;
     if (this.#foregroundPressure === "idle") this.#armWorkerInactivityTimer(active.jobId);
     if (message.type === "activity") {
+      if (active.kind === "transcript") return;
       await window.cinesim.reportDerivedActivity(this.#projectScope, {
         jobId: active.jobId,
         assetId: active.assetId,
@@ -307,6 +447,67 @@ export class MediaJobCoordinator {
     if (message.type === "progress") {
       const writerId = active.writers[message.stage];
       if (writerId) await window.cinesim.updateDerivedProgress(writerId, message.progress);
+      return;
+    }
+    if (message.type === "transcript-progress") {
+      const currentRecord = this.#transcriptSnapshot?.assets[active.assetId as Asset["id"]];
+      const nextProgress = Math.max(
+        currentRecord?.progress ?? 0,
+        Math.min(1, Math.max(0, message.progress)),
+      );
+      if (!currentRecord || currentRecord.progress === nextProgress) return;
+      const previousStep = Math.floor((currentRecord.progress ?? 0) * TRANSCRIPT_PROGRESS_STEPS);
+      const nextStep = Math.floor(nextProgress * TRANSCRIPT_PROGRESS_STEPS);
+      const snapshot = structuredClone(this.#transcriptSnapshot!);
+      const record = snapshot.assets[active.assetId as Asset["id"]];
+      if (record) {
+        record.progress = nextProgress;
+        this.#transcriptSnapshot = snapshot;
+        if (currentRecord.progress === undefined || previousStep !== nextStep || nextProgress === 1)
+          this.#notifyTranscriptSnapshot(snapshot);
+      }
+      return;
+    }
+    if (message.type === "transcript-chunk") {
+      try {
+        await window.cinesim.transcribeAudioChunk(this.#projectScope, {
+          jobId: active.jobId,
+          chunkIndex: message.chunkIndex,
+          sourceStartUs: message.sourceStartUs,
+          sourceEndUs: message.sourceEndUs,
+          data: new Uint8Array(message.data),
+        });
+        this.#worker?.postMessage({
+          type: "transcript-chunk-ack",
+          jobId: active.jobId,
+          chunkIndex: message.chunkIndex,
+        } satisfies DerivedWorkerRequest);
+      } catch (error) {
+        this.#worker?.postMessage({
+          type: "transcript-chunk-ack",
+          jobId: active.jobId,
+          chunkIndex: message.chunkIndex,
+          error: error instanceof Error ? error.message : "Transcript request failed",
+        } satisfies DerivedWorkerRequest);
+      }
+      return;
+    }
+    if (message.type === "transcript-complete") {
+      try {
+        const snapshot = await window.cinesim.finalizeTranscriptJob(
+          this.#projectScope,
+          active.jobId,
+        );
+        this.#clearWorkerInactivityTimer();
+        this.#active = null;
+        this.#acceptTranscriptSnapshot(snapshot);
+        await this.#schedule();
+      } catch (error) {
+        await this.#failActive(
+          "transcript-finalize-failed",
+          error instanceof Error ? error.message : "Transcript could not be published",
+        );
+      }
       return;
     }
     if (message.type === "proxy-progress") {
@@ -444,6 +645,14 @@ export class MediaJobCoordinator {
     this.#clearWorkerInactivityTimer();
     this.#active = null;
     if (!active) return;
+    if (active.kind === "transcript") {
+      await window.cinesim
+        .failTranscriptJob(this.#projectScope, active.jobId, failureCode, detail)
+        .then((snapshot) => this.#acceptTranscriptSnapshot(snapshot))
+        .catch(() => undefined);
+      if (!this.#destroyed) await this.#schedule();
+      return;
+    }
     await window.cinesim
       .reportDerivedActivity(this.#projectScope, {
         jobId: active.jobId,

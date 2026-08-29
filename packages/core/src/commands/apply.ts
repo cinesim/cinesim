@@ -17,6 +17,7 @@ import {
 import type { ClipLocation, TrackLocation } from "../project/selectors";
 import { CommandError } from "./types";
 import type { CommandResult, EditorCommand } from "./types";
+import { applySequenceDeleteRanges } from "./delete-ranges";
 
 const clone = (project: Project): Project => structuredClone(project);
 
@@ -373,6 +374,9 @@ export function applyCommand(inputProject: Project, command: EditorCommand): Com
         )[0]!.id;
       return result(project, command, `Removed ${sequence.name}`, [project.id, ...removedIds]);
     }
+
+    case "sequence.deleteRanges":
+      return applySequenceDeleteRanges(project, command);
 
     case "track.add": {
       const sequence = requireSequence(project, command.sequenceId);
