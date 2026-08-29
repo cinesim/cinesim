@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite-plus";
+import { applyRendererContentSecurityPolicy } from "./content-security-policy";
 
 const externals = [
   "electron",
@@ -18,7 +19,7 @@ const externals = [
 ];
 const rootDirectory = fileURLToPath(new URL(".", import.meta.url));
 
-export default defineConfig(({ mode }) => {
+export default defineConfig(({ command, mode }) => {
   if (mode === "main") {
     return {
       define: {
@@ -65,7 +66,14 @@ export default defineConfig(({ mode }) => {
     };
   }
   return {
-    plugins: [...tailwindcss(), ...react({ compiler: { target: "19" } })],
+    plugins: [
+      {
+        name: "cinesim-renderer-content-security-policy",
+        transformIndexHtml: (html) => applyRendererContentSecurityPolicy(html, command === "serve"),
+      },
+      ...tailwindcss(),
+      ...react({ compiler: { target: "19" } }),
+    ],
     resolve: {
       alias: {
         "@renderer": resolve(rootDirectory, "src/renderer"),
