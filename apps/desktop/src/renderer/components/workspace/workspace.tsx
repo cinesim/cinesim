@@ -2,9 +2,15 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { cn } from "@cinesim/ui";
 import { canSplitClipAt, findClip } from "@cinesim/core";
 import type { Asset, EditorCommand, Project, SequenceId, TimelineRange } from "@cinesim/core";
-import { CUT_LAYOUT_LIMITS, EDITOR_LAYOUT_LIMITS } from "../../../shared/api";
+import { EDITOR_LAYOUT_LIMITS } from "../../../shared/api";
 import type { CutLayoutState, DesktopProjectSession, EditorLayoutState } from "../../../shared/api";
 import { editShortcutAction } from "../../lib/edit-shortcuts";
+import {
+  cutRightGridTemplate,
+  cutRootGridTemplate,
+  cutUpperGridTemplate,
+  fitCutLayout,
+} from "../../lib/cut-layout";
 import { useRendererStore } from "../../store/renderer-store-context";
 import { EditMediaPool } from "../media/edit-media-pool";
 import { MediaBin } from "../media/media-bin";
@@ -129,29 +135,6 @@ function upperGridTemplate(
 
 type CutResizeTarget = "column" | "viewer" | "timeline";
 
-function fitCutLayout(
-  layout: CutLayoutState,
-  bounds: { width: number; height: number },
-): CutLayoutState {
-  return {
-    rightColumnWidth: clamp(
-      layout.rightColumnWidth,
-      CUT_LAYOUT_LIMITS.rightColumnWidth.min,
-      Math.min(CUT_LAYOUT_LIMITS.rightColumnWidth.max, Math.max(300, bounds.width - 420)),
-    ),
-    viewerHeight: clamp(
-      layout.viewerHeight,
-      CUT_LAYOUT_LIMITS.viewerHeight.min,
-      Math.min(CUT_LAYOUT_LIMITS.viewerHeight.max, Math.max(220, bounds.height - 260)),
-    ),
-    timelineHeight: clamp(
-      layout.timelineHeight,
-      CUT_LAYOUT_LIMITS.timelineHeight.min,
-      Math.min(CUT_LAYOUT_LIMITS.timelineHeight.max, Math.max(64, bounds.height - 300)),
-    ),
-  };
-}
-
 function CutWorkspace({
   session,
   project,
@@ -233,12 +216,9 @@ function CutWorkspace({
 
   function applyTransient(next: CutLayoutState): void {
     const value = fitCutLayout(next, bounds);
-    if (rootRef.current)
-      rootRef.current.style.gridTemplateRows = `minmax(240px, 1fr) ${SPLITTER_SIZE}px ${value.timelineHeight}px`;
-    if (upperRef.current)
-      upperRef.current.style.gridTemplateColumns = `minmax(360px, 1fr) ${SPLITTER_SIZE}px ${value.rightColumnWidth}px`;
-    if (rightRef.current)
-      rightRef.current.style.gridTemplateRows = `${value.viewerHeight}px ${SPLITTER_SIZE}px minmax(160px, 1fr)`;
+    if (rootRef.current) rootRef.current.style.gridTemplateRows = cutRootGridTemplate(value);
+    if (upperRef.current) upperRef.current.style.gridTemplateColumns = cutUpperGridTemplate(value);
+    if (rightRef.current) rightRef.current.style.gridTemplateRows = cutRightGridTemplate(value);
     layoutRef.current = value;
   }
 
@@ -288,17 +268,13 @@ function CutWorkspace({
   return (
     <div
       ref={rootRef}
-      className="grid h-full min-h-0"
-      style={{
-        gridTemplateRows: `minmax(240px, 1fr) ${SPLITTER_SIZE}px ${fitted.timelineHeight}px`,
-      }}
+      className="grid h-full min-h-0 min-w-0 overflow-hidden"
+      style={{ gridTemplateRows: cutRootGridTemplate(fitted) }}
     >
       <div
         ref={upperRef}
-        className="grid min-h-0"
-        style={{
-          gridTemplateColumns: `minmax(360px, 1fr) ${SPLITTER_SIZE}px ${fitted.rightColumnWidth}px`,
-        }}
+        className="grid min-h-0 min-w-0 overflow-hidden"
+        style={{ gridTemplateColumns: cutUpperGridTemplate(fitted) }}
       >
         <TimelineTranscript
           project={project}
@@ -328,10 +304,8 @@ function CutWorkspace({
         />
         <div
           ref={rightRef}
-          className="grid min-h-0"
-          style={{
-            gridTemplateRows: `${fitted.viewerHeight}px ${SPLITTER_SIZE}px minmax(160px, 1fr)`,
-          }}
+          className="grid min-h-0 min-w-0 overflow-hidden"
+          style={{ gridTemplateRows: cutRightGridTemplate(fitted) }}
         >
           <Viewer
             key={sequenceId}
@@ -603,7 +577,7 @@ export function Workspace({
   }
 
   return (
-    <div className="relative h-full min-h-0 bg-canvas">
+    <div className="relative h-full min-h-0 min-w-0 overflow-hidden bg-canvas">
       {section === "media" ? (
         <MediaBin project={session.project} onOpenTimeline={onOpenTimeline} />
       ) : activeSequence ? (

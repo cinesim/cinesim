@@ -86,6 +86,23 @@ button {
   container-type: size;
 }
 
+.viewer-panel {
+  container-name: viewer-panel;
+  container-type: inline-size;
+}
+
+@container viewer-panel (max-width: 390px) {
+  .viewer-resolution {
+    display: none;
+  }
+}
+
+@container viewer-panel (max-width: 300px) {
+  .viewer-zoom {
+    display: none;
+  }
+}
+
 .edit-media-pool-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(132px, 1fr));

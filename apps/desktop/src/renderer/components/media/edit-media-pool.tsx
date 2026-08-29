@@ -53,7 +53,7 @@ export function EditMediaPool({
   );
 
   return (
-    <aside className="flex min-h-0 flex-col bg-panel">
+    <aside className="flex min-h-0 min-w-0 flex-col overflow-hidden bg-panel">
       <PaneHeader size="sm">
         <SearchField
           size="sm"

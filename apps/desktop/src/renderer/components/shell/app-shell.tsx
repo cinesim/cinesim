@@ -546,7 +546,7 @@ export function AppShell({
           )}
           {toolbar && <div className="no-drag absolute right-3">{toolbar}</div>}
         </header>
-        <div className="min-h-0 flex-1">{children}</div>
+        <div className="min-h-0 min-w-0 flex-1 overflow-hidden">{children}</div>
       </div>
 
       {(agentsSidebar || metricsSidebar) && (

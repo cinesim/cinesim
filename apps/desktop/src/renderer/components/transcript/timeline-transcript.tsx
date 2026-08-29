@@ -457,7 +457,10 @@ export function TimelineTranscript({
   }
 
   return (
-    <section className="flex h-full min-h-0 flex-col bg-panel" aria-label="Timeline transcript">
+    <section
+      className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden bg-panel"
+      aria-label="Timeline transcript"
+    >
       <header className="shrink-0 border-b border-border bg-panel px-3 py-2">
         <div className="flex items-center gap-2">
           <div className="relative min-w-0 flex-1">

@@ -337,9 +337,12 @@ export function Viewer({
   }
 
   return (
-    <section ref={sectionRef} className="relative flex min-h-0 flex-col bg-panel-muted">
-      <PaneHeader size="sm" className="gap-2 px-3">
-        <span className="flex-1" />
+    <section
+      ref={sectionRef}
+      className="viewer-panel relative flex min-h-0 min-w-0 flex-col overflow-hidden bg-panel-muted"
+    >
+      <PaneHeader size="sm" className="min-w-0 gap-2 overflow-hidden px-3">
+        <span className="min-w-0 flex-1" />
         {runtime?.playing && Math.abs(runtime.playbackRate) !== 1 && (
           <span className="rounded bg-surface px-1.5 py-0.5 text-[10px] font-semibold text-secondary tabular-nums">
             {runtime.playbackRate > 0 ? "+" : "−"}
@@ -353,7 +356,7 @@ export function Viewer({
         )}
         <DropdownSelect
           aria-label="Viewer zoom"
-          className="w-[76px]"
+          className="viewer-zoom w-[76px] shrink-0"
           options={VIEWER_SCALE_OPTIONS}
           value={viewerScale}
           onValueChange={setViewerScale}
@@ -368,7 +371,7 @@ export function Viewer({
         >
           <Maximize2 size={14} />
         </Button>
-        <span className="rounded bg-surface px-2 py-1 text-ui-xs text-muted tabular-nums">
+        <span className="viewer-resolution shrink-0 rounded bg-surface px-2 py-1 text-ui-xs text-muted tabular-nums">
           {sequence.width} × {sequence.height} · {sequence.frameRate} fps
         </span>
       </PaneHeader>
