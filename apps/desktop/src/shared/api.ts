@@ -508,6 +508,7 @@ export interface DesktopApi {
     scope: DerivedProjectScope,
     assetIds: string[],
   ): Promise<TranscriptSnapshot>;
+  cancelTranscriptJobs(scope: DerivedProjectScope, assetIds: string[]): Promise<TranscriptSnapshot>;
   beginTranscriptJob(scope: DerivedProjectScope, assetId: string): Promise<{ jobId: string }>;
   transcribeAudioChunk(scope: DerivedProjectScope, input: TranscriptAudioChunkInput): Promise<void>;
   finalizeTranscriptJob(scope: DerivedProjectScope, jobId: string): Promise<TranscriptSnapshot>;

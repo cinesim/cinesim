@@ -1,0 +1,68 @@
+---
+title: Cut from the transcript
+description: Transcribe the active timeline, navigate by speech, and make exact ripple edits as text.
+---
+
+The **Cut** workspace turns the active timeline into an editable document without creating a second
+timeline. Cut and Edit share the same sequence, clips, playhead, playback runtime, command history,
+and undo stack. Switch among **Media**, **Cut**, and **Edit** with <kbd>⌘1</kbd>, <kbd>⌘2</kbd>, and
+
+<kbd>⌘3</kbd> (use <kbd>Ctrl</kbd> on Windows and Linux).
+
+## Generate a transcript
+
+Open a timeline, choose **Cut**, and select **Transcribe timeline**. You can also generate or retry an
+individual asset transcript from its Media Pool card. Every signed-in user can use transcription
+when the Cinesim service has configured its OpenRouter gateway; there is currently no billing or
+plan gate.
+
+Before the first transcription for an account, Cinesim explains that the operation is remote and
+asks for consent. Bounded audio chunks go through OpenRouter to Deepgram Nova-3. The API credential
+never enters the desktop app. The generated word timings, speaker clusters, utterances, paragraphs,
+punctuation, formatting, detected language, confidence, and retained filler words are stored under
+`.video/transcripts/`, so they can be discarded and regenerated without changing the project.
+
+Media cards show **Not transcribed**, **Transcript queued**, **Transcribing**, **Transcript ready**,
+or **Transcript failed**. Queued or running work can be canceled, and a failed or canceled transcript
+can be retried. Cinesim does not invent word timings if
+the provider omits them, because inaccurate timing could delete the wrong media.
+
+## Navigate the cut
+
+Click a word to seek to its exact timeline interval. Drag across words or Shift-click to extend the
+selection. Speaker chips open speaker actions, while the header can search the transcript or filter
+to one generated speaker. Overlapping speakers remain visibly overlapping instead of being
+reordered into false prose.
+
+Long pauses appear as filled silence pills with their exact duration. Empty timeline gaps use a
+separate hollow treatment. Missing, queued, running, and failed transcript coverage stays visible,
+so the document never suggests that an untranscribed interval contains no content.
+
+## Edit as text
+
+With words, silence, or a timeline gap selected:
+
+- choose **Play** to audition the exact range and stop at its end;
+- press <kbd>Backspace</kbd> or <kbd>Delete</kbd>, or choose **Ripple delete**, to remove the exact
+  selected time and close the sequence-wide gap;
+- choose **Lift** to remove the selected time without closing the gap.
+
+Each operation is one validated canonical command and one undo step, even when Cinesim must split a
+linked video/audio pair at two boundaries and move later material on multiple tracks. A locked track
+rejects the whole operation without a partial edit. Search fields and other text inputs keep their
+normal Delete behavior.
+
+## Use the adaptive timeline
+
+Cut starts with a collapsed story row across the bottom. Dialogue clips appear in narrative order;
+B-roll, music, and overlapping dialogue appear as compact `+B`, `+M`, and `+S` indicators. The exact
+transcript selection is highlighted inside the corresponding story blocks.
+
+Drag the divider upward for a compact time-based view and farther for the full multitrack editor.
+The same responsive Timeline component is used in Edit, so resizing never changes project state,
+selection, playhead, or history. Cut remembers its transcript/right-column, viewer/Media Pool, and
+timeline sizes independently from Edit.
+
+Generated speaker names and transcript text are derived in this first release. Durable speaker
+renames, merges, and text corrections require a future versioned canonical annotation format; the
+app does not hide that limitation by writing corrections into disposable transcript artifacts.

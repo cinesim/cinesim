@@ -78,6 +78,7 @@ interface CompletedChunk {
 
 interface ActiveTranscriptJob {
   id: string;
+  abort: AbortController;
   asset: Asset;
   sourceFingerprint: SourceFingerprint;
   options: TranscriptGenerationOptions;
@@ -172,6 +173,7 @@ export class TranscriptStore {
   ) {}
 
   async setProject(directory: string, project: Project, scope: DerivedProjectScope): Promise<void> {
+    for (const job of this.#jobs.values()) job.abort.abort();
     this.#directory = directory;
     this.#project = structuredClone(project);
     this.#scope = structuredClone(scope);
@@ -200,6 +202,7 @@ export class TranscriptStore {
   }
 
   async clearProject(): Promise<void> {
+    for (const job of this.#jobs.values()) job.abort.abort();
     this.#directory = null;
     this.#scope = null;
     this.#project = null;
@@ -262,6 +265,30 @@ export class TranscriptStore {
     return this.snapshot(scope);
   }
 
+  async cancelJobs(scope: DerivedProjectScope, assetIds: readonly string[]) {
+    this.#assertScope(scope);
+    if (assetIds.length === 0 || assetIds.length > 500) {
+      throw new Error("Select between 1 and 500 transcript jobs to cancel");
+    }
+    for (const assetId of new Set(assetIds)) {
+      const asset = this.#requireAsset(assetId);
+      const active = [...this.#jobs.values()].find((job) => job.asset.id === asset.id);
+      active?.abort.abort();
+      if (active) this.#jobs.delete(active.id);
+      const current = this.#index.assets[asset.id];
+      if (active || current?.state === "queued") {
+        this.#index.assets[asset.id] = {
+          state: "failed",
+          ...(current?.sourceFingerprint ? { sourceFingerprint: current.sourceFingerprint } : {}),
+          failureCode: "canceled",
+        };
+      }
+    }
+    await this.#persistIndex();
+    this.#emit();
+    return this.snapshot(scope);
+  }
+
   async beginJob(scope: DerivedProjectScope, assetId: string): Promise<{ jobId: string }> {
     this.#assertScope(scope);
     if (!this.account) throw new Error("Transcription service is unavailable");
@@ -274,6 +301,7 @@ export class TranscriptStore {
     const jobId = crypto.randomUUID();
     this.#jobs.set(jobId, {
       id: jobId,
+      abort: new AbortController(),
       asset,
       sourceFingerprint,
       options: defaultOptions(this.#requireProject(), asset),
@@ -313,7 +341,7 @@ export class TranscriptStore {
         "x-cinesim-keyterms": JSON.stringify(job.options.keyterms),
       },
       body: Uint8Array.from(input.data).buffer,
-      signal: AbortSignal.timeout(90_000),
+      signal: AbortSignal.any([AbortSignal.timeout(90_000), job.abort.signal]),
     });
     const transcript = gatewayTranscriptSchema.parse(await response.json()) as GatewayTranscript;
     job.chunks.push({

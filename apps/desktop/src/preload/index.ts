@@ -31,6 +31,8 @@ const api: DesktopApi = {
     ipcRenderer.invoke("transcripts:get", scope, assetIds),
   requestTranscriptJobs: (scope, assetIds) =>
     ipcRenderer.invoke("transcripts:request", scope, assetIds),
+  cancelTranscriptJobs: (scope, assetIds) =>
+    ipcRenderer.invoke("transcripts:cancel", scope, assetIds),
   beginTranscriptJob: (scope, assetId) => ipcRenderer.invoke("transcripts:begin", scope, assetId),
   transcribeAudioChunk: (scope, input) => ipcRenderer.invoke("transcripts:chunk", scope, input),
   finalizeTranscriptJob: (scope, jobId) => ipcRenderer.invoke("transcripts:finalize", scope, jobId),

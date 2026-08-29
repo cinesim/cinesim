@@ -196,6 +196,7 @@ function CutWorkspace({
     (state) => state.playbackRuntime?.snapshot.playing ?? false,
   );
   const requestTranscripts = useRendererStore((state) => state.requestTranscripts);
+  const cancelTranscripts = useRendererStore((state) => state.cancelTranscripts);
   const saveCutLayout = useRendererStore((state) => state.saveCutLayout);
   const setPlayheadUs = useRendererStore((state) => state.setPlayheadUs);
   const fitted = fitCutLayout(layout, bounds);
@@ -308,6 +309,7 @@ function CutWorkspace({
           onSeek={handleSeek}
           onCommand={onCommand}
           onRequestTranscripts={requestTranscripts}
+          onCancelTranscripts={cancelTranscripts}
           onSelectionChange={acceptSelection}
           onPlaySelection={(startUs, endUs) => {
             auditionEndUs.current = endUs;
@@ -423,6 +425,7 @@ export function Workspace({
     (state) => state.playbackRuntime?.snapshot.playing ?? false,
   );
   const transcripts = useRendererStore((state) => state.transcripts);
+  const loadTranscripts = useRendererStore((state) => state.loadTranscripts);
   const setPlayheadUs = useRendererStore((state) => state.setPlayheadUs);
   const setTool = useRendererStore((state) => state.setTool);
   const toggleSnapping = useRendererStore((state) => state.toggleSnapping);
@@ -465,6 +468,19 @@ export function Workspace({
     selectClip(null);
     setPlayheadUs(0);
   }, [activeSequence?.id, selectClip, setPlayheadUs]);
+
+  useEffect(() => {
+    if (!activeSequence || (section !== "cut" && section !== "edit")) return;
+    const assetIds = [
+      ...new Set(activeSequence.tracks.flatMap((track) => track.clips.map((clip) => clip.assetId))),
+    ].filter(
+      (assetId) =>
+        !transcripts ||
+        (transcripts.assets[assetId]?.state === "ready" &&
+          transcripts.assets[assetId]?.artifact === undefined),
+    );
+    if (assetIds.length) void loadTranscripts(assetIds);
+  }, [activeSequence, loadTranscripts, section, transcripts]);
 
   useEffect(() => {
     if (section !== "edit") return;

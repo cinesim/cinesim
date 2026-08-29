@@ -1,8 +1,9 @@
 import { useMemo, useState } from "react";
 import { useDraggable } from "@dnd-kit/core";
-import { Cloud, Film, Plus } from "@cinesim/ui";
+import { Cloud, Film, Plus, RotateCcw, Sparkles, X } from "@cinesim/ui";
 import {
   Button,
+  cn,
   Empty,
   EmptyDescription,
   EmptyHeader,
@@ -13,8 +14,11 @@ import {
   SearchField,
 } from "@cinesim/ui";
 import type { Asset, Project } from "@cinesim/core";
+import type { TranscriptAssetSnapshot } from "../../../shared/transcript";
 import { formatDuration } from "../../lib/format";
+import { useRendererStore } from "../../store/renderer-store-context";
 import { useEditorDnd } from "../workspace/editor-dnd-context";
+import { useTranscriptionConsent } from "../transcript/transcription-consent";
 import { AssetSourceMetadata } from "./asset-source-metadata";
 import { MediaSkimSurface } from "./media-skim-surface";
 
@@ -34,6 +38,14 @@ export function EditMediaPool({
   onPreviewEnd,
 }: EditMediaPoolProps) {
   const [query, setQuery] = useState("");
+  const transcripts = useRendererStore((state) => state.transcripts);
+  const account = useRendererStore((state) => state.account);
+  const requestTranscripts = useRendererStore((state) => state.requestTranscripts);
+  const cancelTranscripts = useRendererStore((state) => state.cancelTranscripts);
+  const transcriptionConsent = useTranscriptionConsent(
+    account.user?.id ?? null,
+    requestTranscripts,
+  );
   const normalizedQuery = query.trim().toLowerCase();
   const assets = useMemo(
     () => project.assets.filter((asset) => asset.name.toLowerCase().includes(normalizedQuery)),
@@ -59,6 +71,10 @@ export function EditMediaPool({
               <DraggableAssetCard
                 key={asset.id}
                 asset={asset}
+                transcript={transcripts?.assets[asset.id]}
+                transcriptionAvailable={account.status === "signed-in" && account.transcription}
+                onRequestTranscript={() => transcriptionConsent.request([asset.id])}
+                onCancelTranscript={() => cancelTranscripts([asset.id])}
                 onAddAsset={onAddAsset}
                 onPreviewAsset={onPreviewAsset}
                 onPreviewEnd={onPreviewEnd}
@@ -85,17 +101,26 @@ export function EditMediaPool({
           Import media
         </Button>
       </div>
+      {transcriptionConsent.dialog}
     </aside>
   );
 }
 
 function DraggableAssetCard({
   asset,
+  transcript,
+  transcriptionAvailable,
+  onRequestTranscript,
+  onCancelTranscript,
   onAddAsset,
   onPreviewAsset,
   onPreviewEnd,
 }: {
   asset: Asset;
+  transcript: TranscriptAssetSnapshot | undefined;
+  transcriptionAvailable: boolean;
+  onRequestTranscript: () => void;
+  onCancelTranscript: () => Promise<unknown>;
   onAddAsset: (asset: Asset) => Promise<unknown>;
   onPreviewAsset: (asset: Asset, sourceTimeUs: number) => void;
   onPreviewEnd: () => void;
@@ -105,6 +130,16 @@ function DraggableAssetCard({
     id: `asset:${asset.id}`,
     data: { kind: "asset", assetId: asset.id },
   });
+  const supportsTranscription =
+    asset.kind === "audio" || (asset.kind === "video" && asset.hasAudio === true);
+  const transcriptState = supportsTranscription ? (transcript?.state ?? "missing") : null;
+  const transcriptLabels = {
+    missing: "Not transcribed",
+    queued: "Transcript queued",
+    running: "Transcribing",
+    ready: "Transcript ready",
+    failed: "Transcript failed",
+  } as const;
 
   return (
     <div
@@ -163,6 +198,65 @@ function DraggableAssetCard({
           asset={asset}
           className="mt-0.5 truncate text-[10px] text-muted tabular-nums"
         />
+        {transcriptState && (
+          <div className="mt-1 flex min-w-0 items-center gap-1.5 text-[10px]">
+            <span
+              className={cn(
+                "size-1.5 shrink-0 rounded-full",
+                transcriptState === "ready"
+                  ? "bg-accent"
+                  : transcriptState === "failed"
+                    ? "bg-primary"
+                    : transcriptState === "queued" || transcriptState === "running"
+                      ? "animate-pulse bg-primary"
+                      : "bg-border-strong",
+              )}
+            />
+            <span className="min-w-0 flex-1 truncate text-muted">
+              {transcriptLabels[transcriptState]}
+              {transcriptState === "running" && transcript?.progress !== undefined
+                ? ` · ${Math.round(transcript.progress * 100)}%`
+                : ""}
+            </span>
+            {(transcriptState === "missing" || transcriptState === "failed") && (
+              <button
+                type="button"
+                className="inline-flex size-5 shrink-0 items-center justify-center rounded text-secondary hover:bg-surface hover:text-primary disabled:opacity-40"
+                aria-label={`${transcriptState === "failed" ? "Retry" : "Generate"} transcript for ${asset.name}`}
+                title={
+                  transcriptionAvailable
+                    ? transcriptState === "failed"
+                      ? "Retry transcript"
+                      : "Generate transcript"
+                    : "Sign in to transcribe"
+                }
+                disabled={!transcriptionAvailable}
+                onPointerDown={(event) => event.stopPropagation()}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onRequestTranscript();
+                }}
+              >
+                {transcriptState === "failed" ? <RotateCcw size={11} /> : <Sparkles size={11} />}
+              </button>
+            )}
+            {(transcriptState === "queued" || transcriptState === "running") && (
+              <button
+                type="button"
+                className="inline-flex size-5 shrink-0 items-center justify-center rounded text-secondary hover:bg-surface hover:text-primary"
+                aria-label={`Cancel transcript for ${asset.name}`}
+                title="Cancel transcription"
+                onPointerDown={(event) => event.stopPropagation()}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  void onCancelTranscript();
+                }}
+              >
+                <X size={11} />
+              </button>
+            )}
+          </div>
+        )}
       </PreviewCard>
     </div>
   );

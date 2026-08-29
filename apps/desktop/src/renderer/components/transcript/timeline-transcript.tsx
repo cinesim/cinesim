@@ -19,6 +19,7 @@ import {
   type TranscriptInlineToken,
 } from "../../../shared/transcript";
 import type { ActionResult, RendererState } from "../../store/renderer-store";
+import { useTranscriptionConsent } from "./transcription-consent";
 
 interface TimelineTranscriptProps {
   project: Project;
@@ -29,6 +30,7 @@ interface TimelineTranscriptProps {
   onSeek: (timeUs: number) => void;
   onCommand: (command: EditorCommand) => Promise<ActionResult<unknown>>;
   onRequestTranscripts: (assetIds: AssetId[]) => Promise<ActionResult<TranscriptSnapshot>>;
+  onCancelTranscripts: (assetIds: AssetId[]) => Promise<ActionResult<TranscriptSnapshot>>;
   onSelectionChange: (ranges: TimelineRange[]) => void;
   onPlaySelection: (startUs: number, endUs: number) => void;
 }
@@ -233,6 +235,7 @@ export function TimelineTranscript({
   onSeek,
   onCommand,
   onRequestTranscripts,
+  onCancelTranscripts,
   onSelectionChange,
   onPlaySelection,
 }: TimelineTranscriptProps) {
@@ -253,6 +256,10 @@ export function TimelineTranscript({
   const [scrollTop, setScrollTop] = useState(0);
   const [viewportHeight, setViewportHeight] = useState(600);
   const viewportRef = useRef<HTMLDivElement>(null);
+  const transcriptionConsent = useTranscriptionConsent(
+    account.user?.id ?? null,
+    onRequestTranscripts,
+  );
 
   const speakers = useMemo(() => {
     const counts = new Map<string, number>();
@@ -288,6 +295,13 @@ export function TimelineTranscript({
   const selectionEnd = selectedRanges.at(-1)?.endUs;
   const missingAssetIds = useMemo(
     () => [...new Set(projection.coverage.map((item) => item.assetId))],
+    [projection.coverage],
+  );
+  const activeAssetIds = useMemo(
+    () =>
+      projection.coverage
+        .filter((item) => item.state === "queued" || item.state === "running")
+        .map((item) => item.assetId),
     [projection.coverage],
   );
 
@@ -418,6 +432,15 @@ export function TimelineTranscript({
               >
                 <Play size={12} /> Play
               </Button>
+              {activeAssetIds.length > 0 && (
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => void onCancelTranscripts(activeAssetIds)}
+                >
+                  Cancel
+                </Button>
+              )}
               <Button size="sm" variant="danger" onClick={() => void deleteRanges("ripple")}>
                 <Trash2 size={12} /> Ripple delete
               </Button>
@@ -440,7 +463,7 @@ export function TimelineTranscript({
                   !account.transcription ||
                   projection.coverage.some((item) => item.state === "running")
                 }
-                onClick={() => void onRequestTranscripts(missingAssetIds)}
+                onClick={() => transcriptionConsent.request(missingAssetIds)}
               >
                 {projection.coverage.some((item) => item.state === "failed") ? (
                   <RotateCcw size={12} />
@@ -588,6 +611,7 @@ export function TimelineTranscript({
           </div>
         )}
       </div>
+      {transcriptionConsent.dialog}
     </section>
   );
 }

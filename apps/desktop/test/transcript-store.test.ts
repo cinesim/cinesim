@@ -210,6 +210,28 @@ describe("transcript artifact store", () => {
     expect(index).not.toContain("private transcript text");
   });
 
+  it("cancels queued and running work without leaving an active job", async () => {
+    const directory = await fixtureDirectory();
+    const account = {
+      requireCachedUser: () => ({ id: "user-1" }),
+      authenticatedFetch: async () => new Response(),
+    };
+    const store = new TranscriptStore(account, async () => fingerprint);
+    await store.setProject(directory, fixtureProject(), scope);
+    await store.requestJobs(scope, [asset.id]);
+    const { jobId } = await store.beginJob(scope, asset.id);
+
+    const canceled = await store.cancelJobs(scope, [asset.id]);
+    expect(canceled.assets[asset.id]).toMatchObject({
+      state: "failed",
+      failureCode: "canceled",
+    });
+    await expect(store.finalizeJob(scope, jobId)).rejects.toThrow(/Unknown transcript job/);
+
+    const retried = await store.requestJobs(scope, [asset.id]);
+    expect(retried.assets[asset.id]?.state).toBe("queued");
+  });
+
   it("requires a signed-in account before queueing remote work", async () => {
     const directory = await fixtureDirectory();
     const store = new TranscriptStore(null, async () => fingerprint);

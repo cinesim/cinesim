@@ -21,6 +21,9 @@ export function registerTranscriptIpc(store: TranscriptStore): void {
   ipcMain.handle("transcripts:request", (_event, scope: unknown, assetIds: unknown) =>
     store.requestJobs(parseDerivedProjectScope(scope), parseAssetIds(assetIds)),
   );
+  ipcMain.handle("transcripts:cancel", (_event, scope: unknown, assetIds: unknown) =>
+    store.cancelJobs(parseDerivedProjectScope(scope), parseAssetIds(assetIds)),
+  );
   ipcMain.handle("transcripts:begin", (_event, scope: unknown, assetId: unknown) => {
     if (typeof assetId !== "string") throw new Error("Invalid transcript asset ID");
     return store.beginJob(parseDerivedProjectScope(scope), assetId);

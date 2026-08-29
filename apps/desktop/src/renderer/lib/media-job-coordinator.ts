@@ -200,6 +200,18 @@ export class MediaJobCoordinator {
     }
     this.#transcriptSnapshot = snapshot;
     this.#onTranscriptSnapshot(snapshot);
+    const active = this.#active;
+    if (
+      active?.kind === "transcript" &&
+      snapshot.assets[active.assetId as Asset["id"]]?.failureCode === "canceled"
+    ) {
+      this.#worker?.postMessage({
+        type: "cancel",
+        jobId: active.jobId,
+      } satisfies DerivedWorkerRequest);
+      this.#clearWorkerInactivityTimer();
+      this.#active = null;
+    }
     void this.#schedule();
   }
 

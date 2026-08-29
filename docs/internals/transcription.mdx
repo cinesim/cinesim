@@ -42,6 +42,10 @@ The provider is currently listed by OpenRouter as zero-retention, but audio stil
 machine for transcription. Product UI must say so before starting the first remote transcription;
 zero-retention routing is not a claim that the operation is local.
 
+The desktop records this acknowledgement in local UI state keyed by the signed-in user ID. It is not
+a canonical project setting and does not enter command history. A different account on the same Mac
+must acknowledge the remote boundary independently.
+
 ## Streaming and bounds
 
 Media is not read wholly into memory and is not serialized as base64. The desktop extracts bounded
@@ -89,6 +93,9 @@ must be changed only by validated commands.
   with no narrative coverage remains a neutral unit.
 - Delete uses sequence-wide ripple with no automatic padding. Lift remains an explicit secondary
   action.
+- Timeline presentation is derived from rendered height: below 120 px is collapsed, 120–259 px is
+  compact, and 260 px or taller is full. Cut defaults to 80 px and Edit can be resized to the same
+  minimum.
 
 These are pure selectors over project state and artifacts. They never mutate or cache canonical
 state.
