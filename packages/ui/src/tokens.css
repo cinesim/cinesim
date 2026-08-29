@@ -45,6 +45,7 @@
   --ui-font-size-compact: 11px;
   --ui-font-size-body: 13px;
   --ui-font-size-heading: 20px;
+  --ui-font-family-document: "Times New Roman", Times, serif;
 
   font-family: "Geist Variable", sans-serif;
   font-size: var(--ui-font-size-body);
