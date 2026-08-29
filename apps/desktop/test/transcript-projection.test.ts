@@ -367,8 +367,8 @@ describe("collapsed timeline narrative projection", () => {
   it("uses deterministic height presentation thresholds", () => {
     expect(timelinePresentationForHeight(64)).toBe("collapsed");
     expect(timelinePresentationForHeight(119)).toBe("collapsed");
-    expect(timelinePresentationForHeight(120)).toBe("compact");
-    expect(timelinePresentationForHeight(259)).toBe("compact");
+    expect(timelinePresentationForHeight(120)).toBe("collapsed");
+    expect(timelinePresentationForHeight(259)).toBe("collapsed");
     expect(timelinePresentationForHeight(260)).toBe("full");
   });
 

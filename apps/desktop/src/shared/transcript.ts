@@ -514,10 +514,9 @@ export function projectNarrativeUnits(input: {
   );
 }
 
-export type TimelinePresentation = "collapsed" | "compact" | "full";
+export type TimelinePresentation = "collapsed" | "full";
 
 export function timelinePresentationForHeight(height: number): TimelinePresentation {
   if (height >= 260) return "full";
-  if (height >= 120) return "compact";
   return "collapsed";
 }

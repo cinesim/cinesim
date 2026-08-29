@@ -40,7 +40,6 @@ import {
   projectNarrativeUnits,
   timelinePresentationForHeight,
   type NarrativeUnit,
-  type TimelinePresentation,
 } from "../../../shared/transcript";
 import {
   IDLE_TRIM_GESTURE,
@@ -822,21 +821,21 @@ function NarrativeBadges({ unit }: { unit: NarrativeUnit }) {
 }
 
 function ReducedTimeline({
-  mode,
   project,
   transcripts,
   selectedRanges,
   playheadUs,
   playing,
+  paletteId,
   onSeek,
   onTogglePlayback,
 }: {
-  mode: Exclude<TimelinePresentation, "full">;
   project: Project;
   transcripts: TranscriptSnapshot | null;
   selectedRanges: readonly TimelineRange[];
   playheadUs: number;
   playing: boolean;
+  paletteId: TimelinePaletteId;
   onSeek?: (timeUs: number) => void;
   onTogglePlayback?: () => void;
 }) {
@@ -846,16 +845,23 @@ function ReducedTimeline({
     () => projectNarrativeUnits({ project, sequenceId: sequence.id, transcripts }),
     [project, sequence.id, transcripts],
   );
+  const clips = useMemo(
+    () =>
+      new Map(
+        sequence.tracks.flatMap((track) =>
+          track.clips.map((clip) => [clip.id, { clip, track }] as const),
+        ),
+      ),
+    [sequence.tracks],
+  );
+  const assets = useMemo(
+    () => new Map(project.assets.map((asset) => [asset.id, asset])),
+    [project.assets],
+  );
   const durationUs = Math.max(1, sequenceDurationUs(sequence));
-  const literal = mode === "compact";
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-panel-muted">
-      <div
-        className={cn(
-          "flex shrink-0 items-center border-b border-border bg-panel px-2",
-          literal ? "h-9" : "h-8",
-        )}
-      >
+      <div className="flex h-8 shrink-0 items-center border-b border-border bg-panel px-2">
         <Button
           size="icon-sm"
           variant="ghost"
@@ -872,14 +878,12 @@ function ReducedTimeline({
         <span className="ml-1 text-ui-xs font-semibold text-primary tabular-nums">
           {formatTimecode(playheadUs, sequence.frameRate)}
         </span>
-        <span className="ml-auto text-ui-xs text-muted">
-          {literal ? "Compact timeline" : "Story timeline"}
-        </span>
+        <span className="ml-auto text-ui-xs text-muted">Story timeline</span>
       </div>
       <div className="relative min-h-0 flex-1 overflow-x-auto overflow-y-hidden px-2 py-1.5">
         <div
-          className={cn("relative h-full min-w-full", !literal && "flex gap-1")}
-          style={literal ? { minWidth: Math.max(720, units.length * 128) } : undefined}
+          className="relative h-full min-w-full"
+          style={{ minWidth: Math.max(720, units.length * 128) }}
         >
           {units.length === 0 ? (
             <div className="grid h-full place-items-center text-ui-xs text-muted">
@@ -893,26 +897,32 @@ function ReducedTimeline({
                 selectedRanges,
               );
               const active = playheadUs >= unit.timelineStartUs && playheadUs < unit.timelineEndUs;
-              const style = literal
-                ? {
-                    left: `${(unit.timelineStartUs / durationUs) * 100}%`,
-                    width: `${Math.max(2.5, ((unit.timelineEndUs - unit.timelineStartUs) / durationUs) * 100)}%`,
-                  }
-                : { flexGrow: Math.max(1, Math.sqrt(unit.timelineEndUs - unit.timelineStartUs)) };
+              const unitClips = unit.clipIds.flatMap((clipId) => clips.get(clipId) ?? []);
+              const coloredClip =
+                unitClips.find(({ track }) => track.kind !== "audio") ?? unitClips[0];
+              const color = coloredClip
+                ? timelinePaletteColor(
+                    paletteId,
+                    coloredClip.track,
+                    assets.get(coloredClip.clip.assetId),
+                  )
+                : "var(--ui-clip-video)";
               return (
                 <button
                   key={unit.id}
                   type="button"
                   className={cn(
-                    "relative flex h-full min-w-24 items-center gap-1 overflow-hidden rounded border px-2 text-left text-ui-xs transition-colors",
-                    literal && "absolute top-0",
-                    selected
-                      ? "border-accent bg-accent/20 text-primary"
-                      : active
-                        ? "border-border-strong bg-surface text-primary"
-                        : "border-border bg-panel text-secondary hover:bg-surface",
+                    "absolute top-0 flex h-full min-w-24 items-center gap-1 overflow-hidden border px-2 text-left text-ui-xs text-white shadow-sm transition-[filter,box-shadow]",
+                    selected && "z-10 ring-2 ring-primary",
+                    active && "brightness-110",
+                    !selected && "hover:brightness-110",
                   )}
-                  style={style}
+                  style={{
+                    left: `${(unit.timelineStartUs / durationUs) * 100}%`,
+                    width: `${Math.max(2.5, ((unit.timelineEndUs - unit.timelineStartUs) / durationUs) * 100)}%`,
+                    backgroundColor: color,
+                    borderColor: `color-mix(in srgb, ${color} 72%, black)`,
+                  }}
                   title={`${unit.label} — ${formatTimecode(unit.timelineStartUs, sequence.frameRate)}`}
                   onClick={() => {
                     selectClip(unit.clipIds[0] ?? null);
@@ -927,7 +937,7 @@ function ReducedTimeline({
                     return [
                       <span
                         key={`${range.startUs}:${range.endUs}:${index}`}
-                        className="pointer-events-none absolute inset-y-0 bg-accent/25"
+                        className="pointer-events-none absolute inset-y-0 bg-white/25"
                         style={{
                           left: `${((startUs - unit.timelineStartUs) / duration) * 100}%`,
                           width: `${((endUs - startUs) / duration) * 100}%`,
@@ -943,12 +953,10 @@ function ReducedTimeline({
               );
             })
           )}
-          {literal && (
-            <div
-              className="pointer-events-none absolute inset-y-0 z-20 w-px bg-playhead"
-              style={{ left: `${(playheadUs / durationUs) * 100}%` }}
-            />
-          )}
+          <div
+            className="pointer-events-none absolute inset-y-0 z-20 w-px bg-playhead"
+            style={{ left: `${(playheadUs / durationUs) * 100}%` }}
+          />
         </div>
       </div>
     </div>
@@ -1059,12 +1067,12 @@ export function Timeline({
     return (
       <section ref={rootRef} className="flex min-h-0 flex-col bg-panel-muted">
         <ReducedTimeline
-          mode={presentation}
           project={project}
           transcripts={transcripts}
           selectedRanges={selectedRanges}
           playheadUs={playheadUs}
           playing={playback?.playing ?? false}
+          paletteId={paletteId}
           onSeek={(timeUs) => {
             setPlayheadUs(timeUs);
             onSeek?.(timeUs);
