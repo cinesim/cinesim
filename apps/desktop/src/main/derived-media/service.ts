@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
-import { mkdir, lstat, open, readFile, readdir, rename, rm, stat, statfs } from "node:fs/promises";
-import { dirname, join, relative } from "node:path";
+import { readFile, rename, rm } from "node:fs/promises";
+import { relative } from "node:path";
 import { DEFAULT_SETTINGS } from "@cinesim/core";
 import type { Asset, Project, ProjectSettings } from "@cinesim/core";
 import { createCinesimLogger } from "@cinesim/logging";
@@ -8,8 +8,6 @@ import { ProjectPaths } from "@cinesim/project-io";
 import type {
   BeginDerivedWrite,
   DerivedArtifactKind,
-  DerivedArtifactSnapshot,
-  DerivedAssetSnapshot,
   DerivedMediaEvent,
   DerivedProjectScope,
   DerivedMediaSnapshot,
@@ -18,43 +16,20 @@ import type {
   FinalizeDerivedWrite,
   SourceFingerprint,
 } from "../../shared/api";
-import {
-  decodeWaveformEnvelope,
-  waveformByteLength,
-  waveformPeakCount,
-} from "../../shared/waveform-format";
-import {
-  validateFinalize,
-  validateWriteInput,
-  validFilmstripMetadata,
-} from "./artifact-validation";
+import { decodeWaveformEnvelope } from "../../shared/waveform-format";
+import { validateFinalize, validFilmstripMetadata } from "./artifact-validation";
+import { DerivedArtifactRepository } from "./artifact-repository";
 import { DerivedIndexRepository } from "./index-repository";
 import { type DerivedProjectLifecycle, requireOpenDerivedProject } from "./project-lifecycle";
-import {
-  artifactPath,
-  DERIVED_GENERATOR_VERSION,
-  emptyPerformance,
-  isAssetId,
-  MAX_ARTIFACT_BYTES,
-  MAX_CHUNK_BYTES,
-  MAX_DECISION_EVENTS,
-  MAX_RETIRED_WRITERS,
-  MAX_WRITERS,
-  mimeType,
-  projectOpenPersistenceSignature,
-} from "./model";
-import type {
-  PersistedArtifact,
-  PersistedAsset,
-  PersistedIndex,
-  PreparedDerivedProject,
-  WriterSession,
-} from "./model";
+import { isAssetId, MAX_DECISION_EVENTS, projectOpenPersistenceSignature } from "./model";
+import type { PersistedAsset, PersistedIndex, PreparedDerivedProject } from "./model";
 
 export { DERIVED_GENERATOR_VERSION } from "./model";
-import { fingerprintsEqual, fingerprintSource } from "./source-fingerprint";
 import { DerivedPerformanceTracker } from "./performance-tracker";
 import { DerivedRuntimeTracker } from "./runtime-tracker";
+import { projectDerivedSnapshot } from "./snapshot-projector";
+import { DerivedOperationQueue } from "./operation-queue";
+import { DerivedWriterRegistry } from "./writer-registry";
 
 const log = createCinesimLogger({ service: "derived-media" });
 
@@ -76,21 +51,21 @@ interface DerivedMediaStoreOptions {
 
 export class DerivedMediaStore {
   #lifecycle: DerivedProjectLifecycle = { status: "closed" };
-  #writers = new Map<string, WriterSession>();
-  #retiredWriters = new Set<string>();
   #listeners = new Set<(snapshot: DerivedMediaSnapshot) => void>();
-  #operationQueue: Promise<unknown> = Promise.resolve();
   #indexRepository = new DerivedIndexRepository();
+  #artifactRepository: DerivedArtifactRepository;
+  #writers = new DerivedWriterRegistry();
+  #operations = new DerivedOperationQueue();
   #performanceTracker = new DerivedPerformanceTracker();
-  #progressLogBuckets = new Map<string, number>();
   #removedAssetIds = new Set<string>();
-  #diskHeadroomAvailable = false;
   #runtimeTracker = new DerivedRuntimeTracker(
     () => this.#emit(),
     () => this.#scope,
   );
 
-  constructor(private readonly options: DerivedMediaStoreOptions = {}) {}
+  constructor(options: DerivedMediaStoreOptions = {}) {
+    this.#artifactRepository = new DerivedArtifactRepository(options);
+  }
 
   get #directory(): string | null {
     return this.#lifecycle.status === "open" ? this.#lifecycle.directory : null;
@@ -162,7 +137,6 @@ export class DerivedMediaStore {
       };
       this.#performanceTracker.reset();
       this.#runtimeTracker.reset();
-      this.#progressLogBuckets.clear();
       this.#removedAssetIds.clear();
       const persistenceSignature = projectOpenPersistenceSignature(this.#index);
       await this.#removeInterruptedTemps();
@@ -266,7 +240,6 @@ export class DerivedMediaStore {
     await this.#serialize(async () => {
       await this.#closeWriters();
       this.#performanceTracker.reset();
-      this.#progressLogBuckets.clear();
       this.#removedAssetIds.clear();
       this.#runtimeTracker.reset();
       this.#lifecycle = { status: "closed" };
@@ -295,42 +268,12 @@ export class DerivedMediaStore {
   }
 
   snapshot(): DerivedMediaSnapshot {
-    const project = this.#requireProject();
-    const assets: Record<string, DerivedAssetSnapshot> = {};
-    for (const asset of project.assets) {
-      const record = this.#index.assets[asset.id];
-      if (!record) continue;
-      assets[asset.id] = {
-        assetId: asset.id,
-        fingerprintStatus: record.sourceFingerprint.size < 0 ? "missing" : "current",
-        thumbnail: this.#publicArtifact(record.thumbnail),
-        filmstrip: this.#publicArtifact(record.filmstrip),
-        waveform: this.#publicArtifact(record.waveform),
-        proxy: this.#publicArtifact(record.proxy),
-        performance: structuredClone(record.performance),
-      };
-    }
-    const artifacts = Object.values(assets).flatMap((asset) => [
-      asset.thumbnail,
-      asset.filmstrip,
-      asset.waveform,
-      asset.proxy,
-    ]);
-    return {
-      version: 1,
-      generatorVersion: DERIVED_GENERATOR_VERSION,
-      projectScope: this.scope(),
-      assets,
-      storage: structuredClone(this.#index.storage),
-      jobs: {
-        queued: artifacts.filter((artifact) => artifact.state === "queued").length,
-        running: artifacts.filter((artifact) => artifact.state === "running").length,
-        completed: artifacts.filter((artifact) => artifact.state === "ready").length,
-        failed: artifacts.filter((artifact) => artifact.state === "failed").length,
-      },
+    return projectDerivedSnapshot({
+      project: this.#requireProject(),
+      scope: this.#requireScope(),
+      index: this.#index,
       runtime: this.#runtimeTracker.snapshot(),
-      decisionLog: structuredClone(this.#index.decisionLog),
-    };
+    });
   }
 
   async requestJobs(scope: DerivedProjectScope, assetIds: string[]): Promise<DerivedMediaSnapshot> {
@@ -465,36 +408,12 @@ export class DerivedMediaStore {
   ): Promise<{ writerId: string }> {
     return this.#serialize(async () => {
       this.assertScope(scope);
-      validateWriteInput(input);
-      if (input.kind === "proxy" && !this.#diskHeadroomAvailable)
+      if (input.kind === "proxy" && !this.#artifactRepository.diskHeadroomAvailable)
         throw new Error("Insufficient disk headroom for a proxy");
-      if (this.#writers.size >= MAX_WRITERS) throw new Error("Too many derived writers");
       const directory = this.#requireDirectory();
       const asset = this.#requireAsset(input.assetId);
-      if (
-        input.kind === "waveform" &&
-        input.expectedBytes !== waveformByteLength(waveformPeakCount(asset.durationUs))
-      )
-        throw new Error("Waveform writer requires the exact bounded artifact size");
       const record = await this.#ensureAsset(asset);
-      const id = randomUUID();
-      const relativePath = artifactPath(input.kind, input.assetId, input.profileId);
-      const finalPath = this.#containedPath(relativePath);
-      const tempPath = `${finalPath}.${id}.tmp`;
-      await mkdir(dirname(finalPath), { recursive: true });
-      const handle = await open(tempPath, "wx+");
-      this.#writers.set(id, {
-        id,
-        projectDirectory: directory,
-        assetId: input.assetId,
-        kind: input.kind,
-        ...(input.profileId ? { profileId: input.profileId } : {}),
-        ...(input.expectedBytes ? { expectedBytes: input.expectedBytes } : {}),
-        maxEnd: 0,
-        tempPath,
-        finalPath,
-        handle,
-      });
+      const writer = await this.#writers.begin(directory, this.#requirePaths(), asset, input);
       const artifact = record[input.kind];
       artifact.state = "running";
       artifact.progress = 0;
@@ -506,36 +425,27 @@ export class DerivedMediaStore {
         { operation: "write-begin", assetId: input.assetId, artifactKind: input.kind },
         "derived artifact write started",
       );
-      return { writerId: id };
+      return { writerId: writer.id };
     });
   }
 
   async writeChunk(writerId: string, offset: number, data: Uint8Array): Promise<void> {
     await this.#serialize(async () => {
-      if (
-        !(data instanceof Uint8Array) ||
-        data.byteLength === 0 ||
-        data.byteLength > MAX_CHUNK_BYTES
-      )
-        throw new Error("Invalid derived chunk");
-      if (!Number.isSafeInteger(offset) || offset < 0) throw new Error("Invalid derived offset");
-      const writer = this.#writerOrRetired(writerId);
+      const writer = await this.#writers.writeChunk(
+        writerId,
+        this.#requireDirectory(),
+        this.#index,
+        offset,
+        data,
+      );
       if (!writer) return;
-      const end = offset + data.byteLength;
-      if (end > MAX_ARTIFACT_BYTES || (writer.expectedBytes && end > writer.expectedBytes))
-        throw new Error("Derived artifact exceeds its bound");
-      await writer.handle.write(data, 0, data.byteLength, offset);
-      writer.maxEnd = Math.max(writer.maxEnd, end);
-      const record = this.#index.assets[writer.assetId]!;
-      if (writer.expectedBytes)
-        record[writer.kind].progress = Math.min(0.99, writer.maxEnd / writer.expectedBytes);
       this.#emit();
     });
   }
 
   async finalizeWrite(writerId: string, result: FinalizeDerivedWrite): Promise<void> {
     await this.#serialize(async () => {
-      const writer = this.#writerOrRetired(writerId);
+      const writer = this.#writers.get(writerId, this.#requireDirectory());
       if (!writer) return;
       if (
         !Number.isSafeInteger(result.bytes) ||
@@ -558,7 +468,7 @@ export class DerivedMediaStore {
       }
       await writer.handle.close();
       await rename(writer.tempPath, writer.finalPath);
-      this.#writers.delete(writer.id);
+      this.#writers.complete(writer.id);
       const record = this.#index.assets[writer.assetId]!;
       const artifact = record[writer.kind];
       artifact.state = "ready";
@@ -582,10 +492,16 @@ export class DerivedMediaStore {
         kind: `${writer.kind}-ready`,
         detail: `${writer.kind} generated (${result.bytes} bytes)`,
       });
-      await this.#refreshStorage();
+      await this.#artifactRepository.refreshStorage(this.#requireDirectory(), this.#index);
       if (writer.kind === "proxy" && this.#settings.proxyGeneration === "automatic")
         await this.#queueProxyRecord(this.#requireAsset(writer.assetId));
-      await this.#evictIfNeeded();
+      await this.#artifactRepository.evict(
+        this.#requirePaths(),
+        this.#requireDirectory(),
+        this.#index,
+        this.#requireProject(),
+        (event) => this.#log(event),
+      );
       await this.#persist();
       this.#emit();
       log.info(
@@ -604,13 +520,11 @@ export class DerivedMediaStore {
     await this.#serialize(async () => {
       if (!Number.isFinite(progress) || progress < 0 || progress > 1)
         throw new Error("Invalid derived progress");
-      const writer = this.#writerOrRetired(writerId);
+      const writer = this.#writers.get(writerId, this.#requireDirectory());
       if (!writer) return;
       this.#index.assets[writer.assetId]![writer.kind].progress = progress;
       this.#runtimeTracker.updateWriterProgress(writer.assetId, progress);
-      const bucket = Math.min(4, Math.floor(progress * 4));
-      if (this.#progressLogBuckets.get(writerId) !== bucket) {
-        this.#progressLogBuckets.set(writerId, bucket);
+      if (this.#writers.progressBucket(writerId, progress)) {
         log.info(
           {
             operation: "worker-progress",
@@ -647,11 +561,9 @@ export class DerivedMediaStore {
 
   async cancelWrite(writerId: string, failureCode?: string, detail?: string): Promise<void> {
     await this.#serialize(async () => {
-      const writer = this.#writerOrRetired(writerId);
+      const writer = this.#writers.get(writerId, this.#requireDirectory());
       if (!writer) return;
-      await writer.handle.close().catch(() => undefined);
-      await rm(writer.tempPath, { force: true });
-      this.#writers.delete(writer.id);
+      await this.#writers.cancel(writer);
       const artifact = this.#index.assets[writer.assetId]![writer.kind];
       artifact.state = failureCode ? "failed" : "queued";
       artifact.progress = 0;
@@ -694,116 +606,28 @@ export class DerivedMediaStore {
   ): Promise<{ path: string; size: number; mimeType: string }> {
     this.assertScope(scope);
     const asset = this.#requireAsset(assetId);
-    const record = this.#index.assets[asset.id];
-    if (!record) throw new Error("Derived asset is unavailable");
-    const artifact = record[kind];
-    if (artifact.state !== "ready" || !artifact.relativePath)
-      throw new Error("Derived artifact is not ready");
-    if (!revision || artifact.updatedAt !== revision)
-      throw new Error("Unknown derived artifact revision");
-    if (kind === "proxy" && profileId && artifact.profileId !== profileId)
-      throw new Error("Unknown proxy profile");
-    const path = this.#containedPath(artifact.relativePath);
-    const artifactMimeType = mimeType(kind);
-    const info = await stat(path);
-    artifact.lastAccessAt = new Date().toISOString();
-    return { path, size: info.size, mimeType: artifactMimeType };
+    return this.#artifactRepository.artifactFile(
+      this.#requirePaths(),
+      this.#index,
+      kind,
+      asset.id,
+      profileId,
+      revision,
+    );
   }
 
   async #ensureAsset(asset: Asset): Promise<PersistedAsset> {
-    const current = this.#index.assets[asset.id];
-    // Moving a verified original to cloud does not change its bytes. Preserve the local edit
-    // representation instead of invalidating it solely because the source locator changed.
-    if (asset.source.kind === "cloud" && current) return current;
-    const fingerprint =
-      asset.source.kind === "local"
-        ? await fingerprintSource(asset.source.path)
-        : { size: 0, mtimeMs: 0, edgeHash: asset.source.cloudAssetId };
-    if (current && fingerprintsEqual(current.sourceFingerprint, fingerprint)) return current;
-    if (current) {
-      for (const artifact of [
-        current.thumbnail,
-        current.filmstrip,
-        current.waveform,
-        current.proxy,
-      ]) {
-        if (artifact.relativePath)
-          await rm(this.#containedPath(artifact.relativePath), { force: true }).catch(
-            () => undefined,
-          );
-      }
-      this.#log({
-        assetId: asset.id,
-        kind: "source-stale",
-        detail: "Source fingerprint changed; derived artifacts invalidated",
-      });
-    }
-    const emptyArtifact = (): PersistedArtifact => ({
-      state: "missing",
-      generatorVersion: DERIVED_GENERATOR_VERSION,
-      sourceFingerprint: fingerprint,
-    });
-    const record: PersistedAsset = {
-      sourceFingerprint: fingerprint,
-      thumbnail: emptyArtifact(),
-      filmstrip: emptyArtifact(),
-      waveform: emptyArtifact(),
-      proxy: emptyArtifact(),
-      performance: { original: emptyPerformance() },
-    };
-    this.#index.assets[asset.id] = record;
-    return record;
+    return this.#artifactRepository.ensureAsset(this.#requirePaths(), this.#index, asset, (event) =>
+      this.#log(event),
+    );
   }
 
   async #refreshStorage(): Promise<void> {
-    const directory = this.#requireDirectory();
-    const fileSystem = this.options.diskSpace ? null : await statfs(directory);
-    const capacity =
-      this.options.diskSpace?.capacityBytes ?? fileSystem!.blocks * fileSystem!.bsize;
-    const available =
-      this.options.diskSpace?.availableBytes ?? fileSystem!.bavail * fileSystem!.bsize;
-    const safetyReserveBytes = Math.max(2 * 1024 ** 3, Math.floor(capacity * 0.05));
-    this.#diskHeadroomAvailable = available > safetyReserveBytes + 512 * 1024 ** 2;
-    const budgetBytes = Math.max(
-      256 * 1024 ** 2,
-      Math.min(20 * 1024 ** 3, Math.floor(Math.max(0, available - safetyReserveBytes) * 0.25)),
-    );
-    let thumbnailBytes = 0;
-    let filmstripBytes = 0;
-    let waveformBytes = 0;
-    let proxyBytes = 0;
-    for (const record of Object.values(this.#index.assets)) {
-      thumbnailBytes += record.thumbnail.bytes ?? 0;
-      filmstripBytes += record.filmstrip.bytes ?? 0;
-      waveformBytes += record.waveform.bytes ?? 0;
-      proxyBytes += record.proxy.bytes ?? 0;
-    }
-    this.#index.storage = {
-      ...this.#index.storage,
-      totalBytes: thumbnailBytes + filmstripBytes + waveformBytes + proxyBytes,
-      budgetBytes,
-      safetyReserveBytes,
-      thumbnailBytes,
-      filmstripBytes,
-      waveformBytes,
-      proxyBytes,
-    };
+    await this.#artifactRepository.refreshStorage(this.#requireDirectory(), this.#index);
   }
 
   async #removeInterruptedTemps(): Promise<void> {
-    await Promise.all(
-      ["thumbnails", "filmstrips", "waveforms", "proxies", "originals"].map(async (folder) => {
-        const directory = this.#containedPath(join(".video", folder));
-        const info = await lstat(directory).catch(() => null);
-        if (!info?.isDirectory() || info.isSymbolicLink()) return;
-        const names = await readdir(directory).catch(() => []);
-        await Promise.all(
-          names
-            .filter((name) => name.endsWith(".tmp") && /^[a-zA-Z0-9_.-]+$/.test(name))
-            .map((name) => rm(join(directory, name), { force: true })),
-        );
-      }),
-    );
+    await this.#artifactRepository.removeInterruptedTemps(this.#requirePaths());
   }
 
   async #pruneRemovedAssetsNow(): Promise<void> {
@@ -817,31 +641,10 @@ export class DerivedMediaStore {
     ];
     if (removedIds.length === 0) return;
     const removed = new Set(removedIds);
-    for (const writer of this.#writers.values()) {
-      if (!removed.has(writer.assetId)) continue;
-      this.#retireWriter(writer.id);
-      await writer.handle.close().catch(() => undefined);
-      await rm(writer.tempPath, { force: true }).catch(() => undefined);
-      this.#writers.delete(writer.id);
-    }
+    await this.#writers.removeAssets(removed);
+    await this.#artifactRepository.removeAssets(this.#requirePaths(), this.#index, removedIds);
     for (const assetId of removedIds) {
-      const record = this.#index.assets[assetId];
-      if (record) {
-        for (const artifact of [
-          record.thumbnail,
-          record.filmstrip,
-          record.waveform,
-          record.proxy,
-        ]) {
-          if (artifact.relativePath)
-            await rm(this.#containedPath(artifact.relativePath), { force: true }).catch(
-              () => undefined,
-            );
-        }
-        delete this.#index.assets[assetId];
-      }
       this.#performanceTracker.remove(assetId);
-      await this.#removeUnindexedAssetArtifacts(assetId);
     }
     this.#removedAssetIds.clear();
     await this.#refreshStorage();
@@ -849,84 +652,9 @@ export class DerivedMediaStore {
     this.#emit();
   }
 
-  async #removeUnindexedAssetArtifacts(assetId: string): Promise<void> {
-    const candidates = [
-      { folder: "thumbnails", matches: (name: string) => name === `${assetId}.jpg` },
-      { folder: "filmstrips", matches: (name: string) => name === `${assetId}.jpg` },
-      { folder: "waveforms", matches: (name: string) => name === `${assetId}.cswf` },
-      {
-        folder: "proxies",
-        matches: (name: string) => name.startsWith(`${assetId}-`) && name.endsWith(".mp4"),
-      },
-      {
-        folder: "frames",
-        matches: (name: string) => name.startsWith(`${assetId}-`) && name.endsWith(".png"),
-      },
-      { folder: "originals", matches: (name: string) => name === assetId },
-    ];
-    await Promise.all(
-      candidates.map(async ({ folder, matches }) => {
-        const directory = this.#containedPath(join(".video", folder));
-        const info = await lstat(directory).catch(() => null);
-        if (!info?.isDirectory() || info.isSymbolicLink()) return;
-        const names = await readdir(directory).catch(() => []);
-        await Promise.all(
-          names
-            .filter((name) => matches(name) && /^[a-zA-Z0-9_.-]+$/.test(name))
-            .map((name) => rm(join(directory, name), { force: true })),
-        );
-      }),
-    );
-  }
-
-  async #evictIfNeeded(): Promise<void> {
-    const storage = this.#index.storage;
-    if (storage.totalBytes <= storage.budgetBytes) return;
-    const candidates = Object.entries(this.#index.assets)
-      .flatMap(([assetId, record]) =>
-        (["proxy", "filmstrip", "waveform"] as const).map((kind) => ({
-          assetId,
-          kind,
-          artifact: record[kind],
-        })),
-      )
-      .filter(
-        (candidate) =>
-          candidate.artifact.state === "ready" &&
-          candidate.artifact.relativePath &&
-          !(
-            candidate.kind === "proxy" &&
-            this.#project?.assets.find((asset) => asset.id === candidate.assetId)?.source.kind ===
-              "cloud"
-          ),
-      )
-      .sort((left, right) => {
-        const priority = { proxy: 0, filmstrip: 1, waveform: 2 } as const;
-        if (left.kind !== right.kind) return priority[left.kind] - priority[right.kind];
-        return (left.artifact.lastAccessAt ?? "").localeCompare(right.artifact.lastAccessAt ?? "");
-      });
-    for (const candidate of candidates) {
-      if (this.#index.storage.totalBytes <= this.#index.storage.budgetBytes) break;
-      await rm(this.#containedPath(candidate.artifact.relativePath!), { force: true });
-      this.#index.storage.totalBytes -= candidate.artifact.bytes ?? 0;
-      candidate.artifact.state = "missing";
-      delete candidate.artifact.bytes;
-      delete candidate.artifact.relativePath;
-      delete candidate.artifact.progress;
-      this.#index.storage.evictionCount += 1;
-      this.#index.storage.lastEvictionReason = "project-budget-exceeded";
-      this.#log({
-        assetId: candidate.assetId,
-        kind: "artifact-evicted",
-        detail: `${candidate.kind} evicted to stay within the automatic project budget`,
-      });
-    }
-    await this.#refreshStorage();
-  }
-
   async #queueProxyRecord(asset: Asset, required = false): Promise<void> {
     if (asset.kind !== "video" && asset.kind !== "audio") return;
-    if (!this.#diskHeadroomAvailable) {
+    if (!this.#artifactRepository.diskHeadroomAvailable) {
       if (required) throw new Error("Insufficient disk headroom for a proxy");
       return;
     }
@@ -969,27 +697,9 @@ export class DerivedMediaStore {
     return this.#requirePaths().derived(relativePath);
   }
 
-  #writerOrRetired(id: string): WriterSession | null {
-    if (!/^[a-f0-9-]{36}$/.test(id)) throw new Error("Invalid derived writer ID");
-    const writer = this.#writers.get(id);
-    if (!writer) {
-      if (this.#retiredWriters.has(id)) return null;
-      throw new Error("Unknown derived writer");
-    }
-    if (writer.projectDirectory !== this.#requireDirectory())
-      throw new Error("Unknown derived writer");
-    return writer;
-  }
-
   #scopeMatches(scope: DerivedProjectScope): boolean {
     const current = this.#requireScope();
     return scope.cacheKey === current.cacheKey && scope.epoch === current.epoch;
-  }
-
-  #retireWriter(id: string): void {
-    this.#retiredWriters.add(id);
-    if (this.#retiredWriters.size > MAX_RETIRED_WRITERS)
-      this.#retiredWriters.delete(this.#retiredWriters.values().next().value!);
   }
 
   #requireAsset(assetId: string): Asset {
@@ -1019,16 +729,6 @@ export class DerivedMediaStore {
     return this.#project;
   }
 
-  #publicArtifact(artifact: PersistedArtifact): DerivedArtifactSnapshot {
-    const {
-      relativePath: _relativePath,
-      generatorVersion: _version,
-      sourceFingerprint: _fingerprint,
-      ...value
-    } = artifact;
-    return structuredClone(value);
-  }
-
   #log(event: Omit<DerivedMediaEvent, "at">): void {
     this.#index.decisionLog.push({ ...event, at: new Date().toISOString() });
     if (this.#index.decisionLog.length > MAX_DECISION_EVENTS)
@@ -1046,28 +746,10 @@ export class DerivedMediaStore {
   }
 
   async #closeWriters(): Promise<void> {
-    await Promise.all(
-      [...this.#writers.values()].map(async (writer) => {
-        this.#retireWriter(writer.id);
-        await writer.handle.close().catch(() => undefined);
-        await rm(writer.tempPath, { force: true });
-      }),
-    );
-    this.#writers.clear();
+    await this.#writers.closeAll();
   }
 
   #serialize<T>(operation: () => Promise<T>): Promise<T> {
-    const result = this.#operationQueue
-      .catch(() => undefined)
-      .then(async () => {
-        if (this.#paths)
-          await this.#paths.verifyDirectories([
-            ".video",
-            ...DERIVED_FOLDERS.map((folder) => join(".video", folder)),
-          ]);
-        return operation();
-      });
-    this.#operationQueue = result;
-    return result;
+    return this.#operations.serialize(this.#paths, DERIVED_FOLDERS, operation);
   }
 }
