@@ -176,6 +176,27 @@ describe("timeline transcript projection", () => {
     });
   });
 
+  it("gives speaker-split rows unique IDs when Deepgram reuses an utterance ID", () => {
+    const project = projectWithVideo();
+    const projection = projectTimelineTranscript({
+      project,
+      sequenceId: project.activeSequenceId,
+      transcripts: snapshot([
+        word("word-0", "First", 1_000_000, 1_500_000, "speaker-0", "utterance-shared"),
+        word("word-1", "Second", 1_600_000, 2_100_000, "speaker-1", "utterance-shared"),
+      ]),
+    });
+    const utterances = projection.blocks.flatMap((block) =>
+      block.kind === "utterance" ? [block.utterance] : [],
+    );
+
+    expect(utterances.map((utterance) => utterance.id)).toEqual([
+      "utterance:clip_000001:utterance-shared",
+      "utterance:clip_000001:utterance-shared:segment-2",
+    ]);
+    expect(new Set(utterances.map((utterance) => utterance.id)).size).toBe(2);
+  });
+
   it("renders media silence separately from empty timeline gaps", () => {
     let project = projectWithVideo();
     project = applyCommand(project, {

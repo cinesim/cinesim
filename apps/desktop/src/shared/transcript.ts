@@ -245,6 +245,7 @@ function utterancesForWords(
   silenceThresholdUs: number,
 ): ProjectedUtterance[] {
   const utterances: ProjectedUtterance[] = [];
+  const segmentCounts = new Map<string, number>();
   for (const word of words) {
     const current = utterances.at(-1);
     const sameUtterance =
@@ -255,8 +256,11 @@ function utterancesForWords(
         (token) => token.kind === "word" && token.word.utteranceId === word.utteranceId,
       );
     if (!sameUtterance) {
+      const baseId = `utterance:${word.clipId}:${word.utteranceId ?? word.id}`;
+      const segment = (segmentCounts.get(baseId) ?? 0) + 1;
+      segmentCounts.set(baseId, segment);
       utterances.push({
-        id: `utterance:${word.clipId}:${word.utteranceId ?? word.id}`,
+        id: segment === 1 ? baseId : `${baseId}:segment-${segment}`,
         assetId: word.assetId,
         clipId: word.clipId,
         ...(word.linkedClipId ? { linkedClipId: word.linkedClipId } : {}),
