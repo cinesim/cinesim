@@ -44,13 +44,37 @@ export interface SetPerceptionPausedRequest {
   jobId: string;
 }
 
+export interface GenerateTranscriptRequest {
+  type: "transcript";
+  jobId: string;
+  assetId: string;
+  projectScope: DerivedProjectScope;
+  durationUs: number;
+  chunkDurationUs: number;
+}
+
+export interface TranscriptChunkAck {
+  type: "transcript-chunk-ack";
+  jobId: string;
+  chunkIndex: number;
+  error?: string;
+}
+
+export interface SetTranscriptPausedRequest {
+  type: "transcript-pause" | "transcript-resume";
+  jobId: string;
+}
+
 export type DerivedWorkerRequest =
   | GenerateDerivedRequest
   | GenerateProxyRequest
   | CancelDerivedRequest
   | ProxyChunkAck
   | SetProxyPausedRequest
-  | SetPerceptionPausedRequest;
+  | SetPerceptionPausedRequest
+  | GenerateTranscriptRequest
+  | TranscriptChunkAck
+  | SetTranscriptPausedRequest;
 
 export type DerivedWorkerResponse =
   | {
@@ -100,5 +124,19 @@ export type DerivedWorkerResponse =
       data: ArrayBuffer;
     }
   | { type: "proxy-progress"; jobId: string; progress: number }
-  | { type: "proxy-complete"; jobId: string; bytes: number };
+  | { type: "proxy-complete"; jobId: string; bytes: number }
+  | {
+      type: "transcript-progress";
+      jobId: string;
+      progress: number;
+    }
+  | {
+      type: "transcript-chunk";
+      jobId: string;
+      chunkIndex: number;
+      sourceStartUs: number;
+      sourceEndUs: number;
+      data: ArrayBuffer;
+    }
+  | { type: "transcript-complete"; jobId: string };
 import type { DerivedProjectScope, DerivedWorkerStage } from "../../shared/api";

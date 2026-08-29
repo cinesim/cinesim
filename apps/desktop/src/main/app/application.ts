@@ -18,15 +18,18 @@ import { registerAccountIpc } from "../account/ipc";
 import type { DesktopAccountService } from "../account/service";
 import { registerCloudIpc } from "../cloud/ipc";
 import { CloudMediaManager } from "../cloud/manager";
+import { registerTranscriptIpc } from "../transcripts/ipc";
 
 const log = createCinesimLogger({ service: "desktop" });
 
 export class DesktopApplication implements ApplicationLifecycle {
-  readonly projectStore = new DesktopProjectStore();
+  readonly projectStore: DesktopProjectStore;
   #agents: AgentManager | null = null;
   #eventLoopMonitor = new MainEventLoopMonitor();
 
-  constructor(private readonly accountService: DesktopAccountService) {}
+  constructor(private readonly accountService: DesktopAccountService) {
+    this.projectStore = new DesktopProjectStore(accountService);
+  }
 
   async start(): Promise<void> {
     await app.whenReady();
@@ -69,6 +72,10 @@ export class DesktopApplication implements ApplicationLifecycle {
       for (const target of BrowserWindow.getAllWindows())
         target.webContents.send("derived:changed", snapshot);
     });
+    this.projectStore.transcripts.subscribe((snapshot) => {
+      for (const target of BrowserWindow.getAllWindows())
+        target.webContents.send("transcripts:changed", snapshot);
+    });
 
     const agents = new AgentManager(
       join(app.getPath("userData"), "agent-sessions.json"),
@@ -90,6 +97,7 @@ export class DesktopApplication implements ApplicationLifecycle {
 
     registerProjectIpc(this.projectStore, appState, agents, this.accountService, cloudMedia);
     registerDerivedMediaIpc(this.projectStore.derivedMedia);
+    registerTranscriptIpc(this.projectStore.transcripts);
     registerAppStateIpc(appState, this.projectStore);
     registerAgentIpc(agents, agentSettings);
     registerAppIpc(log, this.#eventLoopMonitor);

@@ -144,6 +144,7 @@ export const INITIAL_ACCOUNT_STATE: AccountSnapshot = {
   serviceAvailable: false,
   googleSignIn: false,
   cloudStorage: false,
+  transcription: false,
   user: null,
   detail: null,
 };

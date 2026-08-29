@@ -1,4 +1,5 @@
 import type { CommandResult, EditorCommand, Project, ProjectSettings } from "@cinesim/core";
+import type { TranscriptAudioChunkInput, TranscriptSnapshot } from "./transcript";
 
 export interface DesktopProjectSession {
   directory: string;
@@ -400,6 +401,7 @@ export interface AccountSnapshot {
   serviceAvailable: boolean;
   googleSignIn: boolean;
   cloudStorage?: boolean;
+  transcription: boolean;
   user: AccountUser | null;
   detail: string | null;
 }
@@ -479,6 +481,23 @@ export interface DesktopApi {
   getDerivedMediaSnapshot(scope: DerivedProjectScope): Promise<DerivedMediaSnapshot>;
   requestDerivedJobs(scope: DerivedProjectScope, assetIds: string[]): Promise<DerivedMediaSnapshot>;
   requestProxyJobs(scope: DerivedProjectScope, assetIds: string[]): Promise<DerivedMediaSnapshot>;
+  getTranscriptSnapshot(
+    scope: DerivedProjectScope,
+    assetIds?: string[],
+  ): Promise<TranscriptSnapshot>;
+  requestTranscriptJobs(
+    scope: DerivedProjectScope,
+    assetIds: string[],
+  ): Promise<TranscriptSnapshot>;
+  beginTranscriptJob(scope: DerivedProjectScope, assetId: string): Promise<{ jobId: string }>;
+  transcribeAudioChunk(scope: DerivedProjectScope, input: TranscriptAudioChunkInput): Promise<void>;
+  finalizeTranscriptJob(scope: DerivedProjectScope, jobId: string): Promise<TranscriptSnapshot>;
+  failTranscriptJob(
+    scope: DerivedProjectScope,
+    jobId: string,
+    failureCode: string,
+    detail?: string,
+  ): Promise<TranscriptSnapshot>;
   beginDerivedWrite(
     scope: DerivedProjectScope,
     input: BeginDerivedWrite,
@@ -536,6 +555,7 @@ export interface DesktopApi {
   onAgentsChanged(callback: (snapshot: AgentProjectSnapshot) => void): () => void;
   onProjectChanged(callback: (session: DesktopProjectSession) => void): () => void;
   onDerivedMediaChanged(callback: (snapshot: DerivedMediaSnapshot) => void): () => void;
+  onTranscriptsChanged(callback: (snapshot: TranscriptSnapshot) => void): () => void;
   onAccountChanged(callback: (snapshot: AccountSnapshot) => void): () => void;
   onCloudTransfersChanged(callback: (snapshot: CloudTransferSnapshot[]) => void): () => void;
   platform: NodeJS.Platform;

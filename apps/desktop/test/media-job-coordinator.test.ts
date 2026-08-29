@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 import { applyCommand, createProject } from "@cinesim/core";
 import type { Project } from "@cinesim/core";
 import type { DerivedMediaSnapshot, DesktopApi, FinalizeDerivedWrite } from "../src/shared/api";
+import type { TranscriptSnapshot } from "../src/shared/transcript";
 import type {
   DerivedWorkerRequest,
   DerivedWorkerResponse,
@@ -36,7 +37,7 @@ class FakeWorker {
   terminate(): void {}
 }
 
-function project(): Project {
+function project(hasAudio = false): Project {
   return applyCommand(createProject({ name: "Coordinator" }), {
     type: "asset.import",
     asset: {
@@ -47,6 +48,7 @@ function project(): Project {
       durationUs: 2_000_000,
       width: 1280,
       height: 720,
+      hasAudio,
     },
   }).project;
 }
@@ -106,15 +108,45 @@ function snapshot(
   };
 }
 
-function setup(initial: DerivedMediaSnapshot) {
+function setup(initial: DerivedMediaSnapshot, initialTranscripts?: TranscriptSnapshot) {
   const current = structuredClone(initial);
   let derivedMediaListener: ((snapshot: DerivedMediaSnapshot) => void) | null = null;
+  let transcriptListener: ((snapshot: TranscriptSnapshot) => void) | null = null;
+  const transcriptSnapshot: TranscriptSnapshot =
+    initialTranscripts ??
+    ({
+      projectDirectory: "/tmp/project",
+      projectScope,
+      assets: {},
+    } satisfies TranscriptSnapshot);
   const finalized: { writerId: string; result: FinalizeDerivedWrite }[] = [];
+  const transcribedChunks: unknown[] = [];
+  const finalizedTranscriptJobs: string[] = [];
   const begun: { assetId: string; kind: string; expectedBytes?: number }[] = [];
   const canceled: { writerId: string; failureCode?: string; detail?: string }[] = [];
   const api = {
     getDerivedMediaSnapshot: vi.fn(async () => current),
     requestDerivedJobs: vi.fn(async () => current),
+    getTranscriptSnapshot: vi.fn(async () => transcriptSnapshot),
+    beginTranscriptJob: vi.fn(async () => ({
+      jobId: "00000000-0000-4000-8000-000000000099",
+    })),
+    transcribeAudioChunk: vi.fn(async (_scope, input) => {
+      transcribedChunks.push(input);
+    }),
+    finalizeTranscriptJob: vi.fn(async (_scope, jobId) => {
+      finalizedTranscriptJobs.push(jobId);
+      if (transcriptSnapshot.assets.asset_fixture)
+        transcriptSnapshot.assets.asset_fixture.state = "ready";
+      return transcriptSnapshot;
+    }),
+    failTranscriptJob: vi.fn(async () => transcriptSnapshot),
+    onTranscriptsChanged: vi.fn((listener: (snapshot: TranscriptSnapshot) => void) => {
+      transcriptListener = listener;
+      return () => {
+        transcriptListener = null;
+      };
+    }),
     onDerivedMediaChanged: vi.fn((listener: (snapshot: DerivedMediaSnapshot) => void) => {
       derivedMediaListener = listener;
       return () => {
@@ -163,7 +195,10 @@ function setup(initial: DerivedMediaSnapshot) {
     begun,
     finalized,
     canceled,
+    transcribedChunks,
+    finalizedTranscriptJobs,
     emitDerivedMedia: (next: DerivedMediaSnapshot) => derivedMediaListener?.(next),
+    emitTranscripts: (next: TranscriptSnapshot) => transcriptListener?.(next),
   };
 }
 
@@ -175,6 +210,53 @@ afterEach(() => {
 });
 
 describe("MediaJobCoordinator", () => {
+  it("extracts and uploads transcript chunks with worker backpressure", async () => {
+    const transcripts: TranscriptSnapshot = {
+      projectDirectory: "/tmp/project",
+      projectScope,
+      assets: {
+        asset_fixture: { assetId: "asset_fixture", state: "queued" },
+      },
+    };
+    const { transcribedChunks, finalizedTranscriptJobs } = setup(
+      snapshot("ready", "ready", "ready"),
+      transcripts,
+    );
+    const coordinator = new MediaJobCoordinator(project(true), projectScope, () => undefined);
+    await coordinator.start();
+    await vi.waitFor(() =>
+      expect(FakeWorker.instance?.sent).toContainEqual(
+        expect.objectContaining({
+          type: "transcript",
+          jobId: "00000000-0000-4000-8000-000000000099",
+          chunkDurationUs: 300_000_000,
+        }),
+      ),
+    );
+
+    FakeWorker.instance!.emit({
+      type: "transcript-chunk",
+      jobId: "00000000-0000-4000-8000-000000000099",
+      chunkIndex: 0,
+      sourceStartUs: 0,
+      sourceEndUs: 2_000_000,
+      data: new Uint8Array([1, 2, 3]).buffer,
+    });
+    await vi.waitFor(() => expect(transcribedChunks).toHaveLength(1));
+    expect(FakeWorker.instance?.sent).toContainEqual({
+      type: "transcript-chunk-ack",
+      jobId: "00000000-0000-4000-8000-000000000099",
+      chunkIndex: 0,
+    });
+
+    FakeWorker.instance!.emit({
+      type: "transcript-complete",
+      jobId: "00000000-0000-4000-8000-000000000099",
+    });
+    await vi.waitFor(() => expect(finalizedTranscriptJobs).toHaveLength(1));
+    await coordinator.destroy();
+  });
+
   it("ignores snapshots emitted for another project with the same asset IDs", async () => {
     const { emitDerivedMedia } = setup(snapshot("ready", "ready"));
     const coordinator = new MediaJobCoordinator(project(), projectScope, () => undefined);

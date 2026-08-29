@@ -9,6 +9,7 @@ import {
 import {
   ALL_FORMATS,
   AudioSampleSink,
+  BufferTarget,
   CanvasSink,
   Conversion,
   Input,
@@ -19,6 +20,7 @@ import {
   QUALITY_MEDIUM,
   StreamTarget,
   UrlSource,
+  WavOutputFormat,
   getFirstEncodableAudioCodec,
   getFirstEncodableVideoCodec,
 } from "mediabunny";
@@ -35,6 +37,10 @@ import { accumulateWaveformSample } from "../lib/waveform-sampling";
 const scope = self as DedicatedWorkerGlobalScope;
 const canceled = new Set<string>();
 const chunkAcks = new Map<number, { resolve: () => void; reject: (error: Error) => void }>();
+const transcriptChunkAcks = new Map<
+  number,
+  { resolve: () => void; reject: (error: Error) => void }
+>();
 let activeProxy: {
   jobId: string;
   conversion: Conversion | null;
@@ -44,6 +50,13 @@ let activeProxy: {
 } | null = null;
 let activePerception: {
   jobId: string;
+  paused: boolean;
+  resume: (() => void) | null;
+} | null = null;
+let activeTranscript: {
+  jobId: string;
+  conversion: Conversion | null;
+  pauseController: AbortController | null;
   paused: boolean;
   resume: (() => void) | null;
 } | null = null;
@@ -458,6 +471,120 @@ async function generateProxy(request: Extract<DerivedWorkerRequest, { type: "pro
   }
 }
 
+async function waitUntilTranscriptResumed(jobId: string): Promise<void> {
+  if (!activeTranscript || activeTranscript.jobId !== jobId || !activeTranscript.paused) return;
+  await new Promise<void>((resolve) => {
+    if (activeTranscript?.jobId === jobId) activeTranscript.resume = resolve;
+    else resolve();
+  });
+}
+
+async function generateTranscript(
+  request: Extract<DerivedWorkerRequest, { type: "transcript" }>,
+): Promise<void> {
+  const input = new Input({
+    source: new UrlSource(
+      originalMediaUrl({ id: request.assetId as `asset_${string}` }, request.projectScope),
+      { maxCacheSize: 32 * 1024 * 1024, parallelism: 1 },
+    ),
+    formats: ALL_FORMATS,
+  });
+  activeTranscript = {
+    jobId: request.jobId,
+    conversion: null,
+    pauseController: null,
+    paused: false,
+    resume: null,
+  };
+  try {
+    if (!(await input.canRead())) throw new Error("unsupported-container");
+    const audioTrack = await input.getPrimaryAudioTrack();
+    if (!audioTrack) throw new Error("source-has-no-audio");
+    if (!(await audioTrack.canDecode())) throw new Error("source-audio-undecodable");
+    let chunkIndex = 0;
+    for (
+      let sourceStartUs = 0;
+      sourceStartUs < request.durationUs;
+      sourceStartUs += request.chunkDurationUs
+    ) {
+      assertActive(request.jobId);
+      await waitUntilTranscriptResumed(request.jobId);
+      const sourceEndUs = Math.min(request.durationUs, sourceStartUs + request.chunkDurationUs);
+      const target = new BufferTarget();
+      const output = new Output({ format: new WavOutputFormat(), target });
+      const conversion = await Conversion.init({
+        input,
+        output,
+        tracks: "primary",
+        video: { discard: true },
+        audio: {
+          codec: "pcm-s16",
+          numberOfChannels: 1,
+          sampleRate: 16_000,
+          sampleFormat: "s16",
+          forceTranscode: true,
+        },
+        trim: { start: sourceStartUs / 1_000_000, end: sourceEndUs / 1_000_000 },
+        tags: {},
+        showWarnings: false,
+      });
+      if (!conversion.isValid) throw new Error("transcript-conversion-invalid");
+      if (activeTranscript?.jobId === request.jobId) activeTranscript.conversion = conversion;
+      conversion.onProgress = (value) => {
+        const chunkProgress =
+          (sourceStartUs + value * (sourceEndUs - sourceStartUs)) / request.durationUs;
+        post({
+          type: "transcript-progress",
+          jobId: request.jobId,
+          progress: Math.min(0.99, chunkProgress),
+        });
+      };
+      while (conversion.state !== "done") {
+        assertActive(request.jobId);
+        await waitUntilTranscriptResumed(request.jobId);
+        const pauseController = new AbortController();
+        if (activeTranscript?.jobId === request.jobId)
+          activeTranscript.pauseController = pauseController;
+        try {
+          await conversion.execute({ pauseSignal: pauseController.signal });
+        } catch (error) {
+          if (!activeTranscript?.paused) throw error;
+        }
+      }
+      const data = target.buffer;
+      if (!data || data.byteLength === 0) throw new Error("transcript-audio-empty");
+      await new Promise<void>((resolve, reject) => {
+        transcriptChunkAcks.set(chunkIndex, { resolve, reject });
+        post(
+          {
+            type: "transcript-chunk",
+            jobId: request.jobId,
+            chunkIndex,
+            sourceStartUs,
+            sourceEndUs,
+            data,
+          },
+          [data],
+        );
+      });
+      chunkIndex += 1;
+      post({
+        type: "transcript-progress",
+        jobId: request.jobId,
+        progress: sourceEndUs / request.durationUs,
+      });
+    }
+    post({ type: "transcript-complete", jobId: request.jobId });
+  } finally {
+    input.dispose();
+    if (activeTranscript?.jobId === request.jobId) {
+      activeTranscript.resume?.();
+      activeTranscript = null;
+    }
+    canceled.delete(request.jobId);
+  }
+}
+
 scope.onmessage = (event: MessageEvent<DerivedWorkerRequest>) => {
   const request = event.data;
   if (request.type === "cancel") {
@@ -467,12 +594,24 @@ scope.onmessage = (event: MessageEvent<DerivedWorkerRequest>) => {
       activeProxy.resume?.();
       void activeProxy.conversion?.cancel();
     }
+    if (activeTranscript?.jobId === request.jobId) {
+      activeTranscript.resume?.();
+      void activeTranscript.conversion?.cancel();
+    }
     return;
   }
   if (request.type === "proxy-chunk-ack") {
     const ack = chunkAcks.get(request.chunkId);
     if (!ack) return;
     chunkAcks.delete(request.chunkId);
+    if (request.error) ack.reject(new Error(request.error));
+    else ack.resolve();
+    return;
+  }
+  if (request.type === "transcript-chunk-ack") {
+    const ack = transcriptChunkAcks.get(request.chunkIndex);
+    if (!ack) return;
+    transcriptChunkAcks.delete(request.chunkIndex);
     if (request.error) ack.reject(new Error(request.error));
     else ack.resolve();
     return;
@@ -504,8 +643,29 @@ scope.onmessage = (event: MessageEvent<DerivedWorkerRequest>) => {
     }
     return;
   }
-  if (request.type !== "proxy" && request.type !== "generate") return;
-  const operation = request.type === "proxy" ? generateProxy(request) : generate(request);
+  if (request.type === "transcript-pause") {
+    if (activeTranscript?.jobId === request.jobId) {
+      activeTranscript.paused = true;
+      activeTranscript.pauseController?.abort();
+    }
+    return;
+  }
+  if (request.type === "transcript-resume") {
+    if (activeTranscript?.jobId === request.jobId) {
+      activeTranscript.paused = false;
+      activeTranscript.resume?.();
+      activeTranscript.resume = null;
+    }
+    return;
+  }
+  if (request.type !== "proxy" && request.type !== "generate" && request.type !== "transcript")
+    return;
+  const operation =
+    request.type === "proxy"
+      ? generateProxy(request)
+      : request.type === "transcript"
+        ? generateTranscript(request)
+        : generate(request);
   void operation.catch((error: unknown) => {
     const detail = error instanceof Error ? error.message : "Derived media generation failed";
     const failureCode =

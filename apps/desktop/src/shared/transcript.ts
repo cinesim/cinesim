@@ -1,6 +1,6 @@
 import type { AssetId, ClipId, Project, Sequence, TimeUs } from "@cinesim/core";
 import { clipEndUs, normalizeTimelineRanges } from "@cinesim/core";
-import type { SourceFingerprint } from "./api";
+import type { DerivedProjectScope, SourceFingerprint } from "./api";
 
 export const TRANSCRIPT_ARTIFACT_VERSION = 1 as const;
 export const TRANSCRIPT_GENERATOR_VERSION = "openrouter-deepgram-nova-3@1" as const;
@@ -75,7 +75,16 @@ export interface TranscriptAssetSnapshot {
 
 export interface TranscriptSnapshot {
   projectDirectory: string;
+  projectScope: DerivedProjectScope;
   assets: Partial<Record<AssetId, TranscriptAssetSnapshot>>;
+}
+
+export interface TranscriptAudioChunkInput {
+  jobId: string;
+  chunkIndex: number;
+  sourceStartUs: TimeUs;
+  sourceEndUs: TimeUs;
+  data: Uint8Array;
 }
 
 export interface ProjectedTranscriptWord extends TranscriptArtifactWord {

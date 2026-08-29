@@ -27,6 +27,15 @@ const api: DesktopApi = {
     ipcRenderer.invoke("derived:request-jobs", scope, assetIds),
   requestProxyJobs: (scope, assetIds) =>
     ipcRenderer.invoke("derived:request-proxies", scope, assetIds),
+  getTranscriptSnapshot: (scope, assetIds) =>
+    ipcRenderer.invoke("transcripts:get", scope, assetIds),
+  requestTranscriptJobs: (scope, assetIds) =>
+    ipcRenderer.invoke("transcripts:request", scope, assetIds),
+  beginTranscriptJob: (scope, assetId) => ipcRenderer.invoke("transcripts:begin", scope, assetId),
+  transcribeAudioChunk: (scope, input) => ipcRenderer.invoke("transcripts:chunk", scope, input),
+  finalizeTranscriptJob: (scope, jobId) => ipcRenderer.invoke("transcripts:finalize", scope, jobId),
+  failTranscriptJob: (scope, jobId, failureCode, detail) =>
+    ipcRenderer.invoke("transcripts:fail", scope, jobId, failureCode, detail),
   beginDerivedWrite: (scope, input) => ipcRenderer.invoke("derived:write:begin", scope, input),
   writeDerivedChunk: (writerId, offset, data) =>
     ipcRenderer.invoke("derived:write:chunk", writerId, offset, data),
@@ -96,6 +105,14 @@ const api: DesktopApi = {
     ) => callback(snapshot);
     ipcRenderer.on("derived:changed", listener);
     return () => ipcRenderer.removeListener("derived:changed", listener);
+  },
+  onTranscriptsChanged: (callback) => {
+    const listener = (
+      _event: Electron.IpcRendererEvent,
+      snapshot: Parameters<typeof callback>[0],
+    ) => callback(snapshot);
+    ipcRenderer.on("transcripts:changed", listener);
+    return () => ipcRenderer.removeListener("transcripts:changed", listener);
   },
   onAccountChanged: (callback) => {
     const refreshSnapshot = async () => {

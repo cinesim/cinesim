@@ -26,6 +26,7 @@ import type {
   DerivedPerformanceObservation,
   DerivedWorkerActivity,
   FinalizeDerivedWrite,
+  SourceFingerprint,
 } from "../../shared/api";
 import {
   decodeWaveformEnvelope,
@@ -245,6 +246,13 @@ export class DerivedMediaStore {
 
   assertScope(scope: DerivedProjectScope): void {
     if (!this.#scopeMatches(scope)) throw new Error("Stale derived media project scope");
+  }
+
+  async sourceFingerprint(assetId: string): Promise<SourceFingerprint> {
+    return this.#serialize(async () => {
+      const asset = this.#requireAsset(assetId);
+      return structuredClone((await this.#ensureAsset(asset)).sourceFingerprint);
+    });
   }
 
   subscribe(listener: (snapshot: DerivedMediaSnapshot) => void): () => void {
