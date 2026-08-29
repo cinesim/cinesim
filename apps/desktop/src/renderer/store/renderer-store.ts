@@ -2,7 +2,11 @@ import { createStore } from "zustand/vanilla";
 import { isAssetCompatibleWithTrack, sequenceDurationUs } from "@cinesim/core";
 import type { AssetId, ClipId, EditorCommand, Sequence, TimeUs } from "@cinesim/core";
 import type { RuntimeSnapshot } from "@cinesim/engine";
-import { DEFAULT_CUT_LAYOUT, DEFAULT_EDITOR_LAYOUT } from "../../shared/api";
+import {
+  DEFAULT_CUT_LAYOUT,
+  DEFAULT_EDITOR_LAYOUT,
+  DEFAULT_TRANSCRIPTION_SETTINGS,
+} from "../../shared/api";
 import type {
   AccountSnapshot,
   CloudTransferSnapshot,
@@ -13,13 +17,20 @@ import type {
   CutLayoutState,
   EditorLayoutState,
   ElectronHealthSnapshot,
+  TranscriptionSettings,
 } from "../../shared/api";
 import type { TranscriptSnapshot } from "../../shared/transcript";
 import { clampTimelineZoom } from "../lib/timeline-scale";
 
 export type Destination = "home" | "project" | "settings";
 export type ProjectSection = "media" | "cut" | "edit";
-export type SettingsSection = "general" | "media" | "storage" | "account" | "agents";
+export type SettingsSection =
+  | "general"
+  | "media"
+  | "transcription"
+  | "storage"
+  | "account"
+  | "agents";
 export type AuxiliarySidebarMode = "agents" | "metrics" | null;
 export type EditTool = "select" | "trim" | "blade";
 export type PanelKind = "mediaPool" | "inspector" | "notes";
@@ -104,6 +115,9 @@ export interface RendererState {
   togglePanel: (panel: PanelKind) => Promise<ActionResult<DesktopAppState>>;
   saveEditorLayout: (layout: EditorLayoutState) => Promise<ActionResult<DesktopAppState>>;
   saveCutLayout: (layout: CutLayoutState) => Promise<ActionResult<DesktopAppState>>;
+  saveTranscriptionSettings: (
+    settings: TranscriptionSettings,
+  ) => Promise<ActionResult<DesktopAppState>>;
   clearError: () => void;
   selectClip: (id: ClipId | null) => void;
   setTimelineZoom: (zoom: number) => void;
@@ -145,6 +159,7 @@ export const EMPTY_APP_STATE: DesktopAppState = {
   notesOpenByProject: {},
   editorLayoutsByProject: {},
   cutLayoutsByProject: {},
+  transcriptionSettings: DEFAULT_TRANSCRIPTION_SETTINGS,
 };
 
 export const INITIAL_ACCOUNT_STATE: AccountSnapshot = {
@@ -644,6 +659,21 @@ export function createRendererStore({ api, storage }: RendererStoreDependencies)
           return { ok: true, value: appState };
         } catch (error) {
           const message = messageFrom(error, "The Cut layout could not be saved");
+          set({ operationError: message });
+          return { ok: false, error: message };
+        }
+      },
+
+      saveTranscriptionSettings: async (settings) => {
+        if (get().account.status !== "signed-in") {
+          return { ok: false, error: "Sign in to change transcription settings" };
+        }
+        try {
+          const appState = await api.setTranscriptionSettings(settings);
+          set({ appState, operationError: null });
+          return { ok: true, value: appState };
+        } catch (error) {
+          const message = messageFrom(error, "Transcription settings could not be saved");
           set({ operationError: message });
           return { ok: false, error: message };
         }

@@ -14,6 +14,10 @@ function consentKey(userId: string): string {
   return `cinesim.transcriptionRemoteConsent.${userId}`;
 }
 
+export function grantTranscriptionConsent(userId: string): void {
+  localStorage.setItem(consentKey(userId), "true");
+}
+
 export function useTranscriptionConsent(
   userId: string | null,
   onApproved: (assetIds: AssetId[]) => Promise<unknown>,
@@ -66,7 +70,7 @@ export function useTranscriptionConsent(
           <Button
             onClick={() => {
               if (!userId || !pendingAssetIds) return;
-              localStorage.setItem(consentKey(userId), "true");
+              grantTranscriptionConsent(userId);
               const approved = pendingAssetIds;
               setPendingAssetIds(null);
               void approvedAction.current(approved);

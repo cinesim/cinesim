@@ -68,6 +68,8 @@ const api: DesktopApi = {
   setProjectNotesOpen: (open) => ipcRenderer.invoke("app-state:set-notes-open", open),
   setProjectEditorLayout: (layout) => ipcRenderer.invoke("app-state:set-editor-layout", layout),
   setProjectCutLayout: (layout) => ipcRenderer.invoke("app-state:set-cut-layout", layout),
+  setTranscriptionSettings: (settings) =>
+    ipcRenderer.invoke("app-state:set-transcription-settings", settings),
   getAgentSettings: () => ipcRenderer.invoke("agents:settings:get"),
   updateAgentSettings: (update) => ipcRenderer.invoke("agents:settings:update", update),
   refreshAgentProviders: () => ipcRenderer.invoke("agents:providers:refresh"),

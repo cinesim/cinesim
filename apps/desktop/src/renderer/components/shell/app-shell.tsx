@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   Bot,
+  AudioLines,
   Cloud,
   ChevronLeft,
   ChevronRight,
@@ -291,6 +292,12 @@ export function AppShell({
                 onClick={() => onSettingsSection("media")}
               >
                 <Film size={15} /> Media & proxies
+              </SidebarButton>
+              <SidebarButton
+                active={settingsSection === "transcription"}
+                onClick={() => onSettingsSection("transcription")}
+              >
+                <AudioLines size={15} /> Transcription
               </SidebarButton>
               {account.status === "signed-in" && account.cloudStorage === true && (
                 <SidebarButton

@@ -16,6 +16,10 @@ individual asset transcript from its Media Pool card. Every signed-in user can u
 when the Cinesim service has configured its OpenRouter gateway; there is currently no billing or
 plan gate.
 
+Use **Settings → Transcription** to switch from manual generation to automatic generation and choose
+the speech model. Nova-3 is the only current model, so the selector also makes the active provider
+choice explicit without introducing a separate configuration path.
+
 Before the first transcription for an account, Cinesim explains that the operation is remote and
 asks for consent. Bounded audio chunks go through OpenRouter to Deepgram Nova-3. The API credential
 never enters the desktop app. The generated word timings, speaker clusters, utterances, paragraphs,

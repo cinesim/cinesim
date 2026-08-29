@@ -67,6 +67,20 @@ The named profiles set the three keys below them. Choose `custom` to control the
 
 An asset backed by a cloud original always gets a proxy, even under `manual`.
 
+## Account transcription settings
+
+The desktop **Settings → Transcription** page stores account-scoped UI preferences separately from
+canonical project settings:
+
+| Setting                  | Values                | Default           | Description                                               |
+| ------------------------ | --------------------- | ----------------- | --------------------------------------------------------- |
+| Transcription generation | `manual`, `automatic` | `manual`          | Whether missing speech transcripts queue in open projects |
+| Speech model             | `deepgram/nova-3`     | `deepgram/nova-3` | Model routed through the authenticated OpenRouter gateway |
+
+Automatic generation is opt-in because audio leaves the Mac. Selecting it records remote-processing
+consent for the signed-in account. These preferences do not enter project history or canonical
+files, and another account on the same device receives its own defaults.
+
 ## Validation
 
 Settings are validated on load. An out-of-range value or unknown enum member fails the load with a

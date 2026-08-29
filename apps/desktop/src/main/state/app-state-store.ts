@@ -4,6 +4,7 @@ import {
   CUT_LAYOUT_LIMITS,
   DEFAULT_CUT_LAYOUT,
   DEFAULT_EDITOR_LAYOUT,
+  DEFAULT_TRANSCRIPTION_SETTINGS,
   EDITOR_LAYOUT_LIMITS,
 } from "../../shared/api";
 import type {
@@ -11,6 +12,7 @@ import type {
   DesktopAppState,
   EditorLayoutState,
   RecentProject,
+  TranscriptionSettings,
 } from "../../shared/api";
 
 const EMPTY_STATE: DesktopAppState = {
@@ -21,6 +23,7 @@ const EMPTY_STATE: DesktopAppState = {
   notesOpenByProject: {},
   editorLayoutsByProject: {},
   cutLayoutsByProject: {},
+  transcriptionSettings: DEFAULT_TRANSCRIPTION_SETTINGS,
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -86,6 +89,17 @@ export function parseCutLayoutState(value: unknown): CutLayoutState | null {
   return result;
 }
 
+export function parseTranscriptionSettings(value: unknown): TranscriptionSettings | null {
+  if (
+    !isRecord(value) ||
+    (value.generation !== "manual" && value.generation !== "automatic") ||
+    value.model !== "deepgram/nova-3"
+  ) {
+    return null;
+  }
+  return { generation: value.generation, model: value.model };
+}
+
 function parseState(value: unknown): DesktopAppState {
   if (!isRecord(value) || value.version !== 1) return structuredClone(EMPTY_STATE);
   const recentProjects = Array.isArray(value.recentProjects)
@@ -134,6 +148,9 @@ function parseState(value: unknown): DesktopAppState {
     notesOpenByProject,
     editorLayoutsByProject,
     cutLayoutsByProject,
+    transcriptionSettings:
+      parseTranscriptionSettings(value.transcriptionSettings) ??
+      structuredClone(DEFAULT_TRANSCRIPTION_SETTINGS),
   };
 }
 
@@ -194,6 +211,7 @@ export class DesktopAppStateStore {
         ...this.#local.cutLayoutsByProject,
         ...cloud?.cutLayoutsByProject,
       },
+      transcriptionSettings: cloud?.transcriptionSettings ?? this.#local.transcriptionSettings,
     });
   }
 
@@ -247,6 +265,11 @@ export class DesktopAppStateStore {
 
   async setCutLayout(directory: string, layout: CutLayoutState): Promise<void> {
     this.#stateForDirectory(directory).cutLayoutsByProject[directory] = structuredClone(layout);
+    await this.#queueSave();
+  }
+
+  async setTranscriptionSettings(settings: TranscriptionSettings): Promise<void> {
+    this.#requireCloud().transcriptionSettings = structuredClone(settings);
     await this.#queueSave();
   }
 

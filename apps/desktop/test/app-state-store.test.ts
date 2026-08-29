@@ -60,6 +60,31 @@ describe("DesktopAppStateStore", () => {
     ).rejects.toThrow("cloud project state");
   });
 
+  it("keeps transcription preferences scoped to the signed-in account", async () => {
+    const { path } = await stateFixture();
+    const store = new DesktopAppStateStore(path);
+    await store.load();
+    await expect(
+      store.setTranscriptionSettings({
+        generation: "automatic",
+        model: "deepgram/nova-3",
+      }),
+    ).rejects.toThrow(/cloud project state/);
+
+    store.setAccount("user_one");
+    await store.setTranscriptionSettings({
+      generation: "automatic",
+      model: "deepgram/nova-3",
+    });
+    expect(store.snapshot().transcriptionSettings.generation).toBe("automatic");
+
+    store.setAccount("user_two");
+    expect(store.snapshot().transcriptionSettings).toEqual({
+      generation: "manual",
+      model: "deepgram/nova-3",
+    });
+  });
+
   it("does not migrate the prior account-only state shape", async () => {
     const { path } = await stateFixture();
     await writeFile(
@@ -109,6 +134,10 @@ describe("DesktopAppStateStore", () => {
       notesOpenByProject: {},
       editorLayoutsByProject: {},
       cutLayoutsByProject: {},
+      transcriptionSettings: {
+        generation: "manual",
+        model: "deepgram/nova-3",
+      },
     });
   });
 });

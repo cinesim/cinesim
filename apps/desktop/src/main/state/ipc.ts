@@ -2,6 +2,7 @@ import { ipcMain } from "electron";
 import {
   parseCutLayoutState,
   parseEditorLayoutState,
+  parseTranscriptionSettings,
   type DesktopAppStateStore,
 } from "./app-state-store";
 import type { DesktopProjectStore } from "../projects/project-store";
@@ -41,6 +42,12 @@ export function registerAppStateIpc(
     const layout = parseCutLayoutState(input);
     if (!layout) throw new Error("Invalid Cut layout");
     await appState.setCutLayout(store.directory, layout);
+    return appState.snapshot();
+  });
+  ipcMain.handle("app-state:set-transcription-settings", async (_event, input: unknown) => {
+    const settings = parseTranscriptionSettings(input);
+    if (!settings) throw new Error("Invalid transcription settings");
+    await appState.setTranscriptionSettings(settings);
     return appState.snapshot();
   });
 }

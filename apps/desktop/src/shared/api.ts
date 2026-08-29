@@ -349,6 +349,18 @@ export interface CutLayoutState {
   timelineHeight: number;
 }
 
+export type TranscriptionModel = "deepgram/nova-3";
+
+export interface TranscriptionSettings {
+  generation: "manual" | "automatic";
+  model: TranscriptionModel;
+}
+
+export const DEFAULT_TRANSCRIPTION_SETTINGS: TranscriptionSettings = {
+  generation: "manual",
+  model: "deepgram/nova-3",
+};
+
 export const DEFAULT_EDITOR_LAYOUT: EditorLayoutState = {
   mediaPoolWidth: 248,
   inspectorWidth: 260,
@@ -383,6 +395,7 @@ export interface DesktopAppState {
   notesOpenByProject: Record<string, boolean>;
   editorLayoutsByProject: Record<string, EditorLayoutState>;
   cutLayoutsByProject: Record<string, CutLayoutState>;
+  transcriptionSettings: TranscriptionSettings;
 }
 
 export type ElectronProcessGroupKind = "main" | "renderer" | "gpu" | "utility" | "other";
@@ -550,6 +563,7 @@ export interface DesktopApi {
   setProjectNotesOpen(open: boolean): Promise<DesktopAppState>;
   setProjectEditorLayout(layout: EditorLayoutState): Promise<DesktopAppState>;
   setProjectCutLayout(layout: CutLayoutState): Promise<DesktopAppState>;
+  setTranscriptionSettings(settings: TranscriptionSettings): Promise<DesktopAppState>;
   getAgentSettings(): Promise<AgentSettings>;
   updateAgentSettings(update: AgentSettingsUpdate): Promise<AgentSettings>;
   refreshAgentProviders(): Promise<AgentProviderStatus[]>;

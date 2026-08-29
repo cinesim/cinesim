@@ -122,11 +122,20 @@ function setup(initial: DerivedMediaSnapshot, initialTranscripts?: TranscriptSna
   const finalized: { writerId: string; result: FinalizeDerivedWrite }[] = [];
   const transcribedChunks: unknown[] = [];
   const finalizedTranscriptJobs: string[] = [];
+  const requestedTranscriptAssets: string[][] = [];
   const begun: { assetId: string; kind: string; expectedBytes?: number }[] = [];
   const canceled: { writerId: string; failureCode?: string; detail?: string }[] = [];
   const api = {
     getDerivedMediaSnapshot: vi.fn(async () => current),
     requestDerivedJobs: vi.fn(async () => current),
+    requestTranscriptJobs: vi.fn(async (_scope, assetIds: string[]) => {
+      requestedTranscriptAssets.push(assetIds);
+      for (const assetId of assetIds) {
+        const record = transcriptSnapshot.assets[assetId as `asset_${string}`];
+        if (record) record.state = "queued";
+      }
+      return transcriptSnapshot;
+    }),
     getTranscriptSnapshot: vi.fn(async () => transcriptSnapshot),
     beginTranscriptJob: vi.fn(async () => ({
       jobId: "00000000-0000-4000-8000-000000000099",
@@ -197,6 +206,7 @@ function setup(initial: DerivedMediaSnapshot, initialTranscripts?: TranscriptSna
     canceled,
     transcribedChunks,
     finalizedTranscriptJobs,
+    requestedTranscriptAssets,
     emitDerivedMedia: (next: DerivedMediaSnapshot) => derivedMediaListener?.(next),
     emitTranscripts: (next: TranscriptSnapshot) => transcriptListener?.(next),
   };
@@ -210,6 +220,32 @@ afterEach(() => {
 });
 
 describe("MediaJobCoordinator", () => {
+  it("queues missing speech media when account preferences enable automatic transcription", async () => {
+    const withAudio = project();
+    withAudio.assets[0]!.hasAudio = true;
+    const transcripts: TranscriptSnapshot = {
+      projectDirectory: "/tmp/project",
+      projectScope,
+      assets: {
+        asset_fixture: { assetId: "asset_fixture", state: "missing" },
+      },
+    };
+    const { requestedTranscriptAssets } = setup(snapshot("ready", "ready", "ready"), transcripts);
+    const coordinator = new MediaJobCoordinator(
+      withAudio,
+      projectScope,
+      () => undefined,
+      undefined,
+      () => undefined,
+      { generation: "automatic", model: "deepgram/nova-3" },
+    );
+
+    await coordinator.start();
+
+    expect(requestedTranscriptAssets).toEqual([["asset_fixture"]]);
+    await coordinator.destroy();
+  });
+
   it("extracts and uploads transcript chunks with worker backpressure", async () => {
     const transcripts: TranscriptSnapshot = {
       projectDirectory: "/tmp/project",

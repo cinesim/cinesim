@@ -5,7 +5,9 @@ import type {
   DerivedMediaSnapshot,
   DerivedProjectScope,
   FinalizeDerivedWrite,
+  TranscriptionSettings,
 } from "../../shared/api";
+import { DEFAULT_TRANSCRIPTION_SETTINGS } from "../../shared/api";
 import type { TranscriptSnapshot } from "../../shared/transcript";
 import type { DerivedWorkerRequest, DerivedWorkerResponse } from "./derived-worker-api";
 import { waveformByteLength, waveformPeakCount } from "../../shared/waveform-format";
@@ -23,6 +25,7 @@ const WORKER_INACTIVITY_TIMEOUT_MS = 120_000;
 export class MediaJobCoordinator {
   #project: Project;
   #settings: ProjectSettings;
+  #transcriptionSettings: TranscriptionSettings;
   readonly #projectScope: DerivedProjectScope;
   #snapshot: DerivedMediaSnapshot | null = null;
   #transcriptSnapshot: TranscriptSnapshot | null = null;
@@ -43,12 +46,14 @@ export class MediaJobCoordinator {
     onSnapshot: (snapshot: DerivedMediaSnapshot) => void,
     settings: ProjectSettings = DEFAULT_SETTINGS,
     onTranscriptSnapshot: (snapshot: TranscriptSnapshot) => void = () => undefined,
+    transcriptionSettings: TranscriptionSettings = DEFAULT_TRANSCRIPTION_SETTINGS,
   ) {
     this.#project = project;
     this.#settings = settings;
     this.#projectScope = projectScope;
     this.#onSnapshot = onSnapshot;
     this.#onTranscriptSnapshot = onTranscriptSnapshot;
+    this.#transcriptionSettings = transcriptionSettings;
   }
 
   async start(): Promise<void> {
@@ -105,6 +110,33 @@ export class MediaJobCoordinator {
       .map((asset) => asset.id);
     this.#acceptSnapshot(await window.cinesim.requestDerivedJobs(this.#projectScope, mediaIds));
     this.#acceptTranscriptSnapshot(await window.cinesim.getTranscriptSnapshot(this.#projectScope));
+    await this.#queueAutomaticTranscripts();
+  }
+
+  async updateTranscriptionSettings(settings: TranscriptionSettings): Promise<void> {
+    this.#transcriptionSettings = settings;
+    await this.#queueAutomaticTranscripts();
+  }
+
+  async #queueAutomaticTranscripts(): Promise<void> {
+    if (
+      this.#destroyed ||
+      this.#transcriptionSettings.generation !== "automatic" ||
+      !this.#transcriptSnapshot
+    )
+      return;
+    const assetIds = this.#project.assets.flatMap((asset) => {
+      if (asset.kind === "image" || (asset.kind === "video" && asset.hasAudio !== true)) return [];
+      return this.#transcriptSnapshot?.assets[asset.id]?.state === "missing" ? [asset.id] : [];
+    });
+    if (!assetIds.length) return;
+    try {
+      this.#acceptTranscriptSnapshot(
+        await window.cinesim.requestTranscriptJobs(this.#projectScope, assetIds),
+      );
+    } catch {
+      // Account/service availability is reflected by account health; manual controls remain usable.
+    }
   }
 
   async destroy(): Promise<void> {
