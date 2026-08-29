@@ -51,7 +51,9 @@ describe("renderer typography", () => {
       "--ui-font-size-body: 13px;",
       "--ui-font-size-heading: 20px;",
     ]);
-    expect(tokenStyles).toContain('--ui-font-family-document: "Times New Roman", Times, serif;');
+    expect(tokenStyles).toContain(
+      '--ui-font-family-document: Georgia, Cambria, "Palatino Linotype", Palatino, serif;',
+    );
     expect(rendererStyles).toContain("font-family: var(--ui-font-family-document);");
   });
 });
