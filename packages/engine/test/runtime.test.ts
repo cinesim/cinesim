@@ -413,6 +413,59 @@ describe("PlaybackRuntime transport", () => {
     };
   }
 
+  it("closes fulfilled layer frames when another parallel decode rejects", async () => {
+    const secondAsset: Asset = {
+      ...asset,
+      id: "asset_000002",
+      name: "second.mp4",
+      source: { kind: "local", path: "/second.mp4" },
+    };
+    let project = timelineProject();
+    project = applyCommand(project, { type: "asset.import", asset: secondAsset }).project;
+    const addedTrack = applyCommand(project, {
+      type: "track.add",
+      sequenceId: project.activeSequenceId,
+      kind: "overlay",
+    });
+    project = addedTrack.project;
+    const overlayTrack = project.sequences[0]!.tracks.find((track) => track.kind === "overlay")!;
+    project = applyCommand(project, {
+      type: "clip.add",
+      trackId: overlayTrack.id,
+      assetId: secondAsset.id,
+      timelineStartUs: 0,
+    }).project;
+    const calls = new Map<string, number>();
+    let closedAfterFailure = 0;
+    const runtime = new PlaybackRuntime(project, compositor([]), {
+      sourceFactory: (descriptor) => ({
+        prepare: async () => ({
+          durationUs: asset.durationUs,
+          width: 1920,
+          height: 1080,
+          frameRate: 30,
+          hasAudio: false,
+        }),
+        seek: async () => undefined,
+        getFrame: async (timeUs) => {
+          const call = (calls.get(descriptor.assetId) ?? 0) + 1;
+          calls.set(descriptor.assetId, call);
+          if (call > 1 && descriptor.assetId === secondAsset.id)
+            throw new Error("second layer failed");
+          return frame(timeUs, () => {
+            if (call > 1) closedAfterFailure += 1;
+          });
+        },
+        destroy: () => undefined,
+      }),
+    });
+    await runtime.initialize();
+
+    await expect(runtime.refresh()).rejects.toThrow("second layer failed");
+    expect(closedAfterFailure).toBe(1);
+    runtime.destroy();
+  });
+
   it("presents slow playback decodes instead of invalidating one on every display refresh", async () => {
     let nowMs = 0;
     let nextFrameHandle = 0;

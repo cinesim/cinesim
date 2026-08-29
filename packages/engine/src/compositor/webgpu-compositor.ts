@@ -224,21 +224,23 @@ export class WebGpuCompositor implements PreviewCompositor {
       return;
     }
     const started = performance.now();
-    this.resize();
-    const encoder = this.#device.createCommandEncoder();
     const transientBuffers: GPUBuffer[] = [];
-    const pass = encoder.beginRenderPass({
-      colorAttachments: [
-        {
-          view: this.#context.getCurrentTexture().createView(),
-          clearValue: background,
-          loadOp: "clear",
-          storeOp: "store",
-        },
-      ],
-    });
-    pass.setPipeline(this.#pipeline);
+    let submitted = false;
+    let failure: unknown;
     try {
+      this.resize();
+      const encoder = this.#device.createCommandEncoder();
+      const pass = encoder.beginRenderPass({
+        colorAttachments: [
+          {
+            view: this.#context.getCurrentTexture().createView(),
+            clearValue: background,
+            loadOp: "clear",
+            storeOp: "store",
+          },
+        ],
+      });
+      pass.setPipeline(this.#pipeline);
       for (const layer of layers) {
         const frameWidth = Math.max(1, layer.frame.displayWidth);
         const frameHeight = Math.max(1, layer.frame.displayHeight);
@@ -272,20 +274,26 @@ export class WebGpuCompositor implements PreviewCompositor {
         pass.setBindGroup(0, bindGroup);
         pass.draw(6);
       }
-    } finally {
       pass.end();
       this.#device.queue.submit([encoder.finish()]);
-      void this.#device.queue.onSubmittedWorkDone().then(
+      submitted = true;
+      const completion = this.#device.queue.onSubmittedWorkDone();
+      void completion.then(
         () => transientBuffers.forEach((buffer) => buffer.destroy()),
         (error: unknown) => {
           transientBuffers.forEach((buffer) => buffer.destroy());
           this.#reportError(error);
         },
       );
-      for (const layer of layers) layer.frame.close();
       this.#submittedFrames += 1;
       this.#lastSubmitCpuMs = performance.now() - started;
+    } catch (error) {
+      failure = error;
+    } finally {
+      for (const layer of layers) layer.frame.close();
+      if (!submitted) transientBuffers.forEach((buffer) => buffer.destroy());
     }
+    if (failure !== undefined) this.#reportError(failure);
   }
 
   get metrics(): CompositorMetrics {

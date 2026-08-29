@@ -7,7 +7,7 @@ import {
   sequenceDurationUs,
 } from "@cinesim/core";
 import type { AssetId, Project, TimeUs } from "@cinesim/core";
-import type { PreviewCompositor } from "../compositor/webgpu-compositor";
+import type { CompositorLayer, PreviewCompositor } from "../compositor/webgpu-compositor";
 import { MediabunnyWebCodecsSource } from "../media/mediabunny-source";
 import type {
   AudioSource,
@@ -105,6 +105,23 @@ const frameTimeUs = (frameIndex: number, frameRate: number): TimeUs =>
 
 const frameTimestampUs = (frame: VideoFrame, fallback: TimeUs): TimeUs =>
   typeof frame.timestamp === "number" ? Math.max(0, Math.round(frame.timestamp)) : fallback;
+
+async function collectDecodedLayers(
+  operations: readonly Promise<CompositorLayer | null>[],
+): Promise<CompositorLayer[]> {
+  const settled = await Promise.allSettled(operations);
+  const failure = settled.find(
+    (result): result is PromiseRejectedResult => result.status === "rejected",
+  );
+  if (failure) {
+    for (const result of settled) if (result.status === "fulfilled") result.value?.frame.close();
+    throw failure.reason;
+  }
+  const layers: CompositorLayer[] = [];
+  for (const result of settled)
+    if (result.status === "fulfilled" && result.value) layers.push(result.value);
+  return layers;
+}
 
 /** Owns at most two decoded source frames plus the clone handed to the compositor. */
 class SequentialVideoCursor {
@@ -603,7 +620,7 @@ export class PlaybackRuntime {
       return frame ? [{ frame, transform: DEFAULT_TRANSFORM }] : [];
     }
     const layers = resolveScene(this.#project, mode.timeUs);
-    const frames = await Promise.all(
+    const frames = await collectDecodedLayers(
       layers.map(async (layer) => {
         const descriptor = this.#sourceResolver.resolve(layer.asset.id);
         const frame = await this.#source(descriptor).getFrame(layer.sourceTimeUs);
@@ -621,44 +638,48 @@ export class PlaybackRuntime {
     const active = layers.at(-1);
     this.#lastActiveAssetId = active?.asset.id ?? null;
     this.#lastActiveSourceKind = active ? this.#sourceResolver.resolve(active.asset.id).kind : null;
-    return frames.filter((value): value is NonNullable<typeof value> => value !== null);
+    return frames;
   }
 
   async #decodeSequential(timeUs: TimeUs) {
     const layers = resolveScene(this.#project, timeUs);
     const activeCursorKeys = new Set<string>();
-    const frames = await Promise.all(
-      layers.map(async (layer) => {
-        const descriptor = this.#sourceResolver.resolve(layer.asset.id);
-        const source = this.#source(descriptor);
-        const key = `${layer.clip.id}:${descriptor.assetId}:${descriptor.kind}:${descriptor.url}`;
-        activeCursorKeys.add(key);
-        let cursor = this.#sequentialCursors.get(key);
-        if (!cursor) {
-          cursor = new SequentialVideoCursor(source);
-          this.#sequentialCursors.set(key, cursor);
-        }
-        const frame = await cursor.frameAt(layer.sourceTimeUs);
-        return frame
-          ? {
-              frame,
-              transform: {
-                ...layer.clip.transform,
-                opacity: layer.clip.transform.opacity * clipFadeGainAt(layer.clip, timeUs),
-              },
-            }
-          : null;
-      }),
-    );
-    for (const [key, cursor] of this.#sequentialCursors) {
-      if (activeCursorKeys.has(key)) continue;
-      this.#sequentialCursors.delete(key);
-      this.#runBackground(cursor.close());
+    let frames: CompositorLayer[];
+    try {
+      frames = await collectDecodedLayers(
+        layers.map(async (layer) => {
+          const descriptor = this.#sourceResolver.resolve(layer.asset.id);
+          const source = this.#source(descriptor);
+          const key = `${layer.clip.id}:${descriptor.assetId}:${descriptor.kind}:${descriptor.url}`;
+          activeCursorKeys.add(key);
+          let cursor = this.#sequentialCursors.get(key);
+          if (!cursor) {
+            cursor = new SequentialVideoCursor(source);
+            this.#sequentialCursors.set(key, cursor);
+          }
+          const frame = await cursor.frameAt(layer.sourceTimeUs);
+          return frame
+            ? {
+                frame,
+                transform: {
+                  ...layer.clip.transform,
+                  opacity: layer.clip.transform.opacity * clipFadeGainAt(layer.clip, timeUs),
+                },
+              }
+            : null;
+        }),
+      );
+    } finally {
+      for (const [key, cursor] of this.#sequentialCursors) {
+        if (activeCursorKeys.has(key)) continue;
+        this.#sequentialCursors.delete(key);
+        this.#runBackground(cursor.close());
+      }
     }
     const active = layers.at(-1);
     this.#lastActiveAssetId = active?.asset.id ?? null;
     this.#lastActiveSourceKind = active ? this.#sourceResolver.resolve(active.asset.id).kind : null;
-    return frames.filter((value): value is NonNullable<typeof value> => value !== null);
+    return frames;
   }
 
   #source(descriptor: MediaSourceDescriptor): VideoSource & Partial<AudioSource> {

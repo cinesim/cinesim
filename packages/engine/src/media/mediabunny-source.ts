@@ -1,5 +1,6 @@
 import type { TimeUs } from "@cinesim/core";
 import { ALL_FORMATS, AudioBufferSink, Input, UrlSource, VideoSampleSink } from "mediabunny";
+import type { InputAudioTrack, InputVideoTrack } from "mediabunny";
 import type {
   AudioBufferChunk,
   AudioSource,
@@ -10,61 +11,89 @@ import type {
 const seconds = (timeUs: TimeUs) => timeUs / 1_000_000;
 const microseconds = (value: number) => Math.round(value * 1_000_000);
 
+export interface MediabunnyWebCodecsSourceOptions {
+  inputFactory?: () => Input<UrlSource>;
+  videoSinkFactory?: (track: InputVideoTrack) => VideoSampleSink;
+  audioSinkFactory?: (track: InputAudioTrack) => AudioBufferSink;
+}
+
 export class MediabunnyWebCodecsSource implements VideoSource, AudioSource {
   readonly #url: string;
   #input: Input<UrlSource> | null = null;
   #videoSink: VideoSampleSink | null = null;
   #audioSink: AudioBufferSink | null = null;
   #metadata: VideoSourceMetadata | null = null;
+  #preparePromise: Promise<VideoSourceMetadata> | null = null;
   #generation = 0;
 
-  constructor(url: string) {
+  constructor(
+    url: string,
+    private readonly options: MediabunnyWebCodecsSourceOptions = {},
+  ) {
     this.#url = url;
   }
 
   async prepare(): Promise<VideoSourceMetadata> {
     if (this.#metadata) return this.#metadata;
-    const input = new Input({
-      source: new UrlSource(this.#url, { maxCacheSize: 64 * 1024 * 1024, parallelism: 2 }),
-      formats: ALL_FORMATS,
-    });
-    if (!(await input.canRead())) {
-      input.dispose();
-      throw new Error("Unsupported media container");
+    if (this.#preparePromise) return this.#preparePromise;
+    const pending = this.#prepare();
+    this.#preparePromise = pending;
+    try {
+      return await pending;
+    } finally {
+      if (this.#preparePromise === pending) this.#preparePromise = null;
     }
-    const [videoTrack, audioTrack] = await Promise.all([
-      input.getPrimaryVideoTrack(),
-      input.getPrimaryAudioTrack(),
-    ]);
-    if (!videoTrack && !audioTrack) {
-      input.dispose();
-      throw new Error("Media has no decodable audio or video track");
-    }
-    if (videoTrack && !(await videoTrack.canDecode())) {
-      input.dispose();
-      throw new Error("The installed Chromium/WebCodecs stack cannot decode this video track");
-    }
-    const [duration, width, height, frameRateMetrics] = await Promise.all([
-      input.computeDuration(),
-      videoTrack?.getDisplayWidth() ?? 0,
-      videoTrack?.getDisplayHeight() ?? 0,
-      videoTrack?.computeFrameRateMetrics({ targetPacketCount: 128 }) ?? null,
-    ]);
-    this.#input = input;
-    if (videoTrack)
-      this.#videoSink = new VideoSampleSink(videoTrack, {
-        hardwareAcceleration: "prefer-hardware",
+  }
+
+  async #prepare(): Promise<VideoSourceMetadata> {
+    const generation = this.#generation;
+    const input =
+      this.options.inputFactory?.() ??
+      new Input({
+        source: new UrlSource(this.#url, { maxCacheSize: 64 * 1024 * 1024, parallelism: 2 }),
+        formats: ALL_FORMATS,
       });
-    if (audioTrack && (await audioTrack.canDecode()))
-      this.#audioSink = new AudioBufferSink(audioTrack);
-    this.#metadata = {
-      durationUs: microseconds(duration),
-      width,
-      height,
-      frameRate: frameRateMetrics?.bestGuessFrameRate || null,
-      hasAudio: this.#audioSink !== null,
-    };
-    return this.#metadata;
+    try {
+      if (!(await input.canRead())) throw new Error("Unsupported media container");
+      const [videoTrack, audioTrack] = await Promise.all([
+        input.getPrimaryVideoTrack(),
+        input.getPrimaryAudioTrack(),
+      ]);
+      if (!videoTrack && !audioTrack)
+        throw new Error("Media has no decodable audio or video track");
+      if (videoTrack && !(await videoTrack.canDecode()))
+        throw new Error("The installed Chromium/WebCodecs stack cannot decode this video track");
+      const [duration, width, height, frameRateMetrics] = await Promise.all([
+        input.computeDuration(),
+        videoTrack?.getDisplayWidth() ?? 0,
+        videoTrack?.getDisplayHeight() ?? 0,
+        videoTrack?.computeFrameRateMetrics({ targetPacketCount: 128 }) ?? null,
+      ]);
+      const videoSink = videoTrack
+        ? (this.options.videoSinkFactory?.(videoTrack) ??
+          new VideoSampleSink(videoTrack, { hardwareAcceleration: "prefer-hardware" }))
+        : null;
+      const audioSink =
+        audioTrack && (await audioTrack.canDecode())
+          ? (this.options.audioSinkFactory?.(audioTrack) ?? new AudioBufferSink(audioTrack))
+          : null;
+      if (generation !== this.#generation) throw new Error("Media source preparation was canceled");
+      const metadata: VideoSourceMetadata = {
+        durationUs: microseconds(duration),
+        width,
+        height,
+        frameRate: frameRateMetrics?.bestGuessFrameRate || null,
+        hasAudio: audioSink !== null,
+      };
+      this.#input = input;
+      this.#videoSink = videoSink;
+      this.#audioSink = audioSink;
+      this.#metadata = metadata;
+      return metadata;
+    } catch (error) {
+      input.dispose();
+      throw error;
+    }
   }
 
   async seek(_timeUs: TimeUs): Promise<void> {
