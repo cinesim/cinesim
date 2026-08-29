@@ -1,14 +1,5 @@
 import { memo, useEffect, useMemo, useRef, useState } from "react";
-import {
-  Search,
-  Trash2,
-  User,
-  Play,
-  LoaderCircle,
-  RotateCcw,
-  MoveHorizontal,
-  X,
-} from "@cinesim/ui";
+import { Trash2, User, Play, LoaderCircle, RotateCcw, MoveHorizontal, X } from "@cinesim/ui";
 import { Button, cn, Menu, MenuContent, MenuItem, MenuTrigger, SearchField } from "@cinesim/ui";
 import type { AssetId, EditorCommand, Project, TimelineRange } from "@cinesim/core";
 import type { TranscriptSnapshot } from "../../../shared/transcript";
@@ -396,19 +387,13 @@ export function TimelineTranscript({
     >
       <header className="shrink-0 border-b border-border bg-panel px-3 py-2">
         <div className="flex items-center gap-2">
-          <div className="relative min-w-0 flex-1">
-            <Search
-              className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-muted"
-              size={13}
-            />
-            <SearchField
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              placeholder="Search transcript…"
-              aria-label="Search transcript"
-              className="pl-8"
-            />
-          </div>
+          <SearchField
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder="Search transcript…"
+            aria-label="Search transcript"
+            className="min-w-0 flex-1"
+          />
           <Menu>
             <MenuTrigger className="inline-flex h-8 items-center gap-1.5 rounded-md border border-border bg-panel px-2.5 text-ui-xs text-secondary hover:bg-surface">
               <User size={13} /> Speakers
