@@ -37,6 +37,22 @@ afterEach(async () => {
 });
 
 describe("DerivedMediaStore", () => {
+  it("transitions project lifecycle atomically between closed and open states", async () => {
+    const { directory, project } = await fixture("lifecycle");
+    const store = new DerivedMediaStore();
+
+    expect(() => store.scope()).toThrow(/active|open/);
+    await store.setProject(directory, project);
+    const firstScope = store.scope();
+    await store.clearProject();
+    expect(() => store.snapshot()).toThrow(/active|open/);
+    expect(() => store.scope()).toThrow(/active|open/);
+
+    await store.setProject(directory, project);
+    expect(store.scope()).not.toEqual(firstScope);
+    expect(store.snapshot().assets.asset_fixture).toBeDefined();
+  });
+
   it("queues visual perception artifacts without putting a proxy ahead of them", async () => {
     const { directory, project } = await fixture("perception-priority");
     const store = new DerivedMediaStore();

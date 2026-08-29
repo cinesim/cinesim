@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vite-plus/test";
-import { fadeDurationFromDrag } from "../src/renderer/components/timeline/timeline";
+import { fadeDurationFromDrag } from "../src/renderer/components/timeline/timeline-behavior";
 import { meterPercent } from "../src/renderer/components/timeline/master-level-meter";
 
 describe("timeline fade handles", () => {

@@ -79,7 +79,7 @@ function intersects(selection: SelectionRect, target: DOMRect): boolean {
 
 export function MediaBin({ project, onOpenTimeline }: MediaBinProps) {
   const [query, setQuery] = useState("");
-  const [selectedAssetIds, setSelectedAssetIds] = useState<Set<AssetId>>(() => new Set());
+  const [selection, setSelectedAssetIds] = useState<Set<AssetId>>(() => new Set());
   const [selectionAnchor, setSelectionAnchor] = useState<AssetId | null>(null);
   const [marquee, setMarquee] = useState<SelectionRect | null>(null);
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
@@ -98,6 +98,10 @@ export function MediaBin({ project, onOpenTimeline }: MediaBinProps) {
     () => project.assets.filter((asset) => asset.name.toLowerCase().includes(normalizedQuery)),
     [normalizedQuery, project.assets],
   );
+  const selectedAssetIds = useMemo(() => {
+    const available = new Set(project.assets.map((asset) => asset.id));
+    return new Set([...selection].filter((assetId) => available.has(assetId)));
+  }, [project.assets, selection]);
   const selectedAssets = project.assets.filter((asset) => selectedAssetIds.has(asset.id));
   const selectedCount = selectedAssets.length;
   const clipUsages = project.sequences.flatMap((sequence) =>
@@ -143,14 +147,6 @@ export function MediaBin({ project, onOpenTimeline }: MediaBinProps) {
     assetNeedsEditProxy(asset, derivedMedia?.assets[asset.id]),
   );
   const importMedia = useCallback(async () => importProjectMedia(), [importProjectMedia]);
-
-  useEffect(() => {
-    setSelectedAssetIds((current) => {
-      const available = new Set(project.assets.map((asset) => asset.id));
-      const reconciled = new Set([...current].filter((assetId) => available.has(assetId)));
-      return reconciled.size === current.size ? current : reconciled;
-    });
-  }, [project.assets]);
 
   useEffect(() => {
     function dismiss(event: PointerEvent) {

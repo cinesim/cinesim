@@ -419,11 +419,6 @@ export function Workspace({
   const fittedLayout = fitLayout(layout, layoutBounds, mediaPoolOpen, inspectorOpen, notesOpen);
 
   useEffect(() => {
-    setLayout(editorLayout);
-    layoutRef.current = editorLayout;
-  }, [editorLayout]);
-
-  useEffect(() => {
     const element = layoutRootRef.current;
     if (!element) return;
     const updateBounds = () => {

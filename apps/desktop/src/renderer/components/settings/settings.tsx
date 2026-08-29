@@ -207,8 +207,25 @@ function CloudStorageSettings() {
   }, [account.status]);
 
   useEffect(() => {
-    void refresh();
-  }, [refresh, transfers]);
+    if (account.status !== "signed-in") return;
+
+    let active = true;
+    void window.cinesim
+      .getCloudStorageUsage()
+      .then((nextUsage) => {
+        if (!active) return;
+        setUsage(nextUsage);
+        setError(null);
+      })
+      .catch((caught: unknown) => {
+        if (!active) return;
+        setError(caught instanceof Error ? caught.message : "Cloud storage usage is unavailable");
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [account.status, transfers]);
 
   if (account.status !== "signed-in")
     return <Notice size="default">Sign in to configure and inspect Cinesim Cloud storage.</Notice>;

@@ -86,6 +86,19 @@ Every privileged Electron request is registered through one IPC wrapper. It acce
 trusted editor web contents, rejects subframes and unexpected origins, and validates untrusted
 payloads before calling desktop services.
 
+## Desktop orchestration boundaries
+
+The renderer store is a coordinator over explicit project, editor-interaction, playback/media, and
+account/cloud slice contracts. Project lifecycle selectors and hydration live separately from the
+Zustand action coordinator, while timeline gesture, palette, and quantization rules live in a pure
+behavior module with direct tests.
+
+Derived media represents project ownership as a closed/open discriminated union, so directory,
+path capability, scope, project, settings, and index change together. The store coordinates narrow
+index-repository, runtime-tracker, performance-tracker, validation, fingerprint, and lifecycle
+collaborators. Adding a metric or lifecycle transition does not require changing writer or artifact
+validation semantics.
+
 ## Media access and playback
 
 Mediabunny 1.55 is used unmodified as an MPL-2.0 runtime dependency.

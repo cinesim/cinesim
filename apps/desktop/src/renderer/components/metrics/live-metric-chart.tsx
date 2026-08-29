@@ -121,7 +121,7 @@ export function LiveMetricChart({
   const latestTotal = latest
     ? series.reduce((total, item) => total + Math.max(0, latest[item.key]), 0)
     : undefined;
-  const latestSampleTime = latest?.sampledAt ?? Date.now();
+  const latestSampleTime = latest?.sampledAt ?? 0;
   const windowStartedAt = latestSampleTime - 30_000;
   const xAt = (index: number) =>
     Math.max(0, Math.min(100, ((samples[index]!.sampledAt - windowStartedAt) / 30_000) * 100));

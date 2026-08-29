@@ -29,10 +29,10 @@ import {
   validFilmstripMetadata,
 } from "./artifact-validation";
 import { DerivedIndexRepository } from "./index-repository";
+import { type DerivedProjectLifecycle, requireOpenDerivedProject } from "./project-lifecycle";
 import {
   artifactPath,
   DERIVED_GENERATOR_VERSION,
-  emptyIndex,
   emptyPerformance,
   isAssetId,
   MAX_ARTIFACT_BYTES,
@@ -41,7 +41,6 @@ import {
   MAX_RETIRED_WRITERS,
   MAX_WRITERS,
   mimeType,
-  percentile,
   projectOpenPersistenceSignature,
 } from "./model";
 import type {
@@ -54,6 +53,7 @@ import type {
 
 export { DERIVED_GENERATOR_VERSION } from "./model";
 import { fingerprintsEqual, fingerprintSource } from "./source-fingerprint";
+import { DerivedPerformanceTracker } from "./performance-tracker";
 import { DerivedRuntimeTracker } from "./runtime-tracker";
 
 const log = createCinesimLogger({ service: "derived-media" });
@@ -75,19 +75,13 @@ interface DerivedMediaStoreOptions {
 }
 
 export class DerivedMediaStore {
-  #directory: string | null = null;
-  #paths: ProjectPaths | null = null;
-  #scope: DerivedProjectScope | null = null;
-  #project: Project | null = null;
-  #settings: ProjectSettings = DEFAULT_SETTINGS;
-  #index: PersistedIndex = emptyIndex();
+  #lifecycle: DerivedProjectLifecycle = { status: "closed" };
   #writers = new Map<string, WriterSession>();
   #retiredWriters = new Set<string>();
   #listeners = new Set<(snapshot: DerivedMediaSnapshot) => void>();
   #operationQueue: Promise<unknown> = Promise.resolve();
   #indexRepository = new DerivedIndexRepository();
-  #latencies = new Map<string, number[]>();
-  #deadlines = new Map<string, { total: number; missed: number }>();
+  #performanceTracker = new DerivedPerformanceTracker();
   #progressLogBuckets = new Map<string, number>();
   #removedAssetIds = new Set<string>();
   #diskHeadroomAvailable = false;
@@ -97,6 +91,38 @@ export class DerivedMediaStore {
   );
 
   constructor(private readonly options: DerivedMediaStoreOptions = {}) {}
+
+  get #directory(): string | null {
+    return this.#lifecycle.status === "open" ? this.#lifecycle.directory : null;
+  }
+
+  get #paths(): ProjectPaths | null {
+    return this.#lifecycle.status === "open" ? this.#lifecycle.paths : null;
+  }
+
+  get #scope(): DerivedProjectScope | null {
+    return this.#lifecycle.status === "open" ? this.#lifecycle.scope : null;
+  }
+
+  get #project(): Project | null {
+    return this.#lifecycle.status === "open" ? this.#lifecycle.project : null;
+  }
+
+  set #project(project: Project) {
+    requireOpenDerivedProject(this.#lifecycle).project = project;
+  }
+
+  get #settings(): ProjectSettings {
+    return this.#lifecycle.status === "open" ? this.#lifecycle.settings : DEFAULT_SETTINGS;
+  }
+
+  set #settings(settings: ProjectSettings) {
+    requireOpenDerivedProject(this.#lifecycle).settings = settings;
+  }
+
+  get #index(): PersistedIndex {
+    return requireOpenDerivedProject(this.#lifecycle).index;
+  }
 
   async prepareProject(directory: string): Promise<PreparedDerivedProject> {
     const startedAt = performance.now();
@@ -121,20 +147,23 @@ export class DerivedMediaStore {
       const usePreparedIndex =
         prepared?.directory === canonicalDirectory && this.#directory !== canonicalDirectory;
       await this.#closeWriters();
-      this.#directory = paths.root;
-      this.#paths = paths;
-      this.#scope = {
-        cacheKey: createHash("sha256").update(canonicalDirectory).digest("hex").slice(0, 24),
-        epoch: randomUUID(),
+      const index = usePreparedIndex ? prepared.index : await this.#indexRepository.read(paths);
+      this.#lifecycle = {
+        status: "open",
+        directory: paths.root,
+        paths,
+        scope: {
+          cacheKey: createHash("sha256").update(canonicalDirectory).digest("hex").slice(0, 24),
+          epoch: randomUUID(),
+        },
+        project,
+        settings: structuredClone(settings),
+        index,
       };
-      this.#project = project;
-      this.#settings = structuredClone(settings);
-      this.#latencies.clear();
-      this.#deadlines.clear();
+      this.#performanceTracker.reset();
       this.#runtimeTracker.reset();
       this.#progressLogBuckets.clear();
       this.#removedAssetIds.clear();
-      this.#index = usePreparedIndex ? prepared.index : await this.#indexRepository.read(paths);
       const persistenceSignature = projectOpenPersistenceSignature(this.#index);
       await this.#removeInterruptedTemps();
       await this.#pruneRemovedAssetsNow();
@@ -188,8 +217,8 @@ export class DerivedMediaStore {
         {
           operation: "project-open-derived",
           projectId: project.id,
-          projectCacheKey: this.#scope.cacheKey,
-          projectEpoch: this.#scope.epoch,
+          projectCacheKey: this.#requireScope().cacheKey,
+          projectEpoch: this.#requireScope().epoch,
           indexReadMs: usePreparedIndex ? prepared.readDurationMs : undefined,
           assetCount: project.assets.length,
           indexChanged,
@@ -236,17 +265,11 @@ export class DerivedMediaStore {
   async clearProject(): Promise<void> {
     await this.#serialize(async () => {
       await this.#closeWriters();
-      this.#directory = null;
-      this.#paths = null;
-      this.#scope = null;
-      this.#project = null;
-      this.#settings = DEFAULT_SETTINGS;
-      this.#index = emptyIndex();
-      this.#latencies.clear();
-      this.#deadlines.clear();
+      this.#performanceTracker.reset();
       this.#progressLogBuckets.clear();
       this.#removedAssetIds.clear();
       this.#runtimeTracker.reset();
+      this.#lifecycle = { status: "closed" };
     });
   }
 
@@ -657,38 +680,7 @@ export class DerivedMediaStore {
       if (!this.#scopeMatches(scope)) return;
       const asset = this.#requireAsset(observation.assetId);
       const record = await this.#ensureAsset(asset);
-      const summary =
-        observation.sourceKind === "proxy"
-          ? (record.performance.proxy ??= emptyPerformance())
-          : record.performance.original;
-      summary.observations += 1;
-      summary.requestsReceived += observation.requestsReceived ?? 0;
-      summary.requestsCoalesced += observation.requestsCoalesced ?? 0;
-      summary.framesPresented += observation.framesPresented ?? 0;
-      summary.framesObsolete += observation.framesObsolete ?? 0;
-      if (observation.latencyMs !== undefined && observation.operation === "hover-seek") {
-        if (!Number.isFinite(observation.latencyMs) || observation.latencyMs < 0)
-          throw new Error("Invalid media latency");
-        const key = `${observation.assetId}:${observation.sourceKind}`;
-        const values = this.#latencies.get(key) ?? [];
-        values.push(observation.latencyMs);
-        if (values.length > 64) values.shift();
-        this.#latencies.set(key, values);
-        summary.warmSeekP50Ms = percentile(values, 0.5)!;
-        summary.warmSeekP95Ms = percentile(values, 0.95)!;
-      }
-      if (observation.deadlineMiss !== undefined) {
-        const key = `${observation.assetId}:${observation.sourceKind}`;
-        const deadlines = this.#deadlines.get(key) ?? { total: 0, missed: 0 };
-        deadlines.total += 1;
-        deadlines.missed += Number(observation.deadlineMiss);
-        if (deadlines.total > 100) {
-          deadlines.total = Math.ceil(deadlines.total / 2);
-          deadlines.missed = Math.ceil(deadlines.missed / 2);
-        }
-        this.#deadlines.set(key, deadlines);
-        summary.deadlineMissRate = deadlines.missed / deadlines.total;
-      }
+      this.#performanceTracker.record(record, observation);
       this.#emit();
     });
   }
@@ -848,10 +840,7 @@ export class DerivedMediaStore {
         }
         delete this.#index.assets[assetId];
       }
-      this.#latencies.delete(`${assetId}:original`);
-      this.#latencies.delete(`${assetId}:proxy`);
-      this.#deadlines.delete(`${assetId}:original`);
-      this.#deadlines.delete(`${assetId}:proxy`);
+      this.#performanceTracker.remove(assetId);
       await this.#removeUnindexedAssetArtifacts(assetId);
     }
     this.#removedAssetIds.clear();

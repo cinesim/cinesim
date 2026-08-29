@@ -58,7 +58,18 @@ import { useRendererStore } from "../../store/renderer-store-context";
 import { useEditorDnd } from "../workspace/editor-dnd-context";
 import { TimelineFilmstrip } from "./timeline-filmstrip";
 import { MasterLevelMeter } from "./master-level-meter";
+import {
+  fadeDurationFromDrag,
+  FULL_TIMELINE_TRACK_CHROME_WIDTH,
+  isTimelinePaletteId,
+  TIMELINE_PALETTES,
+  timelinePaletteColor,
+} from "./timeline-behavior";
+import type { TimelinePaletteId } from "./timeline-behavior";
 import { TimelineWaveform } from "./timeline-waveform";
+
+export { fadeDurationFromDrag } from "./timeline-behavior";
+export type { TimelinePaletteId } from "./timeline-behavior";
 
 interface TimelineProps {
   project: Project;
@@ -69,64 +80,6 @@ interface TimelineProps {
   onStepFrames?: (deltaFrames: number) => void;
   transcripts?: TranscriptSnapshot | null;
   selectedRanges?: TimelineRange[];
-}
-
-export type TimelinePaletteId = "northern-lights" | "desert-bloom" | "coastal";
-
-const TIMELINE_PALETTES: ReadonlyArray<{
-  id: TimelinePaletteId;
-  name: string;
-  colors: { video: string; overlay: string; audio: string; image: string };
-}> = [
-  {
-    id: "northern-lights",
-    name: "Northern Lights",
-    colors: { video: "#506fa3", overlay: "#80649b", audio: "#397968", image: "#aa7a42" },
-  },
-  {
-    id: "desert-bloom",
-    name: "Desert Bloom",
-    colors: { video: "#a85e58", overlay: "#895d82", audio: "#688263", image: "#b18445" },
-  },
-  {
-    id: "coastal",
-    name: "Coastal",
-    colors: { video: "#397d91", overlay: "#6870a0", audio: "#438273", image: "#9b7652" },
-  },
-];
-
-const FULL_TIMELINE_TRACK_CHROME_WIDTH = 168 + 72;
-
-function timelinePaletteColor(
-  paletteId: TimelinePaletteId,
-  track: Track,
-  asset: Asset | undefined,
-): string {
-  const palette = TIMELINE_PALETTES.find((candidate) => candidate.id === paletteId)!;
-  if (track.kind === "audio") return palette.colors.audio;
-  if (track.kind === "overlay") return palette.colors.overlay;
-  return asset?.kind === "image" ? palette.colors.image : palette.colors.video;
-}
-
-export function fadeDurationFromDrag({
-  edge,
-  initialDurationUs,
-  deltaX,
-  pixelsPerUs,
-  maximumDurationUs,
-  frameRate,
-}: {
-  edge: "in" | "out";
-  initialDurationUs: number;
-  deltaX: number;
-  pixelsPerUs: number;
-  maximumDurationUs: number;
-  frameRate: number;
-}): number {
-  const rawDurationUs = initialDurationUs + (edge === "in" ? deltaX : -deltaX) / pixelsPerUs;
-  const frameDurationUs = 1_000_000 / Math.max(1, frameRate);
-  const quantized = Math.round(rawDurationUs / frameDurationUs) * frameDurationUs;
-  return Math.round(Math.min(maximumDurationUs, Math.max(0, quantized)));
 }
 
 interface FadeGesture {
@@ -673,11 +626,10 @@ function TrackHeader({
   onCommand: (command: EditorCommand) => Promise<ActionResult<unknown>>;
   paletteId: TimelinePaletteId;
 }) {
-  const [renaming, setRenaming] = useState(false);
-  const [name, setName] = useState(track.name);
+  const [draftName, setDraftName] = useState<string | null>(null);
   const renameInputRef = useRef<HTMLInputElement>(null);
+  const renaming = draftName !== null;
 
-  useEffect(() => setName(track.name), [track.name]);
   useEffect(() => {
     if (renaming) {
       renameInputRef.current?.focus();
@@ -686,10 +638,9 @@ function TrackHeader({
   }, [renaming]);
 
   function commitName(): void {
-    setRenaming(false);
-    const trimmed = name.trim();
+    const trimmed = (draftName ?? track.name).trim();
+    setDraftName(null);
     if (!trimmed || trimmed === track.name) {
-      setName(track.name);
       return;
     }
     void onCommand({ type: "track.update", trackId: track.id, name: trimmed });
@@ -711,14 +662,13 @@ function TrackHeader({
           <input
             ref={renameInputRef}
             className="h-6 min-w-0 flex-1 rounded border border-border-strong bg-panel-muted px-1.5 text-[10px] text-primary outline-none focus-visible:ring-2 focus-visible:ring-focus"
-            value={name}
-            onChange={(event) => setName(event.target.value)}
+            value={draftName ?? track.name}
+            onChange={(event) => setDraftName(event.target.value)}
             onBlur={commitName}
             onKeyDown={(event) => {
               if (event.key === "Enter") commitName();
               if (event.key === "Escape") {
-                setName(track.name);
-                setRenaming(false);
+                setDraftName(null);
               }
             }}
           />
@@ -727,7 +677,7 @@ function TrackHeader({
             type="button"
             className="min-w-0 flex-1 truncate text-left text-[10px] leading-4 font-medium text-secondary hover:text-primary"
             title={`${track.name} · Double-click to rename`}
-            onDoubleClick={() => setRenaming(true)}
+            onDoubleClick={() => setDraftName(track.name)}
           >
             {track.name}
           </button>
@@ -1060,9 +1010,7 @@ export function Timeline({
   const playback = useRendererStore((state) => state.playbackRuntime?.snapshot ?? null);
   const [paletteId, setPaletteId] = useState<TimelinePaletteId>(() => {
     const stored = localStorage.getItem("cinesim.timelinePalette");
-    return TIMELINE_PALETTES.some((palette) => palette.id === stored)
-      ? (stored as TimelinePaletteId)
-      : "northern-lights";
+    return isTimelinePaletteId(stored) ? stored : "northern-lights";
   });
   const [timelineViewportWidth, setTimelineViewportWidth] = useState(0);
   const [timelineRootWidth, setTimelineRootWidth] = useState(0);

@@ -133,6 +133,7 @@ export function App() {
         agentsSidebar={
           destination === "project" && session ? (
             <AgentsSidebar
+              key={session.directory}
               session={session}
               onConfigure={() => {
                 setSettingsSection("agents");
