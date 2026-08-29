@@ -88,16 +88,20 @@ payloads before calling desktop services.
 
 ## Desktop orchestration boundaries
 
-The renderer store is a coordinator over explicit project, editor-interaction, playback/media, and
-account/cloud slice contracts. Project lifecycle selectors and hydration live separately from the
-Zustand action coordinator, while timeline gesture, palette, and quantization rules live in a pure
-behavior module with direct tests.
+The renderer store composes separate project, editor-interaction, playback/media, and account/cloud
+slice implementations. Project lifecycle selectors and hydration live separately, and a narrow
+coordinator owns only transitions that cross project and account state. The application root obtains
+its state and actions through one controller hook.
+
+Timeline clip gestures/rendering, track controls/drop targets, reduced narrative presentation, and
+the full timeline surface are separate components. Pure gesture, palette, and quantization rules
+remain directly testable outside React.
 
 Derived media represents project ownership as a closed/open discriminated union, so directory,
-path capability, scope, project, settings, and index change together. The store coordinates narrow
-index-repository, runtime-tracker, performance-tracker, validation, fingerprint, and lifecycle
-collaborators. Adding a metric or lifecycle transition does not require changing writer or artifact
-validation semantics.
+path capability, scope, project, settings, and index change together. Writer handles, artifact
+fingerprinting and lookup, cleanup/eviction policy, operation serialization, snapshot projection,
+index persistence, runtime metrics, performance tracking, validation, and lifecycle are separate
+collaborators. The service coordinates only operations whose ordering crosses those owners.
 
 ## Media access and playback
 

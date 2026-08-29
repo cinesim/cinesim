@@ -118,4 +118,46 @@ describe("architecture boundaries", () => {
     for (const name of graph.keys()) visit(name, []);
     expect(visited).toEqual(packageNames);
   });
+
+  it("keeps desktop hubs as coordinators over focused collaborators", async () => {
+    const rendererStore = await readFile(
+      join(workspaceRoot, "apps/desktop/src/renderer/store/renderer-store.ts"),
+      "utf8",
+    );
+    for (const factory of [
+      "createProjectSlice",
+      "createEditorInteractionSlice",
+      "createPlaybackMediaSlice",
+      "createAccountCloudSlice",
+    ])
+      expect(rendererStore).toContain(factory);
+    expect(rendererStore).not.toContain("api.");
+
+    const timeline = await readFile(
+      join(workspaceRoot, "apps/desktop/src/renderer/components/timeline/timeline.tsx"),
+      "utf8",
+    );
+    expect(timeline).toContain('from "./timeline-track"');
+    expect(timeline).toContain('from "./reduced-timeline"');
+    expect(timeline).not.toContain("function ClipBlock");
+    expect(timeline).not.toContain("function TimelineTrackRow");
+
+    const derivedService = await readFile(
+      join(workspaceRoot, "apps/desktop/src/main/derived-media/service.ts"),
+      "utf8",
+    );
+    for (const collaborator of [
+      "DerivedArtifactRepository",
+      "DerivedWriterRegistry",
+      "DerivedOperationQueue",
+      "projectDerivedSnapshot",
+    ])
+      expect(derivedService).toContain(collaborator);
+    expect(derivedService).not.toContain("new Map<string, WriterSession>");
+    expect(derivedService).not.toContain("statfs(");
+
+    const app = await readFile(join(workspaceRoot, "apps/desktop/src/renderer/app.tsx"), "utf8");
+    expect(app).toContain("useAppController");
+    expect(app).not.toContain("useRendererStore(");
+  });
 });
