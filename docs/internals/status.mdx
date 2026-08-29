@@ -3,13 +3,13 @@ title: Project status
 description: What is built, what is verified, and what is known to be missing or unfinished.
 ---
 
-Cinesim compiles, type-checks, tests, and builds. What it has not had is a full interactive pass on
-real media — the app has not been run against a broad codec and GPU matrix. This page separates
-those two things so nobody has to guess which is which.
+Cinesim compiles, type-checks, tests, builds, and passes an automated real-media browser validation.
+It has not had a full interactive pass against a broad codec and GPU matrix. This page separates
+those two levels of verification so nobody has to guess which is which.
 
 <Callout type="warn">
-  Anything under [Not yet verified](#not-yet-verified) is implemented and passing its unit tests but
-  has not been exercised in a running Electron app with real footage.
+  Anything under [Not yet verified](#not-yet-verified) is implemented and passing its automated
+  checks but has not been exercised through the full interactive workflow.
 </Callout>
 
 ## Built and tested
@@ -47,9 +47,26 @@ Verification currently passing: whole-repository TypeScript check, Vite+ format 
 warnings, 207 tests across 42 files, production builds for main, preload, and renderer, and a CLI
 smoke check.
 
+## Automated real-media validation
+
+`vp run media:validate` is a separate browser integration gate rather than part of the ordinary Node
+unit suite. It builds the real engine, starts a range-capable loopback media server, and uses headless
+Chrome without launching Electron. The gate validates:
+
+- H.264/AAC in MP4 and VP9/Opus in WebM through Mediabunny and WebCodecs;
+- 48 nonsequential seeks per fixture, decoded video dimensions, and decoded audio buffers;
+- 24 decoded-frame submissions through the production WebGPU compositor with no retained active
+  frames or reported GPU errors; and
+- forced-GC JavaScript heap growth against a 32 MiB bound.
+
+The synthetic two-second fixtures are checked in under `tools/media-validation/fixtures`. Chrome is
+discovered from standard macOS/Linux locations or `CINESIM_CHROME_PATH`, keeping a browser binary out
+of the dependency graph.
+
 ## Not yet verified
 
-- Electron, WebCodecs, WebGPU, and Web Audio behavior against real media across a codec matrix.
+- Interactive Electron and Web Audio behavior, plus codecs and GPU drivers beyond the automated
+  H.264, VP9, and current-Chrome matrix.
 - Worker-based thumbnail, filmstrip, and proxy paths with real footage.
 - Interactive browser, email, and custom-protocol authentication flows.
 - Provider compatibility with specific installed versions of Claude Code and Codex.
@@ -79,7 +96,7 @@ splitting is pending.
 
 ## Next steps
 
-1. Run the media validation matrix, fix platform codec and GPU findings, and capture honest
-   playback, seek, and memory metrics.
+1. Expand the automated media matrix on additional operating systems, codec profiles, and GPU
+   drivers, then capture interactive playback and Web Audio metrics.
 2. Tune proxy profiles from those measurements, and add exact-frame jobs to the existing bounded
    worker and storage path.

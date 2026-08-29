@@ -59,6 +59,13 @@ export default defineConfig({
         command: "tsx tools/benchmarks/history.ts",
         cache: false,
       },
+      "media:validate": {
+        command: [
+          "vp build --config tools/media-validation/vite.config.ts",
+          "tsx tools/media-validation/run.ts",
+        ],
+        cache: false,
+      },
       typecheck: {
         command: "tsc --noEmit",
       },
