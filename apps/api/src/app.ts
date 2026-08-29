@@ -11,6 +11,8 @@ import { CloudStorageService } from "./cloud/service";
 import { createCloudRoutes } from "./cloud/routes";
 import { createProjectRoutes } from "./projects/routes";
 import { ProjectRegistryService } from "./projects/service";
+import { createTranscriptionRoutes } from "./transcriptions/routes";
+import { OpenRouterTranscriptionGateway } from "./transcriptions/service";
 
 const config = serverConfig();
 const app = new Hono();
@@ -21,6 +23,9 @@ const cloudStorage = config.r2
       config.cloudIncludedBytes,
       config.cloudAddonOptionsBytes,
     )
+  : null;
+const transcriptionGateway = config.openRouterApiKey
+  ? new OpenRouterTranscriptionGateway(config.openRouterApiKey)
   : null;
 
 app.use(
@@ -60,6 +65,7 @@ app.get("/health", (context) =>
     environment: config.environment,
     googleSignIn: Boolean(config.google),
     cloudStorage: Boolean(cloudStorage),
+    transcription: Boolean(transcriptionGateway),
   }),
 );
 
@@ -84,6 +90,7 @@ app.get("/api/v1/account", async (context) => {
 
 app.route("/api/v1/cloud", createCloudRoutes(cloudStorage));
 app.route("/api/v1/projects", createProjectRoutes(projectRegistry));
+app.route("/api/v1/transcriptions", createTranscriptionRoutes(transcriptionGateway));
 
 app.on(["GET", "POST"], "/api/auth/*", (context) => auth.handler(context.req.raw));
 

@@ -6,6 +6,7 @@
     "command-semantics",
     "authentication",
     "cloud-storage",
+    "transcription",
     "dependencies",
     "status"
   ],

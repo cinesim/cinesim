@@ -24,6 +24,7 @@ documentary-cut/
     ├── proxies/
     ├── runtime/
     ├── thumbnails/
+    ├── transcripts/
     └── waveforms/
 ```
 
@@ -77,16 +78,17 @@ below its final line to you.
 
 Disposable local state. Delete any of it and Cinesim rebuilds what it needs.
 
-| Directory     | Contents                                                        |
-| ------------- | --------------------------------------------------------------- |
-| `cache/`      | Transient working data                                          |
-| `filmstrips/` | Contact sheets for scrubbing                                    |
-| `frames/`     | Exact extracted frames                                          |
-| `originals/`  | Managed copies: Photos exports, cloud downloads, upload staging |
-| `proxies/`    | Edit proxies                                                    |
-| `runtime/`    | Runtime scratch, including `agent-checkpoints.git`              |
-| `thumbnails/` | Media Pool card images                                          |
-| `waveforms/`  | Audio peak envelopes                                            |
+| Directory      | Contents                                                        |
+| -------------- | --------------------------------------------------------------- |
+| `cache/`       | Transient working data                                          |
+| `filmstrips/`  | Contact sheets for scrubbing                                    |
+| `frames/`      | Exact extracted frames                                          |
+| `originals/`   | Managed copies: Photos exports, cloud downloads, upload staging |
+| `proxies/`     | Edit proxies                                                    |
+| `runtime/`     | Runtime scratch, including `agent-checkpoints.git`              |
+| `thumbnails/`  | Media Pool card images                                          |
+| `transcripts/` | Versioned, fingerprint-bound speech artifacts and job state     |
+| `waveforms/`   | Audio peak envelopes                                            |
 
 `originals/` is the only place Cinesim keeps media it owns, and it only ever holds copies it made
 itself. Media you imported from your own filesystem is referenced in place and never appears here.
