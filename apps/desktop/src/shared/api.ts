@@ -343,6 +343,12 @@ export interface EditorLayoutState {
   timelineHeight: number;
 }
 
+export interface CutLayoutState {
+  rightColumnWidth: number;
+  viewerHeight: number;
+  timelineHeight: number;
+}
+
 export const DEFAULT_EDITOR_LAYOUT: EditorLayoutState = {
   mediaPoolWidth: 248,
   inspectorWidth: 260,
@@ -354,7 +360,19 @@ export const EDITOR_LAYOUT_LIMITS = {
   mediaPoolWidth: { min: 180, max: 480 },
   inspectorWidth: { min: 220, max: 480 },
   notesWidth: { min: 220, max: 480 },
-  timelineHeight: { min: 160, max: 720 },
+  timelineHeight: { min: 64, max: 720 },
+} as const;
+
+export const DEFAULT_CUT_LAYOUT: CutLayoutState = {
+  rightColumnWidth: 420,
+  viewerHeight: 360,
+  timelineHeight: 80,
+};
+
+export const CUT_LAYOUT_LIMITS = {
+  rightColumnWidth: { min: 300, max: 680 },
+  viewerHeight: { min: 220, max: 720 },
+  timelineHeight: { min: 64, max: 720 },
 } as const;
 
 export interface DesktopAppState {
@@ -364,6 +382,7 @@ export interface DesktopAppState {
   inspectorOpenByProject: Record<string, boolean>;
   notesOpenByProject: Record<string, boolean>;
   editorLayoutsByProject: Record<string, EditorLayoutState>;
+  cutLayoutsByProject: Record<string, CutLayoutState>;
 }
 
 export type ElectronProcessGroupKind = "main" | "renderer" | "gpu" | "utility" | "other";
@@ -529,6 +548,7 @@ export interface DesktopApi {
   setProjectInspectorOpen(open: boolean): Promise<DesktopAppState>;
   setProjectNotesOpen(open: boolean): Promise<DesktopAppState>;
   setProjectEditorLayout(layout: EditorLayoutState): Promise<DesktopAppState>;
+  setProjectCutLayout(layout: CutLayoutState): Promise<DesktopAppState>;
   getAgentSettings(): Promise<AgentSettings>;
   updateAgentSettings(update: AgentSettingsUpdate): Promise<AgentSettings>;
   refreshAgentProviders(): Promise<AgentProviderStatus[]>;

@@ -94,6 +94,11 @@ describe("DesktopAppStateStore", () => {
       notesWidth: 300,
       timelineHeight: 300,
     });
+    await store.setCutLayout("/films/first", {
+      rightColumnWidth: 440,
+      viewerHeight: 340,
+      timelineHeight: 80,
+    });
 
     await store.forgetProject("/films/first");
     expect(store.snapshot()).toEqual({
@@ -103,6 +108,7 @@ describe("DesktopAppStateStore", () => {
       inspectorOpenByProject: {},
       notesOpenByProject: {},
       editorLayoutsByProject: {},
+      cutLayoutsByProject: {},
     });
   });
 });

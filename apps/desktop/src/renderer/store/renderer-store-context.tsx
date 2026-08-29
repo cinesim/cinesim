@@ -73,10 +73,14 @@ function RendererControllerEffects({ api, store }: { api: DesktopApi; store: Ren
     const unsubscribeCloud = api.onCloudTransfersChanged((snapshot) => {
       store.getState().setCloudTransfers(snapshot);
     });
+    const unsubscribeTranscripts = api.onTranscriptsChanged((snapshot) => {
+      store.getState().setTranscripts(snapshot.projectDirectory, snapshot);
+    });
     return () => {
       unsubscribeProject();
       unsubscribeAccount();
       unsubscribeCloud();
+      unsubscribeTranscripts();
     };
   }, [api, store]);
 
@@ -96,18 +100,21 @@ function RendererControllerEffects({ api, store }: { api: DesktopApi; store: Ren
       { cacheKey: derivedCacheKey, epoch: derivedEpoch },
       (snapshot) => store.getState().setDerivedMedia(projectDirectory, snapshot),
       projectSettings,
+      (snapshot) => store.getState().setTranscripts(projectDirectory, snapshot),
     );
     mediaJobsRef.current = coordinator;
     void coordinator.start().catch(() => {
       if (mediaJobsRef.current === coordinator) {
         mediaJobsRef.current = null;
         store.getState().setDerivedMedia(projectDirectory, null);
+        store.getState().setTranscripts(projectDirectory, null);
       }
       void coordinator.destroy();
     });
     return () => {
       mediaJobsRef.current = null;
       store.getState().setDerivedMedia(projectDirectory, null);
+      store.getState().setTranscripts(projectDirectory, null);
       void coordinator.destroy();
     };
   }, [derivedCacheKey, derivedEpoch, projectDirectory, store]);

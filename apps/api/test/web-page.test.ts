@@ -15,6 +15,7 @@ const config: ServerConfig = {
   emailFrom: "not-rendered",
   google: null,
   r2: null,
+  openRouterApiKey: null,
   cloudIncludedBytes: 10 * 1024 ** 3,
   cloudAddonOptionsBytes: [0],
 };

@@ -65,6 +65,7 @@ const api: DesktopApi = {
   setProjectInspectorOpen: (open) => ipcRenderer.invoke("app-state:set-inspector-open", open),
   setProjectNotesOpen: (open) => ipcRenderer.invoke("app-state:set-notes-open", open),
   setProjectEditorLayout: (layout) => ipcRenderer.invoke("app-state:set-editor-layout", layout),
+  setProjectCutLayout: (layout) => ipcRenderer.invoke("app-state:set-cut-layout", layout),
   getAgentSettings: () => ipcRenderer.invoke("agents:settings:get"),
   updateAgentSettings: (update) => ipcRenderer.invoke("agents:settings:update", update),
   refreshAgentProviders: () => ipcRenderer.invoke("agents:providers:refresh"),

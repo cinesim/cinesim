@@ -38,7 +38,7 @@ interface AppShellProps {
   session: DesktopProjectSession | null;
   appState: DesktopAppState;
   destination: "home" | "project" | "settings";
-  projectSection: "media" | "edit";
+  projectSection: "media" | "cut" | "edit";
   activeSequenceId: string | null;
   settingsSection: SettingsSection;
   account: AccountSnapshot;
@@ -48,7 +48,7 @@ interface AppShellProps {
   leadingToolbar?: React.ReactNode;
   toolbar: React.ReactNode;
   onHome: () => void;
-  onProjectSection: (section: "media" | "edit") => void;
+  onProjectSection: (section: "media" | "cut" | "edit") => void;
   onTimeline: (sequenceId: string) => void;
   onSettings: () => void;
   onSettingsSection: (section: SettingsSection) => void;
@@ -106,10 +106,11 @@ export function isAgentsSidebarShortcut(
 
 export function projectSectionForShortcut(
   event: Pick<KeyboardEvent, "altKey" | "ctrlKey" | "key" | "metaKey" | "shiftKey">,
-): "media" | "edit" | null {
+): "media" | "cut" | "edit" | null {
   if (!(event.metaKey || event.ctrlKey) || event.altKey || event.shiftKey) return null;
   if (event.key === "1") return "media";
-  if (event.key === "2") return "edit";
+  if (event.key === "2") return "cut";
+  if (event.key === "3") return "edit";
   return null;
 }
 
@@ -331,12 +332,21 @@ export function AppShell({
                     </span>
                   </SidebarButton>
                   <SidebarButton
+                    active={projectSection === "cut"}
+                    onClick={() => onProjectSection("cut")}
+                  >
+                    <Scissors size={15} /> Cut
+                    <span className="ml-auto">
+                      <ShortcutHint>{isMac ? "⌘2" : "Ctrl+2"}</ShortcutHint>
+                    </span>
+                  </SidebarButton>
+                  <SidebarButton
                     active={projectSection === "edit"}
                     onClick={() => onProjectSection("edit")}
                   >
-                    <Scissors size={15} /> Edit
+                    <Film size={15} /> Edit
                     <span className="ml-auto">
-                      <ShortcutHint>{isMac ? "⌘2" : "Ctrl+2"}</ShortcutHint>
+                      <ShortcutHint>{isMac ? "⌘3" : "Ctrl+3"}</ShortcutHint>
                     </span>
                   </SidebarButton>
                 </nav>
@@ -516,7 +526,7 @@ export function AppShell({
             <ProjectBreadcrumb
               session={session}
               recentProjects={appState.recentProjects}
-              showTimeline={projectSection === "edit"}
+              showTimeline={projectSection === "cut" || projectSection === "edit"}
               activeSequenceId={activeSequenceId ?? session.project.activeSequenceId}
               onOpenRecent={onOpenRecent}
               onOpenProject={onOpenProject}

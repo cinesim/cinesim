@@ -109,6 +109,10 @@ function projectWithVideo(): Project {
 function snapshot(words: TranscriptArtifactWord[]): TranscriptSnapshot {
   return {
     projectDirectory: "/project",
+    projectScope: {
+      cacheKey: "0123456789abcdef01234567",
+      epoch: "123e4567-e89b-12d3-a456-426614174000",
+    },
     assets: {
       [video.id]: { assetId: video.id, state: "ready", artifact: artifact(video.id, words) },
     },
@@ -242,6 +246,10 @@ describe("timeline transcript projection", () => {
       sequenceId: project.activeSequenceId,
       transcripts: {
         projectDirectory: "/project",
+        projectScope: {
+          cacheKey: "0123456789abcdef01234567",
+          epoch: "123e4567-e89b-12d3-a456-426614174000",
+        },
         assets: {
           [video.id]: { assetId: video.id, state: "failed", failureCode: "provider_timeout" },
         },

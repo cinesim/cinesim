@@ -7,6 +7,8 @@ const baseAccount: AccountSnapshot = {
   cloudOrigin: "http://127.0.0.1:8787",
   serviceAvailable: true,
   googleSignIn: true,
+  cloudStorage: false,
+  transcription: false,
   user: null,
   detail: null,
 };

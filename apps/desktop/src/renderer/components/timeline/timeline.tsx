@@ -33,8 +33,15 @@ import {
   Separator,
 } from "@cinesim/ui";
 import { canSplitClipAt, clipDurationUs, getSequence, sequenceDurationUs } from "@cinesim/core";
-import type { Asset, Clip, EditorCommand, Project, Track } from "@cinesim/core";
+import type { Asset, Clip, EditorCommand, Project, TimelineRange, Track } from "@cinesim/core";
 import type { DerivedAssetSnapshot, DerivedMediaSnapshot } from "../../../shared/api";
+import type { TranscriptSnapshot } from "../../../shared/transcript";
+import {
+  projectNarrativeUnits,
+  timelinePresentationForHeight,
+  type NarrativeUnit,
+  type TimelinePresentation,
+} from "../../../shared/transcript";
 import {
   IDLE_TRIM_GESTURE,
   trimPreviewClip,
@@ -65,6 +72,8 @@ interface TimelineProps {
   onTogglePlayback?: () => void;
   onGoToStart?: () => void;
   onStepFrames?: (deltaFrames: number) => void;
+  transcripts?: TranscriptSnapshot | null;
+  selectedRanges?: TimelineRange[];
 }
 
 export type TimelinePaletteId = "northern-lights" | "desert-bloom" | "coastal";
@@ -794,6 +803,158 @@ function TrackHeader({
   );
 }
 
+function rangesIntersect(
+  startUs: number,
+  endUs: number,
+  ranges: readonly TimelineRange[],
+): boolean {
+  return ranges.some((range) => range.startUs < endUs && range.endUs > startUs);
+}
+
+function NarrativeBadges({ unit }: { unit: NarrativeUnit }) {
+  return (
+    <span className="ml-auto flex shrink-0 items-center gap-1 text-[9px] font-semibold text-muted">
+      {unit.hasVisualOverlay && <span aria-label="Supporting visual">+B</span>}
+      {unit.hasSecondaryAudio && <span aria-label="Supporting audio">+M</span>}
+      {unit.hasOverlappingDialogue && <span aria-label="Overlapping speakers">+S</span>}
+    </span>
+  );
+}
+
+function ReducedTimeline({
+  mode,
+  project,
+  transcripts,
+  selectedRanges,
+  playheadUs,
+  playing,
+  onSeek,
+  onTogglePlayback,
+}: {
+  mode: Exclude<TimelinePresentation, "full">;
+  project: Project;
+  transcripts: TranscriptSnapshot | null;
+  selectedRanges: readonly TimelineRange[];
+  playheadUs: number;
+  playing: boolean;
+  onSeek?: (timeUs: number) => void;
+  onTogglePlayback?: () => void;
+}) {
+  const selectClip = useRendererStore((state) => state.selectClip);
+  const sequence = getSequence(project);
+  const units = useMemo(
+    () => projectNarrativeUnits({ project, sequenceId: sequence.id, transcripts }),
+    [project, sequence.id, transcripts],
+  );
+  const durationUs = Math.max(1, sequenceDurationUs(sequence));
+  const literal = mode === "compact";
+  return (
+    <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-panel-muted">
+      <div
+        className={cn(
+          "flex shrink-0 items-center border-b border-border bg-panel px-2",
+          literal ? "h-9" : "h-8",
+        )}
+      >
+        <Button
+          size="icon-sm"
+          variant="ghost"
+          aria-label={playing ? "Pause" : "Play"}
+          title="Play or pause (Space)"
+          onClick={onTogglePlayback}
+        >
+          {playing ? (
+            <Pause size={14} fill="currentColor" />
+          ) : (
+            <Play size={14} fill="currentColor" />
+          )}
+        </Button>
+        <span className="ml-1 text-ui-xs font-semibold text-primary tabular-nums">
+          {formatTimecode(playheadUs, sequence.frameRate)}
+        </span>
+        <span className="ml-auto text-ui-xs text-muted">
+          {literal ? "Compact timeline" : "Story timeline"}
+        </span>
+      </div>
+      <div className="relative min-h-0 flex-1 overflow-x-auto overflow-y-hidden px-2 py-1.5">
+        <div
+          className={cn("relative h-full min-w-full", !literal && "flex gap-1")}
+          style={literal ? { minWidth: Math.max(720, units.length * 128) } : undefined}
+        >
+          {units.length === 0 ? (
+            <div className="grid h-full place-items-center text-ui-xs text-muted">
+              Add media to build the story timeline
+            </div>
+          ) : (
+            units.map((unit) => {
+              const selected = rangesIntersect(
+                unit.timelineStartUs,
+                unit.timelineEndUs,
+                selectedRanges,
+              );
+              const active = playheadUs >= unit.timelineStartUs && playheadUs < unit.timelineEndUs;
+              const style = literal
+                ? {
+                    left: `${(unit.timelineStartUs / durationUs) * 100}%`,
+                    width: `${Math.max(2.5, ((unit.timelineEndUs - unit.timelineStartUs) / durationUs) * 100)}%`,
+                  }
+                : { flexGrow: Math.max(1, Math.sqrt(unit.timelineEndUs - unit.timelineStartUs)) };
+              return (
+                <button
+                  key={unit.id}
+                  type="button"
+                  className={cn(
+                    "relative flex h-full min-w-24 items-center gap-1 overflow-hidden rounded border px-2 text-left text-ui-xs transition-colors",
+                    literal && "absolute top-0",
+                    selected
+                      ? "border-accent bg-accent/20 text-primary"
+                      : active
+                        ? "border-border-strong bg-surface text-primary"
+                        : "border-border bg-panel text-secondary hover:bg-surface",
+                  )}
+                  style={style}
+                  title={`${unit.label} — ${formatTimecode(unit.timelineStartUs, sequence.frameRate)}`}
+                  onClick={() => {
+                    selectClip(unit.clipIds[0] ?? null);
+                    onSeek?.(unit.timelineStartUs);
+                  }}
+                >
+                  {selectedRanges.flatMap((range, index) => {
+                    const startUs = Math.max(range.startUs, unit.timelineStartUs);
+                    const endUs = Math.min(range.endUs, unit.timelineEndUs);
+                    if (startUs >= endUs) return [];
+                    const duration = unit.timelineEndUs - unit.timelineStartUs;
+                    return [
+                      <span
+                        key={`${range.startUs}:${range.endUs}:${index}`}
+                        className="pointer-events-none absolute inset-y-0 bg-accent/25"
+                        style={{
+                          left: `${((startUs - unit.timelineStartUs) / duration) * 100}%`,
+                          width: `${((endUs - startUs) / duration) * 100}%`,
+                        }}
+                      />,
+                    ];
+                  })}
+                  <span className="relative z-10 truncate font-medium">{unit.label}</span>
+                  <span className="relative z-10 ml-auto">
+                    <NarrativeBadges unit={unit} />
+                  </span>
+                </button>
+              );
+            })
+          )}
+          {literal && (
+            <div
+              className="pointer-events-none absolute inset-y-0 z-20 w-px bg-playhead"
+              style={{ left: `${(playheadUs / durationUs) * 100}%` }}
+            />
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function Timeline({
   project,
   onCommand,
@@ -801,6 +962,8 @@ export function Timeline({
   onTogglePlayback,
   onGoToStart,
   onStepFrames,
+  transcripts = null,
+  selectedRanges = [],
 }: TimelineProps) {
   const zoom = useRendererStore((state) => state.timelineZoom);
   const setZoom = useRendererStore((state) => state.setTimelineZoom);
@@ -823,6 +986,8 @@ export function Timeline({
       : "northern-lights";
   });
   const [timelineViewportWidth, setTimelineViewportWidth] = useState(0);
+  const [renderedHeight, setRenderedHeight] = useState(288);
+  const rootRef = useRef<HTMLElement>(null);
   const headerScrollRef = useRef<HTMLDivElement>(null);
   const timelineScrollRef = useRef<HTMLDivElement>(null);
   const sequence = getSequence(project);
@@ -839,11 +1004,22 @@ export function Timeline({
     ? sequence.tracks.flatMap((track) => track.clips).find((clip) => clip.id === selectedClipId)
     : undefined;
   const canSplitSelection = Boolean(selectedClip && canSplitClipAt(selectedClip, playheadUs));
+  const presentation = timelinePresentationForHeight(renderedHeight);
 
   function selectPalette(next: TimelinePaletteId): void {
     setPaletteId(next);
     localStorage.setItem("cinesim.timelinePalette", next);
   }
+
+  useEffect(() => {
+    const root = rootRef.current;
+    if (!root) return;
+    const measure = () => setRenderedHeight(root.clientHeight);
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(root);
+    return () => observer.disconnect();
+  }, []);
 
   useEffect(() => {
     const viewport = timelineScrollRef.current;
@@ -853,7 +1029,7 @@ export function Timeline({
     const observer = new ResizeObserver(measure);
     observer.observe(viewport);
     return () => observer.disconnect();
-  }, []);
+  }, [presentation]);
 
   useEffect(() => {
     if (zoom < minimumZoom) setZoom(minimumZoom);
@@ -879,8 +1055,28 @@ export function Timeline({
   const majorSecondStep = timelineMajorSecondStep(zoom);
   const tickCount = Math.ceil(contentDurationUs / 1_000_000 / majorSecondStep);
 
+  if (presentation !== "full") {
+    return (
+      <section ref={rootRef} className="flex min-h-0 flex-col bg-panel-muted">
+        <ReducedTimeline
+          mode={presentation}
+          project={project}
+          transcripts={transcripts}
+          selectedRanges={selectedRanges}
+          playheadUs={playheadUs}
+          playing={playback?.playing ?? false}
+          onSeek={(timeUs) => {
+            setPlayheadUs(timeUs);
+            onSeek?.(timeUs);
+          }}
+          {...(onTogglePlayback ? { onTogglePlayback } : {})}
+        />
+      </section>
+    );
+  }
+
   return (
-    <section className="flex min-h-0 flex-col bg-panel-muted">
+    <section ref={rootRef} className="flex min-h-0 flex-col bg-panel-muted">
       <div className="grid h-12 shrink-0 grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center border-b border-border bg-panel px-2">
         <div className="flex min-w-0 items-center gap-0.5">
           <Button
@@ -1187,6 +1383,16 @@ export function Timeline({
                 snappingEnabled={snappingEnabled}
                 playheadUs={playheadUs}
                 paletteId={paletteId}
+              />
+            ))}
+            {selectedRanges.map((range, index) => (
+              <div
+                key={`${range.startUs}:${range.endUs}:${index}`}
+                className="pointer-events-none absolute bottom-0 top-6 z-20 border-x border-accent bg-accent/15"
+                style={{
+                  left: range.startUs * pixelsPerUs,
+                  width: Math.max(1, (range.endUs - range.startUs) * pixelsPerUs),
+                }}
               />
             ))}
             <div

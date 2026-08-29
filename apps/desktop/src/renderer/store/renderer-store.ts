@@ -1,8 +1,8 @@
 import { createStore } from "zustand/vanilla";
 import { isAssetCompatibleWithTrack, sequenceDurationUs } from "@cinesim/core";
-import type { ClipId, EditorCommand, Sequence, TimeUs } from "@cinesim/core";
+import type { AssetId, ClipId, EditorCommand, Sequence, TimeUs } from "@cinesim/core";
 import type { RuntimeSnapshot } from "@cinesim/engine";
-import { DEFAULT_EDITOR_LAYOUT } from "../../shared/api";
+import { DEFAULT_CUT_LAYOUT, DEFAULT_EDITOR_LAYOUT } from "../../shared/api";
 import type {
   AccountSnapshot,
   CloudTransferSnapshot,
@@ -10,13 +10,15 @@ import type {
   DesktopApi,
   DesktopAppState,
   DesktopProjectSession,
+  CutLayoutState,
   EditorLayoutState,
   ElectronHealthSnapshot,
 } from "../../shared/api";
+import type { TranscriptSnapshot } from "../../shared/transcript";
 import { clampTimelineZoom } from "../lib/timeline-scale";
 
 export type Destination = "home" | "project" | "settings";
-export type ProjectSection = "media" | "edit";
+export type ProjectSection = "media" | "cut" | "edit";
 export type SettingsSection = "general" | "media" | "storage" | "account" | "agents";
 export type AuxiliarySidebarMode = "agents" | "metrics" | null;
 export type EditTool = "select" | "trim" | "blade";
@@ -68,6 +70,7 @@ export interface RendererState {
   playheadUs: TimeUs;
   playbackRuntime: PlaybackRuntimeState | null;
   derivedMedia: DerivedMediaSnapshot | null;
+  transcripts: TranscriptSnapshot | null;
   electronHealth: ElectronHealthSnapshot | null;
   account: AccountSnapshot;
   accountHydrated: boolean;
@@ -100,6 +103,7 @@ export interface RendererState {
   setAuxiliaryMode: (mode: AuxiliarySidebarMode) => void;
   togglePanel: (panel: PanelKind) => Promise<ActionResult<DesktopAppState>>;
   saveEditorLayout: (layout: EditorLayoutState) => Promise<ActionResult<DesktopAppState>>;
+  saveCutLayout: (layout: CutLayoutState) => Promise<ActionResult<DesktopAppState>>;
   clearError: () => void;
   selectClip: (id: ClipId | null) => void;
   setTimelineZoom: (zoom: number) => void;
@@ -114,6 +118,8 @@ export interface RendererState {
     snapshot: RuntimeSnapshot | null,
   ) => void;
   setDerivedMedia: (projectDirectory: string, snapshot: DerivedMediaSnapshot | null) => void;
+  setTranscripts: (projectDirectory: string, snapshot: TranscriptSnapshot | null) => void;
+  requestTranscripts: (assetIds: AssetId[]) => Promise<ActionResult<TranscriptSnapshot>>;
   setElectronHealth: (snapshot: ElectronHealthSnapshot | null) => void;
   setAccount: (snapshot: AccountSnapshot) => void;
   refreshAccount: () => Promise<void>;
@@ -136,6 +142,7 @@ export const EMPTY_APP_STATE: DesktopAppState = {
   inspectorOpenByProject: {},
   notesOpenByProject: {},
   editorLayoutsByProject: {},
+  cutLayoutsByProject: {},
 };
 
 export const INITIAL_ACCOUNT_STATE: AccountSnapshot = {
@@ -178,6 +185,13 @@ export function editorLayoutFromState(state: RendererState): EditorLayoutState {
     : DEFAULT_EDITOR_LAYOUT;
 }
 
+export function cutLayoutFromState(state: RendererState): CutLayoutState {
+  const session = sessionFromLifecycle(state.project);
+  return session
+    ? (state.appState.cutLayoutsByProject[session.directory] ?? DEFAULT_CUT_LAYOUT)
+    : DEFAULT_CUT_LAYOUT;
+}
+
 function clipExists(sequence: Sequence | null, clipId: ClipId | null): boolean {
   return Boolean(
     sequence &&
@@ -205,6 +219,7 @@ function hydratedProjectState(
     playheadUs: 0,
     playbackRuntime: null,
     derivedMedia: null,
+    transcripts: null,
   };
 }
 
@@ -388,6 +403,7 @@ export function createRendererStore({ api, storage }: RendererStoreDependencies)
       playheadUs: 0,
       playbackRuntime: null,
       derivedMedia: null,
+      transcripts: null,
       electronHealth: null,
       account: INITIAL_ACCOUNT_STATE,
       accountHydrated: false,
@@ -617,6 +633,20 @@ export function createRendererStore({ api, storage }: RendererStoreDependencies)
         }
       },
 
+      saveCutLayout: async (layout) => {
+        const blocked = blockedByProjectOpening<DesktopAppState>();
+        if (blocked) return blocked;
+        try {
+          const appState = await api.setProjectCutLayout(layout);
+          set({ appState });
+          return { ok: true, value: appState };
+        } catch (error) {
+          const message = messageFrom(error, "The Cut layout could not be saved");
+          set({ operationError: message });
+          return { ok: false, error: message };
+        }
+      },
+
       clearError: () => {
         const project = get().project;
         set({
@@ -657,6 +687,28 @@ export function createRendererStore({ api, storage }: RendererStoreDependencies)
         )
           return;
         set({ derivedMedia });
+      },
+      setTranscripts: (projectDirectory, transcripts) => {
+        const session = sessionFromLifecycle(get().project);
+        if (session?.directory === projectDirectory) set({ transcripts });
+      },
+      requestTranscripts: async (assetIds) => {
+        const session = sessionFromLifecycle(get().project);
+        if (!session) return { ok: false, error: "Open a project before transcribing media" };
+        if (get().account.status !== "signed-in" || !get().account.transcription) {
+          const error = "Sign in to transcribe media";
+          set({ operationError: error });
+          return { ok: false, error };
+        }
+        try {
+          const snapshot = await api.requestTranscriptJobs(session.derivedScope, assetIds);
+          set({ transcripts: snapshot, operationError: null });
+          return { ok: true, value: snapshot };
+        } catch (error) {
+          const message = messageFrom(error, "Transcription could not be queued");
+          set({ operationError: message });
+          return { ok: false, error: message };
+        }
       },
       setElectronHealth: (electronHealth) => set({ electronHealth }),
       setAccount: (account) => {

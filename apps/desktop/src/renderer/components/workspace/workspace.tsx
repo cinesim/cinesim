@@ -1,14 +1,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { cn } from "@cinesim/ui";
 import { canSplitClipAt, findClip } from "@cinesim/core";
-import type { Asset, EditorCommand, SequenceId } from "@cinesim/core";
-import { EDITOR_LAYOUT_LIMITS } from "../../../shared/api";
-import type { DesktopProjectSession, EditorLayoutState } from "../../../shared/api";
+import type { Asset, EditorCommand, Project, SequenceId, TimelineRange } from "@cinesim/core";
+import { CUT_LAYOUT_LIMITS, EDITOR_LAYOUT_LIMITS } from "../../../shared/api";
+import type { CutLayoutState, DesktopProjectSession, EditorLayoutState } from "../../../shared/api";
 import { editShortcutAction } from "../../lib/edit-shortcuts";
 import { useRendererStore } from "../../store/renderer-store-context";
 import { EditMediaPool } from "../media/edit-media-pool";
 import { MediaBin } from "../media/media-bin";
 import { Timeline } from "../timeline/timeline";
+import { TimelineTranscript } from "../transcript/timeline-transcript";
 import { Viewer } from "../viewer/viewer";
 import type { ViewerController } from "../viewer/viewer";
 import { EditorDndProvider } from "./editor-dnd-context";
@@ -17,12 +18,13 @@ import { NotesPanel } from "./notes-panel";
 
 interface WorkspaceProps {
   session: DesktopProjectSession;
-  section: "media" | "edit";
+  section: "media" | "cut" | "edit";
   activeSequenceId: string;
   mediaPoolOpen: boolean;
   inspectorOpen: boolean;
   notesOpen: boolean;
   editorLayout: EditorLayoutState;
+  cutLayout: CutLayoutState;
   onOpenTimeline: (sequenceId: string) => void;
 }
 
@@ -125,6 +127,263 @@ function upperGridTemplate(
   return columns.join(" ");
 }
 
+type CutResizeTarget = "column" | "viewer" | "timeline";
+
+function fitCutLayout(
+  layout: CutLayoutState,
+  bounds: { width: number; height: number },
+): CutLayoutState {
+  return {
+    rightColumnWidth: clamp(
+      layout.rightColumnWidth,
+      CUT_LAYOUT_LIMITS.rightColumnWidth.min,
+      Math.min(CUT_LAYOUT_LIMITS.rightColumnWidth.max, Math.max(300, bounds.width - 420)),
+    ),
+    viewerHeight: clamp(
+      layout.viewerHeight,
+      CUT_LAYOUT_LIMITS.viewerHeight.min,
+      Math.min(CUT_LAYOUT_LIMITS.viewerHeight.max, Math.max(220, bounds.height - 260)),
+    ),
+    timelineHeight: clamp(
+      layout.timelineHeight,
+      CUT_LAYOUT_LIMITS.timelineHeight.min,
+      Math.min(CUT_LAYOUT_LIMITS.timelineHeight.max, Math.max(64, bounds.height - 300)),
+    ),
+  };
+}
+
+function CutWorkspace({
+  session,
+  project,
+  sequenceId,
+  initialLayout,
+  viewerControllerRef,
+  setViewerController,
+  onCommand,
+  onImport,
+  onAddAsset,
+}: {
+  session: DesktopProjectSession;
+  project: Project;
+  sequenceId: string;
+  initialLayout: CutLayoutState;
+  viewerControllerRef: React.RefObject<ViewerController | null>;
+  setViewerController: (controller: ViewerController | null) => void;
+  onCommand: (
+    command: EditorCommand,
+  ) => Promise<import("../../store/renderer-store").ActionResult<unknown>>;
+  onImport: () => Promise<unknown>;
+  onAddAsset: (asset: Asset) => Promise<unknown>;
+}) {
+  const [layout, setLayout] = useState(initialLayout);
+  const [bounds, setBounds] = useState({ width: 0, height: 0 });
+  const [selectedRanges, setSelectedRanges] = useState<TimelineRange[]>([]);
+  const auditionEndUs = useRef<number | null>(null);
+  const rootRef = useRef<HTMLDivElement>(null);
+  const upperRef = useRef<HTMLDivElement>(null);
+  const rightRef = useRef<HTMLDivElement>(null);
+  const layoutRef = useRef(initialLayout);
+  const resizeOrigin = useRef<{
+    target: CutResizeTarget;
+    x: number;
+    y: number;
+    layout: CutLayoutState;
+  } | null>(null);
+  const transcripts = useRendererStore((state) => state.transcripts);
+  const account = useRendererStore((state) => state.account);
+  const playheadUs = useRendererStore((state) => state.playheadUs);
+  const playbackPlaying = useRendererStore(
+    (state) => state.playbackRuntime?.snapshot.playing ?? false,
+  );
+  const requestTranscripts = useRendererStore((state) => state.requestTranscripts);
+  const saveCutLayout = useRendererStore((state) => state.saveCutLayout);
+  const setPlayheadUs = useRendererStore((state) => state.setPlayheadUs);
+  const fitted = fitCutLayout(layout, bounds);
+  const acceptSelection = useCallback((ranges: TimelineRange[]) => {
+    setSelectedRanges((current) => {
+      if (
+        current.length === ranges.length &&
+        current.every(
+          (range, index) =>
+            range.startUs === ranges[index]?.startUs && range.endUs === ranges[index]?.endUs,
+        )
+      )
+        return current;
+      return ranges;
+    });
+  }, []);
+
+  useEffect(() => {
+    const root = rootRef.current;
+    if (!root) return;
+    const measure = () => setBounds({ width: root.clientWidth, height: root.clientHeight });
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(root);
+    return () => observer.disconnect();
+  }, []);
+
+  useEffect(() => {
+    if (auditionEndUs.current === null || !playbackPlaying || playheadUs < auditionEndUs.current)
+      return;
+    viewerControllerRef.current?.pauseTimeline();
+    auditionEndUs.current = null;
+  }, [playbackPlaying, playheadUs, viewerControllerRef]);
+
+  function applyTransient(next: CutLayoutState): void {
+    const value = fitCutLayout(next, bounds);
+    if (rootRef.current)
+      rootRef.current.style.gridTemplateRows = `minmax(240px, 1fr) ${SPLITTER_SIZE}px ${value.timelineHeight}px`;
+    if (upperRef.current)
+      upperRef.current.style.gridTemplateColumns = `minmax(360px, 1fr) ${SPLITTER_SIZE}px ${value.rightColumnWidth}px`;
+    if (rightRef.current)
+      rightRef.current.style.gridTemplateRows = `${value.viewerHeight}px ${SPLITTER_SIZE}px minmax(160px, 1fr)`;
+    layoutRef.current = value;
+  }
+
+  function startResize(target: CutResizeTarget, event: React.PointerEvent<HTMLDivElement>): void {
+    resizeOrigin.current = {
+      target,
+      x: event.clientX,
+      y: event.clientY,
+      layout: fitCutLayout(layoutRef.current, bounds),
+    };
+    event.currentTarget.setPointerCapture(event.pointerId);
+    event.preventDefault();
+  }
+
+  function moveResize(target: CutResizeTarget, event: React.PointerEvent<HTMLDivElement>): void {
+    const origin = resizeOrigin.current;
+    if (!origin || origin.target !== target) return;
+    const next = { ...origin.layout };
+    if (target === "column") next.rightColumnWidth += origin.x - event.clientX;
+    else if (target === "viewer") next.viewerHeight += event.clientY - origin.y;
+    else next.timelineHeight += origin.y - event.clientY;
+    applyTransient(next);
+  }
+
+  function finishResize(target: CutResizeTarget, event: React.PointerEvent<HTMLDivElement>): void {
+    if (resizeOrigin.current?.target !== target) return;
+    resizeOrigin.current = null;
+    if (event.currentTarget.hasPointerCapture(event.pointerId))
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    setLayout(layoutRef.current);
+    void saveCutLayout(layoutRef.current);
+  }
+
+  function cancelResize(target: CutResizeTarget, _event: React.PointerEvent<HTMLDivElement>): void {
+    const origin = resizeOrigin.current;
+    if (!origin || origin.target !== target) return;
+    resizeOrigin.current = null;
+    applyTransient(origin.layout);
+    setLayout(origin.layout);
+  }
+
+  function handleSeek(timeUs: number): void {
+    setPlayheadUs(timeUs);
+    void viewerControllerRef.current?.seekTimeline(timeUs);
+  }
+
+  return (
+    <div
+      ref={rootRef}
+      className="grid h-full min-h-0"
+      style={{
+        gridTemplateRows: `minmax(240px, 1fr) ${SPLITTER_SIZE}px ${fitted.timelineHeight}px`,
+      }}
+    >
+      <div
+        ref={upperRef}
+        className="grid min-h-0"
+        style={{
+          gridTemplateColumns: `minmax(360px, 1fr) ${SPLITTER_SIZE}px ${fitted.rightColumnWidth}px`,
+        }}
+      >
+        <TimelineTranscript
+          project={project}
+          sequenceId={sequenceId}
+          transcripts={transcripts}
+          account={account}
+          playheadUs={playheadUs}
+          onSeek={handleSeek}
+          onCommand={onCommand}
+          onRequestTranscripts={requestTranscripts}
+          onSelectionChange={acceptSelection}
+          onPlaySelection={(startUs, endUs) => {
+            auditionEndUs.current = endUs;
+            void viewerControllerRef.current
+              ?.seekTimeline(startUs)
+              .then(() => viewerControllerRef.current?.playTimeline());
+          }}
+        />
+        <PanelResizeHandle
+          orientation="vertical"
+          label="Resize transcript and preview"
+          onPointerDown={(event) => startResize("column", event)}
+          onPointerMove={(event) => moveResize("column", event)}
+          onPointerUp={(event) => finishResize("column", event)}
+          onPointerCancel={(event) => cancelResize("column", event)}
+        />
+        <div
+          ref={rightRef}
+          className="grid min-h-0"
+          style={{
+            gridTemplateRows: `${fitted.viewerHeight}px ${SPLITTER_SIZE}px minmax(160px, 1fr)`,
+          }}
+        >
+          <Viewer
+            key={sequenceId}
+            project={project}
+            projectDirectory={session.directory}
+            derivedScope={session.derivedScope}
+            sequenceId={sequenceId}
+            onController={setViewerController}
+          />
+          <PanelResizeHandle
+            orientation="horizontal"
+            label="Resize viewer and Media Pool"
+            onPointerDown={(event) => startResize("viewer", event)}
+            onPointerMove={(event) => moveResize("viewer", event)}
+            onPointerUp={(event) => finishResize("viewer", event)}
+            onPointerCancel={(event) => cancelResize("viewer", event)}
+          />
+          <EditMediaPool
+            project={project}
+            onAddAsset={onAddAsset}
+            onImport={onImport}
+            onPreviewAsset={(asset, sourceTimeUs) =>
+              viewerControllerRef.current?.enterAssetPreview(asset.id, sourceTimeUs)
+            }
+            onPreviewEnd={() => void viewerControllerRef.current?.exitAssetPreview()}
+          />
+        </div>
+      </div>
+      <PanelResizeHandle
+        orientation="horizontal"
+        label="Resize Timeline"
+        onPointerDown={(event) => startResize("timeline", event)}
+        onPointerMove={(event) => moveResize("timeline", event)}
+        onPointerUp={(event) => finishResize("timeline", event)}
+        onPointerCancel={(event) => cancelResize("timeline", event)}
+      />
+      <Timeline
+        project={project}
+        transcripts={transcripts}
+        selectedRanges={selectedRanges}
+        onCommand={onCommand}
+        onSeek={handleSeek}
+        onTogglePlayback={() => {
+          auditionEndUs.current = null;
+          if (playbackPlaying) viewerControllerRef.current?.pauseTimeline();
+          else viewerControllerRef.current?.playTimeline();
+        }}
+        onGoToStart={() => handleSeek(0)}
+        onStepFrames={(deltaFrames) => void viewerControllerRef.current?.stepFrames(deltaFrames)}
+      />
+    </div>
+  );
+}
+
 export function Workspace({
   session,
   section,
@@ -133,6 +392,7 @@ export function Workspace({
   inspectorOpen,
   notesOpen,
   editorLayout,
+  cutLayout,
   onOpenTimeline,
 }: WorkspaceProps) {
   const [layout, setLayout] = useState(editorLayout);
@@ -162,6 +422,7 @@ export function Workspace({
   const playbackPlaying = useRendererStore(
     (state) => state.playbackRuntime?.snapshot.playing ?? false,
   );
+  const transcripts = useRendererStore((state) => state.transcripts);
   const setPlayheadUs = useRendererStore((state) => state.setPlayheadUs);
   const setTool = useRendererStore((state) => state.setTool);
   const toggleSnapping = useRendererStore((state) => state.toggleSnapping);
@@ -335,103 +596,118 @@ export function Workspace({
           onCommand={command}
           onAssetDragStart={() => void viewerControllerRef.current?.exitAssetPreview()}
         >
-          <div
-            ref={layoutRootRef}
-            className="grid h-full min-h-0"
-            style={{
-              gridTemplateRows: `minmax(${MIN_VIEWER_HEIGHT}px, 1fr) ${SPLITTER_SIZE}px ${fittedLayout.timelineHeight}px`,
-            }}
-          >
+          {section === "cut" ? (
+            <CutWorkspace
+              session={session}
+              project={editorProject}
+              sequenceId={activeSequence.id}
+              initialLayout={cutLayout}
+              viewerControllerRef={viewerControllerRef}
+              setViewerController={setViewerController}
+              onCommand={command}
+              onImport={importMedia}
+              onAddAsset={addAsset}
+            />
+          ) : (
             <div
-              ref={upperPanelsRef}
-              className="grid min-h-0"
+              ref={layoutRootRef}
+              className="grid h-full min-h-0"
               style={{
-                gridTemplateColumns: upperGridTemplate(
-                  fittedLayout,
-                  mediaPoolOpen,
-                  inspectorOpen,
-                  notesOpen,
-                ),
+                gridTemplateRows: `minmax(${MIN_VIEWER_HEIGHT}px, 1fr) ${SPLITTER_SIZE}px ${fittedLayout.timelineHeight}px`,
               }}
             >
-              {mediaPoolOpen && (
-                <>
-                  <EditMediaPool
-                    project={editorProject}
-                    onAddAsset={addAsset}
-                    onImport={importMedia}
-                    onPreviewAsset={(asset, sourceTimeUs) =>
-                      viewerControllerRef.current?.enterAssetPreview(asset.id, sourceTimeUs)
-                    }
-                    onPreviewEnd={() => void viewerControllerRef.current?.exitAssetPreview()}
-                  />
-                  <PanelResizeHandle
-                    orientation="vertical"
-                    label="Resize Media Pool"
-                    onPointerDown={(event) => startResize("mediaPool", event)}
-                    onPointerMove={(event) => moveResize("mediaPool", event)}
-                    onPointerUp={(event) => finishResize("mediaPool", event)}
-                    onPointerCancel={(event) => cancelResize("mediaPool", event)}
-                  />
-                </>
-              )}
-              <Viewer
-                key={activeSequence.id}
-                project={editorProject}
-                projectDirectory={session.directory}
-                derivedScope={session.derivedScope}
-                sequenceId={activeSequence.id}
-                onController={setViewerController}
+              <div
+                ref={upperPanelsRef}
+                className="grid min-h-0"
+                style={{
+                  gridTemplateColumns: upperGridTemplate(
+                    fittedLayout,
+                    mediaPoolOpen,
+                    inspectorOpen,
+                    notesOpen,
+                  ),
+                }}
+              >
+                {mediaPoolOpen && (
+                  <>
+                    <EditMediaPool
+                      project={editorProject}
+                      onAddAsset={addAsset}
+                      onImport={importMedia}
+                      onPreviewAsset={(asset, sourceTimeUs) =>
+                        viewerControllerRef.current?.enterAssetPreview(asset.id, sourceTimeUs)
+                      }
+                      onPreviewEnd={() => void viewerControllerRef.current?.exitAssetPreview()}
+                    />
+                    <PanelResizeHandle
+                      orientation="vertical"
+                      label="Resize Media Pool"
+                      onPointerDown={(event) => startResize("mediaPool", event)}
+                      onPointerMove={(event) => moveResize("mediaPool", event)}
+                      onPointerUp={(event) => finishResize("mediaPool", event)}
+                      onPointerCancel={(event) => cancelResize("mediaPool", event)}
+                    />
+                  </>
+                )}
+                <Viewer
+                  key={activeSequence.id}
+                  project={editorProject}
+                  projectDirectory={session.directory}
+                  derivedScope={session.derivedScope}
+                  sequenceId={activeSequence.id}
+                  onController={setViewerController}
+                />
+                {inspectorOpen && (
+                  <>
+                    <PanelResizeHandle
+                      orientation="vertical"
+                      label="Resize Inspector"
+                      onPointerDown={(event) => startResize("inspector", event)}
+                      onPointerMove={(event) => moveResize("inspector", event)}
+                      onPointerUp={(event) => finishResize("inspector", event)}
+                      onPointerCancel={(event) => cancelResize("inspector", event)}
+                    />
+                    <Inspector project={editorProject} />
+                  </>
+                )}
+                {notesOpen && (
+                  <>
+                    <PanelResizeHandle
+                      orientation="vertical"
+                      label="Resize Notes"
+                      onPointerDown={(event) => startResize("notes", event)}
+                      onPointerMove={(event) => moveResize("notes", event)}
+                      onPointerUp={(event) => finishResize("notes", event)}
+                      onPointerCancel={(event) => cancelResize("notes", event)}
+                    />
+                    <NotesPanel />
+                  </>
+                )}
+              </div>
+              <PanelResizeHandle
+                orientation="horizontal"
+                label="Resize Timeline"
+                onPointerDown={(event) => startResize("timeline", event)}
+                onPointerMove={(event) => moveResize("timeline", event)}
+                onPointerUp={(event) => finishResize("timeline", event)}
+                onPointerCancel={(event) => cancelResize("timeline", event)}
               />
-              {inspectorOpen && (
-                <>
-                  <PanelResizeHandle
-                    orientation="vertical"
-                    label="Resize Inspector"
-                    onPointerDown={(event) => startResize("inspector", event)}
-                    onPointerMove={(event) => moveResize("inspector", event)}
-                    onPointerUp={(event) => finishResize("inspector", event)}
-                    onPointerCancel={(event) => cancelResize("inspector", event)}
-                  />
-                  <Inspector project={editorProject} />
-                </>
-              )}
-              {notesOpen && (
-                <>
-                  <PanelResizeHandle
-                    orientation="vertical"
-                    label="Resize Notes"
-                    onPointerDown={(event) => startResize("notes", event)}
-                    onPointerMove={(event) => moveResize("notes", event)}
-                    onPointerUp={(event) => finishResize("notes", event)}
-                    onPointerCancel={(event) => cancelResize("notes", event)}
-                  />
-                  <NotesPanel />
-                </>
-              )}
+              <Timeline
+                project={editorProject}
+                transcripts={transcripts}
+                onCommand={command}
+                onSeek={(timeUs) => void viewerControllerRef.current?.seekTimeline(timeUs)}
+                onTogglePlayback={() => {
+                  if (playbackPlaying) viewerControllerRef.current?.pauseTimeline();
+                  else viewerControllerRef.current?.playTimeline();
+                }}
+                onGoToStart={() => void viewerControllerRef.current?.seekTimeline(0)}
+                onStepFrames={(deltaFrames) =>
+                  void viewerControllerRef.current?.stepFrames(deltaFrames)
+                }
+              />
             </div>
-            <PanelResizeHandle
-              orientation="horizontal"
-              label="Resize Timeline"
-              onPointerDown={(event) => startResize("timeline", event)}
-              onPointerMove={(event) => moveResize("timeline", event)}
-              onPointerUp={(event) => finishResize("timeline", event)}
-              onPointerCancel={(event) => cancelResize("timeline", event)}
-            />
-            <Timeline
-              project={editorProject}
-              onCommand={command}
-              onSeek={(timeUs) => void viewerControllerRef.current?.seekTimeline(timeUs)}
-              onTogglePlayback={() => {
-                if (playbackPlaying) viewerControllerRef.current?.pauseTimeline();
-                else viewerControllerRef.current?.playTimeline();
-              }}
-              onGoToStart={() => void viewerControllerRef.current?.seekTimeline(0)}
-              onStepFrames={(deltaFrames) =>
-                void viewerControllerRef.current?.stepFrames(deltaFrames)
-              }
-            />
-          </div>
+          )}
         </EditorDndProvider>
       ) : null}
 
