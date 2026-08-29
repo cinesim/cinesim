@@ -1,4 +1,5 @@
 export * from "./commands/apply";
+export * from "./commands/delete-ranges";
 export * from "./commands/types";
 export * from "./history/history";
 export * from "./ids";

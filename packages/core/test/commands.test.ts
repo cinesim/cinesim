@@ -377,6 +377,229 @@ describe("editing commands", () => {
     ).toThrow(/strictly inside/);
   });
 
+  it("ripple deletes an interior range as one deterministic clip edit", () => {
+    let project = withClip();
+    project = applyCommand(project, {
+      type: "clip.setFade",
+      clipId: "clip_000001",
+      edge: "in",
+      durationUs: 1_000_000,
+    }).project;
+    project = applyCommand(project, {
+      type: "clip.setFade",
+      clipId: "clip_000001",
+      edge: "out",
+      durationUs: 2_000_000,
+    }).project;
+
+    const result = applyCommand(project, {
+      type: "sequence.deleteRanges",
+      sequenceId: project.activeSequenceId,
+      ranges: [{ startUs: 3_000_000, endUs: 5_000_000 }],
+      mode: "ripple",
+    });
+
+    expect(result.createdIds).toEqual(["clip_000002"]);
+    expect(result.project.sequences[0]!.tracks[0]!.clips).toMatchObject([
+      {
+        id: "clip_000001",
+        timelineStartUs: 0,
+        sourceStartUs: 0,
+        sourceEndUs: 3_000_000,
+        fadeInUs: 1_000_000,
+      },
+      {
+        id: "clip_000002",
+        timelineStartUs: 3_000_000,
+        sourceStartUs: 5_000_000,
+        sourceEndUs: 10_000_000,
+        fadeOutUs: 2_000_000,
+      },
+    ]);
+    expect(findClip(result.project, "clip_000001").clip.fadeOutUs).toBeUndefined();
+    expect(findClip(result.project, "clip_000002").clip.fadeInUs).toBeUndefined();
+  });
+
+  it("keeps reciprocal linked A/V fragments synchronized during range deletion", () => {
+    let project = applyCommand(createProject({ name: "Linked delete" }), {
+      type: "asset.import",
+      asset: avAsset,
+    }).project;
+    project = applyCommand(project, {
+      type: "clip.add",
+      trackId: "track_000001",
+      audioTrackId: "track_000002",
+      assetId: avAsset.id,
+      timelineStartUs: 0,
+    }).project;
+
+    const result = applyCommand(project, {
+      type: "sequence.deleteRanges",
+      sequenceId: project.activeSequenceId,
+      ranges: [{ startUs: 4_000_000, endUs: 6_000_000 }],
+      mode: "ripple",
+    });
+
+    expect(result.createdIds).toEqual(["clip_000003", "clip_000004"]);
+    expect(findClip(result.project, "clip_000001").clip.linkedClipId).toBe("clip_000002");
+    expect(findClip(result.project, "clip_000002").clip.linkedClipId).toBe("clip_000001");
+    expect(findClip(result.project, "clip_000003").clip).toMatchObject({
+      linkedClipId: "clip_000004",
+      timelineStartUs: 4_000_000,
+      sourceStartUs: 6_000_000,
+    });
+    expect(findClip(result.project, "clip_000004").clip.linkedClipId).toBe("clip_000003");
+  });
+
+  it("handles clip-edge, whole-clip, adjacent, and disjoint range deletions", () => {
+    const startTrimmed = applyCommand(withClip(), {
+      type: "sequence.deleteRanges",
+      sequenceId: "sequence_000001",
+      ranges: [{ startUs: 0, endUs: 2_000_000 }],
+      mode: "ripple",
+    }).project;
+    expect(findClip(startTrimmed, "clip_000001").clip).toMatchObject({
+      timelineStartUs: 0,
+      sourceStartUs: 2_000_000,
+      sourceEndUs: 10_000_000,
+    });
+
+    const endTrimmed = applyCommand(withClip(), {
+      type: "sequence.deleteRanges",
+      sequenceId: "sequence_000001",
+      ranges: [{ startUs: 8_000_000, endUs: 10_000_000 }],
+      mode: "ripple",
+    }).project;
+    expect(findClip(endTrimmed, "clip_000001").clip.sourceEndUs).toBe(8_000_000);
+
+    const removed = applyCommand(withClip(), {
+      type: "sequence.deleteRanges",
+      sequenceId: "sequence_000001",
+      ranges: [{ startUs: 0, endUs: 10_000_000 }],
+      mode: "ripple",
+    }).project;
+    expect(removed.sequences[0]!.tracks[0]!.clips).toEqual([]);
+
+    let adjacent = withClip();
+    adjacent = applyCommand(adjacent, {
+      type: "clip.add",
+      trackId: "track_000001",
+      assetId: asset.id,
+      timelineStartUs: 10_000_000,
+    }).project;
+    adjacent = applyCommand(adjacent, {
+      type: "sequence.deleteRanges",
+      sequenceId: adjacent.activeSequenceId,
+      ranges: [{ startUs: 8_000_000, endUs: 12_000_000 }],
+      mode: "ripple",
+    }).project;
+    expect(adjacent.sequences[0]!.tracks[0]!.clips).toMatchObject([
+      { id: "clip_000001", timelineStartUs: 0, sourceEndUs: 8_000_000 },
+      { id: "clip_000002", timelineStartUs: 8_000_000, sourceStartUs: 2_000_000 },
+    ]);
+
+    const disjoint = applyCommand(withClip(), {
+      type: "sequence.deleteRanges",
+      sequenceId: "sequence_000001",
+      ranges: [
+        { startUs: 5_000_000, endUs: 7_000_000 },
+        { startUs: 2_000_000, endUs: 3_000_000 },
+      ],
+      mode: "ripple",
+    });
+    expect(disjoint.createdIds).toEqual(["clip_000002", "clip_000003"]);
+    expect(disjoint.project.sequences[0]!.tracks[0]!.clips).toMatchObject([
+      { timelineStartUs: 0, sourceStartUs: 0, sourceEndUs: 2_000_000 },
+      { timelineStartUs: 2_000_000, sourceStartUs: 3_000_000, sourceEndUs: 5_000_000 },
+      { timelineStartUs: 4_000_000, sourceStartUs: 7_000_000, sourceEndUs: 10_000_000 },
+    ]);
+  });
+
+  it("distinguishes lift from ripple and shifts every affected track", () => {
+    const lifted = applyCommand(withClip(), {
+      type: "sequence.deleteRanges",
+      sequenceId: "sequence_000001",
+      ranges: [{ startUs: 3_000_000, endUs: 5_000_000 }],
+      mode: "lift",
+    }).project;
+    expect(lifted.sequences[0]!.tracks[0]!.clips.map((clip) => clip.timelineStartUs)).toEqual([
+      0, 5_000_000,
+    ]);
+
+    let project = withClip();
+    project = applyCommand(project, {
+      type: "track.add",
+      sequenceId: project.activeSequenceId,
+      kind: "overlay",
+      name: "B-roll",
+    }).project;
+    project = applyCommand(project, {
+      type: "clip.add",
+      trackId: "track_000003",
+      assetId: asset.id,
+      sourceEndUs: 2_000_000,
+      timelineStartUs: 6_000_000,
+    }).project;
+    project = applyCommand(project, {
+      type: "sequence.deleteRanges",
+      sequenceId: project.activeSequenceId,
+      ranges: [{ startUs: 2_000_000, endUs: 4_000_000 }],
+      mode: "ripple",
+    }).project;
+    expect(findClip(project, "clip_000002").clip.timelineStartUs).toBe(4_000_000);
+  });
+
+  it("rejects a range edit atomically when a track that must move is locked", () => {
+    let project = withClip();
+    project = applyCommand(project, {
+      type: "track.add",
+      sequenceId: project.activeSequenceId,
+      kind: "overlay",
+      name: "Locked overlay",
+    }).project;
+    project = applyCommand(project, {
+      type: "clip.add",
+      trackId: "track_000003",
+      assetId: asset.id,
+      sourceEndUs: 2_000_000,
+      timelineStartUs: 6_000_000,
+    }).project;
+    project = applyCommand(project, {
+      type: "track.update",
+      trackId: "track_000003",
+      locked: true,
+    }).project;
+    const before = JSON.stringify(project);
+
+    expect(() =>
+      applyCommand(project, {
+        type: "sequence.deleteRanges",
+        sequenceId: project.activeSequenceId,
+        ranges: [{ startUs: 2_000_000, endUs: 4_000_000 }],
+        mode: "ripple",
+      }),
+    ).toThrow(/Unlock Locked overlay/);
+    expect(JSON.stringify(project)).toBe(before);
+  });
+
+  it("restores byte-equivalent canonical state with one range-edit undo", () => {
+    const initial = withClip();
+    const before = JSON.stringify(initial);
+    const history = new ProjectHistory(initial);
+    history.commit({
+      type: "sequence.deleteRanges",
+      sequenceId: initial.activeSequenceId,
+      ranges: [
+        { startUs: 2_000_000, endUs: 3_000_000 },
+        { startUs: 6_000_000, endUs: 7_000_000 },
+      ],
+      mode: "ripple",
+    });
+    expect(history.canUndo).toBe(true);
+    expect(JSON.stringify(history.undo())).toBe(before);
+    expect(history.canUndo).toBe(false);
+  });
+
   it("enforces asset compatibility when clips are added or moved between tracks", () => {
     let project = applyCommand(seededProject(), {
       type: "asset.import",

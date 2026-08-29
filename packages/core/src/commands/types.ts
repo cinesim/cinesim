@@ -1,6 +1,11 @@
 import type { AssetId, ClipId, SequenceId, TrackId } from "../ids";
 import type { Asset, AssetSource, TimeUs, Track, Transform } from "../project/types";
 
+export interface TimelineRange {
+  startUs: TimeUs;
+  endUs: TimeUs;
+}
+
 export type EditorCommand =
   | { type: "asset.import"; asset: Asset }
   | { type: "asset.setSource"; assetId: AssetId; source: AssetSource }
@@ -14,6 +19,12 @@ export type EditorCommand =
       frameRate?: number;
     }
   | { type: "sequence.remove"; sequenceId: SequenceId }
+  | {
+      type: "sequence.deleteRanges";
+      sequenceId: SequenceId;
+      ranges: TimelineRange[];
+      mode: "lift" | "ripple";
+    }
   | {
       type: "track.add";
       sequenceId: SequenceId;
