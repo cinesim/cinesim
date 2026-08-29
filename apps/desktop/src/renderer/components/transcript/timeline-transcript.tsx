@@ -304,8 +304,18 @@ export function TimelineTranscript({
         .map((item) => item.assetId),
     [projection.coverage],
   );
+  const selectionKey = selectedRanges.map((range) => `${range.startUs}:${range.endUs}`).join(",");
+  const publishedSelection = useRef<{
+    key: string;
+    listener: TimelineTranscriptProps["onSelectionChange"];
+  } | null>(null);
 
-  useEffect(() => onSelectionChange(selectedRanges), [onSelectionChange, selectedRanges]);
+  useEffect(() => {
+    const published = publishedSelection.current;
+    if (published?.key === selectionKey && published.listener === onSelectionChange) return;
+    publishedSelection.current = { key: selectionKey, listener: onSelectionChange };
+    onSelectionChange(selectedRanges);
+  }, [onSelectionChange, selectedRanges, selectionKey]);
 
   useEffect(() => {
     const viewport = viewportRef.current;

@@ -123,6 +123,7 @@ function setup(initial: DerivedMediaSnapshot, initialTranscripts?: TranscriptSna
   const transcribedChunks: unknown[] = [];
   const finalizedTranscriptJobs: string[] = [];
   const requestedTranscriptAssets: string[][] = [];
+  const failTranscriptJob = vi.fn(async () => transcriptSnapshot);
   const begun: { assetId: string; kind: string; expectedBytes?: number }[] = [];
   const canceled: { writerId: string; failureCode?: string; detail?: string }[] = [];
   const api = {
@@ -149,7 +150,7 @@ function setup(initial: DerivedMediaSnapshot, initialTranscripts?: TranscriptSna
         transcriptSnapshot.assets.asset_fixture.state = "ready";
       return transcriptSnapshot;
     }),
-    failTranscriptJob: vi.fn(async () => transcriptSnapshot),
+    failTranscriptJob,
     onTranscriptsChanged: vi.fn((listener: (snapshot: TranscriptSnapshot) => void) => {
       transcriptListener = listener;
       return () => {
@@ -207,6 +208,7 @@ function setup(initial: DerivedMediaSnapshot, initialTranscripts?: TranscriptSna
     transcribedChunks,
     finalizedTranscriptJobs,
     requestedTranscriptAssets,
+    failTranscriptJob,
     emitDerivedMedia: (next: DerivedMediaSnapshot) => derivedMediaListener?.(next),
     emitTranscripts: (next: TranscriptSnapshot) => transcriptListener?.(next),
   };
@@ -251,6 +253,50 @@ describe("MediaJobCoordinator", () => {
 
     await vi.waitFor(() => expect(published.at(-1)?.assets.asset_fixture?.progress).toBe(0.5));
     expect("progress" in record).toBe(false);
+    await coordinator.destroy();
+  });
+
+  it("bounds progress publications and isolates subscriber failures from transcript jobs", async () => {
+    const transcripts: TranscriptSnapshot = {
+      projectDirectory: "/tmp/project",
+      projectScope,
+      assets: {
+        asset_fixture: { assetId: "asset_fixture", state: "queued" },
+      },
+    };
+    const { failTranscriptJob } = setup(snapshot("ready", "ready", "ready"), transcripts);
+    const publishedProgress: number[] = [];
+    vi.stubGlobal("reportError", vi.fn());
+    const coordinator = new MediaJobCoordinator(
+      project(true),
+      projectScope,
+      () => undefined,
+      undefined,
+      (next) => {
+        const progress = next.assets.asset_fixture?.progress;
+        if (progress !== undefined) publishedProgress.push(progress);
+        if (publishedProgress.length === 2) throw new Error("presentation update failed");
+      },
+    );
+    await coordinator.start();
+    await vi.waitFor(() =>
+      expect(FakeWorker.instance?.sent).toContainEqual(
+        expect.objectContaining({ type: "transcript" }),
+      ),
+    );
+
+    for (let percent = 1; percent <= 99; percent += 1) {
+      FakeWorker.instance!.emit({
+        type: "transcript-progress",
+        jobId: "00000000-0000-4000-8000-000000000099",
+        progress: percent / 100,
+      });
+    }
+
+    await vi.waitFor(() => expect(publishedProgress.at(-1)).toBeGreaterThanOrEqual(0.95));
+    expect(publishedProgress.length).toBeLessThanOrEqual(21);
+    expect(globalThis.reportError).toHaveBeenCalledWith(expect.any(Error));
+    expect(failTranscriptJob).not.toHaveBeenCalled();
     await coordinator.destroy();
   });
 

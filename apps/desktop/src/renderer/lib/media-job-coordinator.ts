@@ -21,6 +21,7 @@ interface ActiveJob {
 }
 
 const WORKER_INACTIVITY_TIMEOUT_MS = 120_000;
+const TRANSCRIPT_PROGRESS_STEPS = 20;
 
 export class MediaJobCoordinator {
   #project: Project;
@@ -99,6 +100,15 @@ export class MediaJobCoordinator {
       if (this.#worker === worker && this.#active)
         void this.#recoverWorker("worker-crashed", event.message || "Derived media worker crashed");
     };
+  }
+
+  #notifyTranscriptSnapshot(snapshot: TranscriptSnapshot): void {
+    try {
+      this.#onTranscriptSnapshot(snapshot);
+    } catch (error) {
+      // A presentation subscriber must never turn a valid media job into a failed artifact.
+      globalThis.reportError?.(error);
+    }
   }
 
   async updateProject(project: Project, settings: ProjectSettings = this.#settings): Promise<void> {
@@ -233,7 +243,7 @@ export class MediaJobCoordinator {
     // Values crossing contextBridge are copied and frozen. Keep an explicitly mutable local copy
     // for ephemeral progress updates rather than mutating the bridge-owned payload.
     this.#transcriptSnapshot = structuredClone(snapshot);
-    this.#onTranscriptSnapshot(snapshot);
+    this.#notifyTranscriptSnapshot(snapshot);
     const active = this.#active;
     if (
       active?.kind === "transcript" &&
@@ -440,12 +450,21 @@ export class MediaJobCoordinator {
       return;
     }
     if (message.type === "transcript-progress") {
-      const snapshot = this.#transcriptSnapshot ? structuredClone(this.#transcriptSnapshot) : null;
-      const record = snapshot?.assets[active.assetId as Asset["id"]];
+      const currentRecord = this.#transcriptSnapshot?.assets[active.assetId as Asset["id"]];
+      const nextProgress = Math.max(
+        currentRecord?.progress ?? 0,
+        Math.min(1, Math.max(0, message.progress)),
+      );
+      if (!currentRecord || currentRecord.progress === nextProgress) return;
+      const previousStep = Math.floor((currentRecord.progress ?? 0) * TRANSCRIPT_PROGRESS_STEPS);
+      const nextStep = Math.floor(nextProgress * TRANSCRIPT_PROGRESS_STEPS);
+      const snapshot = structuredClone(this.#transcriptSnapshot!);
+      const record = snapshot.assets[active.assetId as Asset["id"]];
       if (record) {
-        record.progress = Math.min(1, Math.max(0, message.progress));
+        record.progress = nextProgress;
         this.#transcriptSnapshot = snapshot;
-        this.#onTranscriptSnapshot(snapshot);
+        if (currentRecord.progress === undefined || previousStep !== nextStep || nextProgress === 1)
+          this.#notifyTranscriptSnapshot(snapshot);
       }
       return;
     }
