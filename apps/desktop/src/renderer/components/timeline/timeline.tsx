@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { useDraggable, useDroppable } from "@dnd-kit/core";
 import { ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Pause, Play } from "lucide-react";
 import {
@@ -36,11 +36,7 @@ import { canSplitClipAt, clipDurationUs, getSequence, sequenceDurationUs } from 
 import type { Asset, Clip, EditorCommand, Project, TimelineRange, Track } from "@cinesim/core";
 import type { DerivedAssetSnapshot, DerivedMediaSnapshot } from "../../../shared/api";
 import type { TranscriptSnapshot } from "../../../shared/transcript";
-import {
-  projectNarrativeUnits,
-  timelinePresentationForHeight,
-  type NarrativeUnit,
-} from "../../../shared/transcript";
+import { projectNarrativeUnits, timelinePresentationForHeight } from "../../../shared/transcript";
 import {
   IDLE_TRIM_GESTURE,
   trimPreviewClip,
@@ -810,16 +806,6 @@ function rangesIntersect(
   return ranges.some((range) => range.startUs < endUs && range.endUs > startUs);
 }
 
-function NarrativeBadges({ unit }: { unit: NarrativeUnit }) {
-  return (
-    <span className="ml-auto flex shrink-0 items-center gap-1 text-[9px] font-semibold text-muted">
-      {unit.hasVisualOverlay && <span aria-label="Supporting visual">+B</span>}
-      {unit.hasSecondaryAudio && <span aria-label="Supporting audio">+M</span>}
-      {unit.hasOverlappingDialogue && <span aria-label="Overlapping speakers">+S</span>}
-    </span>
-  );
-}
-
 function ReducedTimeline({
   project,
   transcripts,
@@ -827,8 +813,16 @@ function ReducedTimeline({
   playheadUs,
   playing,
   paletteId,
+  zoom,
+  minimumZoom,
+  pixelsPerUs,
+  contentWidth,
+  scrollRef,
   onSeek,
   onTogglePlayback,
+  onGoToStart,
+  onStepFrames,
+  onZoomChange,
 }: {
   project: Project;
   transcripts: TranscriptSnapshot | null;
@@ -836,8 +830,16 @@ function ReducedTimeline({
   playheadUs: number;
   playing: boolean;
   paletteId: TimelinePaletteId;
+  zoom: number;
+  minimumZoom: number;
+  pixelsPerUs: number;
+  contentWidth: number;
+  scrollRef: RefObject<HTMLDivElement | null>;
   onSeek?: (timeUs: number) => void;
   onTogglePlayback?: () => void;
+  onGoToStart?: () => void;
+  onStepFrames?: (deltaFrames: number) => void;
+  onZoomChange: (zoom: number) => void;
 }) {
   const selectClip = useRendererStore((state) => state.selectClip);
   const sequence = getSequence(project);
@@ -861,30 +863,97 @@ function ReducedTimeline({
   const durationUs = Math.max(1, sequenceDurationUs(sequence));
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-panel-muted">
-      <div className="flex h-8 shrink-0 items-center border-b border-border bg-panel px-2">
-        <Button
-          size="icon-sm"
-          variant="ghost"
-          aria-label={playing ? "Pause" : "Play"}
-          title="Play or pause (Space)"
-          onClick={onTogglePlayback}
-        >
-          {playing ? (
-            <Pause size={14} fill="currentColor" />
-          ) : (
-            <Play size={14} fill="currentColor" />
-          )}
-        </Button>
-        <span className="ml-1 text-ui-xs font-semibold text-primary tabular-nums">
-          {formatTimecode(playheadUs, sequence.frameRate)}
-        </span>
-        <span className="ml-auto text-ui-xs text-muted">Story timeline</span>
+      <div className="grid h-8 shrink-0 grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center border-b border-border bg-panel px-2">
+        <div />
+        <div className="flex h-full items-center gap-0.5">
+          <span className="mr-1 min-w-[76px] text-center text-ui-xs font-semibold text-primary tabular-nums">
+            {formatTimecode(playheadUs, sequence.frameRate)}
+          </span>
+          <Button
+            size="icon-sm"
+            variant="ghost"
+            aria-label="Go to timeline beginning"
+            title="Go to beginning (Home)"
+            onClick={onGoToStart}
+          >
+            <ChevronsLeft size={14} />
+          </Button>
+          <Button
+            size="icon-sm"
+            variant="ghost"
+            aria-label="Previous frame"
+            title="Previous frame (Left Arrow)"
+            onClick={() => onStepFrames?.(-1)}
+          >
+            <ChevronLeft size={14} />
+          </Button>
+          <Button
+            size="icon-sm"
+            variant="ghost"
+            aria-label={playing ? "Pause" : "Play"}
+            title="Play or pause (Space)"
+            onClick={onTogglePlayback}
+          >
+            {playing ? (
+              <Pause size={14} fill="currentColor" />
+            ) : (
+              <Play className="ml-px" size={14} fill="currentColor" />
+            )}
+          </Button>
+          <Button
+            size="icon-sm"
+            variant="ghost"
+            aria-label="Next frame"
+            title="Next frame (Right Arrow)"
+            onClick={() => onStepFrames?.(1)}
+          >
+            <ChevronRight size={14} />
+          </Button>
+          <Button
+            size="icon-sm"
+            variant="ghost"
+            aria-label="Go to timeline end"
+            title="Go to end (End)"
+            onClick={() => onSeek?.(durationUs)}
+          >
+            <ChevronsRight size={14} />
+          </Button>
+        </div>
+        <div className="flex min-w-0 items-center justify-end gap-0.5">
+          <Button
+            size="icon-sm"
+            variant="ghost"
+            aria-label="Zoom out"
+            disabled={zoom <= minimumZoom + Number.EPSILON}
+            onClick={() => onZoomChange(Math.max(minimumZoom, zoom / 1.25))}
+          >
+            <ZoomOut size={12} />
+          </Button>
+          <input
+            aria-label="Timeline zoom"
+            className="h-1 w-16 accent-accent"
+            type="range"
+            min={minimumZoom}
+            max={MAX_TIMELINE_ZOOM}
+            step="any"
+            value={zoom}
+            onChange={(event) => onZoomChange(Number(event.target.value))}
+          />
+          <Button
+            size="icon-sm"
+            variant="ghost"
+            aria-label="Zoom in"
+            onClick={() => onZoomChange(zoom * 1.25)}
+          >
+            <ZoomIn size={12} />
+          </Button>
+        </div>
       </div>
-      <div className="relative min-h-0 flex-1 overflow-x-auto overflow-y-hidden px-2 py-1.5">
-        <div
-          className="relative h-full min-w-full"
-          style={{ minWidth: Math.max(720, units.length * 128) }}
-        >
+      <div
+        ref={scrollRef}
+        className="relative min-h-0 flex-1 overflow-x-auto overflow-y-hidden px-2 py-1.5"
+      >
+        <div className="relative h-full min-w-full" style={{ width: contentWidth }}>
           {units.length === 0 ? (
             <div className="grid h-full place-items-center text-ui-xs text-muted">
               Add media to build the story timeline
@@ -912,18 +981,22 @@ function ReducedTimeline({
                   key={unit.id}
                   type="button"
                   className={cn(
-                    "absolute top-0 flex h-full min-w-24 items-center gap-1 overflow-hidden border px-2 text-left text-ui-xs text-white shadow-sm transition-[filter,box-shadow]",
+                    "absolute top-0 h-full min-w-2 overflow-hidden rounded-sm border shadow-sm transition-[filter,box-shadow]",
                     selected && "z-10 ring-2 ring-primary",
                     active && "brightness-110",
                     !selected && "hover:brightness-110",
                   )}
                   style={{
-                    left: `${(unit.timelineStartUs / durationUs) * 100}%`,
-                    width: `${Math.max(2.5, ((unit.timelineEndUs - unit.timelineStartUs) / durationUs) * 100)}%`,
+                    left: unit.timelineStartUs * pixelsPerUs,
+                    width: Math.max(
+                      8,
+                      (unit.timelineEndUs - unit.timelineStartUs) * pixelsPerUs - 1,
+                    ),
                     backgroundColor: color,
                     borderColor: `color-mix(in srgb, ${color} 72%, black)`,
                   }}
-                  title={`${unit.label} — ${formatTimecode(unit.timelineStartUs, sequence.frameRate)}`}
+                  aria-label={`Story clip at ${formatTimecode(unit.timelineStartUs, sequence.frameRate)}`}
+                  title={formatTimecode(unit.timelineStartUs, sequence.frameRate)}
                   onClick={() => {
                     selectClip(unit.clipIds[0] ?? null);
                     onSeek?.(unit.timelineStartUs);
@@ -945,17 +1018,13 @@ function ReducedTimeline({
                       />,
                     ];
                   })}
-                  <span className="relative z-10 truncate font-medium">{unit.label}</span>
-                  <span className="relative z-10 ml-auto">
-                    <NarrativeBadges unit={unit} />
-                  </span>
                 </button>
               );
             })
           )}
           <div
             className="pointer-events-none absolute inset-y-0 z-20 w-px bg-playhead"
-            style={{ left: `${(playheadUs / durationUs) * 100}%` }}
+            style={{ left: playheadUs * pixelsPerUs }}
           />
         </div>
       </div>
@@ -1073,11 +1142,19 @@ export function Timeline({
           playheadUs={playheadUs}
           playing={playback?.playing ?? false}
           paletteId={paletteId}
+          zoom={zoom}
+          minimumZoom={minimumZoom}
+          pixelsPerUs={pixelsPerUs}
+          contentWidth={contentWidth}
+          scrollRef={timelineScrollRef}
+          onZoomChange={setZoom}
           onSeek={(timeUs) => {
             setPlayheadUs(timeUs);
             onSeek?.(timeUs);
           }}
           {...(onTogglePlayback ? { onTogglePlayback } : {})}
+          {...(onGoToStart ? { onGoToStart } : {})}
+          {...(onStepFrames ? { onStepFrames } : {})}
         />
       </section>
     );
