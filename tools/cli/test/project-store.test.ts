@@ -15,6 +15,26 @@ afterEach(async () => {
 });
 
 describe("DiskProjectStore", () => {
+  it("parses untrusted commands before invoking core or persistence", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "cinesim-cli-store-test-"));
+    temporaryDirectories.push(directory);
+    const repository = await CanonicalProjectRepository.open(directory);
+    await repository.commit({
+      project: createProject({ name: "CLI fixture" }),
+      settings: DEFAULT_SETTINGS,
+      expectedGeneration: null,
+    });
+    const store = await new DiskProjectStore(directory).load();
+
+    await expect(
+      store.execute({ type: "asset.remove", assetIds: ["asset_good/../../outside"] }),
+    ).rejects.toThrow();
+    expect(store.project.assets).toEqual([]);
+    await expect(new DiskProjectStore(directory).load()).resolves.toMatchObject({
+      project: { assets: [] },
+    });
+  });
+
   it("does not publish its in-memory command result after a stale write", async () => {
     const directory = await mkdtemp(join(tmpdir(), "cinesim-cli-store-test-"));
     temporaryDirectories.push(directory);

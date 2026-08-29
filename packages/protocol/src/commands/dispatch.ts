@@ -1,5 +1,5 @@
 import { applyCommand, CommandError } from "@cinesim/core";
-import type { CommandResult, EditorCommand, Project } from "@cinesim/core";
+import type { CommandResult, Project } from "@cinesim/core";
 import { ZodError } from "zod";
 import { editorCommandSchema } from "./schema";
 import type { ProtocolError } from "../errors/types";
@@ -10,7 +10,7 @@ export type DispatchResult =
 
 export function dispatchCommand(project: Project, input: unknown): DispatchResult {
   try {
-    const command = editorCommandSchema.parse(input) as EditorCommand;
+    const command = editorCommandSchema.parse(input);
     return { ok: true, value: applyCommand(project, command) };
   } catch (error) {
     if (error instanceof ZodError) {

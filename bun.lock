@@ -45,6 +45,7 @@
         "@cinesim/core": "workspace:*",
         "@cinesim/engine": "workspace:*",
         "@cinesim/logging": "workspace:*",
+        "@cinesim/mcp-tools": "workspace:*",
         "@cinesim/project-io": "workspace:*",
         "@cinesim/protocol": "workspace:*",
         "@cinesim/ui": "workspace:*",
@@ -126,6 +127,17 @@
         "pino": "10.3.1",
       },
     },
+    "packages/mcp-tools": {
+      "name": "@cinesim/mcp-tools",
+      "version": "0.1.0",
+      "dependencies": {
+        "@cinesim/core": "workspace:*",
+        "@cinesim/project-io": "workspace:*",
+        "@cinesim/protocol": "workspace:*",
+        "@modelcontextprotocol/sdk": "1.30.0",
+        "zod": "4.4.3",
+      },
+    },
     "packages/project-io": {
       "name": "@cinesim/project-io",
       "version": "0.1.0",
@@ -178,11 +190,10 @@
       "version": "0.1.0",
       "dependencies": {
         "@cinesim/cli": "workspace:*",
-        "@cinesim/core": "workspace:*",
         "@cinesim/logging": "workspace:*",
-        "@cinesim/protocol": "workspace:*",
+        "@cinesim/mcp-tools": "workspace:*",
+        "@cinesim/project-io": "workspace:*",
         "@modelcontextprotocol/sdk": "1.30.0",
-        "zod": "4.4.3",
       },
     },
   },
@@ -267,6 +278,8 @@
     "@cinesim/logging": ["@cinesim/logging@workspace:packages/logging"],
 
     "@cinesim/mcp": ["@cinesim/mcp@workspace:tools/mcp"],
+
+    "@cinesim/mcp-tools": ["@cinesim/mcp-tools@workspace:packages/mcp-tools"],
 
     "@cinesim/project-io": ["@cinesim/project-io@workspace:packages/project-io"],
 

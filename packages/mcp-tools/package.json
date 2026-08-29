@@ -1,0 +1,21 @@
+{
+  "name": "@cinesim/mcp-tools",
+  "version": "0.1.0",
+  "private": true,
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "test": "vp test --run",
+    "check": "vp check"
+  },
+  "dependencies": {
+    "@cinesim/core": "workspace:*",
+    "@cinesim/project-io": "workspace:*",
+    "@cinesim/protocol": "workspace:*",
+    "@modelcontextprotocol/sdk": "1.30.0",
+    "zod": "4.4.3"
+  }
+}

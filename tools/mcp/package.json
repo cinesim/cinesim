@@ -6,10 +6,9 @@
   "type": "module",
   "dependencies": {
     "@cinesim/cli": "workspace:*",
-    "@cinesim/core": "workspace:*",
     "@cinesim/logging": "workspace:*",
-    "@cinesim/protocol": "workspace:*",
-    "@modelcontextprotocol/sdk": "1.30.0",
-    "zod": "4.4.3"
+    "@cinesim/mcp-tools": "workspace:*",
+    "@cinesim/project-io": "workspace:*",
+    "@modelcontextprotocol/sdk": "1.30.0"
   }
 }

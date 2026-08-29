@@ -14,6 +14,7 @@ apps/api          Hono server: Better Auth, cloud media control plane
 apps/web          Next.js marketing site and documentation
 packages/core     Deterministic project model, commands, history, serialization
 packages/engine   Mediabunny sources, playback clock, Web Audio, WebGPU
+packages/mcp-tools Canonical MCP tool catalog, schemas, and command translations
 packages/project-io Symlink-safe project paths, transactions, writer locks
 packages/protocol Zod contracts, dispatcher, queries, events, errors
 packages/ui       Base UI + CVA primitives
@@ -69,6 +70,15 @@ persists the returned canonical state.
 
 There is deliberately no second write path. An agent, a script, and a mouse drag are the same
 command by the time they reach core.
+
+Both the embedded desktop MCP server and the stdio MCP server register the catalog from
+`packages/mcp-tools`. The package owns tool names, descriptions, input schemas, and command
+translation; each adapter supplies only transport, approval, project-loading, and persistence
+policy. Exhaustive command-support metadata makes intentionally unsupported commands explicit.
+
+Every privileged Electron request is registered through one IPC wrapper. It accepts only the
+trusted editor web contents, rejects subframes and unexpected origins, and validates untrusted
+payloads before calling desktop services.
 
 ## Media access and playback
 

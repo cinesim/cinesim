@@ -1,7 +1,7 @@
-import type { EditorCommand, Project, ProjectSettings } from "@cinesim/core";
+import type { Project, ProjectSettings } from "@cinesim/core";
 import { createCinesimLogger } from "@cinesim/logging";
 import { CanonicalProjectRepository } from "@cinesim/project-io";
-import { dispatchCommand } from "@cinesim/protocol";
+import { dispatchCommand, editorCommandSchema } from "@cinesim/protocol";
 
 const log = createCinesimLogger({ service: "commands" });
 
@@ -33,7 +33,8 @@ export class DiskProjectStore {
     });
   }
 
-  async execute(command: EditorCommand) {
+  async execute(input: unknown) {
+    const command = editorCommandSchema.parse(input);
     const operationId = crypto.randomUUID();
     const startedAt = Date.now();
     log.info({ operationId, operation: command.type }, "command started");

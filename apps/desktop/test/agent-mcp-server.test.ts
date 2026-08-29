@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+import { CINESIM_MCP_TOOL_NAMES } from "@cinesim/mcp-tools";
 import { afterEach, describe, expect, it } from "vite-plus/test";
 import { AgentMcpServer } from "../src/main/agents/mcp/server";
 import { DesktopProjectStore } from "../src/main/projects/project-store";
@@ -58,7 +59,7 @@ describe("AgentMcpServer", () => {
     await client.connect(transport as Parameters<typeof client.connect>[0]);
 
     const tools = await client.listTools();
-    expect(tools.tools.map((tool) => tool.name)).toContain("timeline_inspect");
+    expect(tools.tools.map((tool) => tool.name).sort()).toEqual([...CINESIM_MCP_TOOL_NAMES].sort());
     const inspection = await client.callTool({ name: "project_inspect", arguments: {} });
     expect(inspection.isError).not.toBe(true);
     const denied = await client.callTool({
@@ -71,6 +72,12 @@ describe("AgentMcpServer", () => {
     });
     expect(denied.isError).toBe(true);
     expect(approvals).toEqual(["clip_add"]);
+    await expect(
+      client.callTool({
+        name: "filmstrip_get",
+        arguments: { assetId: "asset_../../outside" },
+      }),
+    ).resolves.toMatchObject({ isError: true });
 
     await client.close();
 

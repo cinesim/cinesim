@@ -1,7 +1,13 @@
 import { z } from "zod";
+import {
+  assetIdSchema,
+  clipIdSchema,
+  projectIdSchema,
+  sequenceIdSchema,
+  trackIdSchema,
+} from "../ids";
+import type { CloudAssetId, CloudProjectId } from "../project/types";
 
-const persistentId = (prefix: string) =>
-  z.string().regex(new RegExp(`^${prefix}_[a-zA-Z0-9][a-zA-Z0-9_-]*$`));
 const timeUs = z.number().int().nonnegative().safe();
 
 export const transformSchema = z.object({
@@ -13,10 +19,16 @@ export const transformSchema = z.object({
   fit: z.enum(["contain", "cover", "fill"]),
 });
 
-export const cloudProjectIdSchema = z
-  .string()
-  .regex(/^cloud_project_[a-zA-Z0-9][a-zA-Z0-9_-]{7,127}$/);
-export const cloudAssetIdSchema = z.string().regex(/^cloud_asset_[a-zA-Z0-9][a-zA-Z0-9_-]{7,127}$/);
+export const cloudProjectIdSchema = z.custom<CloudProjectId>(
+  (value) =>
+    typeof value === "string" && /^cloud_project_[a-zA-Z0-9][a-zA-Z0-9_-]{7,127}$/u.test(value),
+  "Invalid cloud project ID",
+);
+export const cloudAssetIdSchema = z.custom<CloudAssetId>(
+  (value) =>
+    typeof value === "string" && /^cloud_asset_[a-zA-Z0-9][a-zA-Z0-9_-]{7,127}$/u.test(value),
+  "Invalid cloud asset ID",
+);
 
 export const assetSourceSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("local"), path: z.string().min(1) }),
@@ -24,7 +36,7 @@ export const assetSourceSchema = z.discriminatedUnion("kind", [
 ]);
 
 export const assetSchema = z.object({
-  id: persistentId("asset"),
+  id: assetIdSchema,
   kind: z.enum(["video", "audio", "image"]),
   name: z.string().min(1),
   source: assetSourceSchema,
@@ -36,10 +48,10 @@ export const assetSchema = z.object({
 });
 
 export const clipSchema = z.object({
-  id: persistentId("clip"),
-  assetId: persistentId("asset"),
+  id: clipIdSchema,
+  assetId: assetIdSchema,
   mediaKind: z.enum(["video", "audio"]),
-  linkedClipId: persistentId("clip").optional(),
+  linkedClipId: clipIdSchema.optional(),
   timelineStartUs: timeUs,
   sourceStartUs: timeUs,
   sourceEndUs: timeUs,
@@ -49,7 +61,7 @@ export const clipSchema = z.object({
 });
 
 export const trackSchema = z.object({
-  id: persistentId("track"),
+  id: trackIdSchema,
   name: z.string().min(1),
   kind: z.enum(["video", "audio", "overlay"]),
   muted: z.boolean(),
@@ -58,7 +70,7 @@ export const trackSchema = z.object({
 });
 
 export const sequenceSchema = z.object({
-  id: persistentId("sequence"),
+  id: sequenceIdSchema,
   name: z.string().min(1),
   width: z.number().int().positive(),
   height: z.number().int().positive(),
@@ -68,10 +80,10 @@ export const sequenceSchema = z.object({
 
 export const projectSchema = z.object({
   version: z.literal(1),
-  id: persistentId("project"),
+  id: projectIdSchema,
   cloudProjectId: cloudProjectIdSchema.optional(),
   name: z.string().min(1),
-  activeSequenceId: persistentId("sequence"),
+  activeSequenceId: sequenceIdSchema,
   assets: z.array(assetSchema),
   sequences: z.array(sequenceSchema),
 });

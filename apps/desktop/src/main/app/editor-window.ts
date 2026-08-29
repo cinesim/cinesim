@@ -1,5 +1,6 @@
 import { join } from "node:path";
 import { app, BrowserWindow, nativeTheme } from "electron";
+import { trustIpcRenderer } from "./secure-ipc";
 
 export function createEditorWindow(): BrowserWindow {
   const window = new BrowserWindow({
@@ -19,6 +20,7 @@ export function createEditorWindow(): BrowserWindow {
       webSecurity: true,
     },
   });
+  trustIpcRenderer(window.webContents);
   window.once("ready-to-show", () => window.show());
   window.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
   window.webContents.on("will-navigate", (event) => event.preventDefault());
