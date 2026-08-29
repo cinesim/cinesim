@@ -492,7 +492,7 @@ export function TimelineTranscript({
               return (
                 <p
                   key={section.paragraph.id}
-                  className="max-w-[96ch] py-1 text-[15px] leading-8 text-primary"
+                  className="mx-auto max-w-[96ch] py-1 text-justify text-[15px] leading-8 text-primary"
                 >
                   {section.paragraph.blocks.map((block) => {
                     if (block.kind === "timeline-gap") {
