@@ -7,55 +7,44 @@ import { Settings } from "./components/settings/settings";
 import { AppShell, toggleAuxiliaryMode } from "./components/shell/app-shell";
 import { TopBar } from "./components/shell/top-bar";
 import { Workspace } from "./components/workspace/workspace";
-import { useDelayedBusy } from "./hooks/use-delayed-busy";
-import {
-  cutLayoutFromState,
-  editorLayoutFromState,
-  sessionFromLifecycle,
-} from "./store/renderer-store";
-import { useRendererStore } from "./store/renderer-store-context";
+import { useAppController } from "./hooks/use-app-controller";
 
 export function App() {
-  const project = useRendererStore((state) => state.project);
-  const session = useRendererStore((state) => sessionFromLifecycle(state.project));
-  const appState = useRendererStore((state) => state.appState);
-  const destination = useRendererStore((state) => state.destination);
-  const projectSection = useRendererStore((state) => state.projectSection);
-  const activeSequenceId = useRendererStore((state) => state.activeSequenceId);
-  const mediaPoolOpen = useRendererStore((state) => state.mediaPoolOpen);
-  const inspectorOpen = useRendererStore((state) => state.inspectorOpen);
-  const notesOpen = useRendererStore((state) => state.notesOpen);
-  const settingsSection = useRendererStore((state) => state.settingsSection);
-  const account = useRendererStore((state) => state.account);
-  const accountHydrated = useRendererStore((state) => state.accountHydrated);
-  const auxiliaryMode = useRendererStore((state) => state.auxiliaryMode);
-  const error = useRendererStore((state) => state.operationError);
-  const editorLayout = useRendererStore(editorLayoutFromState);
-  const cutLayout = useRendererStore(cutLayoutFromState);
-  const navigate = useRendererStore((state) => state.navigate);
-  const showProjectSection = useRendererStore((state) => state.showProjectSection);
-  const showTimeline = useRendererStore((state) => state.showTimeline);
-  const setSettingsSection = useRendererStore((state) => state.setSettingsSection);
-  const beginAccountSignIn = useRendererStore((state) => state.beginAccountSignIn);
-  const signOutAccount = useRendererStore((state) => state.signOutAccount);
-  const setAuxiliaryMode = useRendererStore((state) => state.setAuxiliaryMode);
-  const togglePanel = useRendererStore((state) => state.togglePanel);
-  const openProject = useRendererStore((state) => state.openProject);
-  const openRecentProject = useRendererStore((state) => state.openRecentProject);
-  const createProject = useRendererStore((state) => state.createProject);
-  const forgetProject = useRendererStore((state) => state.forgetProject);
-  const trashProject = useRendererStore((state) => state.trashProject);
-  const loading = project.status === "booting";
-  const openingProject = project.status === "opening";
-  const showStartupLoading = useDelayedBusy(loading);
-  const showProjectOpening = useDelayedBusy(openingProject);
-
-  const title =
-    destination === "settings"
-      ? "Settings"
-      : destination === "project" && session
-        ? session.project.name
-        : "Home";
+  const {
+    session,
+    appState,
+    destination,
+    projectSection,
+    activeSequenceId,
+    mediaPoolOpen,
+    inspectorOpen,
+    notesOpen,
+    settingsSection,
+    account,
+    accountHydrated,
+    auxiliaryMode,
+    error,
+    editorLayout,
+    cutLayout,
+    navigate,
+    showProjectSection,
+    showTimeline,
+    setSettingsSection,
+    beginAccountSignIn,
+    signOutAccount,
+    setAuxiliaryMode,
+    togglePanel,
+    openProject,
+    openRecentProject,
+    createProject,
+    forgetProject,
+    trashProject,
+    loading,
+    openingProject,
+    showStartupLoading,
+    showProjectOpening,
+    title,
+  } = useAppController();
 
   return (
     <TooltipProvider>
