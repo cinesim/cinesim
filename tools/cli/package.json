@@ -15,6 +15,7 @@
   "dependencies": {
     "@cinesim/core": "workspace:*",
     "@cinesim/logging": "workspace:*",
+    "@cinesim/project-io": "workspace:*",
     "@cinesim/protocol": "workspace:*",
     "commander": "15.0.0",
     "smol-toml": "1.8.0"

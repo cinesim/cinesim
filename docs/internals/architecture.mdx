@@ -14,6 +14,7 @@ apps/api          Hono server: Better Auth, cloud media control plane
 apps/web          Next.js marketing site and documentation
 packages/core     Deterministic project model, commands, history, serialization
 packages/engine   Mediabunny sources, playback clock, Web Audio, WebGPU
+packages/project-io Symlink-safe project paths, transactions, writer locks
 packages/protocol Zod contracts, dispatcher, queries, events, errors
 packages/ui       Base UI + CVA primitives
 tools/cli         Filesystem adapter and the cinesim command
@@ -52,8 +53,9 @@ tree holds only disposable state and is ignored as a unit.
 
 Core uses integer microseconds throughout. IDs are stable prefixed strings. Unordered collections
 are sorted before serialization while sequence track arrays preserve authored layer order. Unknown
-schema versions are rejected rather than opened optimistically. Disk adapters use
-temp-file-plus-rename atomic replacement.
+schema versions are rejected rather than opened optimistically. Disk adapters share one journaled
+four-file transaction. A project-scoped lock serializes processes, content-derived generations
+reject stale writers, and opening a project deterministically recovers an interrupted publication.
 
 Undo and redo store immutable project snapshots per committed command. This is the simplest correct
 V1 behavior, and it falls out naturally that a completed drag is one undo step while ephemeral

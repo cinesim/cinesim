@@ -33,10 +33,25 @@ export class ProjectHistory {
   commit(command: EditorCommand): CommandResult {
     const before = this.project;
     const result = applyCommand(before, command);
-    this.#project = result.project;
-    this.#undo.push({ before, after: this.project, command });
+    return this.commitApplied(result);
+  }
+
+  commitApplied(result: CommandResult): CommandResult {
+    const before = this.project;
+    this.#project = structuredClone(result.project);
+    this.#undo.push({ before, after: this.project, command: result.command });
     this.#redo = [];
     return { ...result, project: this.project };
+  }
+
+  peekUndo(): Project | null {
+    const entry = this.#undo.at(-1);
+    return entry ? structuredClone(entry.before) : null;
+  }
+
+  peekRedo(): Project | null {
+    const entry = this.#redo.at(-1);
+    return entry ? structuredClone(entry.after) : null;
   }
 
   undo(): Project {

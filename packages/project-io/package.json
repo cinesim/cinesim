@@ -1,0 +1,17 @@
+{
+  "name": "@cinesim/project-io",
+  "version": "0.1.0",
+  "private": true,
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "test": "vp test --run",
+    "check": "vp check"
+  },
+  "dependencies": {
+    "@cinesim/core": "workspace:*"
+  }
+}

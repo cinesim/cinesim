@@ -1,20 +1,10 @@
 import { createHash, randomUUID } from "node:crypto";
-import {
-  mkdir,
-  lstat,
-  open,
-  readFile,
-  readdir,
-  realpath,
-  rename,
-  rm,
-  stat,
-  statfs,
-} from "node:fs/promises";
-import { dirname, join, relative, resolve, sep } from "node:path";
+import { mkdir, lstat, open, readFile, readdir, rename, rm, stat, statfs } from "node:fs/promises";
+import { dirname, join, relative } from "node:path";
 import { DEFAULT_SETTINGS } from "@cinesim/core";
 import type { Asset, Project, ProjectSettings } from "@cinesim/core";
 import { createCinesimLogger } from "@cinesim/logging";
+import { ProjectPaths } from "@cinesim/project-io";
 import type {
   BeginDerivedWrite,
   DerivedArtifactKind,
@@ -68,12 +58,25 @@ import { DerivedRuntimeTracker } from "./runtime-tracker";
 
 const log = createCinesimLogger({ service: "derived-media" });
 
+const DERIVED_FOLDERS = [
+  "cache",
+  "proxies",
+  "originals",
+  "thumbnails",
+  "waveforms",
+  "filmstrips",
+  "frames",
+  "runtime",
+  "transcripts",
+] as const;
+
 interface DerivedMediaStoreOptions {
   diskSpace?: { capacityBytes: number; availableBytes: number };
 }
 
 export class DerivedMediaStore {
   #directory: string | null = null;
+  #paths: ProjectPaths | null = null;
   #scope: DerivedProjectScope | null = null;
   #project: Project | null = null;
   #settings: ProjectSettings = DEFAULT_SETTINGS;
@@ -97,8 +100,10 @@ export class DerivedMediaStore {
 
   async prepareProject(directory: string): Promise<PreparedDerivedProject> {
     const startedAt = performance.now();
-    const index = await this.#indexRepository.read(directory);
-    return { directory, index, readDurationMs: performance.now() - startedAt };
+    const paths = await ProjectPaths.open(directory);
+    await paths.ensureLayout(DERIVED_FOLDERS);
+    const index = await this.#indexRepository.read(paths);
+    return { directory: paths.canonicalRoot, index, readDurationMs: performance.now() - startedAt };
   }
 
   async setProject(
@@ -107,13 +112,17 @@ export class DerivedMediaStore {
     prepared?: PreparedDerivedProject,
     settings: ProjectSettings = DEFAULT_SETTINGS,
   ): Promise<void> {
-    const canonicalDirectory = await realpath(directory);
+    const paths = await ProjectPaths.open(directory);
+    await paths.ensureLayout(DERIVED_FOLDERS);
+    const canonicalDirectory = paths.canonicalRoot;
     await this.#serialize(async () => {
       // A prepared index is safe for a different, inactive project. Reopening the active
       // directory must read again after queued writer operations have finished.
-      const usePreparedIndex = prepared?.directory === directory && this.#directory !== directory;
+      const usePreparedIndex =
+        prepared?.directory === canonicalDirectory && this.#directory !== canonicalDirectory;
       await this.#closeWriters();
-      this.#directory = directory;
+      this.#directory = paths.root;
+      this.#paths = paths;
       this.#scope = {
         cacheKey: createHash("sha256").update(canonicalDirectory).digest("hex").slice(0, 24),
         epoch: randomUUID(),
@@ -125,7 +134,7 @@ export class DerivedMediaStore {
       this.#runtimeTracker.reset();
       this.#progressLogBuckets.clear();
       this.#removedAssetIds.clear();
-      this.#index = usePreparedIndex ? prepared.index : await this.#indexRepository.read(directory);
+      this.#index = usePreparedIndex ? prepared.index : await this.#indexRepository.read(paths);
       const persistenceSignature = projectOpenPersistenceSignature(this.#index);
       await this.#removeInterruptedTemps();
       await this.#pruneRemovedAssetsNow();
@@ -228,6 +237,7 @@ export class DerivedMediaStore {
     await this.#serialize(async () => {
       await this.#closeWriters();
       this.#directory = null;
+      this.#paths = null;
       this.#scope = null;
       this.#project = null;
       this.#settings = DEFAULT_SETTINGS;
@@ -967,10 +977,7 @@ export class DerivedMediaStore {
   }
 
   #containedPath(relativePath: string): string {
-    const root = resolve(this.#requireDirectory(), ".video");
-    const path = resolve(this.#requireDirectory(), relativePath);
-    if (path !== root && !path.startsWith(`${root}${sep}`)) throw new Error("Unsafe derived path");
-    return path;
+    return this.#requirePaths().derived(relativePath);
   }
 
   #writerOrRetired(id: string): WriterSession | null {
@@ -1008,6 +1015,11 @@ export class DerivedMediaStore {
     return this.#directory;
   }
 
+  #requirePaths(): ProjectPaths {
+    if (!this.#paths) throw new Error("No project is open");
+    return this.#paths;
+  }
+
   #requireScope(): DerivedProjectScope {
     if (!this.#scope) throw new Error("No derived media project scope is active");
     return this.#scope;
@@ -1035,7 +1047,7 @@ export class DerivedMediaStore {
   }
 
   async #persist(): Promise<void> {
-    await this.#indexRepository.write(this.#requireDirectory(), this.#index);
+    await this.#indexRepository.write(this.#requirePaths(), this.#index);
   }
 
   #emit(): void {
@@ -1056,7 +1068,16 @@ export class DerivedMediaStore {
   }
 
   #serialize<T>(operation: () => Promise<T>): Promise<T> {
-    const result = this.#operationQueue.catch(() => undefined).then(operation);
+    const result = this.#operationQueue
+      .catch(() => undefined)
+      .then(async () => {
+        if (this.#paths)
+          await this.#paths.verifyDirectories([
+            ".video",
+            ...DERIVED_FOLDERS.map((folder) => join(".video", folder)),
+          ]);
+        return operation();
+      });
     this.#operationQueue = result;
     return result;
   }
