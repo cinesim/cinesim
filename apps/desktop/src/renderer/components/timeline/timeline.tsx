@@ -95,6 +95,8 @@ const TIMELINE_PALETTES: ReadonlyArray<{
   },
 ];
 
+const FULL_TIMELINE_TRACK_CHROME_WIDTH = 168 + 72;
+
 function timelinePaletteColor(
   paletteId: TimelinePaletteId,
   track: Track,
@@ -863,75 +865,75 @@ function ReducedTimeline({
   const durationUs = Math.max(1, sequenceDurationUs(sequence));
   return (
     <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-panel-muted">
-      <div className="grid h-8 min-w-0 shrink-0 grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center border-b border-border bg-panel px-2">
+      <div className="grid h-12 min-w-0 shrink-0 grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center border-b border-border bg-panel px-2">
         <div />
-        <div className="flex h-full items-center gap-0.5">
-          <span className="mr-1 min-w-[76px] text-center text-ui-xs font-semibold text-primary tabular-nums">
+        <div className="flex h-full items-center gap-1">
+          <span className="mr-2 inline-flex h-9 min-w-[100px] items-center justify-center px-2 text-center text-[13px] leading-none font-semibold text-primary tabular-nums">
             {formatTimecode(playheadUs, sequence.frameRate)}
           </span>
           <Button
-            size="icon-sm"
+            size="icon-lg"
             variant="ghost"
             aria-label="Go to timeline beginning"
             title="Go to beginning (Home)"
             onClick={onGoToStart}
           >
-            <ChevronsLeft size={14} />
+            <ChevronsLeft size={20} strokeWidth={1.8} />
           </Button>
           <Button
-            size="icon-sm"
+            size="icon-lg"
             variant="ghost"
             aria-label="Previous frame"
             title="Previous frame (Left Arrow)"
             onClick={() => onStepFrames?.(-1)}
           >
-            <ChevronLeft size={14} />
+            <ChevronLeft size={20} strokeWidth={1.8} />
           </Button>
           <Button
-            size="icon-sm"
+            size="icon-lg"
             variant="ghost"
             aria-label={playing ? "Pause" : "Play"}
             title="Play or pause (Space)"
             onClick={onTogglePlayback}
           >
             {playing ? (
-              <Pause size={14} fill="currentColor" />
+              <Pause size={20} fill="currentColor" strokeWidth={1.8} />
             ) : (
-              <Play className="ml-px" size={14} fill="currentColor" />
+              <Play className="ml-0.5" size={20} fill="currentColor" strokeWidth={1.8} />
             )}
           </Button>
           <Button
-            size="icon-sm"
+            size="icon-lg"
             variant="ghost"
             aria-label="Next frame"
             title="Next frame (Right Arrow)"
             onClick={() => onStepFrames?.(1)}
           >
-            <ChevronRight size={14} />
+            <ChevronRight size={20} strokeWidth={1.8} />
           </Button>
           <Button
-            size="icon-sm"
+            size="icon-lg"
             variant="ghost"
             aria-label="Go to timeline end"
             title="Go to end (End)"
             onClick={() => onSeek?.(durationUs)}
           >
-            <ChevronsRight size={14} />
+            <ChevronsRight size={20} strokeWidth={1.8} />
           </Button>
         </div>
-        <div className="flex min-w-0 items-center justify-end gap-0.5">
+        <div className="flex min-w-0 items-center justify-end gap-1">
           <Button
-            size="icon-sm"
+            size="icon"
             variant="ghost"
             aria-label="Zoom out"
             disabled={zoom <= minimumZoom + Number.EPSILON}
             onClick={() => onZoomChange(Math.max(minimumZoom, zoom / 1.25))}
           >
-            <ZoomOut size={12} />
+            <ZoomOut size={13} />
           </Button>
           <input
             aria-label="Timeline zoom"
-            className="h-1 w-16 accent-accent"
+            className="h-1 w-20 accent-accent"
             type="range"
             min={minimumZoom}
             max={MAX_TIMELINE_ZOOM}
@@ -940,12 +942,12 @@ function ReducedTimeline({
             onChange={(event) => onZoomChange(Number(event.target.value))}
           />
           <Button
-            size="icon-sm"
+            size="icon"
             variant="ghost"
             aria-label="Zoom in"
             onClick={() => onZoomChange(zoom * 1.25)}
           >
-            <ZoomIn size={12} />
+            <ZoomIn size={13} />
           </Button>
         </div>
       </div>
@@ -1063,13 +1065,17 @@ export function Timeline({
       : "northern-lights";
   });
   const [timelineViewportWidth, setTimelineViewportWidth] = useState(0);
+  const [timelineRootWidth, setTimelineRootWidth] = useState(0);
   const [renderedHeight, setRenderedHeight] = useState(288);
   const rootRef = useRef<HTMLElement>(null);
   const headerScrollRef = useRef<HTMLDivElement>(null);
   const timelineScrollRef = useRef<HTMLDivElement>(null);
   const sequence = getSequence(project);
   const sequenceDuration = sequenceDurationUs(sequence);
-  const minimumZoom = timelineFitZoom(sequenceDuration, timelineViewportWidth);
+  const minimumZoom = timelineFitZoom(
+    sequenceDuration,
+    Math.max(0, timelineRootWidth - FULL_TIMELINE_TRACK_CHROME_WIDTH),
+  );
   const pixelsPerUs = (BASE_TIMELINE_PIXELS_PER_SECOND * zoom) / 1_000_000;
   const contentDurationUs = timelineContentDurationUs(sequenceDuration);
   const contentWidth = Math.max(timelineViewportWidth, Math.round(contentDurationUs * pixelsPerUs));
@@ -1091,7 +1097,10 @@ export function Timeline({
   useEffect(() => {
     const root = rootRef.current;
     if (!root) return;
-    const measure = () => setRenderedHeight(root.clientHeight);
+    const measure = () => {
+      setRenderedHeight(root.clientHeight);
+      setTimelineRootWidth(root.clientWidth);
+    };
     measure();
     const observer = new ResizeObserver(measure);
     observer.observe(root);
