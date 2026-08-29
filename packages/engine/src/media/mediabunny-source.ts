@@ -1,3 +1,4 @@
+import { secondsToTimeUs, timeSeconds, timeUsToSeconds } from "@cinesim/core";
 import type { TimeUs } from "@cinesim/core";
 import { ALL_FORMATS, AudioBufferSink, Input, UrlSource, VideoSampleSink } from "mediabunny";
 import type { InputAudioTrack, InputVideoTrack } from "mediabunny";
@@ -7,9 +8,6 @@ import type {
   VideoSource,
   VideoSourceMetadata,
 } from "./video-source";
-
-const seconds = (timeUs: TimeUs) => timeUs / 1_000_000;
-const microseconds = (value: number) => Math.round(value * 1_000_000);
 
 export interface MediabunnyWebCodecsSourceOptions {
   inputFactory?: () => Input<UrlSource>;
@@ -79,7 +77,7 @@ export class MediabunnyWebCodecsSource implements VideoSource, AudioSource {
           : null;
       if (generation !== this.#generation) throw new Error("Media source preparation was canceled");
       const metadata: VideoSourceMetadata = {
-        durationUs: microseconds(duration),
+        durationUs: secondsToTimeUs(timeSeconds(duration)),
         width,
         height,
         frameRate: frameRateMetrics?.bestGuessFrameRate || null,
@@ -105,7 +103,9 @@ export class MediabunnyWebCodecsSource implements VideoSource, AudioSource {
     await this.prepare();
     if (!this.#videoSink) return null;
     const generation = this.#generation;
-    const sample = await this.#videoSink.getSample(seconds(timeUs), { verifyKeyPackets: false });
+    const sample = await this.#videoSink.getSample(timeUsToSeconds(timeUs), {
+      verifyKeyPackets: false,
+    });
     if (!sample) return null;
     try {
       if (generation !== this.#generation) return null;
@@ -120,8 +120,8 @@ export class MediabunnyWebCodecsSource implements VideoSource, AudioSource {
     if (!this.#videoSink) return;
     const generation = this.#generation;
     const samples = this.#videoSink.samples(
-      seconds(fromUs),
-      toUs === undefined ? undefined : seconds(toUs),
+      timeUsToSeconds(fromUs),
+      toUs === undefined ? undefined : timeUsToSeconds(toUs),
       { verifyKeyPackets: false },
     );
     for await (const sample of samples) {
@@ -137,11 +137,14 @@ export class MediabunnyWebCodecsSource implements VideoSource, AudioSource {
   async *buffers(fromUs: TimeUs, toUs: TimeUs): AsyncGenerator<AudioBufferChunk> {
     await this.prepare();
     if (!this.#audioSink) return;
-    for await (const chunk of this.#audioSink.buffers(seconds(fromUs), seconds(toUs))) {
+    for await (const chunk of this.#audioSink.buffers(
+      timeUsToSeconds(fromUs),
+      timeUsToSeconds(toUs),
+    )) {
       yield {
         buffer: chunk.buffer,
-        timestampUs: microseconds(chunk.timestamp),
-        durationUs: microseconds(chunk.duration),
+        timestampUs: secondsToTimeUs(timeSeconds(chunk.timestamp)),
+        durationUs: secondsToTimeUs(timeSeconds(chunk.duration)),
       };
     }
   }

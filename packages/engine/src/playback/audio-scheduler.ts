@@ -1,3 +1,4 @@
+import { secondsToTimeUs, timeSeconds, timeUsToSeconds } from "@cinesim/core";
 import type { TimeUs } from "@cinesim/core";
 import type { AudioSource } from "../media/video-source";
 
@@ -71,7 +72,7 @@ export class WebAudioScheduler implements PlaybackAudioScheduler {
   }
 
   get currentTimeUs(): TimeUs {
-    return Math.round(this.#context.currentTime * 1_000_000);
+    return secondsToTimeUs(timeSeconds(this.#context.currentTime));
   }
 
   startTransport(timelineUs: TimeUs): void {
@@ -97,8 +98,8 @@ export class WebAudioScheduler implements PlaybackAudioScheduler {
       gain.connect(this.#master);
       this.#scheduled.add(node);
       node.onended = () => this.#scheduled.delete(node);
-      const timelineOffsetSeconds = (timelineFromUs - this.#transportTimelineUs) / 1_000_000;
-      const sourceOffsetSeconds = (chunk.timestampUs - sourceFromUs) / 1_000_000;
+      const timelineOffsetSeconds = timeUsToSeconds(timelineFromUs - this.#transportTimelineUs);
+      const sourceOffsetSeconds = timeUsToSeconds(chunk.timestampUs - sourceFromUs);
       const startAt = Math.max(
         this.#context.currentTime,
         this.#transportContextTime + timelineOffsetSeconds + sourceOffsetSeconds,
@@ -106,7 +107,7 @@ export class WebAudioScheduler implements PlaybackAudioScheduler {
       if (envelope) {
         const chunkTimelineStartUs = timelineFromUs + chunk.timestampUs - sourceFromUs;
         const chunkTimelineEndUs =
-          chunkTimelineStartUs + Math.round(chunk.buffer.duration * 1_000_000);
+          chunkTimelineStartUs + secondsToTimeUs(timeSeconds(chunk.buffer.duration));
         scheduleFadeAutomation(
           gain.gain,
           startAt,
@@ -166,7 +167,7 @@ function scheduleFadeAutomation(
   for (const timeUs of points.slice(1)) {
     gain.linearRampToValueAtTime(
       audioFadeGainAt(envelope, timeUs),
-      contextStart + (timeUs - timelineStartUs) / 1_000_000,
+      contextStart + timeUsToSeconds(timeUs - timelineStartUs),
     );
   }
 }

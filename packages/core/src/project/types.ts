@@ -1,6 +1,45 @@
 import type { AssetId, ClipId, ProjectId, SequenceId, TrackId } from "../ids";
 
-export type TimeUs = number;
+declare const TIME_US: unique symbol;
+declare const TIME_SECONDS: unique symbol;
+declare const TIME_MILLISECONDS: unique symbol;
+
+export type TimeUs = number & { readonly [TIME_US]?: "TimeUs" };
+export type TimeSeconds = number & { readonly [TIME_SECONDS]: "TimeSeconds" };
+export type TimeMilliseconds = number & { readonly [TIME_MILLISECONDS]: "TimeMilliseconds" };
+
+export function timeUs(value: number): TimeUs {
+  if (!Number.isSafeInteger(value) || value < 0) {
+    throw new RangeError("Microsecond time must be a non-negative safe integer");
+  }
+  return value as TimeUs;
+}
+
+export function timeSeconds(value: number): TimeSeconds {
+  if (!Number.isFinite(value)) throw new RangeError("Seconds must be finite");
+  return value as TimeSeconds;
+}
+
+export function timeMilliseconds(value: number): TimeMilliseconds {
+  if (!Number.isFinite(value)) throw new RangeError("Milliseconds must be finite");
+  return value as TimeMilliseconds;
+}
+
+export function secondsToTimeUs(seconds: TimeSeconds): TimeUs {
+  return timeUs(Math.round(seconds * 1_000_000));
+}
+
+export function millisecondsToTimeUs(milliseconds: TimeMilliseconds): TimeUs {
+  return timeUs(Math.round(milliseconds * 1_000));
+}
+
+export function timeUsToSeconds(value: TimeUs): TimeSeconds {
+  return timeSeconds(value / 1_000_000);
+}
+
+export function timeUsToMilliseconds(value: TimeUs): TimeMilliseconds {
+  return timeMilliseconds(value / 1_000);
+}
 
 export interface Transform {
   x: number;
@@ -147,11 +186,11 @@ export const DEFAULT_SETTINGS: ProjectSettings = {
 };
 
 export function clipDurationUs(clip: Clip): TimeUs {
-  return clip.sourceEndUs - clip.sourceStartUs;
+  return timeUs(clip.sourceEndUs - clip.sourceStartUs);
 }
 
 export function clipEndUs(clip: Clip): TimeUs {
-  return clip.timelineStartUs + clipDurationUs(clip);
+  return timeUs(clip.timelineStartUs + clipDurationUs(clip));
 }
 
 export function clipFadeGainAt(clip: Clip, timelineTimeUs: TimeUs): number {
@@ -172,9 +211,14 @@ export function canSplitClipAt(clip: Clip, atUs: TimeUs): boolean {
 }
 
 export function sequenceDurationUs(sequence: Sequence): TimeUs {
-  return sequence.tracks.reduce(
-    (maximum, track) =>
-      track.clips.reduce((trackMaximum, clip) => Math.max(trackMaximum, clipEndUs(clip)), maximum),
-    0,
+  return timeUs(
+    sequence.tracks.reduce(
+      (maximum, track) =>
+        track.clips.reduce(
+          (trackMaximum, clip) => Math.max(trackMaximum, clipEndUs(clip)),
+          maximum,
+        ),
+      0,
+    ),
   );
 }

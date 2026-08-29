@@ -1,3 +1,4 @@
+import { timeUs } from "@cinesim/core";
 import type { TimeUs } from "@cinesim/core";
 
 export interface PlaybackClock {
@@ -69,9 +70,12 @@ export class MonotonicPlaybackClock implements PlaybackClock {
 
   now(): TimeUs {
     if (!this.#playing) return this.#anchorTimelineUs;
-    return (
-      this.#anchorTimelineUs +
-      Math.round((this.#runtimeNow() - this.#anchorRuntimeMs) * 1_000 * this.#rate)
+    return timeUs(
+      Math.max(
+        0,
+        this.#anchorTimelineUs +
+          Math.round((this.#runtimeNow() - this.#anchorRuntimeMs) * 1_000 * this.#rate),
+      ),
     );
   }
 }

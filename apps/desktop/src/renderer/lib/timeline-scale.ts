@@ -7,13 +7,15 @@ const MIN_CONTENT_DURATION_US = 30_000_000;
 const END_PADDING_US = 5_000_000;
 const MIN_MAJOR_TICK_PIXELS = 48;
 
-export function timelineContentDurationUs(sequenceDurationUs: number): number {
-  return Math.max(MIN_CONTENT_DURATION_US, Math.max(0, sequenceDurationUs) + END_PADDING_US);
+export function timelineContentDurationUs(sequenceDurationUs: TimeUs): TimeUs {
+  return timeUs(
+    Math.max(MIN_CONTENT_DURATION_US, Math.max(0, sequenceDurationUs) + END_PADDING_US),
+  );
 }
 
-export function timelineFitZoom(sequenceDurationUs: number, viewportWidth: number): number {
+export function timelineFitZoom(sequenceDurationUs: TimeUs, viewportWidth: number): number {
   if (!Number.isFinite(viewportWidth) || viewportWidth <= 0) return DEFAULT_MIN_TIMELINE_ZOOM;
-  const durationSeconds = timelineContentDurationUs(sequenceDurationUs) / 1_000_000;
+  const durationSeconds = timeUsToSeconds(timelineContentDurationUs(sequenceDurationUs));
   const availableWidth = Math.max(1, viewportWidth - 2);
   return Math.min(
     DEFAULT_MIN_TIMELINE_ZOOM,
@@ -41,3 +43,5 @@ export function timelineMajorSecondStep(zoom: number): number {
     ([1, 2, 3, 5, 6, 10].find((step) => step * magnitude >= secondsForReadableTick) ?? 10)
   );
 }
+import { timeUs, timeUsToSeconds } from "@cinesim/core";
+import type { TimeUs } from "@cinesim/core";

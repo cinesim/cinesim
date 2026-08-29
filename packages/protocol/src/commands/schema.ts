@@ -6,12 +6,13 @@ import {
   clipIdSchema,
   sequenceIdSchema,
   trackIdSchema,
+  timeUsSchema,
   transformSchema,
 } from "@cinesim/core";
 import type { EditorCommand } from "@cinesim/core";
 
 export { assetIdSchema, clipIdSchema, sequenceIdSchema, trackIdSchema };
-export const timeUsSchema = z.number().int().nonnegative().safe();
+export { timeUsSchema };
 
 const editorCommandShapeSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("asset.import"), asset: assetSchema }),

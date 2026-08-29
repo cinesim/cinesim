@@ -6,9 +6,10 @@ import {
   sequenceIdSchema,
   trackIdSchema,
 } from "../ids";
+import { timeUs } from "../project/types";
 import type { CloudAssetId, CloudProjectId } from "../project/types";
 
-const timeUs = z.number().int().nonnegative().safe();
+export const timeUsSchema = z.number().int().nonnegative().safe().transform(timeUs);
 
 export const transformSchema = z.object({
   x: z.number().finite(),
@@ -40,7 +41,7 @@ export const assetSchema = z.object({
   kind: z.enum(["video", "audio", "image"]),
   name: z.string().min(1),
   source: assetSourceSchema,
-  durationUs: timeUs,
+  durationUs: timeUsSchema,
   width: z.number().int().positive().optional(),
   height: z.number().int().positive().optional(),
   frameRate: z.number().positive().optional(),
@@ -52,11 +53,11 @@ export const clipSchema = z.object({
   assetId: assetIdSchema,
   mediaKind: z.enum(["video", "audio"]),
   linkedClipId: clipIdSchema.optional(),
-  timelineStartUs: timeUs,
-  sourceStartUs: timeUs,
-  sourceEndUs: timeUs,
-  fadeInUs: timeUs.optional(),
-  fadeOutUs: timeUs.optional(),
+  timelineStartUs: timeUsSchema,
+  sourceStartUs: timeUsSchema,
+  sourceEndUs: timeUsSchema,
+  fadeInUs: timeUsSchema.optional(),
+  fadeOutUs: timeUsSchema.optional(),
   transform: transformSchema,
 });
 

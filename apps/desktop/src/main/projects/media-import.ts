@@ -1,7 +1,7 @@
 import { realpath } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, isAbsolute, relative, sep } from "node:path";
-import { nextId } from "@cinesim/core";
+import { nextId, secondsToTimeUs, timeSeconds, timeUs } from "@cinesim/core";
 import type { Asset } from "@cinesim/core";
 import { ALL_FORMATS, FilePathSource, Input } from "mediabunny";
 
@@ -37,7 +37,7 @@ export async function inspectMedia(filePath: string, existingIds: string[]): Pro
       kind: video ? "video" : audio ? "audio" : "image",
       name: basename(filePath),
       source: { kind: "local", path: filePath },
-      durationUs: Math.max(1, Math.round(durationSeconds * 1_000_000)),
+      durationUs: timeUs(Math.max(1, secondsToTimeUs(timeSeconds(durationSeconds)))),
       ...(video
         ? {
             width: await video.getDisplayWidth(),

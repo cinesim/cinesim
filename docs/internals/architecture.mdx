@@ -52,15 +52,21 @@ Hono itself remains a standards-based server entry point.
 under `.cinesim/`; hand-edited preferences live in `.cinesim/settings.toml`. The generated `.video/`
 tree holds only disposable state and is ignored as a unit.
 
-Core uses integer microseconds throughout. IDs are stable prefixed strings. Unordered collections
-are sorted before serialization while sequence track arrays preserve authored layer order. Unknown
-schema versions are rejected rather than opened optimistically. Disk adapters share one journaled
-four-file transaction. A project-scoped lock serializes processes, content-derived generations
-reject stale writers, and opening a project deterministically recovers an interrupted publication.
+Core uses validated integer microseconds throughout. `TimeUs` carries a lightweight unit marker, and
+strict `TimeSeconds` and `TimeMilliseconds` values must pass through centralized conversion helpers
+at media, provider, clock, and serialization boundaries. IDs are stable prefixed strings. Unordered
+collections are sorted before serialization while sequence track arrays preserve authored layer
+order. Unknown schema versions are rejected rather than opened optimistically. Disk adapters share
+one journaled four-file transaction. A project-scoped lock serializes processes, content-derived
+generations reject stale writers, and opening a project deterministically recovers an interrupted
+publication.
 
-Undo and redo store immutable project snapshots per committed command. This is the simplest correct
-V1 behavior, and it falls out naturally that a completed drag is one undo step while ephemeral
-pointer previews stay UI-only.
+Undo and redo store immutable project snapshots per committed command, bounded by both 200 commands
+and 64 MiB of estimated canonical snapshot data. The newest entry is always retained, so one
+completed drag remains one undo step even when a very large project exceeds the byte budget.
+`vp run history:benchmark` measures 250 edits at 100, 1,000, and 5,000 clips. The August 2026
+baseline was 0.9, 7.8, and 38.4 ms per command respectively; review is required if the 1,000-clip
+case exceeds 10 ms or the 5,000-clip case exceeds 50 ms on comparable development hardware.
 
 ## Command pathway
 

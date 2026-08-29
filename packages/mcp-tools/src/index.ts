@@ -314,7 +314,7 @@ export function registerCinesimMcpTools(server: McpServer, runtime: CinesimMcpTo
         assetId: assetIdSchema,
         timelineStartUs: timeUsSchema,
         sourceStartUs: timeUsSchema.optional(),
-        sourceEndUs: timeUsSchema.positive().optional(),
+        sourceEndUs: timeUsSchema.refine((value) => value > 0).optional(),
       },
       annotations: create,
     },
@@ -396,7 +396,7 @@ export function registerCinesimMcpTools(server: McpServer, runtime: CinesimMcpTo
     {
       title: "Split a clip",
       description: "Split a clip at an absolute integer-microsecond timeline time.",
-      inputSchema: { clipId: clipIdSchema, atUs: timeUsSchema.positive() },
+      inputSchema: { clipId: clipIdSchema, atUs: timeUsSchema.refine((value) => value > 0) },
       annotations: create,
     },
     ({ clipId, atUs }) =>

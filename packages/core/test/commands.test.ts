@@ -7,6 +7,13 @@ import {
   findClip,
   nextId,
   ProjectHistory,
+  millisecondsToTimeUs,
+  secondsToTimeUs,
+  timeMilliseconds,
+  timeSeconds,
+  timeUs,
+  timeUsToMilliseconds,
+  timeUsToSeconds,
 } from "../src";
 import type { Asset, Project } from "../src";
 
@@ -47,6 +54,15 @@ function withClip(): Project {
 }
 
 describe("editing commands", () => {
+  it("converts external clocks through explicit microsecond unit boundaries", () => {
+    expect(secondsToTimeUs(timeSeconds(1.25))).toBe(1_250_000);
+    expect(millisecondsToTimeUs(timeMilliseconds(1.25))).toBe(1_250);
+    expect(timeUsToSeconds(timeUs(2_500_000))).toBe(2.5);
+    expect(timeUsToMilliseconds(timeUs(2_500))).toBe(2.5);
+    expect(() => timeUs(-1)).toThrow(/non-negative safe integer/);
+    expect(() => timeSeconds(Number.POSITIVE_INFINITY)).toThrow(/finite/);
+  });
+
   it("creates an immutable cloud project kind and switches asset sources through commands", () => {
     let project = createProject({
       name: "Cloud",
@@ -669,6 +685,43 @@ describe("editing commands", () => {
     expect(history.canUndo).toBe(true);
     expect(history.undo().sequences[0]!.tracks[0]!.clips).toHaveLength(0);
     expect(history.redo().sequences[0]!.tracks[0]!.clips).toHaveLength(1);
+  });
+
+  it("bounds snapshot history while preserving one-command undo semantics", () => {
+    const project = withClip();
+    const history = new ProjectHistory(project, {
+      maxEntries: 2,
+      maxEstimatedBytes: 10 * 1024 * 1024,
+    });
+    for (const timelineStartUs of [1_000_000, 2_000_000, 3_000_000]) {
+      history.commit({ type: "clip.move", clipId: "clip_000001", timelineStartUs });
+    }
+
+    expect(history.stats).toMatchObject({ undoEntries: 2, redoEntries: 0, maxEntries: 2 });
+    expect(findClip(history.undo(), "clip_000001").clip.timelineStartUs).toBe(2_000_000);
+    expect(findClip(history.undo(), "clip_000001").clip.timelineStartUs).toBe(1_000_000);
+    expect(history.canUndo).toBe(false);
+    expect(findClip(history.redo(), "clip_000001").clip.timelineStartUs).toBe(2_000_000);
+  });
+
+  it("retains the newest undo entry when one project exceeds the byte budget", () => {
+    const project = withClip();
+    const history = new ProjectHistory(project, { maxEntries: 20, maxEstimatedBytes: 1 });
+
+    history.commit({
+      type: "clip.move",
+      clipId: "clip_000001",
+      timelineStartUs: 1_000_000,
+    });
+    history.commit({
+      type: "clip.move",
+      clipId: "clip_000001",
+      timelineStartUs: 2_000_000,
+    });
+
+    expect(history.stats.undoEntries).toBe(1);
+    expect(history.canUndo).toBe(true);
+    expect(findClip(history.undo(), "clip_000001").clip.timelineStartUs).toBe(1_000_000);
   });
 
   it("creates a timeline from ordered assets as one deterministic command", () => {
