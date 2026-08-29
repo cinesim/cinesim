@@ -1,5 +1,14 @@
 import { memo, useEffect, useMemo, useRef, useState } from "react";
-import { Search, Trash2, User, Play, LoaderCircle, RotateCcw } from "@cinesim/ui";
+import {
+  Search,
+  Trash2,
+  User,
+  Play,
+  LoaderCircle,
+  RotateCcw,
+  MoveHorizontal,
+  X,
+} from "@cinesim/ui";
 import {
   Button,
   cn,
@@ -45,6 +54,12 @@ interface SelectableToken {
 
 const ROW_ESTIMATE_PX = 112;
 const WINDOW_OVERSCAN = 8;
+const SPEAKER_COLORS = [
+  "var(--metric-blue)",
+  "var(--metric-violet)",
+  "var(--metric-green)",
+  "var(--metric-amber)",
+] as const;
 
 function isEditableTarget(target: EventTarget | null): boolean {
   return (
@@ -128,13 +143,21 @@ const TranscriptWord = memo(function TranscriptWord({
   active,
   onPointerDown,
   onPointerEnter,
+  onContextMenu,
 }: {
   token: Extract<TranscriptInlineToken, { kind: "word" }>;
   selected: boolean;
   active: boolean;
   onPointerDown: (event: React.PointerEvent<HTMLButtonElement>) => void;
   onPointerEnter: (event: React.PointerEvent<HTMLButtonElement>) => void;
+  onContextMenu: (event: React.MouseEvent<HTMLButtonElement>) => void;
 }) {
+  const wordRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    if (active) wordRef.current?.scrollIntoView({ block: "nearest", inline: "nearest" });
+  }, [active]);
+
   return (
     <>
       {token.word.cutBefore && (
@@ -143,22 +166,25 @@ const TranscriptWord = memo(function TranscriptWord({
           title="Edit point"
         />
       )}
-      <button
-        type="button"
-        aria-pressed={selected}
-        className={cn(
-          "rounded-sm px-0.5 py-px text-left leading-7 outline-none transition-colors focus-visible:ring-1 focus-visible:ring-ring",
-          selected
-            ? "bg-accent/25 text-primary"
-            : active
-              ? "bg-surface text-primary"
-              : "text-primary hover:bg-surface",
+      <span className={cn("relative inline-block", selected && "bg-selection text-primary")}>
+        {active && (
+          <span
+            aria-hidden="true"
+            className="pointer-events-none absolute -left-px bottom-0.5 top-0.5 z-10 w-0.5 bg-playhead"
+          />
         )}
-        onPointerDown={onPointerDown}
-        onPointerEnter={onPointerEnter}
-      >
-        {token.word.text}
-      </button>{" "}
+        <button
+          ref={wordRef}
+          type="button"
+          aria-pressed={selected}
+          className="px-0.5 py-px text-left leading-7 text-primary outline-none hover:bg-surface/70 focus-visible:bg-surface focus-visible:ring-1 focus-visible:ring-focus"
+          onPointerDown={onPointerDown}
+          onPointerEnter={onPointerEnter}
+          onContextMenu={onContextMenu}
+        >
+          {token.word.text}
+        </button>{" "}
+      </span>
     </>
   );
 });
@@ -167,12 +193,14 @@ function SpeakerMenu({
   speaker,
   count,
   active,
+  color,
   onFilter,
   onSelectUtterance,
 }: {
   speaker: string;
   count: number;
   active: boolean;
+  color: string;
   onFilter: () => void;
   onSelectUtterance: () => void;
 }) {
@@ -180,13 +208,13 @@ function SpeakerMenu({
     <Menu>
       <MenuTrigger
         className={cn(
-          "inline-flex h-6 items-center rounded-full border px-2 text-ui-xs font-semibold",
-          active
-            ? "border-accent bg-accent/15 text-primary"
-            : "border-border bg-panel text-secondary hover:bg-surface",
+          "inline-flex min-h-7 items-center gap-2 px-1 text-left text-ui-xs font-semibold hover:bg-surface",
+          active && "bg-surface",
         )}
+        style={{ color }}
         aria-label={`Actions for ${speaker}`}
       >
+        <span className="h-4 w-0.5 shrink-0" style={{ backgroundColor: color }} />
         {speaker}
       </MenuTrigger>
       <MenuContent align="start" className="w-52">
@@ -204,8 +232,14 @@ function SpeakerMenu({
 
 function CoverageBlock({
   block,
+  actionLabel,
+  actionDisabled,
+  onAction,
 }: {
   block: Extract<TranscriptDocumentBlock, { kind: "coverage" }>;
+  actionLabel: string;
+  actionDisabled: boolean;
+  onAction: () => void;
 }) {
   const labels = {
     missing: "Not transcribed",
@@ -214,14 +248,25 @@ function CoverageBlock({
     failed: "Transcription unavailable",
   } as const;
   return (
-    <div className="rounded-lg border border-dashed border-border-strong bg-panel-muted px-3 py-3 text-ui text-muted">
-      <span className="inline-flex items-center gap-2 font-medium text-secondary">
+    <div className="grid grid-cols-[96px_minmax(0,1fr)] gap-5 py-2.5 text-ui text-muted">
+      <span className="px-1 text-ui-xs font-semibold text-secondary">Transcript</span>
+      <div className="flex min-w-0 items-center gap-2 border-l-2 border-border-strong pl-3">
         {block.coverage.state === "running" && <LoaderCircle className="animate-spin" size={13} />}
-        {labels[block.coverage.state]}
-      </span>
-      <p className="mt-1 text-ui-xs">
-        This timeline interval is shown explicitly so transcript coverage is never implied.
-      </p>
+        <span>{labels[block.coverage.state]}</span>
+        <span className="hidden text-ui-xs text-muted sm:inline">
+          This interval has no editable words yet.
+        </span>
+        <Button
+          className="ml-auto shrink-0"
+          size="sm"
+          variant="ghost"
+          disabled={actionDisabled}
+          onClick={onAction}
+        >
+          {block.coverage.state === "failed" && <RotateCcw size={12} />}
+          {actionLabel}
+        </Button>
+      </div>
     </div>
   );
 }
@@ -252,6 +297,7 @@ export function TimelineTranscript({
   const [speakerFilter, setSpeakerFilter] = useState<string | null>(null);
   const [selection, setSelection] = useState<Set<string>>(() => new Set());
   const [anchorId, setAnchorId] = useState<string | null>(null);
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
   const dragging = useRef(false);
   const [scrollTop, setScrollTop] = useState(0);
   const [viewportHeight, setViewportHeight] = useState(600);
@@ -277,6 +323,15 @@ export function TimelineTranscript({
       ),
     [speakers],
   );
+  const speakerColors = useMemo(
+    () =>
+      new Map(
+        speakers.map(
+          ([id], index) => [id, SPEAKER_COLORS[index % SPEAKER_COLORS.length]!] as const,
+        ),
+      ),
+    [speakers],
+  );
   const normalizedQuery = query.trim().toLocaleLowerCase();
   const visibleBlocks = useMemo(
     () => projection.blocks.filter((block) => blockMatches(block, normalizedQuery, speakerFilter)),
@@ -293,17 +348,6 @@ export function TimelineTranscript({
   const selectedRanges = useMemo(() => mergeRanges(selectedTokens), [selectedTokens]);
   const selectionStart = selectedRanges[0]?.startUs;
   const selectionEnd = selectedRanges.at(-1)?.endUs;
-  const missingAssetIds = useMemo(
-    () => [...new Set(projection.coverage.map((item) => item.assetId))],
-    [projection.coverage],
-  );
-  const activeAssetIds = useMemo(
-    () =>
-      projection.coverage
-        .filter((item) => item.state === "queued" || item.state === "running")
-        .map((item) => item.assetId),
-    [projection.coverage],
-  );
   const selectionKey = selectedRanges.map((range) => `${range.startUs}:${range.endUs}`).join(",");
   const publishedSelection = useRef<{
     key: string;
@@ -334,6 +378,15 @@ export function TimelineTranscript({
     window.addEventListener("pointerup", stopDragging);
     return () => window.removeEventListener("pointerup", stopDragging);
   }, []);
+
+  useEffect(() => {
+    if (!contextMenu) return;
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setContextMenu(null);
+    };
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [contextMenu]);
 
   useEffect(() => {
     function deleteSelection(event: KeyboardEvent): void {
@@ -371,6 +424,16 @@ export function TimelineTranscript({
     if (token) onSeek(token.startUs);
   }
 
+  function openContextMenu(id: string, event: React.MouseEvent): void {
+    event.preventDefault();
+    event.stopPropagation();
+    if (!selection.has(id)) selectThrough(id, false);
+    setContextMenu({
+      x: Math.max(8, Math.min(event.clientX, window.innerWidth - 232)),
+      y: Math.max(8, Math.min(event.clientY, window.innerHeight - 230)),
+    });
+  }
+
   function selectUtterance(utterance: ProjectedUtterance): void {
     const ids = utterance.tokens.map((token) => (token.kind === "word" ? token.word.id : token.id));
     setSelection(new Set(ids));
@@ -386,7 +449,11 @@ export function TimelineTranscript({
       ranges: selectedRanges,
       mode,
     });
-    if (result.ok) setSelection(new Set());
+    if (result.ok) {
+      setSelection(new Set());
+      setAnchorId(null);
+      setContextMenu(null);
+    }
   }
 
   return (
@@ -415,6 +482,10 @@ export function TimelineTranscript({
               <MenuItem onClick={() => setSpeakerFilter(null)}>All speakers</MenuItem>
               {speakers.map(([id, count]) => (
                 <MenuItem key={id} onClick={() => setSpeakerFilter(id)}>
+                  <span
+                    className="size-2 shrink-0 rounded-full"
+                    style={{ backgroundColor: speakerColors.get(id) }}
+                  />
                   <span className="flex-1">{speakerName.get(id)}</span>
                   <span className="text-muted tabular-nums">{count}</span>
                 </MenuItem>
@@ -422,75 +493,20 @@ export function TimelineTranscript({
             </MenuContent>
           </Menu>
         </div>
-        <div className="mt-2 flex min-h-7 items-center gap-2 text-ui-xs">
-          {selectedTokens.length > 0 ? (
-            <>
-              <span className="font-medium text-primary">
-                {selectedTokens.length === 1
-                  ? selectedTokens[0]?.label
-                  : `${selectedTokens.length} items`}{" "}
-                · {formatSeconds((selectionEnd ?? 0) - (selectionStart ?? 0))}
-              </span>
-              <Button
-                size="sm"
-                variant="secondary"
-                onClick={() =>
-                  selectionStart !== undefined &&
-                  selectionEnd !== undefined &&
-                  onPlaySelection(selectionStart, selectionEnd)
-                }
-              >
-                <Play size={12} /> Play
-              </Button>
-              {activeAssetIds.length > 0 && (
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  onClick={() => void onCancelTranscripts(activeAssetIds)}
-                >
-                  Cancel
-                </Button>
-              )}
-              <Button size="sm" variant="danger" onClick={() => void deleteRanges("ripple")}>
-                <Trash2 size={12} /> Ripple delete
-              </Button>
-              <Button size="sm" variant="ghost" onClick={() => void deleteRanges("lift")}>
-                Lift
-              </Button>
-            </>
-          ) : missingAssetIds.length > 0 ? (
-            <>
-              <span className="text-muted">
-                {projection.coverage.some((item) => item.state === "running")
-                  ? "Building transcript with Deepgram Nova-3…"
-                  : `${missingAssetIds.length} source${missingAssetIds.length === 1 ? "" : "s"} need transcription`}
-              </span>
-              <Button
-                size="sm"
-                variant="secondary"
-                disabled={
-                  account.status !== "signed-in" ||
-                  !account.transcription ||
-                  projection.coverage.some((item) => item.state === "running")
-                }
-                onClick={() => transcriptionConsent.request(missingAssetIds)}
-              >
-                {projection.coverage.some((item) => item.state === "failed") ? (
-                  <RotateCcw size={12} />
-                ) : null}
-                {account.status === "signed-in" ? "Transcribe timeline" : "Sign in to transcribe"}
-              </Button>
-            </>
-          ) : (
-            <span className="text-muted">Click or drag words to select exact timeline ranges.</span>
-          )}
-        </div>
       </header>
 
       <div
         ref={viewportRef}
         className="min-h-0 flex-1 overflow-auto px-4 py-4"
         onScroll={(event) => setScrollTop(event.currentTarget.scrollTop)}
+        onContextMenu={(event) => {
+          if (!selectedTokens.length) return;
+          event.preventDefault();
+          setContextMenu({
+            x: Math.max(8, Math.min(event.clientX, window.innerWidth - 232)),
+            y: Math.max(8, Math.min(event.clientY, window.innerHeight - 230)),
+          });
+        }}
       >
         {visibleBlocks.length === 0 ? (
           <div className="grid h-full min-h-48 place-items-center text-center text-ui text-muted">
@@ -513,26 +529,54 @@ export function TimelineTranscript({
             <div className="space-y-3">
               {renderedBlocks.map((block) => {
                 if (block.kind === "coverage")
-                  return <CoverageBlock key={block.coverage.id} block={block} />;
+                  return (
+                    <CoverageBlock
+                      key={block.coverage.id}
+                      block={block}
+                      actionLabel={
+                        block.coverage.state === "running" || block.coverage.state === "queued"
+                          ? "Cancel"
+                          : account.status === "signed-in"
+                            ? block.coverage.state === "failed"
+                              ? "Retry"
+                              : "Transcribe"
+                            : "Sign in to transcribe"
+                      }
+                      actionDisabled={
+                        block.coverage.state !== "running" &&
+                        block.coverage.state !== "queued" &&
+                        (account.status !== "signed-in" || !account.transcription)
+                      }
+                      onAction={() => {
+                        if (block.coverage.state === "running" || block.coverage.state === "queued")
+                          void onCancelTranscripts([block.coverage.assetId]);
+                        else transcriptionConsent.request([block.coverage.assetId]);
+                      }}
+                    />
+                  );
                 if (block.kind === "timeline-gap") {
                   const selected = selection.has(block.gap.id);
                   return (
-                    <button
+                    <div
                       key={block.gap.id}
-                      type="button"
-                      aria-pressed={selected}
-                      aria-label={`Timeline gap, ${formatSeconds(block.gap.timelineEndUs - block.gap.timelineStartUs)}`}
-                      className={cn(
-                        "rounded-full border border-dashed px-3 py-1 text-ui-xs",
-                        selected
-                          ? "border-accent bg-accent/15 text-primary"
-                          : "border-border-strong text-muted hover:bg-surface",
-                      )}
-                      onClick={(event) => selectThrough(block.gap.id, event.shiftKey)}
+                      className="grid grid-cols-[96px_minmax(0,1fr)] gap-5 py-1 text-ui-xs text-muted"
                     >
-                      ◦◦◦ timeline gap ·{" "}
-                      {formatSeconds(block.gap.timelineEndUs - block.gap.timelineStartUs)}
-                    </button>
+                      <span className="px-1 font-semibold text-secondary">Gap</span>
+                      <button
+                        type="button"
+                        aria-pressed={selected}
+                        aria-label={`Timeline gap, ${formatSeconds(block.gap.timelineEndUs - block.gap.timelineStartUs)}`}
+                        className={cn(
+                          "w-fit px-1 py-0.5 text-left",
+                          selected ? "bg-selection text-primary" : "hover:bg-surface",
+                        )}
+                        onClick={(event) => selectThrough(block.gap.id, event.shiftKey)}
+                        onContextMenu={(event) => openContextMenu(block.gap.id, event)}
+                      >
+                        ◦◦◦ timeline gap ·{" "}
+                        {formatSeconds(block.gap.timelineEndUs - block.gap.timelineStartUs)}
+                      </button>
+                    </div>
                   );
                 }
                 const utterance = block.utterance;
@@ -541,13 +585,14 @@ export function TimelineTranscript({
                 return (
                   <article
                     key={utterance.id}
-                    className="grid grid-cols-[88px_minmax(0,1fr)] gap-3 rounded-lg px-1 py-2 hover:bg-panel-muted"
+                    className="grid grid-cols-[96px_minmax(0,1fr)] gap-5 py-2.5"
                   >
                     <div>
                       <SpeakerMenu
                         speaker={speakerName.get(speakerId) ?? speakerId}
                         count={count}
                         active={speakerFilter === speakerId}
+                        color={speakerColors.get(speakerId) ?? SPEAKER_COLORS[0]}
                         onFilter={() =>
                           setSpeakerFilter((current) => (current === speakerId ? null : speakerId))
                         }
@@ -580,6 +625,7 @@ export function TimelineTranscript({
                               onPointerEnter={(event) => {
                                 if (dragging.current && event.buttons & 1) selectThrough(id, true);
                               }}
+                              onContextMenu={(event) => openContextMenu(id, event)}
                             />
                           );
                         }
@@ -592,10 +638,10 @@ export function TimelineTranscript({
                             aria-label={`Silence, ${formatSeconds(token.timelineEndUs - token.timelineStartUs)}`}
                             title={`Silence · ${formatSeconds(token.timelineEndUs - token.timelineStartUs)}`}
                             className={cn(
-                              "mx-1 inline-flex rounded-full border px-2 py-0.5 align-middle text-ui-xs",
+                              "mx-1 inline-flex border-0 px-1 py-0.5 align-middle text-ui-xs",
                               selected
-                                ? "border-accent bg-accent/20 text-primary"
-                                : "border-border bg-panel-muted text-muted hover:bg-surface",
+                                ? "bg-selection text-primary"
+                                : "text-muted hover:bg-surface",
                             )}
                             onPointerDown={(event) => {
                               dragging.current = true;
@@ -604,6 +650,7 @@ export function TimelineTranscript({
                             onPointerEnter={(event) => {
                               if (dragging.current && event.buttons & 1) selectThrough(id, true);
                             }}
+                            onContextMenu={(event) => openContextMenu(id, event)}
                           >
                             ••• {formatSeconds(token.timelineEndUs - token.timelineStartUs)}
                           </button>
@@ -621,6 +668,64 @@ export function TimelineTranscript({
           </div>
         )}
       </div>
+      {contextMenu && selectedTokens.length > 0 && (
+        <div
+          className="fixed inset-0 z-[79]"
+          onPointerDown={() => setContextMenu(null)}
+          onContextMenu={(event) => {
+            event.preventDefault();
+            setContextMenu(null);
+          }}
+        >
+          <div
+            role="menu"
+            aria-label="Transcript selection actions"
+            className="fixed z-[80] w-56 rounded-xl border border-border-strong bg-panel p-1.5 text-ui text-primary shadow-2xl shadow-black/30"
+            style={{ left: contextMenu.x, top: contextMenu.y }}
+            onPointerDown={(event) => event.stopPropagation()}
+          >
+            <p className="px-2.5 py-1.5 text-ui-xs font-medium text-muted">
+              Selection · {formatSeconds((selectionEnd ?? 0) - (selectionStart ?? 0))}
+            </p>
+            <button
+              role="menuitem"
+              className="flex min-h-10 w-full items-center gap-2 rounded-lg px-2.5 text-left hover:bg-surface"
+              onClick={() => {
+                if (selectionStart !== undefined && selectionEnd !== undefined)
+                  onPlaySelection(selectionStart, selectionEnd);
+                setContextMenu(null);
+              }}
+            >
+              <Play size={14} /> Play selection
+            </button>
+            <button
+              role="menuitem"
+              className="flex min-h-10 w-full items-center gap-2 rounded-lg px-2.5 text-left hover:bg-surface"
+              onClick={() => void deleteRanges("ripple")}
+            >
+              <Trash2 size={14} /> Delete and close gap
+            </button>
+            <button
+              role="menuitem"
+              className="flex min-h-10 w-full items-center gap-2 rounded-lg px-2.5 text-left hover:bg-surface"
+              onClick={() => void deleteRanges("lift")}
+            >
+              <MoveHorizontal size={14} /> Lift and leave gap
+            </button>
+            <button
+              role="menuitem"
+              className="flex min-h-10 w-full items-center gap-2 rounded-lg px-2.5 text-left hover:bg-surface"
+              onClick={() => {
+                setSelection(new Set());
+                setAnchorId(null);
+                setContextMenu(null);
+              }}
+            >
+              <X size={14} /> Clear selection
+            </button>
+          </div>
+        </div>
+      )}
       {transcriptionConsent.dialog}
     </section>
   );

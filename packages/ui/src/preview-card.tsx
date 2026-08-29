@@ -63,7 +63,10 @@ export function PreviewCard({
         )}
         {preview}
       </div>
-      <div className={cn("relative", size === "compact" ? "min-h-14 p-2" : "min-h-[68px] p-3")}>
+      <div
+        data-slot="preview-card-body"
+        className={cn("relative", size === "compact" ? "min-h-14 p-2" : "min-h-[68px] p-3")}
+      >
         {children}
       </div>
     </>

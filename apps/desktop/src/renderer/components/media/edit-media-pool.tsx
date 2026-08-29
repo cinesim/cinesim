@@ -64,9 +64,9 @@ export function EditMediaPool({
         />
       </PaneHeader>
 
-      <div className="min-h-0 flex-1 overflow-y-auto p-2">
+      <div className="edit-media-pool-scroll min-h-0 flex-1 overflow-y-auto p-2">
         {assets.length > 0 ? (
-          <div className="grid grid-cols-[repeat(auto-fit,minmax(104px,1fr))] gap-2">
+          <div className="edit-media-pool-grid">
             {assets.map((asset) => (
               <DraggableAssetCard
                 key={asset.id}
@@ -193,10 +193,12 @@ function DraggableAssetCard({
         <p className="truncate text-ui-xs font-medium text-primary" title={asset.name}>
           {asset.name}
         </p>
-        <p className="mt-0.5 truncate text-[10px] text-muted tabular-nums">{asset.id}</p>
+        <p className="edit-media-card-secondary mt-0.5 truncate text-[10px] text-muted tabular-nums">
+          {asset.id}
+        </p>
         <AssetSourceMetadata
           asset={asset}
-          className="mt-0.5 truncate text-[10px] text-muted tabular-nums"
+          className="edit-media-card-secondary mt-0.5 truncate text-[10px] text-muted tabular-nums"
         />
         {transcriptState && (
           <div className="mt-1 flex min-w-0 items-center gap-1.5 text-[10px]">
