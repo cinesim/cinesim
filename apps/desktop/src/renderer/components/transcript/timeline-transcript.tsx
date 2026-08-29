@@ -9,22 +9,14 @@ import {
   MoveHorizontal,
   X,
 } from "@cinesim/ui";
-import {
-  Button,
-  cn,
-  Menu,
-  MenuContent,
-  MenuItem,
-  MenuLabel,
-  MenuTrigger,
-  SearchField,
-} from "@cinesim/ui";
+import { Button, cn, Menu, MenuContent, MenuItem, MenuTrigger, SearchField } from "@cinesim/ui";
 import type { AssetId, EditorCommand, Project, TimelineRange } from "@cinesim/core";
 import type { TranscriptSnapshot } from "../../../shared/transcript";
 import {
   projectTimelineTranscript,
-  type ProjectedUtterance,
+  transcriptDocumentSections,
   type TranscriptDocumentBlock,
+  type TranscriptDocumentSection,
   type TranscriptInlineToken,
 } from "../../../shared/transcript";
 import type { ActionResult, RendererState } from "../../store/renderer-store";
@@ -52,8 +44,6 @@ interface SelectableToken {
   label: string;
 }
 
-const ROW_ESTIMATE_PX = 112;
-const WINDOW_OVERSCAN = 8;
 const SPEAKER_COLORS = [
   "var(--metric-blue)",
   "var(--metric-violet)",
@@ -124,23 +114,26 @@ function selectableTokens(blocks: readonly TranscriptDocumentBlock[]): Selectabl
   return result;
 }
 
-function blockMatches(
-  block: TranscriptDocumentBlock,
+function sectionMatches(
+  section: TranscriptDocumentSection,
   query: string,
   speaker: string | null,
 ): boolean {
-  if (block.kind !== "utterance") return !query && !speaker;
-  if (speaker && block.utterance.speakerClusterId !== speaker) return false;
-  if (!query) return true;
-  return block.utterance.tokens.some(
-    (token) => token.kind === "word" && token.word.text.toLocaleLowerCase().includes(query),
+  if (section.kind !== "paragraph") return !query && !speaker;
+  const words = section.paragraph.blocks.flatMap((block) =>
+    block.kind === "utterance"
+      ? block.utterance.tokens.flatMap((token) => (token.kind === "word" ? [token.word] : []))
+      : [],
   );
+  if (speaker && !words.some((word) => word.speakerClusterId === speaker)) return false;
+  return !query || words.some((word) => word.text.toLocaleLowerCase().includes(query));
 }
 
 const TranscriptWord = memo(function TranscriptWord({
   token,
   selected,
   active,
+  color,
   onPointerDown,
   onPointerEnter,
   onContextMenu,
@@ -148,6 +141,7 @@ const TranscriptWord = memo(function TranscriptWord({
   token: Extract<TranscriptInlineToken, { kind: "word" }>;
   selected: boolean;
   active: boolean;
+  color: string | undefined;
   onPointerDown: (event: React.PointerEvent<HTMLButtonElement>) => void;
   onPointerEnter: (event: React.PointerEvent<HTMLButtonElement>) => void;
   onContextMenu: (event: React.MouseEvent<HTMLButtonElement>) => void;
@@ -178,6 +172,7 @@ const TranscriptWord = memo(function TranscriptWord({
           type="button"
           aria-pressed={selected}
           className="px-0.5 py-px text-left leading-7 text-primary outline-none hover:bg-surface/70 focus-visible:bg-surface focus-visible:ring-1 focus-visible:ring-focus"
+          style={color ? { color } : undefined}
           onPointerDown={onPointerDown}
           onPointerEnter={onPointerEnter}
           onContextMenu={onContextMenu}
@@ -188,47 +183,6 @@ const TranscriptWord = memo(function TranscriptWord({
     </>
   );
 });
-
-function SpeakerMenu({
-  speaker,
-  count,
-  active,
-  color,
-  onFilter,
-  onSelectUtterance,
-}: {
-  speaker: string;
-  count: number;
-  active: boolean;
-  color: string;
-  onFilter: () => void;
-  onSelectUtterance: () => void;
-}) {
-  return (
-    <Menu>
-      <MenuTrigger
-        className={cn(
-          "inline-flex min-h-7 items-center gap-2 px-1 text-left text-ui-xs font-semibold hover:bg-surface",
-          active && "bg-surface",
-        )}
-        style={{ color }}
-        aria-label={`Actions for ${speaker}`}
-      >
-        <span className="h-4 w-0.5 shrink-0" style={{ backgroundColor: color }} />
-        {speaker}
-      </MenuTrigger>
-      <MenuContent align="start" className="w-52">
-        <MenuLabel>
-          {count} utterance{count === 1 ? "" : "s"}
-        </MenuLabel>
-        <MenuItem onClick={onFilter}>
-          {active ? "Show all speakers" : `Filter to ${speaker}`}
-        </MenuItem>
-        <MenuItem onClick={onSelectUtterance}>Select this utterance</MenuItem>
-      </MenuContent>
-    </Menu>
-  );
-}
 
 function CoverageBlock({
   block,
@@ -248,9 +202,8 @@ function CoverageBlock({
     failed: "Transcription unavailable",
   } as const;
   return (
-    <div className="grid grid-cols-[96px_minmax(0,1fr)] gap-5 py-2.5 text-ui text-muted">
-      <span className="px-1 text-ui-xs font-semibold text-secondary">Transcript</span>
-      <div className="flex min-w-0 items-center gap-2 border-l-2 border-border-strong pl-3">
+    <div className="flex min-w-0 items-center gap-2 py-2.5 text-ui text-muted">
+      <div className="flex min-w-0 flex-1 items-center gap-2 border-l-2 border-border-strong pl-3">
         {block.coverage.state === "running" && <LoaderCircle className="animate-spin" size={13} />}
         <span>{labels[block.coverage.state]}</span>
         <span className="hidden text-ui-xs text-muted sm:inline">
@@ -288,6 +241,10 @@ export function TimelineTranscript({
     () => projectTimelineTranscript({ project, sequenceId, transcripts }),
     [project, sequenceId, transcripts],
   );
+  const sections = useMemo(
+    () => transcriptDocumentSections(projection.blocks),
+    [projection.blocks],
+  );
   const allTokens = useMemo(() => selectableTokens(projection.blocks), [projection.blocks]);
   const tokenIndex = useMemo(
     () => new Map(allTokens.map((token, index) => [token.id, index])),
@@ -299,9 +256,6 @@ export function TimelineTranscript({
   const [anchorId, setAnchorId] = useState<string | null>(null);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
   const dragging = useRef(false);
-  const [scrollTop, setScrollTop] = useState(0);
-  const [viewportHeight, setViewportHeight] = useState(600);
-  const viewportRef = useRef<HTMLDivElement>(null);
   const transcriptionConsent = useTranscriptionConsent(
     account.user?.id ?? null,
     onRequestTranscripts,
@@ -333,14 +287,10 @@ export function TimelineTranscript({
     [speakers],
   );
   const normalizedQuery = query.trim().toLocaleLowerCase();
-  const visibleBlocks = useMemo(
-    () => projection.blocks.filter((block) => blockMatches(block, normalizedQuery, speakerFilter)),
-    [normalizedQuery, projection.blocks, speakerFilter],
+  const visibleSections = useMemo(
+    () => sections.filter((section) => sectionMatches(section, normalizedQuery, speakerFilter)),
+    [normalizedQuery, sections, speakerFilter],
   );
-  const firstVisible = Math.max(0, Math.floor(scrollTop / ROW_ESTIMATE_PX) - WINDOW_OVERSCAN);
-  const visibleCount = Math.ceil(viewportHeight / ROW_ESTIMATE_PX) + WINDOW_OVERSCAN * 2;
-  const lastVisible = Math.min(visibleBlocks.length, firstVisible + visibleCount);
-  const renderedBlocks = visibleBlocks.slice(firstVisible, lastVisible);
   const selectedTokens = useMemo(
     () => allTokens.filter((token) => selection.has(token.id)),
     [allTokens, selection],
@@ -360,16 +310,6 @@ export function TimelineTranscript({
     publishedSelection.current = { key: selectionKey, listener: onSelectionChange };
     onSelectionChange(selectedRanges);
   }, [onSelectionChange, selectedRanges, selectionKey]);
-
-  useEffect(() => {
-    const viewport = viewportRef.current;
-    if (!viewport) return;
-    const measure = () => setViewportHeight(viewport.clientHeight);
-    measure();
-    const observer = new ResizeObserver(measure);
-    observer.observe(viewport);
-    return () => observer.disconnect();
-  }, []);
 
   useEffect(() => {
     const stopDragging = () => {
@@ -434,13 +374,6 @@ export function TimelineTranscript({
     });
   }
 
-  function selectUtterance(utterance: ProjectedUtterance): void {
-    const ids = utterance.tokens.map((token) => (token.kind === "word" ? token.word.id : token.id));
-    setSelection(new Set(ids));
-    setAnchorId(ids[0] ?? null);
-    onSeek(utterance.timelineStartUs);
-  }
-
   async function deleteRanges(mode: "ripple" | "lift"): Promise<void> {
     if (!selectedRanges.length) return;
     const result = await onCommand({
@@ -499,9 +432,7 @@ export function TimelineTranscript({
       </header>
 
       <div
-        ref={viewportRef}
         className="min-h-0 flex-1 overflow-auto px-4 py-4"
-        onScroll={(event) => setScrollTop(event.currentTarget.scrollTop)}
         onContextMenu={(event) => {
           if (!selectedTokens.length) return;
           event.preventDefault();
@@ -511,7 +442,7 @@ export function TimelineTranscript({
           });
         }}
       >
-        {visibleBlocks.length === 0 ? (
+        {visibleSections.length === 0 ? (
           <div className="grid h-full min-h-48 place-items-center text-center text-ui text-muted">
             <div>
               <p className="font-medium text-secondary">
@@ -527,126 +458,90 @@ export function TimelineTranscript({
             </div>
           </div>
         ) : (
-          <div>
-            <div style={{ height: firstVisible * ROW_ESTIMATE_PX }} aria-hidden="true" />
-            <div className="space-y-3">
-              {renderedBlocks.map((block) => {
-                if (block.kind === "coverage")
-                  return (
-                    <CoverageBlock
-                      key={block.coverage.id}
-                      block={block}
-                      actionLabel={
-                        block.coverage.state === "running" || block.coverage.state === "queued"
-                          ? "Cancel"
-                          : account.status === "signed-in"
-                            ? block.coverage.state === "failed"
-                              ? "Retry"
-                              : "Transcribe"
-                            : "Sign in to transcribe"
-                      }
-                      actionDisabled={
-                        block.coverage.state !== "running" &&
-                        block.coverage.state !== "queued" &&
-                        (account.status !== "signed-in" || !account.transcription)
-                      }
-                      onAction={() => {
-                        if (block.coverage.state === "running" || block.coverage.state === "queued")
-                          void onCancelTranscripts([block.coverage.assetId]);
-                        else transcriptionConsent.request([block.coverage.assetId]);
-                      }}
-                    />
-                  );
-                if (block.kind === "timeline-gap") {
-                  const selected = selection.has(block.gap.id);
-                  return (
-                    <div
-                      key={block.gap.id}
-                      className="grid grid-cols-[96px_minmax(0,1fr)] gap-5 py-1 text-ui-xs text-muted"
-                    >
-                      <span className="px-1 font-semibold text-secondary">Gap</span>
-                      <button
-                        type="button"
-                        aria-pressed={selected}
-                        aria-label={`Timeline gap, ${formatSeconds(block.gap.timelineEndUs - block.gap.timelineStartUs)}`}
-                        className={cn(
-                          "w-fit px-1 py-0.5 text-left",
-                          selected ? "bg-selection text-primary" : "hover:bg-surface",
-                        )}
-                        onClick={(event) => selectThrough(block.gap.id, event.shiftKey)}
-                        onContextMenu={(event) => openContextMenu(block.gap.id, event)}
-                      >
-                        ◦◦◦ timeline gap ·{" "}
-                        {formatSeconds(block.gap.timelineEndUs - block.gap.timelineStartUs)}
-                      </button>
-                    </div>
-                  );
-                }
-                const utterance = block.utterance;
-                const speakerId = utterance.speakerClusterId ?? "Unknown speaker";
-                const count = speakers.find(([id]) => id === speakerId)?.[1] ?? 1;
+          <div className="space-y-4">
+            {visibleSections.map((section) => {
+              if (section.kind === "coverage")
                 return (
-                  <article
-                    key={utterance.id}
-                    className="grid grid-cols-[96px_minmax(0,1fr)] gap-5 py-2.5"
-                  >
-                    <div>
-                      <SpeakerMenu
-                        speaker={speakerName.get(speakerId) ?? speakerId}
-                        count={count}
-                        active={speakerFilter === speakerId}
-                        color={speakerColors.get(speakerId) ?? SPEAKER_COLORS[0]}
-                        onFilter={() =>
-                          setSpeakerFilter((current) => (current === speakerId ? null : speakerId))
-                        }
-                        onSelectUtterance={() => selectUtterance(utterance)}
-                      />
-                      {utterance.overlapping && (
-                        <p className="mt-1 text-[9px] font-semibold uppercase tracking-wide text-muted">
-                          Overlap
-                        </p>
-                      )}
-                    </div>
-                    <p className="text-[15px] leading-7 text-primary">
-                      {utterance.tokens.map((token) => {
-                        const id = token.kind === "word" ? token.word.id : token.id;
-                        if (token.kind === "word") {
-                          return (
-                            <TranscriptWord
-                              key={id}
-                              token={token}
-                              selected={selection.has(id)}
-                              active={
-                                playheadUs >= token.word.timelineStartUs &&
-                                playheadUs < token.word.timelineEndUs
-                              }
-                              onPointerDown={(event) => {
-                                if (event.button !== 0) return;
-                                dragging.current = true;
-                                selectThrough(id, event.shiftKey);
-                              }}
-                              onPointerEnter={(event) => {
-                                if (dragging.current && event.buttons & 1) selectThrough(id, true);
-                              }}
-                              onContextMenu={(event) => openContextMenu(id, event)}
-                            />
-                          );
-                        }
-                        const selected = selection.has(id);
+                  <CoverageBlock
+                    key={section.coverage.id}
+                    block={section}
+                    actionLabel={
+                      section.coverage.state === "running" || section.coverage.state === "queued"
+                        ? "Cancel"
+                        : account.status === "signed-in"
+                          ? section.coverage.state === "failed"
+                            ? "Retry"
+                            : "Transcribe"
+                          : "Sign in to transcribe"
+                    }
+                    actionDisabled={
+                      section.coverage.state !== "running" &&
+                      section.coverage.state !== "queued" &&
+                      (account.status !== "signed-in" || !account.transcription)
+                    }
+                    onAction={() => {
+                      if (
+                        section.coverage.state === "running" ||
+                        section.coverage.state === "queued"
+                      )
+                        void onCancelTranscripts([section.coverage.assetId]);
+                      else transcriptionConsent.request([section.coverage.assetId]);
+                    }}
+                  />
+                );
+              return (
+                <p
+                  key={section.paragraph.id}
+                  className="max-w-[96ch] py-1 text-[15px] leading-8 text-primary"
+                >
+                  {section.paragraph.blocks.map((block) => {
+                    if (block.kind === "timeline-gap") {
+                      const selected = selection.has(block.gap.id);
+                      return (
+                        <button
+                          key={block.gap.id}
+                          type="button"
+                          aria-pressed={selected}
+                          aria-label={`Timeline gap, ${formatSeconds(block.gap.timelineEndUs - block.gap.timelineStartUs)}`}
+                          title={`Timeline gap · ${formatSeconds(block.gap.timelineEndUs - block.gap.timelineStartUs)}`}
+                          className={cn(
+                            "mx-1 inline-flex border-0 px-1 py-0.5 align-middle text-ui-xs",
+                            selected ? "bg-selection text-primary" : "text-muted hover:bg-surface",
+                          )}
+                          onPointerDown={(event) => {
+                            if (event.button !== 0) return;
+                            dragging.current = true;
+                            selectThrough(block.gap.id, event.shiftKey);
+                          }}
+                          onPointerEnter={(event) => {
+                            if (dragging.current && event.buttons & 1)
+                              selectThrough(block.gap.id, true);
+                          }}
+                          onContextMenu={(event) => openContextMenu(block.gap.id, event)}
+                        >
+                          •••
+                        </button>
+                      );
+                    }
+                    return block.utterance.tokens.map((token) => {
+                      const id = token.kind === "word" ? token.word.id : token.id;
+                      if (token.kind === "word") {
                         return (
-                          <button
+                          <TranscriptWord
                             key={id}
-                            type="button"
-                            aria-pressed={selected}
-                            aria-label={`Silence, ${formatSeconds(token.timelineEndUs - token.timelineStartUs)}`}
-                            title={`Silence · ${formatSeconds(token.timelineEndUs - token.timelineStartUs)}`}
-                            className={cn(
-                              "mx-1 inline-flex border-0 px-1 py-0.5 align-middle text-ui-xs",
-                              selected
-                                ? "bg-selection text-primary"
-                                : "text-muted hover:bg-surface",
-                            )}
+                            token={token}
+                            selected={selection.has(id)}
+                            active={
+                              playheadUs >= token.word.timelineStartUs &&
+                              playheadUs < token.word.timelineEndUs
+                            }
+                            color={
+                              token.word.speakerClusterId
+                                ? speakerColors.get(token.word.speakerClusterId)
+                                : undefined
+                            }
                             onPointerDown={(event) => {
+                              if (event.button !== 0) return;
                               dragging.current = true;
                               selectThrough(id, event.shiftKey);
                             }}
@@ -654,20 +549,39 @@ export function TimelineTranscript({
                               if (dragging.current && event.buttons & 1) selectThrough(id, true);
                             }}
                             onContextMenu={(event) => openContextMenu(id, event)}
-                          >
-                            ••• {formatSeconds(token.timelineEndUs - token.timelineStartUs)}
-                          </button>
+                          />
                         );
-                      })}
-                    </p>
-                  </article>
-                );
-              })}
-            </div>
-            <div
-              style={{ height: Math.max(0, visibleBlocks.length - lastVisible) * ROW_ESTIMATE_PX }}
-              aria-hidden="true"
-            />
+                      }
+                      const selected = selection.has(id);
+                      return (
+                        <button
+                          key={id}
+                          type="button"
+                          aria-pressed={selected}
+                          aria-label={`Silence, ${formatSeconds(token.timelineEndUs - token.timelineStartUs)}`}
+                          title={`Silence · ${formatSeconds(token.timelineEndUs - token.timelineStartUs)}`}
+                          className={cn(
+                            "mx-1 inline-flex border-0 px-1 py-0.5 align-middle text-ui-xs",
+                            selected ? "bg-selection text-primary" : "text-muted hover:bg-surface",
+                          )}
+                          onPointerDown={(event) => {
+                            if (event.button !== 0) return;
+                            dragging.current = true;
+                            selectThrough(id, event.shiftKey);
+                          }}
+                          onPointerEnter={(event) => {
+                            if (dragging.current && event.buttons & 1) selectThrough(id, true);
+                          }}
+                          onContextMenu={(event) => openContextMenu(id, event)}
+                        >
+                          •••
+                        </button>
+                      );
+                    });
+                  })}
+                </p>
+              );
+            })}
           </div>
         )}
       </div>

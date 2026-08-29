@@ -144,10 +144,57 @@ export type TranscriptDocumentBlock =
   | { kind: "timeline-gap"; gap: ProjectedTimelineGap }
   | { kind: "coverage"; coverage: TranscriptCoveragePlaceholder };
 
+export interface TranscriptDocumentParagraph {
+  id: string;
+  clipId: ClipId;
+  blocks: Array<Exclude<TranscriptDocumentBlock, { kind: "coverage" }>>;
+}
+
+export type TranscriptDocumentSection =
+  | { kind: "paragraph"; paragraph: TranscriptDocumentParagraph }
+  | Extract<TranscriptDocumentBlock, { kind: "coverage" }>;
+
 export interface TimelineTranscriptProjection {
   blocks: TranscriptDocumentBlock[];
   words: ProjectedTranscriptWord[];
   coverage: TranscriptCoveragePlaceholder[];
+}
+
+export function transcriptDocumentSections(
+  blocks: readonly TranscriptDocumentBlock[],
+): TranscriptDocumentSection[] {
+  const sections: TranscriptDocumentSection[] = [];
+  let paragraph: TranscriptDocumentParagraph | null = null;
+  let paragraphIndex = 0;
+  const flushParagraph = () => {
+    if (!paragraph) return;
+    sections.push({ kind: "paragraph", paragraph });
+    paragraph = null;
+  };
+
+  for (const block of blocks) {
+    if (block.kind === "coverage") {
+      flushParagraph();
+      sections.push(block);
+      continue;
+    }
+    if (block.kind === "timeline-gap") {
+      if (paragraph) paragraph.blocks.push(block);
+      continue;
+    }
+    if (!paragraph || paragraph.clipId !== block.utterance.clipId) {
+      flushParagraph();
+      paragraphIndex += 1;
+      paragraph = {
+        id: `paragraph:${block.utterance.clipId}:${paragraphIndex}`,
+        clipId: block.utterance.clipId,
+        blocks: [],
+      };
+    }
+    paragraph.blocks.push(block);
+  }
+  flushParagraph();
+  return sections;
 }
 
 interface NarrativeClipGroup {

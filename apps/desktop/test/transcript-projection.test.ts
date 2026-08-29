@@ -6,6 +6,7 @@ import {
   projectTimelineTranscript,
   timelinePresentationForHeight,
   timelineRangesForWordIds,
+  transcriptDocumentSections,
 } from "../src/shared/transcript";
 import type {
   TranscriptArtifact,
@@ -183,7 +184,7 @@ describe("timeline transcript projection", () => {
       sequenceId: project.activeSequenceId,
       transcripts: snapshot([
         word("word-0", "First", 1_000_000, 1_500_000, "speaker-0", "utterance-shared"),
-        word("word-1", "Second", 1_600_000, 2_100_000, "speaker-1", "utterance-shared"),
+        word("word-1", "Second", 2_600_000, 3_100_000, "speaker-1", "utterance-shared"),
       ]),
     });
     const utterances = projection.blocks.flatMap((block) =>
@@ -195,6 +196,22 @@ describe("timeline transcript projection", () => {
       "utterance:clip_000001:utterance-shared:segment-2",
     ]);
     expect(new Set(utterances.map((utterance) => utterance.id)).size).toBe(2);
+    const sections = transcriptDocumentSections(projection.blocks);
+    expect(sections).toHaveLength(1);
+    expect(sections[0]).toMatchObject({
+      kind: "paragraph",
+      paragraph: { clipId: "clip_000001" },
+    });
+    expect(
+      sections[0]?.kind === "paragraph"
+        ? sections[0].paragraph.blocks.filter((block) => block.kind === "utterance")
+        : [],
+    ).toHaveLength(2);
+    expect(
+      sections[0]?.kind === "paragraph"
+        ? sections[0].paragraph.blocks.some((block) => block.kind === "timeline-gap")
+        : false,
+    ).toBe(true);
   });
 
   it("renders media silence separately from empty timeline gaps", () => {
@@ -239,6 +256,13 @@ describe("timeline transcript projection", () => {
         gap: expect.objectContaining({ timelineStartUs: 2_500_000, timelineEndUs: 6_500_000 }),
       }),
     );
+    const paragraphs = transcriptDocumentSections(projection.blocks).filter(
+      (section) => section.kind === "paragraph",
+    );
+    expect(paragraphs).toHaveLength(2);
+    expect(
+      paragraphs[0]?.kind === "paragraph" ? paragraphs[0].paragraph.blocks : [],
+    ).toContainEqual(expect.objectContaining({ kind: "timeline-gap" }));
   });
 
   it("shows clip cuts without duplicating prose", () => {
