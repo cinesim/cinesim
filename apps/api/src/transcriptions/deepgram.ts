@@ -63,12 +63,15 @@ export class DeepgramTranscriptionGateway implements EditingTranscriptionGateway
     if (!response.ok) {
       const root = objectValue(payload);
       const nestedError = objectValue(root?.error);
+      const requestId = optionalString(root?.request_id) ?? response.headers.get("dg-request-id");
+      const message =
+        optionalString(root?.err_msg) ??
+        optionalString(root?.message) ??
+        optionalString(nestedError?.message) ??
+        `Deepgram returned ${response.status}`;
       throw new TranscriptionGatewayError(
         `provider_${response.status}`,
-        optionalString(root?.err_msg) ??
-          optionalString(root?.message) ??
-          optionalString(nestedError?.message) ??
-          `Deepgram returned ${response.status}`,
+        requestId ? `${message} (Deepgram request ${requestId})` : message,
         response.status >= 400 && response.status < 500 ? 400 : 502,
       );
     }

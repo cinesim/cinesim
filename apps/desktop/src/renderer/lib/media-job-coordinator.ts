@@ -230,7 +230,9 @@ export class MediaJobCoordinator {
     ) {
       return;
     }
-    this.#transcriptSnapshot = snapshot;
+    // Values crossing contextBridge are copied and frozen. Keep an explicitly mutable local copy
+    // for ephemeral progress updates rather than mutating the bridge-owned payload.
+    this.#transcriptSnapshot = structuredClone(snapshot);
     this.#onTranscriptSnapshot(snapshot);
     const active = this.#active;
     if (
@@ -438,10 +440,12 @@ export class MediaJobCoordinator {
       return;
     }
     if (message.type === "transcript-progress") {
-      const record = this.#transcriptSnapshot?.assets[active.assetId as Asset["id"]];
+      const snapshot = this.#transcriptSnapshot ? structuredClone(this.#transcriptSnapshot) : null;
+      const record = snapshot?.assets[active.assetId as Asset["id"]];
       if (record) {
         record.progress = Math.min(1, Math.max(0, message.progress));
-        this.#onTranscriptSnapshot(structuredClone(this.#transcriptSnapshot!));
+        this.#transcriptSnapshot = snapshot;
+        this.#onTranscriptSnapshot(snapshot);
       }
       return;
     }

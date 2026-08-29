@@ -2,6 +2,7 @@ import { readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { Asset, AssetId, Project } from "@cinesim/core";
 import { stableJson } from "@cinesim/core";
+import { createCinesimLogger } from "@cinesim/logging";
 import { z } from "zod";
 import type { DerivedProjectScope, SourceFingerprint } from "../../shared/api";
 import {
@@ -24,6 +25,7 @@ const INDEX_PATH = join(".video", "transcripts", "index.json");
 const MAX_ARTIFACT_BYTES = 128 * 1024 * 1024;
 const MAX_AUDIO_CHUNK_BYTES = 24 * 1024 * 1024;
 const MAX_ACTIVE_JOBS = 2;
+const log = createCinesimLogger({ service: "transcripts" });
 
 interface AccountGateway {
   requireCachedUser(): unknown;
@@ -264,6 +266,16 @@ export class TranscriptStore {
     }
     await this.#persistIndex();
     this.#emit();
+    log.info(
+      {
+        operation: "jobs-requested",
+        requestedAssets: assetIds.length,
+        queuedAssets: Object.values(this.#index.assets).filter(
+          (record) => record.state === "queued",
+        ).length,
+      },
+      "Transcript jobs queued",
+    );
     return this.snapshot(scope);
   }
 
@@ -314,6 +326,7 @@ export class TranscriptStore {
     this.#index.assets[asset.id] = { state: "queued", sourceFingerprint };
     await this.#persistIndex();
     this.#emit();
+    log.info({ operation: "job-started", jobId, assetId: asset.id }, "Transcript job started");
     return { jobId };
   }
 
@@ -336,23 +349,54 @@ export class TranscriptStore {
     ) {
       throw new Error("Invalid transcript audio chunk");
     }
-    const response = await this.account!.authenticatedFetch("/api/v1/transcriptions?format=wav", {
-      method: "POST",
-      headers: {
-        "content-type": "audio/wav",
-        "x-cinesim-keyterms": JSON.stringify(job.options.keyterms),
-      },
-      body: Uint8Array.from(input.data).buffer,
-      signal: AbortSignal.any([AbortSignal.timeout(90_000), job.abort.signal]),
-    });
-    const transcript = gatewayTranscriptSchema.parse(await response.json()) as GatewayTranscript;
-    job.chunks.push({
-      chunkIndex: input.chunkIndex,
-      sourceStartUs: input.sourceStartUs,
-      sourceEndUs: input.sourceEndUs,
-      transcript,
-    });
-    job.nextChunkIndex += 1;
+    const startedAt = performance.now();
+    try {
+      const response = await this.account!.authenticatedFetch("/api/v1/transcriptions?format=wav", {
+        method: "POST",
+        headers: {
+          "content-type": "audio/wav",
+          "x-cinesim-keyterms": JSON.stringify(job.options.keyterms),
+        },
+        body: Uint8Array.from(input.data).buffer,
+        signal: AbortSignal.any([AbortSignal.timeout(90_000), job.abort.signal]),
+      });
+      const transcript = gatewayTranscriptSchema.parse(await response.json()) as GatewayTranscript;
+      job.chunks.push({
+        chunkIndex: input.chunkIndex,
+        sourceStartUs: input.sourceStartUs,
+        sourceEndUs: input.sourceEndUs,
+        transcript,
+      });
+      job.nextChunkIndex += 1;
+      log.info(
+        {
+          operation: "chunk-completed",
+          jobId: job.id,
+          assetId: job.asset.id,
+          chunkIndex: input.chunkIndex,
+          audioBytes: input.data.byteLength,
+          durationMs: performance.now() - startedAt,
+          requestId: transcript.requestId,
+          words: transcript.words.length,
+          utterances: transcript.utterances.length,
+        },
+        "Transcript chunk completed",
+      );
+    } catch (error) {
+      log.error(
+        {
+          err: error,
+          operation: "chunk-failed",
+          jobId: job.id,
+          assetId: job.asset.id,
+          chunkIndex: input.chunkIndex,
+          audioBytes: input.data.byteLength,
+          durationMs: performance.now() - startedAt,
+        },
+        "Transcript chunk failed",
+      );
+      throw error;
+    }
   }
 
   async finalizeJob(scope: DerivedProjectScope, jobId: string): Promise<TranscriptSnapshot> {
@@ -371,6 +415,17 @@ export class TranscriptStore {
     };
     await this.#persistIndex();
     this.#emit();
+    log.info(
+      {
+        operation: "job-completed",
+        jobId: job.id,
+        assetId: job.asset.id,
+        chunks: job.chunks.length,
+        words: artifact.words.length,
+        utterances: artifact.utterances.length,
+      },
+      "Transcript artifact completed",
+    );
     return this.snapshot(scope, [job.asset.id]);
   }
 
@@ -378,7 +433,7 @@ export class TranscriptStore {
     scope: DerivedProjectScope,
     jobId: string,
     failureCode: string,
-    _detail?: string,
+    detail?: string,
   ): Promise<TranscriptSnapshot> {
     this.#assertScope(scope);
     const job = this.#requireJob(jobId);
@@ -390,6 +445,16 @@ export class TranscriptStore {
     };
     await this.#persistIndex();
     this.#emit();
+    log.error(
+      {
+        operation: "job-failed",
+        jobId: job.id,
+        assetId: job.asset.id,
+        failureCode: sanitizedFailureCode(failureCode),
+        ...(detail ? { detail: detail.slice(0, 2_000) } : {}),
+      },
+      "Transcript job failed",
+    );
     return this.snapshot(scope);
   }
 

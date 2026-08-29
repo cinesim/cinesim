@@ -220,6 +220,40 @@ afterEach(() => {
 });
 
 describe("MediaJobCoordinator", () => {
+  it("tracks transcript progress without mutating a frozen contextBridge snapshot", async () => {
+    const record = Object.freeze({ assetId: "asset_fixture", state: "queued" as const });
+    const transcripts = Object.freeze({
+      projectDirectory: "/tmp/project",
+      projectScope: Object.freeze({ ...projectScope }),
+      assets: Object.freeze({ asset_fixture: record }),
+    }) as TranscriptSnapshot;
+    setup(snapshot("ready", "ready", "ready"), transcripts);
+    const published: TranscriptSnapshot[] = [];
+    const coordinator = new MediaJobCoordinator(
+      project(true),
+      projectScope,
+      () => undefined,
+      undefined,
+      (next) => published.push(next),
+    );
+    await coordinator.start();
+    await vi.waitFor(() =>
+      expect(FakeWorker.instance?.sent).toContainEqual(
+        expect.objectContaining({ type: "transcript" }),
+      ),
+    );
+
+    FakeWorker.instance!.emit({
+      type: "transcript-progress",
+      jobId: "00000000-0000-4000-8000-000000000099",
+      progress: 0.5,
+    });
+
+    await vi.waitFor(() => expect(published.at(-1)?.assets.asset_fixture?.progress).toBe(0.5));
+    expect("progress" in record).toBe(false);
+    await coordinator.destroy();
+  });
+
   it("queues missing speech media when account preferences enable automatic transcription", async () => {
     const withAudio = project();
     withAudio.assets[0]!.hasAudio = true;
