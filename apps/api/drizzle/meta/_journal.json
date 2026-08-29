@@ -15,6 +15,13 @@
       "when": 1787861569988,
       "tag": "0001_warm_mantis",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1788028603134,
+      "tag": "0002_smart_skaar",
+      "breakpoints": true
     }
   ]
 }

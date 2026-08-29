@@ -35,10 +35,11 @@ export class DeepgramTranscriptionGateway implements EditingTranscriptionGateway
   constructor(
     private readonly apiKey: string,
     private readonly fetchImplementation: typeof fetch = fetch,
+    private readonly timeoutMs = 75_000,
   ) {}
 
   async transcribe(input: TranscriptionGatewayInput): Promise<GatewayTranscript> {
-    const timeout = AbortSignal.timeout(75_000);
+    const timeout = AbortSignal.timeout(this.timeoutMs);
     const signal = input.signal ? AbortSignal.any([input.signal, timeout]) : timeout;
     let response: Response;
     try {

@@ -356,6 +356,7 @@ export class TranscriptStore {
         headers: {
           "content-type": "audio/wav",
           "x-cinesim-keyterms": JSON.stringify(job.options.keyterms),
+          "x-cinesim-audio-duration-us": String(input.sourceEndUs - input.sourceStartUs),
         },
         body: Uint8Array.from(input.data).buffer,
         signal: AbortSignal.any([AbortSignal.timeout(90_000), job.abort.signal]),

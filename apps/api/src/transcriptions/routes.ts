@@ -6,6 +6,11 @@ import {
   MAX_TRANSCRIPTION_AUDIO_BYTES,
   TranscriptionGatewayError,
 } from "./service";
+import {
+  TranscriptionResourceError,
+  type TranscriptionResourcePolicy,
+  transcriptionNetworkKey,
+} from "./resource-policy";
 
 const formatSchema = z.enum(["wav", "mp3", "flac", "m4a", "ogg", "webm", "aac"]);
 const languageSchema = z
@@ -29,18 +34,22 @@ async function authenticatedUserId(headers: Headers): Promise<string | null> {
   return (await auth.api.getSession({ headers }))?.user.id ?? null;
 }
 
-export function createTranscriptionRoutes(service: EditingTranscriptionGateway | null) {
+export function createTranscriptionRoutes(
+  service: EditingTranscriptionGateway | null,
+  policy: TranscriptionResourcePolicy | null = null,
+  networkSalt = "cinesim-transcription-network",
+) {
   const routes = new Hono<{ Variables: { userId: string } }>();
 
   routes.use("*", async (context, next) => {
     const userId = await authenticatedUserId(context.req.raw.headers);
     if (!userId) return context.json({ error: "unauthorized" }, 401);
     context.set("userId", userId);
-    if (!service) return context.json({ error: "transcription_unavailable" }, 503);
     await next();
   });
 
   routes.post("/", async (context) => {
+    if (!service || !policy) return context.json({ error: "transcription_unavailable" }, 503);
     const contentType = context.req.header("content-type")?.split(";", 1)[0]?.trim() ?? "";
     if (!audioContentTypes.has(contentType)) {
       return context.json({ error: "unsupported_audio_type" }, 415);
@@ -55,20 +64,42 @@ export function createTranscriptionRoutes(service: EditingTranscriptionGateway |
     const language = languageSchema.parse(context.req.query("language") ?? null);
     const rawKeyterms = context.req.header("x-cinesim-keyterms");
     const keyterms = keytermsSchema.parse(rawKeyterms ? JSON.parse(rawKeyterms) : []);
-    const transcript = await service!.transcribe({
-      audio: body,
-      format,
-      contentType,
-      language,
-      keyterms,
-      signal: context.req.raw.signal,
-    });
+    const durationUs = z.coerce
+      .number()
+      .int()
+      .positive()
+      .safe()
+      .parse(context.req.header("x-cinesim-audio-duration-us"));
+    const networkAddress =
+      context.req.header("cf-connecting-ip") ??
+      context.req.header("x-real-ip") ??
+      context.req.header("x-forwarded-for")?.split(",", 1)[0]?.trim() ??
+      "unknown";
+    const transcript = await policy.transcribe(
+      {
+        userId: context.get("userId"),
+        networkKey: transcriptionNetworkKey(networkAddress, networkSalt),
+        estimatedSeconds: durationUs / 1_000_000,
+      },
+      service,
+      {
+        audio: body,
+        format,
+        contentType,
+        language,
+        keyterms,
+        signal: context.req.raw.signal,
+      },
+    );
     return context.json(transcript);
   });
 
   routes.onError((error, context) => {
     if (error instanceof TranscriptionGatewayError) {
       return context.json({ error: error.code, message: error.message }, error.status as 400);
+    }
+    if (error instanceof TranscriptionResourceError) {
+      return context.json({ error: error.code, message: error.message }, error.status);
     }
     if (error instanceof z.ZodError) {
       return context.json({ error: "invalid_request", issues: error.issues }, 400);

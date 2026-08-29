@@ -11,9 +11,21 @@ range command used by every other adapter.
 ## Provider boundary
 
 The Cinesim API owns the Deepgram credential. An authenticated account may stream a bounded audio
-chunk to `POST /api/v1/transcriptions`; there is currently no plan or billing entitlement check, so
-every signed-in user has the same access when the gateway is configured. The desktop never receives
-the service key, and the route cannot be used without a valid user session.
+chunk to `POST /api/v1/transcriptions`. The desktop never receives the service key, and the route
+cannot be used without a valid user session.
+
+The route reserves the declared source duration in a PostgreSQL usage transaction before contacting
+the provider. One advisory-locked policy covers every API process and enforces per-user and
+service-wide concurrency, per-user and hashed-network request rates, per-user monthly audio, and a
+service-wide monthly provider budget. The provider-reported duration reconciles successful
+reservations; failed, timed-out, retried, or disconnected requests retain their reservation because
+they may already have consumed provider capacity. Expired active rows stop consuming concurrency,
+while request history remains available for bounded rate and operational analysis.
+
+Limits are explicit deployment configuration under `CINESIM_TRANSCRIPTION_*`. They are resource
+controls, not a billing plan: every signed-in user currently receives the same configured allowance.
+Production operators must also configure Deepgram's account-level spending alerts and hard limit so
+an application or deployment error cannot exceed the external provider budget.
 
 The editing gateway calls Deepgram's native pre-recorded
 [`/v1/listen`](https://developers.deepgram.com/reference/speech-to-text/listen-pre-recorded)
@@ -56,7 +68,9 @@ must acknowledge the remote boundary independently.
 Media is not read wholly into memory and is not serialized as base64. The desktop extracts bounded
 audio chunks, and the API streams each chunk as the request body to Deepgram with backpressure.
 Chunks are capped at 24 MiB and long recordings are segmented and stitched by source time rather
-than sent as one request.
+than sent as one request. Each request includes its exact canonical source duration; the provider's
+reported duration is reconciled after completion. A provider deadline is combined with client
+disconnect cancellation and propagated to the outbound request.
 
 The API accepts `wav`, `mp3`, `flac`, `m4a`, `ogg`, `webm`, and `aac`. A provider response is bounded
 before parsing. Diagnostics record request/generation IDs and failure codes, never audio or full

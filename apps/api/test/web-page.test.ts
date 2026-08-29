@@ -17,6 +17,16 @@ const config: ServerConfig = {
   google: null,
   r2: null,
   openRouterApiKey: null,
+  transcriptionLimits: {
+    perUserConcurrency: 2,
+    serviceConcurrency: 8,
+    requestsPerMinute: 12,
+    networkRequestsPerMinute: 30,
+    userMonthlySeconds: 7_200,
+    serviceMonthlySeconds: 360_000,
+    maximumRequestSeconds: 600,
+    providerTimeoutMs: 75_000,
+  },
   cloudIncludedBytes: 10 * 1024 ** 3,
   cloudAddonOptionsBytes: [0],
 };

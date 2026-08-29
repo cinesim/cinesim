@@ -13,6 +13,8 @@ import { createProjectRoutes } from "./projects/routes";
 import { ProjectRegistryService } from "./projects/service";
 import { createTranscriptionRoutes } from "./transcriptions/routes";
 import { DeepgramTranscriptionGateway } from "./transcriptions/deepgram";
+import { PostgresTranscriptionReservationStore } from "./transcriptions/postgres-resource-store";
+import { TranscriptionResourcePolicy } from "./transcriptions/resource-policy";
 
 const config = serverConfig();
 const app = new Hono();
@@ -25,7 +27,17 @@ const cloudStorage = config.r2
     )
   : null;
 const transcriptionGateway = config.deepgramApiKey
-  ? new DeepgramTranscriptionGateway(config.deepgramApiKey)
+  ? new DeepgramTranscriptionGateway(
+      config.deepgramApiKey,
+      fetch,
+      config.transcriptionLimits.providerTimeoutMs,
+    )
+  : null;
+const transcriptionPolicy = transcriptionGateway
+  ? new TranscriptionResourcePolicy(
+      new PostgresTranscriptionReservationStore(),
+      config.transcriptionLimits,
+    )
   : null;
 
 app.use(
@@ -90,7 +102,10 @@ app.get("/api/v1/account", async (context) => {
 
 app.route("/api/v1/cloud", createCloudRoutes(cloudStorage));
 app.route("/api/v1/projects", createProjectRoutes(projectRegistry));
-app.route("/api/v1/transcriptions", createTranscriptionRoutes(transcriptionGateway));
+app.route(
+  "/api/v1/transcriptions",
+  createTranscriptionRoutes(transcriptionGateway, transcriptionPolicy, config.authSecret),
+);
 
 app.on(["GET", "POST"], "/api/auth/*", (context) => auth.handler(context.req.raw));
 
