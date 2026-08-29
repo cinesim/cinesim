@@ -268,7 +268,7 @@ function CutWorkspace({
   return (
     <div
       ref={rootRef}
-      className="grid h-full min-h-0 min-w-0 overflow-hidden"
+      className="grid h-full min-h-0 min-w-0 grid-cols-[minmax(0,1fr)] overflow-hidden"
       style={{ gridTemplateRows: cutRootGridTemplate(fitted) }}
     >
       <div
@@ -601,7 +601,7 @@ export function Workspace({
           ) : (
             <div
               ref={layoutRootRef}
-              className="grid h-full min-h-0"
+              className="grid h-full min-h-0 min-w-0 grid-cols-[minmax(0,1fr)] overflow-hidden"
               style={{
                 gridTemplateRows: `minmax(${MIN_VIEWER_HEIGHT}px, 1fr) ${SPLITTER_SIZE}px ${fittedLayout.timelineHeight}px`,
               }}

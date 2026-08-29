@@ -862,8 +862,8 @@ function ReducedTimeline({
   );
   const durationUs = Math.max(1, sequenceDurationUs(sequence));
   return (
-    <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-panel-muted">
-      <div className="grid h-8 shrink-0 grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center border-b border-border bg-panel px-2">
+    <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-panel-muted">
+      <div className="grid h-8 min-w-0 shrink-0 grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center border-b border-border bg-panel px-2">
         <div />
         <div className="flex h-full items-center gap-0.5">
           <span className="mr-1 min-w-[76px] text-center text-ui-xs font-semibold text-primary tabular-nums">
@@ -951,7 +951,7 @@ function ReducedTimeline({
       </div>
       <div
         ref={scrollRef}
-        className="relative min-h-0 flex-1 overflow-x-auto overflow-y-hidden px-2 py-1.5"
+        className="relative min-h-0 min-w-0 flex-1 overflow-x-auto overflow-y-hidden px-2 py-1.5"
       >
         <div className="relative h-full min-w-full" style={{ width: contentWidth }}>
           {units.length === 0 ? (
@@ -1134,7 +1134,10 @@ export function Timeline({
 
   if (presentation !== "full") {
     return (
-      <section ref={rootRef} className="flex min-h-0 flex-col bg-panel-muted">
+      <section
+        ref={rootRef}
+        className="flex min-h-0 min-w-0 flex-col overflow-hidden bg-panel-muted"
+      >
         <ReducedTimeline
           project={project}
           transcripts={transcripts}
@@ -1161,7 +1164,7 @@ export function Timeline({
   }
 
   return (
-    <section ref={rootRef} className="flex min-h-0 flex-col bg-panel-muted">
+    <section ref={rootRef} className="flex min-h-0 min-w-0 flex-col overflow-hidden bg-panel-muted">
       <div className="grid h-12 shrink-0 grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center border-b border-border bg-panel px-2">
         <div className="flex min-w-0 items-center gap-0.5">
           <Button
