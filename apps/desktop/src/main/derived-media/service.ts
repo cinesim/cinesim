@@ -20,7 +20,14 @@ import { decodeWaveformEnvelope } from "../../shared/waveform-format";
 import { validateFinalize, validFilmstripMetadata } from "./artifact-validation";
 import { DerivedArtifactRepository } from "./artifact-repository";
 import { DerivedIndexRepository } from "./index-repository";
-import { type DerivedProjectLifecycle, requireOpenDerivedProject } from "./project-lifecycle";
+import {
+  activeDerivedProject,
+  beginDerivedProjectPreparation,
+  completeDerivedProjectPreparation,
+  type DerivedProjectLifecycle,
+  failDerivedProjectPreparation,
+  requireOpenDerivedProject,
+} from "./project-lifecycle";
 import { isAssetId, MAX_DECISION_EVENTS, projectOpenPersistenceSignature } from "./model";
 import type { PersistedAsset, PersistedIndex, PreparedDerivedProject } from "./model";
 
@@ -68,19 +75,19 @@ export class DerivedMediaStore {
   }
 
   get #directory(): string | null {
-    return this.#lifecycle.status === "open" ? this.#lifecycle.directory : null;
+    return activeDerivedProject(this.#lifecycle)?.directory ?? null;
   }
 
   get #paths(): ProjectPaths | null {
-    return this.#lifecycle.status === "open" ? this.#lifecycle.paths : null;
+    return activeDerivedProject(this.#lifecycle)?.paths ?? null;
   }
 
   get #scope(): DerivedProjectScope | null {
-    return this.#lifecycle.status === "open" ? this.#lifecycle.scope : null;
+    return activeDerivedProject(this.#lifecycle)?.scope ?? null;
   }
 
   get #project(): Project | null {
-    return this.#lifecycle.status === "open" ? this.#lifecycle.project : null;
+    return activeDerivedProject(this.#lifecycle)?.project ?? null;
   }
 
   set #project(project: Project) {
@@ -88,7 +95,7 @@ export class DerivedMediaStore {
   }
 
   get #settings(): ProjectSettings {
-    return this.#lifecycle.status === "open" ? this.#lifecycle.settings : DEFAULT_SETTINGS;
+    return activeDerivedProject(this.#lifecycle)?.settings ?? DEFAULT_SETTINGS;
   }
 
   set #settings(settings: ProjectSettings) {
@@ -117,88 +124,95 @@ export class DerivedMediaStore {
     await paths.ensureLayout(DERIVED_FOLDERS);
     const canonicalDirectory = paths.canonicalRoot;
     await this.#serialize(async () => {
-      // A prepared index is safe for a different, inactive project. Reopening the active
-      // directory must read again after queued writer operations have finished.
-      const usePreparedIndex =
-        prepared?.directory === canonicalDirectory && this.#directory !== canonicalDirectory;
-      await this.#closeWriters();
-      const index = usePreparedIndex ? prepared.index : await this.#indexRepository.read(paths);
-      this.#lifecycle = {
-        status: "open",
-        directory: paths.root,
-        paths,
-        scope: {
-          cacheKey: createHash("sha256").update(canonicalDirectory).digest("hex").slice(0, 24),
-          epoch: randomUUID(),
-        },
-        project,
-        settings: structuredClone(settings),
-        index,
-      };
-      this.#performanceTracker.reset();
-      this.#runtimeTracker.reset();
-      this.#removedAssetIds.clear();
-      const persistenceSignature = projectOpenPersistenceSignature(this.#index);
-      await this.#removeInterruptedTemps();
-      await this.#pruneRemovedAssetsNow();
-      let recovered = false;
-      let invalidatedFilmstripMetadata = false;
-      for (const record of Object.values(this.#index.assets)) {
-        for (const artifact of [
-          record.thumbnail,
-          record.filmstrip,
-          record.waveform,
-          record.proxy,
-        ]) {
-          if (artifact.state === "running") {
-            artifact.state = "queued";
-            artifact.progress = 0;
-            recovered = true;
+      const preparing = beginDerivedProjectPreparation(this.#lifecycle, paths.root);
+      this.#lifecycle = preparing;
+      try {
+        // A prepared index is safe for a different, inactive project. Reopening the active
+        // directory must read again after queued writer operations have finished.
+        const usePreparedIndex =
+          prepared?.directory === canonicalDirectory && this.#directory !== canonicalDirectory;
+        await this.#closeWriters();
+        const index = usePreparedIndex ? prepared.index : await this.#indexRepository.read(paths);
+        this.#lifecycle = completeDerivedProjectPreparation(preparing, {
+          directory: paths.root,
+          paths,
+          scope: {
+            cacheKey: createHash("sha256").update(canonicalDirectory).digest("hex").slice(0, 24),
+            epoch: randomUUID(),
+          },
+          project,
+          settings: structuredClone(settings),
+          index,
+        });
+        this.#performanceTracker.reset();
+        this.#runtimeTracker.reset();
+        this.#removedAssetIds.clear();
+        const persistenceSignature = projectOpenPersistenceSignature(this.#index);
+        await this.#removeInterruptedTemps();
+        await this.#pruneRemovedAssetsNow();
+        let recovered = false;
+        let invalidatedFilmstripMetadata = false;
+        for (const record of Object.values(this.#index.assets)) {
+          for (const artifact of [
+            record.thumbnail,
+            record.filmstrip,
+            record.waveform,
+            record.proxy,
+          ]) {
+            if (artifact.state === "running") {
+              artifact.state = "queued";
+              artifact.progress = 0;
+              recovered = true;
+            }
+          }
+          if (record.filmstrip.state === "ready" && !validFilmstripMetadata(record.filmstrip)) {
+            if (record.filmstrip.relativePath)
+              await rm(this.#containedPath(record.filmstrip.relativePath), { force: true }).catch(
+                () => undefined,
+              );
+            record.filmstrip.state = "missing";
+            delete record.filmstrip.relativePath;
+            delete record.filmstrip.bytes;
+            invalidatedFilmstripMetadata = true;
           }
         }
-        if (record.filmstrip.state === "ready" && !validFilmstripMetadata(record.filmstrip)) {
-          if (record.filmstrip.relativePath)
-            await rm(this.#containedPath(record.filmstrip.relativePath), { force: true }).catch(
-              () => undefined,
-            );
-          record.filmstrip.state = "missing";
-          delete record.filmstrip.relativePath;
-          delete record.filmstrip.bytes;
-          invalidatedFilmstripMetadata = true;
-        }
-      }
-      await Promise.all(project.assets.map((asset) => this.#ensureAsset(asset)));
-      await this.#refreshStorage();
-      for (const asset of project.assets)
-        if (this.#settings.proxyGeneration === "automatic" || asset.source.kind === "cloud")
-          await this.#queueProxyRecord(asset);
-      if (recovered)
-        this.#log({ kind: "jobs-recovered", detail: "Interrupted jobs returned to the queue" });
-      if (recovered)
-        log.warn(
-          { operation: "project-open", projectId: project.id },
-          "interrupted derived jobs returned to the queue",
+        await Promise.all(project.assets.map((asset) => this.#ensureAsset(asset)));
+        await this.#refreshStorage();
+        for (const asset of project.assets)
+          if (this.#settings.proxyGeneration === "automatic" || asset.source.kind === "cloud")
+            await this.#queueProxyRecord(asset);
+        if (recovered)
+          this.#log({ kind: "jobs-recovered", detail: "Interrupted jobs returned to the queue" });
+        if (recovered)
+          log.warn(
+            { operation: "project-open", projectId: project.id },
+            "interrupted derived jobs returned to the queue",
+          );
+        if (invalidatedFilmstripMetadata)
+          this.#log({
+            kind: "filmstrip-metadata-invalidated",
+            detail: "An inconsistent filmstrip was removed and will be regenerated",
+          });
+        const indexChanged = projectOpenPersistenceSignature(this.#index) !== persistenceSignature;
+        if (indexChanged) await this.#persist();
+        this.#emit();
+        log.info(
+          {
+            operation: "project-open-derived",
+            projectId: project.id,
+            projectCacheKey: this.#requireScope().cacheKey,
+            projectEpoch: this.#requireScope().epoch,
+            indexReadMs: usePreparedIndex ? prepared.readDurationMs : undefined,
+            assetCount: project.assets.length,
+            indexChanged,
+          },
+          "derived media initialized for project",
         );
-      if (invalidatedFilmstripMetadata)
-        this.#log({
-          kind: "filmstrip-metadata-invalidated",
-          detail: "An inconsistent filmstrip was removed and will be regenerated",
-        });
-      const indexChanged = projectOpenPersistenceSignature(this.#index) !== persistenceSignature;
-      if (indexChanged) await this.#persist();
-      this.#emit();
-      log.info(
-        {
-          operation: "project-open-derived",
-          projectId: project.id,
-          projectCacheKey: this.#requireScope().cacheKey,
-          projectEpoch: this.#requireScope().epoch,
-          indexReadMs: usePreparedIndex ? prepared.readDurationMs : undefined,
-          assetCount: project.assets.length,
-          indexChanged,
-        },
-        "derived media initialized for project",
-      );
+      } catch (error) {
+        const failure = error instanceof Error ? error : new Error(String(error));
+        this.#lifecycle = failDerivedProjectPreparation(preparing, failure);
+        throw failure;
+      }
     });
   }
 

@@ -59,6 +59,18 @@ interface SettingsProps {
   section: SettingsSection;
 }
 
+type CloudUsageState =
+  | { status: "idle" }
+  | { status: "loading"; previous: CloudStorageUsage | null }
+  | { status: "ready"; usage: CloudStorageUsage }
+  | { status: "failed"; previous: CloudStorageUsage | null; error: string };
+
+function cloudUsage(state: CloudUsageState): CloudStorageUsage | null {
+  if (state.status === "ready") return state.usage;
+  if (state.status === "loading" || state.status === "failed") return state.previous;
+  return null;
+}
+
 export function Settings({ section }: SettingsProps) {
   return (
     <section className="h-full overflow-y-auto bg-canvas px-8 py-9">
@@ -188,23 +200,26 @@ function CloudStorageSettings() {
   const account = useRendererStore((state) => state.account);
   const transfers = useRendererStore((state) => state.cloudTransfers);
   const session = useRendererStore((state) => sessionFromLifecycle(state.project));
-  const [usage, setUsage] = useState<CloudStorageUsage | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
+  const [usageState, setUsageState] = useState<CloudUsageState>({ status: "idle" });
   const [busyAssetId, setBusyAssetId] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
+  const usage = cloudUsage(usageState);
+  const loading = usageState.status === "loading";
+  const error = usageState.status === "failed" ? usageState.error : null;
 
   const refresh = useCallback(async (): Promise<void> => {
     if (account.status !== "signed-in") return;
-    setLoading(true);
-    setError(null);
+    setUsageState({ status: "loading", previous: usage });
     try {
-      setUsage(await window.cinesim.getCloudStorageUsage());
+      setUsageState({ status: "ready", usage: await window.cinesim.getCloudStorageUsage() });
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Cloud storage usage is unavailable");
+      setUsageState({
+        status: "failed",
+        previous: usage,
+        error: caught instanceof Error ? caught.message : "Cloud storage usage is unavailable",
+      });
     }
-    setLoading(false);
-  }, [account.status]);
+  }, [account.status, usage]);
 
   useEffect(() => {
     if (account.status !== "signed-in") return;
@@ -214,12 +229,15 @@ function CloudStorageSettings() {
       .getCloudStorageUsage()
       .then((nextUsage) => {
         if (!active) return;
-        setUsage(nextUsage);
-        setError(null);
+        setUsageState({ status: "ready", usage: nextUsage });
       })
       .catch((caught: unknown) => {
         if (!active) return;
-        setError(caught instanceof Error ? caught.message : "Cloud storage usage is unavailable");
+        setUsageState((current) => ({
+          status: "failed",
+          previous: cloudUsage(current),
+          error: caught instanceof Error ? caught.message : "Cloud storage usage is unavailable",
+        }));
       });
 
     return () => {
@@ -245,7 +263,6 @@ function CloudStorageSettings() {
 
   async function mutateAsset(id: string, operation: "trash" | "restore" | "delete") {
     setBusyAssetId(id);
-    setError(null);
     try {
       if (operation === "trash") await window.cinesim.trashCloudAssets([id]);
       else if (operation === "restore") await window.cinesim.restoreCloudAsset(id);
@@ -253,20 +270,29 @@ function CloudStorageSettings() {
       setConfirmDelete(null);
       await refresh();
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "The cloud asset could not be updated");
+      setUsageState({
+        status: "failed",
+        previous: usage,
+        error: caught instanceof Error ? caught.message : "The cloud asset could not be updated",
+      });
     }
     setBusyAssetId(null);
   }
 
   async function configureAddon(addonBytes: number): Promise<void> {
-    setLoading(true);
-    setError(null);
+    setUsageState({ status: "loading", previous: usage });
     try {
-      setUsage(await window.cinesim.configureCloudStorageAddon(addonBytes));
+      setUsageState({
+        status: "ready",
+        usage: await window.cinesim.configureCloudStorageAddon(addonBytes),
+      });
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "The storage allowance could not change");
+      setUsageState({
+        status: "failed",
+        previous: usage,
+        error: caught instanceof Error ? caught.message : "The storage allowance could not change",
+      });
     }
-    setLoading(false);
   }
 
   return (
