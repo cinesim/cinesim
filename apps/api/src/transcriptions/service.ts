@@ -149,6 +149,22 @@ export async function readJsonResponse(response: Response, provider: string): Pr
 function findWordsPayload(
   value: unknown,
 ): { owner: Record<string, unknown>; words: unknown[] } | null {
+  // Deepgram includes both the complete channel alternative word list and smaller
+  // `words` arrays on each utterance. Always prefer the documented channel shape;
+  // a generic breadth-first search can otherwise stop at only the first utterance.
+  const root = objectValue(value);
+  const results = objectValue(root?.results);
+  const channels = Array.isArray(results?.channels) ? results.channels : [];
+  for (const channelValue of channels) {
+    const channel = objectValue(channelValue);
+    const alternatives = Array.isArray(channel?.alternatives) ? channel.alternatives : [];
+    for (const alternativeValue of alternatives) {
+      const alternative = objectValue(alternativeValue);
+      if (!alternative || !Array.isArray(alternative.words)) continue;
+      return { owner: alternative, words: alternative.words };
+    }
+  }
+
   const queue: Array<{ value: unknown; depth: number }> = [{ value, depth: 0 }];
   let emptyWords: { owner: Record<string, unknown>; words: unknown[] } | null = null;
   let visited = 0;

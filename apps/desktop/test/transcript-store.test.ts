@@ -249,7 +249,7 @@ describe("transcript artifact store", () => {
           gateway: "direct",
           provider: "deepgram",
           model: "deepgram/nova-3",
-          version: "deepgram-nova-3@2",
+          version: "deepgram-nova-3@3",
         },
         options: {
           language: null,

@@ -51,7 +51,7 @@ function artifact(assetId: Asset["id"], words: TranscriptArtifactWord[]): Transc
       gateway: "direct",
       provider: "deepgram",
       model: "deepgram/nova-3",
-      version: "deepgram-nova-3@2",
+      version: "deepgram-nova-3@3",
     },
     options: {
       language: null,

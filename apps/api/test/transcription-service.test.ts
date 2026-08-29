@@ -69,8 +69,40 @@ function deepgramResponse(): Record<string, unknown> {
         },
       ],
       utterances: [
-        { id: "utt-0", start: 0.2, end: 0.7, speaker: 0, confidence: 0.99 },
-        { id: "utt-1", start: 1, end: 1.5, speaker: 1, confidence: 0.96 },
+        {
+          id: "utt-0",
+          start: 0.2,
+          end: 0.7,
+          speaker: 0,
+          confidence: 0.99,
+          words: [
+            {
+              word: "hello",
+              punctuated_word: "Hello,",
+              start: 0.2,
+              end: 0.7,
+              confidence: 0.99,
+              speaker: 0,
+            },
+          ],
+        },
+        {
+          id: "utt-1",
+          start: 1,
+          end: 1.5,
+          speaker: 1,
+          confidence: 0.96,
+          words: [
+            {
+              word: "world",
+              punctuated_word: "world.",
+              start: 1,
+              end: 1.5,
+              confidence: 0.96,
+              speaker: 1,
+            },
+          ],
+        },
       ],
     },
   };
@@ -121,6 +153,13 @@ describe("direct Deepgram Nova-3 transcription gateway", () => {
       expect.objectContaining({ id: "utt-0", speaker: "0", wordIndexes: [0] }),
       expect.objectContaining({ id: "utt-1", speaker: "1", wordIndexes: [1] }),
     ]);
+  });
+
+  it("prefers the complete channel words over an utterance's partial word list", () => {
+    const transcript = normalizeDeepgramTranscript(deepgramResponse());
+
+    expect(transcript.text).toBe("Hello, world.");
+    expect(transcript.words.map((word) => word.text)).toEqual(["Hello,", "world."]);
   });
 
   it("streams raw audio with the Deepgram key only in the authorization header", async () => {
