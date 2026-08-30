@@ -1,10 +1,11 @@
 import { describe, expect, it } from "vite-plus/test";
 import { timeUs } from "@cinesim/core";
 import {
+  playbackShortcutAction,
   shouldShowTimelineEmptyState,
   steppedSourceTimeUs,
   viewerDisplaySize,
-} from "../src/renderer/components/viewer/viewer";
+} from "../src/renderer/components/viewer/viewer-helpers";
 
 describe("viewer presentation helpers", () => {
   it("fits the sequence into the available stage without scaling above 100%", () => {
@@ -32,5 +33,23 @@ describe("viewer presentation helpers", () => {
     expect(steppedSourceTimeUs(timeUs(1_000_000), timeUs(5_000_000), 30, 1)).toBe(1_033_333);
     expect(steppedSourceTimeUs(timeUs(0), timeUs(5_000_000), 30, -1)).toBe(0);
     expect(steppedSourceTimeUs(timeUs(5_000_000), timeUs(5_000_000), 30, -1)).toBe(4_966_667);
+  });
+
+  it("maps unmodified transport keys to playback commands", () => {
+    const event = { altKey: false, ctrlKey: false, metaKey: false, repeat: false };
+
+    expect(playbackShortcutAction({ ...event, code: "Space", key: " " })).toBe("toggle-playback");
+    expect(playbackShortcutAction({ ...event, code: "KeyJ", key: "j" })).toBe("shuttle-backward");
+    expect(playbackShortcutAction({ ...event, code: "ArrowRight", key: "ArrowRight" })).toBe(
+      "step-forward",
+    );
+    expect(playbackShortcutAction({ ...event, code: "Home", key: "Home" })).toBe("go-to-start");
+  });
+
+  it("ignores modified and repeated transport keys", () => {
+    const event = { altKey: false, code: "Space", ctrlKey: false, key: " ", repeat: false };
+
+    expect(playbackShortcutAction({ ...event, metaKey: true })).toBeNull();
+    expect(playbackShortcutAction({ ...event, metaKey: false, repeat: true })).toBeNull();
   });
 });
