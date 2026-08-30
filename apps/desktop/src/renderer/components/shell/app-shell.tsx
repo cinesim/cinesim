@@ -11,6 +11,7 @@ import { AppSidebarNavigation } from "./app-sidebar";
 import { EditorPanelToggles } from "./editor-panel-toggles";
 import { ProjectBreadcrumb } from "./project-breadcrumb";
 import { ShortcutsDialog } from "./shortcuts-dialog";
+import { HeaderStatus } from "./header-status";
 import { TopBar } from "./top-bar";
 
 interface AppShellProps {
@@ -95,10 +96,7 @@ export function AppShell({ children }: AppShellProps) {
   }, [sidebarOpen]);
 
   return (
-    <main
-      className="flex h-screen overflow-hidden bg-canvas text-primary"
-      inert={interactionLocked || undefined}
-    >
+    <main className="flex h-screen overflow-hidden bg-canvas text-primary">
       <aside
         className={cn(
           "relative z-30 flex h-screen shrink-0 flex-col overflow-hidden border-r border-border bg-panel",
@@ -107,7 +105,7 @@ export function AppShell({ children }: AppShellProps) {
         )}
         style={{ width: sidebarOpen ? sidebarWidth.width : 0 }}
         aria-hidden={!sidebarOpen}
-        inert={!sidebarOpen}
+        inert={interactionLocked || !sidebarOpen}
       >
         <div className="app-drag h-12 shrink-0" />
         <div className="min-w-[220px] flex-1 overflow-y-auto p-2">
@@ -157,7 +155,10 @@ export function AppShell({ children }: AppShellProps) {
       </aside>
 
       <div className="relative flex min-w-0 flex-1 flex-col">
-        <header className="app-drag relative flex h-12 shrink-0 items-center justify-center border-b border-border bg-panel px-3">
+        <header
+          className="app-drag relative flex h-12 shrink-0 items-center justify-center border-b border-border bg-panel px-3"
+          inert={interactionLocked || undefined}
+        >
           <Tooltip>
             <TooltipTrigger
               render={
@@ -196,42 +197,44 @@ export function AppShell({ children }: AppShellProps) {
               {title}
             </span>
           )}
-          {projectVisible && (
-            <div className="no-drag absolute right-3">
-              <TopBar />
-            </div>
-          )}
+          <div className="no-drag absolute right-3 flex items-center gap-0.5">
+            <HeaderStatus />
+            {projectVisible && <TopBar />}
+          </div>
         </header>
-        <div className="min-h-0 min-w-0 flex-1 overflow-hidden">{children}</div>
+        <div
+          className="min-h-0 min-w-0 flex-1 overflow-hidden"
+          inert={interactionLocked || undefined}
+        >
+          {children}
+        </div>
       </div>
 
-      {projectVisible && (
-        <aside
-          className={cn(
-            "relative z-30 flex h-screen shrink-0 flex-col overflow-hidden border-l border-border bg-panel",
-            !auxiliaryWidth.resizing && "transition-[width] duration-200 ease-in-out",
-            auxiliaryMode === null && "border-l-transparent",
+      <aside
+        className={cn(
+          "relative z-30 flex h-screen shrink-0 flex-col overflow-hidden border-l border-border bg-panel",
+          !auxiliaryWidth.resizing && "transition-[width] duration-200 ease-in-out",
+          auxiliaryMode === null && "border-l-transparent",
+        )}
+        style={{ width: auxiliaryMode ? auxiliaryWidth.width : 0 }}
+        aria-hidden={auxiliaryMode === null}
+        inert={auxiliaryMode === null}
+      >
+        <div className="min-w-[260px] min-h-0 flex-1 overflow-y-auto">
+          {auxiliaryMode === "agents" && session && (
+            <AgentsSidebar
+              key={session.directory}
+              session={session}
+              onConfigure={() => openSettings("agents")}
+            />
           )}
-          style={{ width: auxiliaryMode ? auxiliaryWidth.width : 0 }}
-          aria-hidden={auxiliaryMode === null}
-          inert={auxiliaryMode === null}
-        >
-          <div className="min-w-[260px] min-h-0 flex-1 overflow-y-auto">
-            <div className={cn("h-full", auxiliaryMode === "metrics" && "hidden")}>
-              <AgentsSidebar
-                key={session.directory}
-                session={session}
-                onConfigure={() => openSettings("agents")}
-              />
-            </div>
-            {auxiliaryMode === "metrics" && <MetricsSidebar />}
-          </div>
-          <div
-            className="no-drag absolute inset-y-0 left-[-3px] z-40 w-[6px] cursor-col-resize"
-            {...auxiliaryWidth.resizeHandleProps}
-          />
-        </aside>
-      )}
+          {auxiliaryMode === "metrics" && <MetricsSidebar />}
+        </div>
+        <div
+          className="no-drag absolute inset-y-0 left-[-3px] z-40 w-[6px] cursor-col-resize"
+          {...auxiliaryWidth.resizeHandleProps}
+        />
+      </aside>
       <ShortcutsDialog open={shortcutsOpen} isMac={isMac} onClose={closeShortcuts} />
     </main>
   );

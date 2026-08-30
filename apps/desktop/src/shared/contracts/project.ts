@@ -10,3 +10,14 @@ export interface DesktopProjectSession {
   canUndo: boolean;
   canRedo: boolean;
 }
+
+export interface CreateProjectLocation {
+  token: string;
+  directory: string;
+}
+
+export interface RecentProjectDetails {
+  sizeBytes: number | null;
+  createdAt: number | null;
+  modifiedAt: number | null;
+}

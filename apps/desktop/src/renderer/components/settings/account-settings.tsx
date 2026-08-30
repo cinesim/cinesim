@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Check, RefreshCw, User } from "@cinesim/ui";
-import { cn, Notice, Skeleton } from "@cinesim/ui";
+import { cn, Skeleton } from "@cinesim/ui";
 import { useDelayedBusy } from "../../hooks/use-delayed-busy";
 import { useRendererStore } from "../../store/renderer-store-context";
 import { AccountAvatar, GoogleMark } from "../account/account-ui";
@@ -12,23 +12,21 @@ export function AccountSettings() {
   const beginSignIn = useRendererStore((state) => state.beginAccountSignIn);
   const signOut = useRendererStore((state) => state.signOutAccount);
   const refresh = useRendererStore((state) => state.refreshAccount);
+  const reportError = useRendererStore((state) => state.reportError);
   const [busy, setBusy] = useState<"email" | "google" | "sign-out" | "refresh" | null>(null);
-  const [message, setMessage] = useState<string | null>(null);
   const showLoading = useDelayedBusy(!accountHydrated);
 
   async function startSignIn(method: "email" | "google"): Promise<void> {
     setBusy(method);
-    setMessage(null);
     const result = await beginSignIn(method);
-    if (!result.ok) setMessage(result.error);
+    if (!result.ok) reportError(result.error);
     setBusy(null);
   }
 
   async function handleSignOut(): Promise<void> {
     setBusy("sign-out");
-    setMessage(null);
     const result = await signOut();
-    if (!result.ok) setMessage(result.error);
+    if (!result.ok) reportError(result.error);
     setBusy(null);
   }
 
@@ -121,12 +119,6 @@ export function AccountSettings() {
             </button>
           </div>
         </div>
-      )}
-
-      {message && (
-        <Notice className="mt-4 rounded-lg bg-panel" size="default">
-          {message}
-        </Notice>
       )}
     </div>
   );

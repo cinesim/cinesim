@@ -43,8 +43,10 @@ export function createProjectSlice(context: RendererStoreContext): ProjectSlice 
       }
       set(hydratedProjectState(session, appState));
     },
-    createProject: (name, kind) =>
-      context.runProjectOperation("create", () => api.project.create(name.trim(), kind)),
+    createProject: (name, kind, locationToken) =>
+      context.runProjectOperation("create", () =>
+        api.project.create(name.trim(), kind, locationToken),
+      ),
     openProject: () => context.runProjectOperation("open", () => api.project.open()),
     openRecentProject: (directory) =>
       context.runProjectOperation("open-recent", () => api.project.openRecent(directory)),
@@ -230,6 +232,7 @@ export function createProjectSlice(context: RendererStoreContext): ProjectSlice 
         "Transcription settings could not be saved",
       );
     },
+    reportError: (operationError) => set({ operationError }),
     clearError: () => {
       const project = get().project;
       set({

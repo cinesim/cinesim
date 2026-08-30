@@ -16,13 +16,18 @@ export function registerProjectIpc(
 ): void {
   const controller = new ProjectIpcController(store, appState, agents, account, cloudMedia);
 
-  registerIpcHandler(projectContracts.create, ({ name, kind }) => controller.create(name, kind));
+  registerIpcHandler(projectContracts.chooseCreateLocation, () =>
+    controller.chooseCreateLocation(),
+  );
+  registerIpcHandler(projectContracts.create, ({ name, kind, locationToken }) =>
+    controller.create(name, kind, locationToken),
+  );
   registerIpcHandler(projectContracts.open, () => controller.open());
   registerIpcHandler(projectContracts.openRecent, ({ directory }) =>
     controller.openRecent(directory),
   );
   registerIpcHandler(projectContracts.session, () => (store.project ? store.session() : null));
-  registerIpcHandler(projectContracts.recentSizes, () => controller.recentSizes());
+  registerIpcHandler(projectContracts.recentDetails, () => controller.recentDetails());
   registerIpcHandler(projectContracts.save, () => store.save());
   registerIpcHandler(projectContracts.settingsUpdate, ({ update }) =>
     controller.updateSettings(update),

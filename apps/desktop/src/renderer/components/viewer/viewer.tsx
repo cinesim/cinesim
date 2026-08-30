@@ -27,7 +27,7 @@ export function Viewer({ project, projectDirectory, derivedScope, sequenceId }: 
   const [viewerScale, setViewerScale] = useState<ViewerScale>("fit");
   const [guides, setGuides] = useState(DEFAULT_VIEWER_GUIDES);
   const transport = useEditorTransport();
-  const { error, playbackRef, runtime } = useViewerRuntime({
+  const { playbackRef, runtime } = useViewerRuntime({
     canvasRef,
     derivedScope,
     project,
@@ -115,11 +115,6 @@ export function Viewer({ project, projectDirectory, derivedScope, sequenceId }: 
               </EmptyDescription>
             </EmptyHeader>
           </Empty>
-        )}
-        {error && (
-          <div className="absolute bottom-3 left-1/2 max-w-md -translate-x-1/2 rounded-md border border-border-strong bg-panel/90 px-3 py-2 text-ui-xs text-primary">
-            {error}
-          </div>
         )}
       </div>
     </section>

@@ -62,6 +62,7 @@ export interface ProjectSlice {
   createProject: (
     name: string,
     kind: "local" | "cloud",
+    locationToken: string,
   ) => Promise<ActionResult<DesktopProjectSession | null>>;
   openProject: () => Promise<ActionResult<DesktopProjectSession | null>>;
   openRecentProject: (directory: string) => Promise<ActionResult<DesktopProjectSession>>;
@@ -88,6 +89,7 @@ export interface ProjectSlice {
   saveTranscriptionSettings: (
     settings: TranscriptionSettings,
   ) => Promise<ActionResult<DesktopAppState>>;
+  reportError: (message: string) => void;
   clearError: () => void;
   updateProjectSettings: (
     update: Partial<DesktopProjectSession["settings"]>,

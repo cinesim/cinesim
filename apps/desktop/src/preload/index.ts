@@ -63,7 +63,9 @@ const api: DesktopApi = {
     onTransfersChanged: (callback) => subscribe(eventChannels.cloudTransfersChanged, callback),
   },
   project: {
-    create: (name, kind) => invoke(invokeChannels.project.create, { name, kind }),
+    chooseCreateLocation: () => invoke(invokeChannels.project.chooseCreateLocation),
+    create: (name, kind, locationToken) =>
+      invoke(invokeChannels.project.create, { name, kind, locationToken }),
     open: () => invoke(invokeChannels.project.open),
     openRecent: (directory) => invoke(invokeChannels.project.openRecent, { directory }),
     importMedia: () => invoke(invokeChannels.project.importMedia),
@@ -76,7 +78,7 @@ const api: DesktopApi = {
     forget: (directory) => invoke(invokeChannels.project.forget, { directory }),
     trash: (directory) => invoke(invokeChannels.project.trash, { directory }),
     getSession: () => invoke(invokeChannels.project.session),
-    getRecentSizes: () => invoke(invokeChannels.project.recentSizes),
+    getRecentDetails: () => invoke(invokeChannels.project.recentDetails),
     onChanged: (callback) => subscribe(eventChannels.projectChanged, callback),
   },
   derived: {

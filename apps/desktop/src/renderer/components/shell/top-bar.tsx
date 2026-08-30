@@ -1,4 +1,4 @@
-import { Bug, FolderOpen, Redo2, Save, Sparkles, Undo2 } from "@cinesim/ui";
+import { FolderOpen, Redo2, Save, Sparkles, Undo2 } from "@cinesim/ui";
 import { Button, Tooltip, TooltipContent, TooltipTrigger } from "@cinesim/ui";
 import { sessionFromLifecycle } from "../../store/renderer-store";
 import { useRendererStore } from "../../store/renderer-store-context";
@@ -12,7 +12,6 @@ export function TopBar() {
   const redo = useRendererStore((state) => state.redo);
   const save = useRendererStore((state) => state.save);
   const revealProject = useRendererStore((state) => state.revealProject);
-  const metricsOpen = auxiliaryMode === "metrics";
   const agentsOpen = auxiliaryMode === "agents";
   if (!session) return null;
 
@@ -64,22 +63,6 @@ export function TopBar() {
           <Save size={15} />
         </TooltipTrigger>
         <TooltipContent>Save project</TooltipContent>
-      </Tooltip>
-      <Tooltip>
-        <TooltipTrigger
-          render={
-            <Button
-              size="icon"
-              variant={metricsOpen ? "secondary" : "ghost"}
-              aria-label={metricsOpen ? "Close Metrics sidebar" : "Open Metrics sidebar"}
-              aria-pressed={metricsOpen}
-              onClick={() => setAuxiliaryMode(toggleAuxiliaryMode(auxiliaryMode, "metrics"))}
-            />
-          }
-        >
-          <Bug size={15} />
-        </TooltipTrigger>
-        <TooltipContent>{metricsOpen ? "Close Metrics" : "Open Metrics"}</TooltipContent>
       </Tooltip>
       <Tooltip>
         <TooltipTrigger

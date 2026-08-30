@@ -13,36 +13,34 @@ export function AccountMenu({ width }: AccountMenuProps) {
   const hydrated = useRendererStore((state) => state.accountHydrated);
   const beginSignIn = useRendererStore((state) => state.beginAccountSignIn);
   const signOutAccount = useRendererStore((state) => state.signOutAccount);
+  const reportError = useRendererStore((state) => state.reportError);
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState<"email" | "google" | "sign-out" | null>(null);
-  const [message, setMessage] = useState<string | null>(null);
 
   async function startSignIn(method: "email" | "google"): Promise<void> {
     setBusy(method);
-    setMessage(null);
     const result = await beginSignIn(method);
     setBusy(null);
     if (result.ok) setOpen(false);
-    else setMessage(result.error);
+    else {
+      reportError(result.error);
+      setOpen(false);
+    }
   }
 
   async function signOut(): Promise<void> {
     setBusy("sign-out");
-    setMessage(null);
     const result = await signOutAccount();
     setBusy(null);
     if (result.ok) setOpen(false);
-    else setMessage(result.error);
+    else {
+      reportError(result.error);
+      setOpen(false);
+    }
   }
 
   return (
-    <Menu
-      open={open}
-      onOpenChange={(nextOpen) => {
-        setOpen(nextOpen);
-        if (!nextOpen) setMessage(null);
-      }}
-    >
+    <Menu open={open} onOpenChange={setOpen}>
       <MenuTrigger
         className={cn(
           "flex h-9 min-w-0 flex-1 items-center gap-2 rounded-md px-2.5 text-left text-ui text-secondary transition-colors hover:bg-surface hover:text-primary",
@@ -115,8 +113,7 @@ export function AccountMenu({ width }: AccountMenuProps) {
                 {busy === "email" ? "Opening browser…" : "Sign in with email"}
               </Button>
             </div>
-            {message && <p className="px-2 pt-2 text-ui-xs leading-5 text-red-400">{message}</p>}
-            {!account.serviceAvailable && !message && (
+            {!account.serviceAvailable && (
               <p className="px-2 pt-2 text-ui-xs leading-5 text-amber-500">
                 {account.detail ?? "The account service is unavailable."}
               </p>
