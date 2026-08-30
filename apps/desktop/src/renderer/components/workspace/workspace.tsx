@@ -5,6 +5,7 @@ import type { CutLayoutState, DesktopProjectSession, EditorLayoutState } from ".
 import { useRendererStore } from "../../store/renderer-store-context";
 import { MediaBin } from "../media/media-bin";
 import { CutWorkspace } from "./cut-workspace";
+import { EditorTransportProvider } from "./editor-transport-context";
 import { EditWorkspace } from "./edit-workspace";
 
 interface WorkspaceProps {
@@ -73,24 +74,26 @@ export function Workspace({
       {section === "media" ? (
         <MediaBin project={session.project} onOpenTimeline={onOpenTimeline} />
       ) : activeSequence ? (
-        section === "cut" ? (
-          <CutWorkspace
-            session={session}
-            project={editorProject}
-            sequenceId={activeSequence.id}
-            initialLayout={cutLayout}
-          />
-        ) : (
-          <EditWorkspace
-            session={session}
-            project={editorProject}
-            sequenceId={activeSequence.id}
-            initialLayout={editorLayout}
-            mediaPoolOpen={mediaPoolOpen}
-            inspectorOpen={inspectorOpen}
-            notesOpen={notesOpen}
-          />
-        )
+        <EditorTransportProvider key={activeSequence.id}>
+          {section === "cut" ? (
+            <CutWorkspace
+              session={session}
+              project={editorProject}
+              sequenceId={activeSequence.id}
+              initialLayout={cutLayout}
+            />
+          ) : (
+            <EditWorkspace
+              session={session}
+              project={editorProject}
+              sequenceId={activeSequence.id}
+              initialLayout={editorLayout}
+              mediaPoolOpen={mediaPoolOpen}
+              inspectorOpen={inspectorOpen}
+              notesOpen={notesOpen}
+            />
+          )}
+        </EditorTransportProvider>
       ) : null}
 
       {error && (

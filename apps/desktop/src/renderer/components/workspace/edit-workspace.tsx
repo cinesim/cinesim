@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useRef } from "react";
-import { canSplitClipAt, findClip, timeUs } from "@cinesim/core";
+import { useEffect, useRef } from "react";
+import { canSplitClipAt, findClip } from "@cinesim/core";
 import type { Project } from "@cinesim/core";
 import type { DesktopProjectSession, EditorLayoutState } from "../../../shared/api";
 import { useElementBounds } from "../../hooks/use-element-bounds";
@@ -15,7 +15,6 @@ import { useRendererStore } from "../../store/renderer-store-context";
 import { EditMediaPool } from "../media/edit-media-pool";
 import { Timeline } from "../timeline/timeline";
 import { Viewer } from "../viewer/viewer";
-import type { ViewerController } from "../viewer/viewer";
 import { EditorDndProvider } from "./editor-dnd-context";
 import { Inspector } from "./inspector";
 import { NotesPanel } from "./notes-panel";
@@ -44,22 +43,12 @@ export function EditWorkspace({
 }: EditWorkspaceProps) {
   const layoutRootRef = useRef<HTMLDivElement>(null);
   const upperPanelsRef = useRef<HTMLDivElement>(null);
-  const viewerControllerRef = useRef<ViewerController | null>(null);
-  const setViewerController = useCallback((controller: ViewerController | null) => {
-    viewerControllerRef.current = controller;
-  }, []);
   const layoutBounds = useElementBounds(layoutRootRef);
   const execute = useRendererStore((state) => state.execute);
-  const importMedia = useRendererStore((state) => state.importMedia);
-  const appendAsset = useRendererStore((state) => state.appendAsset);
   const saveEditorLayout = useRendererStore((state) => state.saveEditorLayout);
   const selectClip = useRendererStore((state) => state.selectClip);
   const selectedClipId = useRendererStore((state) => state.selectedClipId);
   const playheadUs = useRendererStore((state) => state.playheadUs);
-  const playbackPlaying = useRendererStore(
-    (state) => state.playbackRuntime?.snapshot.playing ?? false,
-  );
-  const transcripts = useRendererStore((state) => state.transcripts);
   const setTool = useRendererStore((state) => state.setTool);
   const toggleSnapping = useRendererStore((state) => state.toggleSnapping);
   const panels = { mediaPool: mediaPoolOpen, inspector: inspectorOpen, notes: notesOpen };
@@ -113,11 +102,7 @@ export function EditWorkspace({
   }, [execute, playheadUs, project, selectClip, selectedClipId, setTool, toggleSnapping]);
 
   return (
-    <EditorDndProvider
-      project={project}
-      onCommand={execute}
-      onAssetDragStart={() => void viewerControllerRef.current?.exitAssetPreview()}
-    >
+    <EditorDndProvider project={project}>
       <div
         ref={layoutRootRef}
         className="grid h-full min-h-0 min-w-0 grid-cols-[minmax(0,1fr)] overflow-hidden"
@@ -130,15 +115,7 @@ export function EditWorkspace({
         >
           {mediaPoolOpen && (
             <>
-              <EditMediaPool
-                project={project}
-                onAddAsset={(asset) => appendAsset(asset.id, sequenceId)}
-                onImport={importMedia}
-                onPreviewAsset={(asset, sourceTimeUs) =>
-                  viewerControllerRef.current?.enterAssetPreview(asset.id, sourceTimeUs)
-                }
-                onPreviewEnd={() => void viewerControllerRef.current?.exitAssetPreview()}
-              />
+              <EditMediaPool project={project} sequenceId={sequenceId} />
               <PanelResizeHandle
                 orientation="vertical"
                 label="Resize Media Pool"
@@ -152,7 +129,6 @@ export function EditWorkspace({
             projectDirectory={session.directory}
             derivedScope={session.derivedScope}
             sequenceId={sequenceId}
-            onController={setViewerController}
           />
           {inspectorOpen && (
             <>
@@ -180,18 +156,7 @@ export function EditWorkspace({
           label="Resize Timeline"
           {...resize.handleProps("timeline")}
         />
-        <Timeline
-          project={project}
-          transcripts={transcripts}
-          onCommand={execute}
-          onSeek={(timeUs) => void viewerControllerRef.current?.seekTimeline(timeUs)}
-          onTogglePlayback={() => {
-            if (playbackPlaying) viewerControllerRef.current?.pauseTimeline();
-            else viewerControllerRef.current?.playTimeline();
-          }}
-          onGoToStart={() => void viewerControllerRef.current?.seekTimeline(timeUs(0))}
-          onStepFrames={(deltaFrames) => void viewerControllerRef.current?.stepFrames(deltaFrames)}
-        />
+        <Timeline project={project} />
       </div>
     </EditorDndProvider>
   );

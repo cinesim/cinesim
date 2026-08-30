@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useDraggable } from "@dnd-kit/core";
 import { canSplitClipAt, clipDurationUs, timeUs } from "@cinesim/core";
-import type { Asset, Clip, EditorCommand, TimeUs, Track } from "@cinesim/core";
+import type { Asset, Clip, TimeUs, Track } from "@cinesim/core";
 import { cn } from "@cinesim/ui";
 import type { DerivedAssetSnapshot, DerivedMediaSnapshot } from "../../../shared/api";
 import {
@@ -12,7 +12,6 @@ import {
   type TrimGestureState,
 } from "../../lib/trim-gesture";
 import { quantizeToFrame } from "../../lib/timeline-geometry";
-import type { ActionResult } from "../../store/renderer-store";
 import { useRendererStore } from "../../store/renderer-store-context";
 import { fadeDurationFromDrag, timelinePaletteColor } from "./timeline-behavior";
 import type { TimelinePaletteId } from "./timeline-behavior";
@@ -35,7 +34,6 @@ interface ClipBlockProps {
   derivedAsset: DerivedAssetSnapshot | undefined;
   pixelsPerUs: number;
   selected: boolean;
-  onCommand: (command: EditorCommand) => Promise<ActionResult<unknown>>;
   trackHeight: number;
   frameRate: number;
   snappingEnabled: boolean;
@@ -51,7 +49,6 @@ export function TimelineClipBlock({
   derivedAsset,
   pixelsPerUs,
   selected,
-  onCommand,
   trackHeight,
   frameRate,
   snappingEnabled,
@@ -59,6 +56,7 @@ export function TimelineClipBlock({
   paletteId,
 }: ClipBlockProps) {
   const tool = useRendererStore((state) => state.tool);
+  const execute = useRendererStore((state) => state.execute);
   const selectClip = useRendererStore((state) => state.selectClip);
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
     id: clip.id,
@@ -146,7 +144,7 @@ export function TimelineClipBlock({
     if (event.currentTarget.hasPointerCapture(event.pointerId))
       event.currentTarget.releasePointerCapture(event.pointerId);
     if (gesture && gesture.previewDurationUs !== gesture.initialDurationUs)
-      void onCommand({
+      void execute({
         type: "clip.setFade",
         clipId: clip.id,
         edge: gesture.edge,
@@ -201,7 +199,7 @@ export function TimelineClipBlock({
     setTrimGesture(transition.state);
     if (event.currentTarget.hasPointerCapture(event.pointerId))
       event.currentTarget.releasePointerCapture(event.pointerId);
-    if (transition.command) void onCommand(transition.command);
+    if (transition.command) void execute(transition.command);
   }
 
   function cancelTrim(event: React.PointerEvent<HTMLButtonElement>) {
@@ -223,7 +221,7 @@ export function TimelineClipBlock({
       timeUs(clip.timelineStartUs + Math.round(clipDurationUs(clip) * ratio)),
       frameRate,
     );
-    if (canSplitClipAt(clip, atUs)) void onCommand({ type: "clip.split", clipId: clip.id, atUs });
+    if (canSplitClipAt(clip, atUs)) void execute({ type: "clip.split", clipId: clip.id, atUs });
   }
 
   return (

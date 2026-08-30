@@ -1,11 +1,11 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { MoveHorizontal, Play, Trash2, X } from "@cinesim/ui";
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger } from "@cinesim/ui";
-import type { AssetId, EditorCommand, Project, TimelineRange, TimeUs } from "@cinesim/core";
-import type { TranscriptSnapshot } from "../../../shared/transcript";
+import type { Project, TimelineRange, TimeUs } from "@cinesim/core";
 import { projectTimelineTranscript, transcriptDocumentSections } from "../../../shared/transcript";
 import { isEditableKeyboardTarget } from "../../lib/keyboard-target";
-import type { ActionResult, RendererState } from "../../store/renderer-store";
+import { useRendererStore } from "../../store/renderer-store-context";
+import { useEditorTransport } from "../workspace/editor-transport-context";
 import { TranscriptDocument } from "./transcript-document";
 import { formatTranscriptDuration, useTranscriptSelection } from "./transcript-selection";
 import {
@@ -17,30 +17,21 @@ import {
 interface TimelineTranscriptProps {
   project: Project;
   sequenceId: string;
-  transcripts: TranscriptSnapshot | null;
-  account: RendererState["account"];
-  playheadUs: TimeUs;
-  onSeek: (timeUs: TimeUs) => void;
-  onCommand: (command: EditorCommand) => Promise<ActionResult<unknown>>;
-  onRequestTranscripts: (assetIds: AssetId[]) => Promise<ActionResult<TranscriptSnapshot>>;
-  onCancelTranscripts: (assetIds: AssetId[]) => Promise<ActionResult<TranscriptSnapshot>>;
   onSelectionChange: (ranges: TimelineRange[]) => void;
-  onPlaySelection: (startUs: TimeUs, endUs: TimeUs) => void;
 }
 
 export function TimelineTranscript({
   project,
   sequenceId,
-  transcripts,
-  account,
-  playheadUs,
-  onSeek,
-  onCommand,
-  onRequestTranscripts,
-  onCancelTranscripts,
   onSelectionChange,
-  onPlaySelection,
 }: TimelineTranscriptProps) {
+  const account = useRendererStore((state) => state.account);
+  const cancelTranscripts = useRendererStore((state) => state.cancelTranscripts);
+  const execute = useRendererStore((state) => state.execute);
+  const playheadUs = useRendererStore((state) => state.playheadUs);
+  const requestTranscripts = useRendererStore((state) => state.requestTranscripts);
+  const transcripts = useRendererStore((state) => state.transcripts);
+  const transport = useEditorTransport();
   const projection = useMemo(
     () => projectTimelineTranscript({ project, sequenceId, transcripts }),
     [project, sequenceId, transcripts],
@@ -56,13 +47,17 @@ export function TimelineTranscript({
   );
   const [query, setQuery] = useState("");
   const [speakerFilter, setSpeakerFilter] = useState<string | null>(null);
+  const seekTimeline = useCallback(
+    (timeUs: TimeUs) => void transport.seekTimeline(timeUs),
+    [transport],
+  );
   const visibleSections = useMemo(
     () => filterTranscriptSections(sections, query, speakerFilter),
     [query, sections, speakerFilter],
   );
   const selection = useTranscriptSelection({
     blocks: projection.blocks,
-    onSeek,
+    onSeek: seekTimeline,
     onSelectionChange,
   });
   const clearSelection = selection.clear;
@@ -80,7 +75,7 @@ export function TimelineTranscript({
       )
         return;
       event.preventDefault();
-      void onCommand({
+      void execute({
         type: "sequence.deleteRanges",
         sequenceId: sequenceId as `sequence_${string}`,
         ranges: selectedRanges,
@@ -91,11 +86,11 @@ export function TimelineTranscript({
     }
     window.addEventListener("keydown", deleteSelection);
     return () => window.removeEventListener("keydown", deleteSelection);
-  }, [clearSelection, onCommand, selectedRanges, sequenceId]);
+  }, [clearSelection, execute, selectedRanges, sequenceId]);
 
   async function deleteRanges(mode: "ripple" | "lift") {
     if (!selectedRanges.length) return;
-    const result = await onCommand({
+    const result = await execute({
       type: "sequence.deleteRanges",
       sequenceId: sequenceId as `sequence_${string}`,
       ranges: selectedRanges,
@@ -140,8 +135,8 @@ export function TimelineTranscript({
             selection={selection}
             signedIn={account.status === "signed-in"}
             speakerColors={speakerColors}
-            onCancelTranscript={(assetId) => void onCancelTranscripts([assetId])}
-            onRequestTranscript={(assetId) => void onRequestTranscripts([assetId])}
+            onCancelTranscript={(assetId) => void cancelTranscripts([assetId])}
+            onRequestTranscript={(assetId) => void requestTranscripts([assetId])}
           />
         </ContextMenuTrigger>
         <ContextMenuContent aria-label="Transcript selection actions" className="w-56 text-ui">
@@ -151,7 +146,7 @@ export function TimelineTranscript({
           <ContextMenuItem
             onClick={() => {
               if (selectionStart !== undefined && selectionEnd !== undefined)
-                onPlaySelection(selectionStart, selectionEnd);
+                void transport.playRange(selectionStart, selectionEnd);
             }}
           >
             <Play size={14} /> Play selection

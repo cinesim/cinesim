@@ -1,10 +1,9 @@
 import { useMemo, useState } from "react";
 import { canSplitClipAt, getSequence, sequenceDurationUs, timeUs } from "@cinesim/core";
-import type { EditorCommand, Project, TimelineRange, TimeUs } from "@cinesim/core";
-import type { TranscriptSnapshot } from "../../../shared/transcript";
+import type { Project, TimelineRange } from "@cinesim/core";
 import { timelineMajorSecondStep } from "../../lib/timeline-scale";
-import type { ActionResult } from "../../store/renderer-store";
 import { useRendererStore } from "../../store/renderer-store-context";
+import { useEditorTransport } from "../workspace/editor-transport-context";
 import { MasterLevelMeter } from "./master-level-meter";
 import { ReducedTimeline } from "./reduced-timeline";
 import { isTimelinePaletteId } from "./timeline-behavior";
@@ -19,25 +18,11 @@ export type { TimelinePaletteId } from "./timeline-behavior";
 
 interface TimelineProps {
   project: Project;
-  onCommand: (command: EditorCommand) => Promise<ActionResult<unknown>>;
-  onSeek?: (timeUs: TimeUs) => void;
-  onTogglePlayback?: () => void;
-  onGoToStart?: () => void;
-  onStepFrames?: (deltaFrames: number) => void;
-  transcripts?: TranscriptSnapshot | null;
   selectedRanges?: TimelineRange[];
 }
 
-export function Timeline({
-  project,
-  onCommand,
-  onSeek,
-  onTogglePlayback,
-  onGoToStart,
-  onStepFrames,
-  transcripts = null,
-  selectedRanges = [],
-}: TimelineProps) {
+export function Timeline({ project, selectedRanges = [] }: TimelineProps) {
+  const execute = useRendererStore((state) => state.execute);
   const zoom = useRendererStore((state) => state.timelineZoom);
   const setZoom = useRendererStore((state) => state.setTimelineZoom);
   const trackHeight = useRendererStore((state) => state.timelineTrackHeight);
@@ -47,11 +32,12 @@ export function Timeline({
   const selectedClipId = useRendererStore((state) => state.selectedClipId);
   const selectClip = useRendererStore((state) => state.selectClip);
   const playheadUs = useRendererStore((state) => state.playheadUs);
-  const setPlayheadUs = useRendererStore((state) => state.setPlayheadUs);
   const snappingEnabled = useRendererStore((state) => state.snappingEnabled);
   const toggleSnapping = useRendererStore((state) => state.toggleSnapping);
   const derived = useRendererStore((state) => state.derivedMedia);
+  const transcripts = useRendererStore((state) => state.transcripts);
   const playback = useRendererStore((state) => state.playbackRuntime?.snapshot ?? null);
+  const transport = useEditorTransport();
   const [paletteId, setPaletteId] = useState<TimelinePaletteId>(() => {
     const stored = localStorage.getItem("cinesim.timelinePalette");
     return isTimelinePaletteId(stored) ? stored : "northern-lights";
@@ -96,16 +82,14 @@ export function Timeline({
     const scrollParent = event.currentTarget.parentElement!;
     const x = event.clientX - bounds.left + scrollParent.scrollLeft;
     const seekTimeUs = timeUs(Math.max(0, Math.round(x / pixelsPerUs)));
-    setPlayheadUs(seekTimeUs);
-    onSeek?.(seekTimeUs);
+    void transport.seekTimeline(seekTimeUs);
     if (event.type === "pointerdown") event.currentTarget.setPointerCapture(event.pointerId);
   }
 
   function trackSeek(event: React.PointerEvent<HTMLButtonElement>) {
     const bounds = event.currentTarget.getBoundingClientRect();
     const seekTimeUs = timeUs(Math.max(0, Math.round((event.clientX - bounds.left) / pixelsPerUs)));
-    setPlayheadUs(seekTimeUs);
-    onSeek?.(seekTimeUs);
+    void transport.seekTimeline(seekTimeUs);
   }
 
   const majorSecondStep = timelineMajorSecondStep(zoom);
@@ -132,13 +116,6 @@ export function Timeline({
           scrollRef={scrollRef}
           onZoomChange={changeZoom}
           onFitToWidth={fitToWidth}
-          onSeek={(timeUs) => {
-            setPlayheadUs(timeUs);
-            onSeek?.(timeUs);
-          }}
-          {...(onTogglePlayback ? { onTogglePlayback } : {})}
-          {...(onGoToStart ? { onGoToStart } : {})}
-          {...(onStepFrames ? { onStepFrames } : {})}
         />
       </section>
     );
@@ -154,12 +131,10 @@ export function Timeline({
           snappingEnabled={snappingEnabled}
           tool={tool}
           trackHeight={trackHeight}
-          onAddTrack={(kind) =>
-            void onCommand({ type: "track.add", sequenceId: sequence.id, kind })
-          }
+          onAddTrack={(kind) => void execute({ type: "track.add", sequenceId: sequence.id, kind })}
           onDelete={() => {
             if (!selectedClipId) return;
-            void onCommand({ type: "clip.remove", clipId: selectedClipId }).then((result) => {
+            void execute({ type: "clip.remove", clipId: selectedClipId }).then((result) => {
               if (result.ok) selectClip(null);
             });
           }}
@@ -167,7 +142,7 @@ export function Timeline({
           onSnappingToggle={toggleSnapping}
           onSplit={() => {
             if (selectedClipId && canSplitSelection)
-              void onCommand({ type: "clip.split", clipId: selectedClipId, atUs: playheadUs });
+              void execute({ type: "clip.split", clipId: selectedClipId, atUs: playheadUs });
           }}
           onToolChange={setTool}
           onTrackHeightChange={setTrackHeight}
@@ -178,10 +153,6 @@ export function Timeline({
           playbackRate={playback?.playbackRate ?? 1}
           playheadUs={playheadUs}
           playing={playback?.playing ?? false}
-          {...(onGoToStart ? { onGoToStart } : {})}
-          {...(onSeek ? { onSeek } : {})}
-          {...(onStepFrames ? { onStepFrames } : {})}
-          {...(onTogglePlayback ? { onTogglePlayback } : {})}
         />
         <TimelineZoomControls
           minimumZoom={minimumZoom}
@@ -204,7 +175,6 @@ export function Timeline({
               index={index}
               total={sequence.tracks.length}
               height={trackHeight}
-              onCommand={onCommand}
               paletteId={paletteId}
             />
           ))}
@@ -246,7 +216,6 @@ export function Timeline({
                 pixelsPerUs={pixelsPerUs}
                 trackHeight={trackHeight}
                 selectedClipId={selectedClipId}
-                onCommand={onCommand}
                 onBackgroundPointerDown={trackSeek}
                 project={project}
                 frameRate={sequence.frameRate}

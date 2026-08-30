@@ -6,6 +6,7 @@ import type { TranscriptSnapshot } from "../../../shared/transcript";
 import { projectNarrativeUnits } from "../../../shared/transcript";
 import { formatTimecode } from "../../lib/format";
 import { useRendererStore } from "../../store/renderer-store-context";
+import { useEditorTransport } from "../workspace/editor-transport-context";
 import { timelinePaletteColor } from "./timeline-behavior";
 import type { TimelinePaletteId } from "./timeline-behavior";
 import { TimelineZoomControls } from "./timeline-toolbar";
@@ -32,10 +33,6 @@ export function ReducedTimeline({
   pixelsPerUs,
   contentWidth,
   scrollRef,
-  onSeek,
-  onTogglePlayback,
-  onGoToStart,
-  onStepFrames,
   onZoomChange,
   onFitToWidth,
 }: {
@@ -51,14 +48,11 @@ export function ReducedTimeline({
   pixelsPerUs: number;
   contentWidth: number;
   scrollRef: RefObject<HTMLDivElement | null>;
-  onSeek?: (timeUs: TimeUs) => void;
-  onTogglePlayback?: () => void;
-  onGoToStart?: () => void;
-  onStepFrames?: (deltaFrames: number) => void;
   onZoomChange: (zoom: number) => void;
   onFitToWidth: () => void;
 }) {
   const selectClip = useRendererStore((state) => state.selectClip);
+  const transport = useEditorTransport();
   const sequence = getSequence(project);
   const units = useMemo(
     () => projectNarrativeUnits({ project, sequenceId: sequence.id, transcripts }),
@@ -88,10 +82,6 @@ export function ReducedTimeline({
           playbackRate={playbackRate}
           playheadUs={playheadUs}
           playing={playing}
-          {...(onGoToStart ? { onGoToStart } : {})}
-          {...(onSeek ? { onSeek } : {})}
-          {...(onStepFrames ? { onStepFrames } : {})}
-          {...(onTogglePlayback ? { onTogglePlayback } : {})}
         />
         <TimelineZoomControls
           minimumZoom={minimumZoom}
@@ -150,7 +140,7 @@ export function ReducedTimeline({
                   title={formatTimecode(unit.timelineStartUs, sequence.frameRate)}
                   onClick={() => {
                     selectClip(unit.clipIds[0] ?? null);
-                    onSeek?.(unit.timelineStartUs);
+                    void transport.seekTimeline(unit.timelineStartUs);
                   }}
                 >
                   {selectedRanges.flatMap((range, index) => {

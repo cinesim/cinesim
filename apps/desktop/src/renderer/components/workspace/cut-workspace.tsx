@@ -1,6 +1,5 @@
-import { useCallback, useEffect, useRef, useState } from "react";
-import { timeUs } from "@cinesim/core";
-import type { Project, TimelineRange, TimeUs } from "@cinesim/core";
+import { useCallback, useRef, useState } from "react";
+import type { Project, TimelineRange } from "@cinesim/core";
 import type { CutLayoutState, DesktopProjectSession } from "../../../shared/api";
 import { useElementBounds } from "../../hooks/use-element-bounds";
 import { usePanelResize } from "../../hooks/use-panel-resize";
@@ -15,7 +14,6 @@ import { EditMediaPool } from "../media/edit-media-pool";
 import { Timeline } from "../timeline/timeline";
 import { TimelineTranscript } from "../transcript/timeline-transcript";
 import { Viewer } from "../viewer/viewer";
-import type { ViewerController } from "../viewer/viewer";
 import { EditorDndProvider } from "./editor-dnd-context";
 import { PanelResizeHandle } from "./panel-resize-handle";
 
@@ -30,28 +28,11 @@ interface CutWorkspaceProps {
 
 export function CutWorkspace({ session, project, sequenceId, initialLayout }: CutWorkspaceProps) {
   const [selectedRanges, setSelectedRanges] = useState<TimelineRange[]>([]);
-  const auditionEndUs = useRef<number | null>(null);
   const rootRef = useRef<HTMLDivElement>(null);
   const upperRef = useRef<HTMLDivElement>(null);
   const rightRef = useRef<HTMLDivElement>(null);
-  const viewerControllerRef = useRef<ViewerController | null>(null);
-  const setViewerController = useCallback((controller: ViewerController | null) => {
-    viewerControllerRef.current = controller;
-  }, []);
   const bounds = useElementBounds(rootRef);
-  const transcripts = useRendererStore((state) => state.transcripts);
-  const account = useRendererStore((state) => state.account);
-  const playheadUs = useRendererStore((state) => state.playheadUs);
-  const playbackPlaying = useRendererStore(
-    (state) => state.playbackRuntime?.snapshot.playing ?? false,
-  );
-  const execute = useRendererStore((state) => state.execute);
-  const importMedia = useRendererStore((state) => state.importMedia);
-  const appendAsset = useRendererStore((state) => state.appendAsset);
-  const requestTranscripts = useRendererStore((state) => state.requestTranscripts);
-  const cancelTranscripts = useRendererStore((state) => state.cancelTranscripts);
   const saveCutLayout = useRendererStore((state) => state.saveCutLayout);
-  const setPlayheadUs = useRendererStore((state) => state.setPlayheadUs);
   const resize = usePanelResize<CutResizeTarget, CutLayoutState>({
     initialValue: initialLayout,
     fit: (value) => fitCutLayout(value, bounds),
@@ -85,24 +66,8 @@ export function CutWorkspace({ session, project, sequenceId, initialLayout }: Cu
     });
   }, []);
 
-  useEffect(() => {
-    if (auditionEndUs.current === null || !playbackPlaying || playheadUs < auditionEndUs.current)
-      return;
-    viewerControllerRef.current?.pauseTimeline();
-    auditionEndUs.current = null;
-  }, [playbackPlaying, playheadUs]);
-
-  function handleSeek(timeUs: TimeUs): void {
-    setPlayheadUs(timeUs);
-    void viewerControllerRef.current?.seekTimeline(timeUs);
-  }
-
   return (
-    <EditorDndProvider
-      project={project}
-      onCommand={execute}
-      onAssetDragStart={() => void viewerControllerRef.current?.exitAssetPreview()}
-    >
+    <EditorDndProvider project={project}>
       <div
         ref={rootRef}
         className="grid h-full min-h-0 min-w-0 grid-cols-[minmax(0,1fr)] overflow-hidden"
@@ -116,20 +81,7 @@ export function CutWorkspace({ session, project, sequenceId, initialLayout }: Cu
           <TimelineTranscript
             project={project}
             sequenceId={sequenceId}
-            transcripts={transcripts}
-            account={account}
-            playheadUs={playheadUs}
-            onSeek={handleSeek}
-            onCommand={execute}
-            onRequestTranscripts={requestTranscripts}
-            onCancelTranscripts={cancelTranscripts}
             onSelectionChange={acceptSelection}
-            onPlaySelection={(startUs, endUs) => {
-              auditionEndUs.current = endUs;
-              void viewerControllerRef.current
-                ?.seekTimeline(startUs)
-                .then(() => viewerControllerRef.current?.playTimeline());
-            }}
           />
           <PanelResizeHandle
             orientation="vertical"
@@ -147,22 +99,13 @@ export function CutWorkspace({ session, project, sequenceId, initialLayout }: Cu
               projectDirectory={session.directory}
               derivedScope={session.derivedScope}
               sequenceId={sequenceId}
-              onController={setViewerController}
             />
             <PanelResizeHandle
               orientation="horizontal"
               label="Resize viewer and Media Pool"
               {...resize.handleProps("viewer")}
             />
-            <EditMediaPool
-              project={project}
-              onAddAsset={(asset) => appendAsset(asset.id, sequenceId)}
-              onImport={importMedia}
-              onPreviewAsset={(asset, sourceTimeUs) =>
-                viewerControllerRef.current?.enterAssetPreview(asset.id, sourceTimeUs)
-              }
-              onPreviewEnd={() => void viewerControllerRef.current?.exitAssetPreview()}
-            />
+            <EditMediaPool project={project} sequenceId={sequenceId} />
           </div>
         </div>
         <PanelResizeHandle
@@ -170,20 +113,7 @@ export function CutWorkspace({ session, project, sequenceId, initialLayout }: Cu
           label="Resize Timeline"
           {...resize.handleProps("timeline")}
         />
-        <Timeline
-          project={project}
-          transcripts={transcripts}
-          selectedRanges={selectedRanges}
-          onCommand={execute}
-          onSeek={handleSeek}
-          onTogglePlayback={() => {
-            auditionEndUs.current = null;
-            if (playbackPlaying) viewerControllerRef.current?.pauseTimeline();
-            else viewerControllerRef.current?.playTimeline();
-          }}
-          onGoToStart={() => handleSeek(timeUs(0))}
-          onStepFrames={(deltaFrames) => void viewerControllerRef.current?.stepFrames(deltaFrames)}
-        />
+        <Timeline project={project} selectedRanges={selectedRanges} />
       </div>
     </EditorDndProvider>
   );

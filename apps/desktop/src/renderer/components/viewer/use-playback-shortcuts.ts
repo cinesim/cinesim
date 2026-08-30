@@ -4,6 +4,8 @@ import { getSequence, timeUs } from "@cinesim/core";
 import type { Project } from "@cinesim/core";
 import type { PlaybackRuntime, PreviewMode } from "@cinesim/engine";
 import { useRendererStoreApi } from "../../store/renderer-store-context";
+import { useEditorTransport } from "../workspace/editor-transport-context";
+import type { EditorTransportController } from "../workspace/editor-transport";
 import { playbackShortcutAction, steppedSourceTimeUs } from "./viewer-helpers";
 
 function isInteractiveShortcutTarget(target: EventTarget | null): boolean {
@@ -16,12 +18,13 @@ function isInteractiveShortcutTarget(target: EventTarget | null): boolean {
 
 function stepDisplayedFrame(
   playback: PlaybackRuntime,
+  transport: EditorTransportController,
   project: Project,
   mode: PreviewMode | undefined,
   deltaFrames: number,
 ): void {
   if (mode?.kind !== "asset") {
-    void playback.stepFrames(deltaFrames);
+    void transport.stepFrames(deltaFrames);
     return;
   }
   const asset = project.assets.find((candidate) => candidate.id === mode.assetId);
@@ -33,9 +36,13 @@ function stepDisplayedFrame(
   );
 }
 
-function goToDisplayedStart(playback: PlaybackRuntime, mode: PreviewMode | undefined): void {
+function goToDisplayedStart(
+  playback: PlaybackRuntime,
+  transport: EditorTransportController,
+  mode: PreviewMode | undefined,
+): void {
   if (mode?.kind === "asset") playback.enterAssetPreview(mode.assetId, timeUs(0));
-  else void playback.seekTimeline(timeUs(0));
+  else void transport.seekTimeline(timeUs(0));
 }
 
 export function usePlaybackShortcuts(
@@ -44,6 +51,7 @@ export function usePlaybackShortcuts(
 ) {
   const projectRef = useRef(project);
   const store = useRendererStoreApi();
+  const transport = useEditorTransport();
 
   useEffect(() => {
     projectRef.current = project;
@@ -59,29 +67,28 @@ export function usePlaybackShortcuts(
       const snapshot = store.getState().playbackRuntime?.snapshot;
       switch (action) {
         case "toggle-playback":
-          if (snapshot?.playing) playback.pause();
-          else playback.setPlaybackRate(1);
+          transport.togglePlayback();
           break;
         case "shuttle-backward":
-          playback.shuttle(-1);
+          transport.shuttle(-1);
           break;
         case "shuttle-stop":
-          playback.shuttle(0);
+          transport.shuttle(0);
           break;
         case "shuttle-forward":
-          playback.shuttle(1);
+          transport.shuttle(1);
           break;
         case "step-backward":
-          stepDisplayedFrame(playback, projectRef.current, snapshot?.mode, -1);
+          stepDisplayedFrame(playback, transport, projectRef.current, snapshot?.mode, -1);
           break;
         case "step-forward":
-          stepDisplayedFrame(playback, projectRef.current, snapshot?.mode, 1);
+          stepDisplayedFrame(playback, transport, projectRef.current, snapshot?.mode, 1);
           break;
         case "go-to-start":
-          goToDisplayedStart(playback, snapshot?.mode);
+          goToDisplayedStart(playback, transport, snapshot?.mode);
       }
     }
     window.addEventListener("keydown", shortcut);
     return () => window.removeEventListener("keydown", shortcut);
-  }, [playbackRef, store]);
+  }, [playbackRef, store, transport]);
 }

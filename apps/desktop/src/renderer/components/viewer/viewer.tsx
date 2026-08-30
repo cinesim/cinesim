@@ -3,31 +3,22 @@ import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "@cinesim/ui";
 import { getSequence, sequenceDurationUs } from "@cinesim/core";
 import type { Project } from "@cinesim/core";
 import type { DerivedProjectScope } from "../../../shared/api";
+import { useEditorTransport } from "../workspace/editor-transport-context";
 import { usePlaybackShortcuts } from "./use-playback-shortcuts";
 import { useViewerRuntime } from "./use-viewer-runtime";
-import type { ViewerController } from "./use-viewer-runtime";
 import { DEFAULT_VIEWER_GUIDES, ViewerGuideOverlay } from "./viewer-guides";
 import { ViewerHeader } from "./viewer-header";
 import { shouldShowTimelineEmptyState, viewerDisplaySize } from "./viewer-helpers";
 import type { ViewerScale } from "./viewer-helpers";
 
-export type { ViewerController } from "./use-viewer-runtime";
-
 interface ViewerProps {
   derivedScope: DerivedProjectScope;
-  onController?: (controller: ViewerController | null) => void;
   project: Project;
   projectDirectory: string;
   sequenceId: string;
 }
 
-export function Viewer({
-  project,
-  projectDirectory,
-  derivedScope,
-  sequenceId,
-  onController,
-}: ViewerProps) {
+export function Viewer({ project, projectDirectory, derivedScope, sequenceId }: ViewerProps) {
   const sectionRef = useRef<HTMLElement>(null);
   const stageRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -35,13 +26,14 @@ export function Viewer({
   const [stageSize, setStageSize] = useState({ width: 0, height: 0 });
   const [viewerScale, setViewerScale] = useState<ViewerScale>("fit");
   const [guides, setGuides] = useState(DEFAULT_VIEWER_GUIDES);
+  const transport = useEditorTransport();
   const { error, playbackRef, runtime } = useViewerRuntime({
     canvasRef,
     derivedScope,
     project,
     projectDirectory,
     sequenceId,
-    ...(onController ? { onController } : {}),
+    onController: transport.registerController,
   });
   usePlaybackShortcuts(playbackRef, project);
   const sequence = getSequence(project);

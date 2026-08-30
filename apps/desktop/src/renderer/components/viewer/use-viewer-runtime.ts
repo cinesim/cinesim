@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import type { RefObject } from "react";
 import type { Project, TimeUs } from "@cinesim/core";
 import { PlaybackRuntime, WebGpuCompositor } from "@cinesim/engine";
+import type { ShuttleDirection } from "@cinesim/engine";
 import type { DerivedProjectScope } from "../../../shared/api";
 import { ProxySourceResolver } from "../../lib/proxy-source-resolver";
 import { useRendererStore, useRendererStoreApi } from "../../store/renderer-store-context";
@@ -9,10 +10,10 @@ import { useRendererStore, useRendererStoreApi } from "../../store/renderer-stor
 export interface ViewerController {
   seekTimeline(timeUs: TimeUs): Promise<void>;
   enterAssetPreview(assetId: `asset_${string}`, sourceTimeUs: TimeUs): void;
-  updateAssetPreview(sourceTimeUs: TimeUs): void;
   exitAssetPreview(): Promise<void>;
   playTimeline(): void;
   pauseTimeline(): void;
+  shuttle(direction: ShuttleDirection): void;
   stepFrames(deltaFrames: number): Promise<void>;
 }
 
