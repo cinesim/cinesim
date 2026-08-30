@@ -15,6 +15,10 @@ import {
 } from "@cinesim/ui";
 import {
   Button,
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuTrigger,
   Dialog,
   DialogContent,
   DialogDescription,
@@ -56,9 +60,7 @@ type PendingDialog =
   | { kind: "remove-assets" }
   | { kind: "remove-sequence"; sequenceId: string };
 
-type ContextMenuState =
-  | { x: number; y: number; kind: "assets" }
-  | { x: number; y: number; kind: "sequence"; sequenceId: string };
+type ContextMenuTarget = { kind: "assets" } | { kind: "sequence"; sequenceId: string };
 
 function nextTimelineName(project: Project): string {
   const ordinals = project.sequences
@@ -82,7 +84,7 @@ export function MediaBin({ project, onOpenTimeline }: MediaBinProps) {
   const [selection, setSelectedAssetIds] = useState<Set<AssetId>>(() => new Set());
   const [selectionAnchor, setSelectionAnchor] = useState<AssetId | null>(null);
   const [marquee, setMarquee] = useState<SelectionRect | null>(null);
-  const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
+  const [contextMenuTarget, setContextMenuTarget] = useState<ContextMenuTarget | null>(null);
   const [pendingDialog, setPendingDialog] = useState<PendingDialog | null>(null);
   const [timelineName, setTimelineName] = useState("");
   const marqueeOrigin = useRef<Point | null>(null);
@@ -149,26 +151,14 @@ export function MediaBin({ project, onOpenTimeline }: MediaBinProps) {
   const importMedia = useCallback(async () => importProjectMedia(), [importProjectMedia]);
 
   useEffect(() => {
-    function dismiss(event: PointerEvent) {
-      if (!(event.target instanceof Element) || !event.target.closest("[data-media-context-menu]"))
-        setContextMenu(null);
-    }
     function keydown(event: KeyboardEvent) {
       if (event.key === "Escape") {
-        setContextMenu(null);
         setSelectedAssetIds(new Set());
         setSelectionAnchor(null);
       }
     }
-    const resize = () => setContextMenu(null);
-    window.addEventListener("pointerdown", dismiss);
     window.addEventListener("keydown", keydown);
-    window.addEventListener("resize", resize);
-    return () => {
-      window.removeEventListener("pointerdown", dismiss);
-      window.removeEventListener("keydown", keydown);
-      window.removeEventListener("resize", resize);
-    };
+    return () => window.removeEventListener("keydown", keydown);
   }, []);
 
   useEffect(() => {
@@ -219,7 +209,6 @@ export function MediaBin({ project, onOpenTimeline }: MediaBinProps) {
     marqueeOrigin.current = { x: event.clientX, y: event.clientY };
     setSelectedAssetIds(new Set());
     setSelectionAnchor(null);
-    setContextMenu(null);
     event.currentTarget.setPointerCapture(event.pointerId);
   }
 
@@ -249,24 +238,9 @@ export function MediaBin({ project, onOpenTimeline }: MediaBinProps) {
       event.currentTarget.releasePointerCapture(event.pointerId);
   }
 
-  function openAssetMenu(assetId: AssetId, event: React.MouseEvent<HTMLButtonElement>) {
-    event.preventDefault();
-    if (!selectedAssetIds.has(assetId)) {
-      setSelectedAssetIds(new Set([assetId]));
-      setSelectionAnchor(assetId);
-    }
-    setContextMenu({ x: event.clientX, y: event.clientY, kind: "assets" });
-  }
-
-  function openSequenceMenu(sequenceId: string, event: React.MouseEvent<HTMLButtonElement>) {
-    event.preventDefault();
-    setContextMenu({ x: event.clientX, y: event.clientY, kind: "sequence", sequenceId });
-  }
-
   function requestTimelineCreation() {
     setTimelineName(nextTimelineName(project));
     setPendingDialog({ kind: "create-timeline" });
-    setContextMenu(null);
   }
 
   async function createTimeline() {
@@ -319,7 +293,72 @@ export function MediaBin({ project, onOpenTimeline }: MediaBinProps) {
     const mediaIds = selectedProxyAssets.map((asset) => asset.id);
     if (mediaIds.length > 0 && derivedScope)
       await window.cinesim.requestProxyJobs(derivedScope, mediaIds);
-    setContextMenu(null);
+  }
+
+  function assetContextMenu() {
+    return (
+      <>
+        <ContextMenuItem onClick={requestTimelineCreation}>
+          <ListPlus size={14} /> Create Timeline from {selectedCount}{" "}
+          {selectedCount === 1 ? "Asset" : "Assets"}
+        </ContextMenuItem>
+        {selectedProxyAssets.length > 0 && (
+          <ContextMenuItem onClick={() => void generateSelectedProxies()}>
+            <Film size={14} /> Generate edit {selectedCount === 1 ? "proxy" : "proxies"}
+          </ContextMenuItem>
+        )}
+        {selectedTransfer &&
+          ["waiting-for-cloud", "paused", "failed"].includes(selectedTransfer.state) && (
+            <ContextMenuItem onClick={() => void retryCloudTransfer(selectedAssets[0]!.id)}>
+              <RotateCcw size={14} /> Retry cloud upload
+            </ContextMenuItem>
+          )}
+        {selectedCloudAsset && (
+          <ContextMenuItem
+            onClick={() => {
+              const downloaded = downloadedCloudOriginals.includes(selectedCloudAsset.id);
+              if (downloaded) void removeCloudOriginalDownload(selectedCloudAsset.id);
+              else void keepCloudOriginalDownloaded(selectedCloudAsset.id);
+            }}
+          >
+            {downloadedCloudOriginals.includes(selectedCloudAsset.id) ? (
+              <>
+                <X size={14} /> Remove download
+              </>
+            ) : (
+              <>
+                <HardDriveDownload size={14} /> Keep downloaded
+              </>
+            )}
+          </ContextMenuItem>
+        )}
+        <ContextMenuItem onClick={() => setPendingDialog({ kind: "remove-assets" })}>
+          <Trash2 size={14} /> Remove {selectedCount} {selectedCount === 1 ? "Asset" : "Assets"}{" "}
+          from Project
+        </ContextMenuItem>
+        <ContextMenuItem
+          onClick={() => {
+            setSelectedAssetIds(new Set());
+            setSelectionAnchor(null);
+          }}
+        >
+          <X size={14} /> Clear Selection
+        </ContextMenuItem>
+      </>
+    );
+  }
+
+  function sequenceContextMenu(sequenceId: string) {
+    return (
+      <>
+        <ContextMenuItem onClick={() => onOpenTimeline(sequenceId)}>
+          <Film size={14} /> Open Timeline
+        </ContextMenuItem>
+        <ContextMenuItem onClick={() => setPendingDialog({ kind: "remove-sequence", sequenceId })}>
+          <Trash2 size={14} /> Delete Timeline
+        </ContextMenuItem>
+      </>
+    );
   }
 
   return (
@@ -358,125 +397,159 @@ export function MediaBin({ project, onOpenTimeline }: MediaBinProps) {
       </PaneHeader>
 
       <div className="min-h-0 flex-1 overflow-y-auto px-5 py-6">
-        <LibraryGrid
-          ref={gridRef}
-          className="min-h-full content-start select-none"
-          onPointerDown={beginMarquee}
-          onPointerMove={moveMarquee}
-          onPointerUp={finishMarquee}
-          onPointerCancel={finishMarquee}
-        >
-          {sequences.map((sequence) => (
-            <PreviewCard
-              key={sequence.id}
-              ariaLabel={`Open ${sequence.name}`}
-              title="Double-click to open timeline"
-              previewClassName="timeline-thumbnail"
-              preview={null}
-              bottomCorner={
-                <span className="rounded bg-panel/90 px-1.5 py-0.5 text-ui-xs tabular-nums text-secondary">
-                  {formatDuration(sequenceDurationUs(sequence))}
-                </span>
+        <ContextMenu>
+          <ContextMenuTrigger
+            className="contents"
+            onContextMenu={(event) => {
+              const target = event.target instanceof Element ? event.target : null;
+              const assetId = target?.closest<HTMLElement>("[data-asset-id]")?.dataset.assetId as
+                | AssetId
+                | undefined;
+              if (assetId) {
+                if (!selectedAssetIds.has(assetId)) {
+                  setSelectedAssetIds(new Set([assetId]));
+                  setSelectionAnchor(assetId);
+                }
+                setContextMenuTarget({ kind: "assets" });
+                return;
               }
-              onDoubleClick={() => onOpenTimeline(sequence.id)}
-              onContextMenu={(event) => openSequenceMenu(sequence.id, event)}
+              const sequenceId =
+                target?.closest<HTMLElement>("[data-sequence-id]")?.dataset.sequenceId;
+              if (sequenceId) {
+                setContextMenuTarget({ kind: "sequence", sequenceId });
+                return;
+              }
+              event.preventBaseUIHandler();
+            }}
+          >
+            <LibraryGrid
+              ref={gridRef}
+              className="min-h-full content-start select-none"
+              onPointerDown={beginMarquee}
+              onPointerMove={moveMarquee}
+              onPointerUp={finishMarquee}
+              onPointerCancel={finishMarquee}
             >
-              <p className="truncate text-ui font-medium text-primary">{sequence.name}</p>
-              <p className="mt-1 flex items-center gap-1 text-ui-xs text-muted">
-                <Clock3 size={11} /> {sequence.frameRate} fps · {sequence.width} × {sequence.height}
-              </p>
-            </PreviewCard>
-          ))}
-
-          {assets.map((asset) => {
-            const selected = selectedAssetIds.has(asset.id);
-            const transfer = cloudTransfers.find((candidate) => candidate.assetId === asset.id);
-            const originalDownloaded = downloadedCloudOriginals.includes(asset.id);
-            const storageState =
-              asset.source.kind === "cloud"
-                ? originalDownloaded
-                  ? {
-                      label: "Cloud original · downloaded",
-                      icon: <HardDriveDownload size={10} />,
+              {sequences.map((sequence) => (
+                <div key={sequence.id} data-sequence-id={sequence.id}>
+                  <PreviewCard
+                    ariaLabel={`Open ${sequence.name}`}
+                    title="Double-click to open timeline"
+                    previewClassName="timeline-thumbnail"
+                    preview={null}
+                    bottomCorner={
+                      <span className="rounded bg-panel/90 px-1.5 py-0.5 text-ui-xs tabular-nums text-secondary">
+                        {formatDuration(sequenceDurationUs(sequence))}
+                      </span>
                     }
-                  : { label: "Cloud original", icon: <Cloud size={10} /> }
-                : transfer?.state === "waiting-for-cloud"
-                  ? { label: "Waiting for cloud", icon: <Pause size={10} /> }
-                  : transfer?.state === "failed"
-                    ? {
-                        label: "Cloud upload failed",
-                        icon: <CircleAlert size={10} className="text-red-400" />,
-                      }
-                    : transfer?.state === "paused"
-                      ? { label: "Cloud upload paused", icon: <Pause size={10} /> }
-                      : transfer?.state === "waiting-for-proxy"
+                    onDoubleClick={() => onOpenTimeline(sequence.id)}
+                  >
+                    <p className="truncate text-ui font-medium text-primary">{sequence.name}</p>
+                    <p className="mt-1 flex items-center gap-1 text-ui-xs text-muted">
+                      <Clock3 size={11} /> {sequence.frameRate} fps · {sequence.width} ×{" "}
+                      {sequence.height}
+                    </p>
+                  </PreviewCard>
+                </div>
+              ))}
+
+              {assets.map((asset) => {
+                const selected = selectedAssetIds.has(asset.id);
+                const transfer = cloudTransfers.find((candidate) => candidate.assetId === asset.id);
+                const originalDownloaded = downloadedCloudOriginals.includes(asset.id);
+                const storageState =
+                  asset.source.kind === "cloud"
+                    ? originalDownloaded
+                      ? {
+                          label: "Cloud original · downloaded",
+                          icon: <HardDriveDownload size={10} />,
+                        }
+                      : { label: "Cloud original", icon: <Cloud size={10} /> }
+                    : transfer?.state === "waiting-for-cloud"
+                      ? { label: "Waiting for cloud", icon: <Pause size={10} /> }
+                      : transfer?.state === "failed"
                         ? {
-                            label: "Cloud ready · finishing proxy",
-                            icon: <LoaderCircle size={10} className="animate-spin" />,
+                            label: "Cloud upload failed",
+                            icon: <CircleAlert size={10} className="text-red-400" />,
                           }
-                        : transfer?.state === "preparing"
-                          ? {
-                              label: "Preparing cloud upload",
-                              icon: <LoaderCircle size={10} className="animate-spin" />,
-                            }
-                          : transfer?.state === "uploading"
+                        : transfer?.state === "paused"
+                          ? { label: "Cloud upload paused", icon: <Pause size={10} /> }
+                          : transfer?.state === "waiting-for-proxy"
                             ? {
-                                label: `${Math.round((transfer.uploadedBytes / Math.max(1, transfer.bytes)) * 100)}% uploaded`,
+                                label: "Cloud ready · finishing proxy",
                                 icon: <LoaderCircle size={10} className="animate-spin" />,
                               }
-                            : { label: "Local original", icon: <Film size={10} /> };
-            return (
-              <div key={asset.id} data-asset-id={asset.id}>
-                <PreviewCard
-                  ariaLabel={`Select ${asset.name}`}
-                  title="Select, double-click to add, or right-click for actions"
-                  selected={selected}
-                  previewClassName="media-thumbnail"
-                  preview={<MediaSkimSurface asset={asset} />}
-                  corner={
-                    selected ? (
-                      <span className="grid size-6 place-items-center rounded-full bg-accent text-on-accent shadow-md">
-                        <Check size={14} strokeWidth={3} />
-                      </span>
-                    ) : undefined
-                  }
-                  bottomCorner={
-                    <div className="flex items-center gap-1.5">
-                      <span
-                        className="flex items-center gap-1 rounded bg-panel/90 px-1.5 py-0.5 text-ui-xs text-secondary"
-                        title={transfer?.error ?? storageState.label}
-                      >
-                        {storageState.icon}
-                        {storageState.label}
-                      </span>
-                      <span className="rounded bg-panel/90 px-1.5 py-0.5 text-ui-xs tabular-nums text-secondary">
-                        {formatDuration(asset.durationUs)}
-                      </span>
-                    </div>
-                  }
-                  onClick={(event) => selectAsset(asset.id, event)}
-                  onDoubleClick={() => void addToTimeline(asset)}
-                  onContextMenu={(event) => openAssetMenu(asset.id, event)}
-                >
-                  <p className="truncate text-ui font-medium text-primary" title={asset.name}>
-                    {asset.name}
-                  </p>
-                  <p className="mt-1 truncate text-ui-xs text-muted tabular-nums">{asset.id}</p>
-                  <AssetSourceMetadata
-                    asset={asset}
-                    className="mt-0.5 truncate text-ui-xs text-muted tabular-nums"
-                  />
-                </PreviewCard>
-              </div>
-            );
-          })}
+                            : transfer?.state === "preparing"
+                              ? {
+                                  label: "Preparing cloud upload",
+                                  icon: <LoaderCircle size={10} className="animate-spin" />,
+                                }
+                              : transfer?.state === "uploading"
+                                ? {
+                                    label: `${Math.round((transfer.uploadedBytes / Math.max(1, transfer.bytes)) * 100)}% uploaded`,
+                                    icon: <LoaderCircle size={10} className="animate-spin" />,
+                                  }
+                                : { label: "Local original", icon: <Film size={10} /> };
+                return (
+                  <div key={asset.id} data-asset-id={asset.id}>
+                    <PreviewCard
+                      ariaLabel={`Select ${asset.name}`}
+                      title="Select, double-click to add, or right-click for actions"
+                      selected={selected}
+                      previewClassName="media-thumbnail"
+                      preview={<MediaSkimSurface asset={asset} />}
+                      corner={
+                        selected ? (
+                          <span className="grid size-6 place-items-center rounded-full bg-accent text-on-accent shadow-md">
+                            <Check size={14} strokeWidth={3} />
+                          </span>
+                        ) : undefined
+                      }
+                      bottomCorner={
+                        <div className="flex items-center gap-1.5">
+                          <span
+                            className="flex items-center gap-1 rounded bg-panel/90 px-1.5 py-0.5 text-ui-xs text-secondary"
+                            title={transfer?.error ?? storageState.label}
+                          >
+                            {storageState.icon}
+                            {storageState.label}
+                          </span>
+                          <span className="rounded bg-panel/90 px-1.5 py-0.5 text-ui-xs tabular-nums text-secondary">
+                            {formatDuration(asset.durationUs)}
+                          </span>
+                        </div>
+                      }
+                      onClick={(event) => selectAsset(asset.id, event)}
+                      onDoubleClick={() => void addToTimeline(asset)}
+                    >
+                      <p className="truncate text-ui font-medium text-primary" title={asset.name}>
+                        {asset.name}
+                      </p>
+                      <p className="mt-1 truncate text-ui-xs text-muted tabular-nums">{asset.id}</p>
+                      <AssetSourceMetadata
+                        asset={asset}
+                        className="mt-0.5 truncate text-ui-xs text-muted tabular-nums"
+                      />
+                    </PreviewCard>
+                  </div>
+                );
+              })}
 
-          {normalizedQuery && sequences.length === 0 && assets.length === 0 && (
-            <div className="col-span-full rounded-xl border border-dashed border-border-strong px-5 py-10 text-center text-ui text-muted">
-              Nothing matches “{query}”.
-            </div>
-          )}
-        </LibraryGrid>
+              {normalizedQuery && sequences.length === 0 && assets.length === 0 && (
+                <div className="col-span-full rounded-xl border border-dashed border-border-strong px-5 py-10 text-center text-ui text-muted">
+                  Nothing matches “{query}”.
+                </div>
+              )}
+            </LibraryGrid>
+          </ContextMenuTrigger>
+          <ContextMenuContent className="w-64" positionerClassName="z-[90]">
+            {contextMenuTarget?.kind === "assets"
+              ? assetContextMenu()
+              : contextMenuTarget?.kind === "sequence"
+                ? sequenceContextMenu(contextMenuTarget.sequenceId)
+                : null}
+          </ContextMenuContent>
+        </ContextMenu>
       </div>
 
       {marquee && marquee.width + marquee.height > 4 && (
@@ -484,126 +557,6 @@ export function MediaBin({ project, onOpenTimeline }: MediaBinProps) {
           className="pointer-events-none fixed z-50 border border-accent bg-accent/15"
           style={{ left: marquee.x, top: marquee.y, width: marquee.width, height: marquee.height }}
         />
-      )}
-
-      {contextMenu && (
-        <div
-          data-media-context-menu
-          role="menu"
-          className="fixed z-[90] w-64 rounded-xl border border-border-strong bg-panel p-1.5 shadow-2xl shadow-black/30"
-          style={{
-            left: Math.min(contextMenu.x, window.innerWidth - 272),
-            top: Math.max(
-              8,
-              Math.min(
-                contextMenu.y,
-                window.innerHeight - (contextMenu.kind === "assets" ? 280 : 150),
-              ),
-            ),
-          }}
-        >
-          {contextMenu.kind === "assets" ? (
-            <>
-              <button
-                role="menuitem"
-                className="flex min-h-10 w-full items-center gap-2 rounded-lg px-2.5 text-left text-ui hover:bg-surface"
-                onClick={requestTimelineCreation}
-              >
-                <ListPlus size={14} /> Create Timeline from {selectedCount}{" "}
-                {selectedCount === 1 ? "Asset" : "Assets"}
-              </button>
-              {selectedProxyAssets.length > 0 && (
-                <button
-                  role="menuitem"
-                  className="flex min-h-10 w-full items-center gap-2 rounded-lg px-2.5 text-left text-ui hover:bg-surface"
-                  onClick={() => void generateSelectedProxies()}
-                >
-                  <Film size={14} /> Generate edit {selectedCount === 1 ? "proxy" : "proxies"}
-                </button>
-              )}
-              {selectedTransfer &&
-                ["waiting-for-cloud", "paused", "failed"].includes(selectedTransfer.state) && (
-                  <button
-                    role="menuitem"
-                    className="flex min-h-10 w-full items-center gap-2 rounded-lg px-2.5 text-left text-ui hover:bg-surface"
-                    onClick={() => {
-                      void retryCloudTransfer(selectedAssets[0]!.id);
-                      setContextMenu(null);
-                    }}
-                  >
-                    <RotateCcw size={14} /> Retry cloud upload
-                  </button>
-                )}
-              {selectedCloudAsset && (
-                <button
-                  role="menuitem"
-                  className="flex min-h-10 w-full items-center gap-2 rounded-lg px-2.5 text-left text-ui hover:bg-surface"
-                  onClick={() => {
-                    const downloaded = downloadedCloudOriginals.includes(selectedCloudAsset.id);
-                    if (downloaded) void removeCloudOriginalDownload(selectedCloudAsset.id);
-                    else void keepCloudOriginalDownloaded(selectedCloudAsset.id);
-                    setContextMenu(null);
-                  }}
-                >
-                  {downloadedCloudOriginals.includes(selectedCloudAsset.id) ? (
-                    <>
-                      <X size={14} /> Remove download
-                    </>
-                  ) : (
-                    <>
-                      <HardDriveDownload size={14} /> Keep downloaded
-                    </>
-                  )}
-                </button>
-              )}
-              <button
-                role="menuitem"
-                className="flex min-h-10 w-full items-center gap-2 rounded-lg px-2.5 text-left text-ui hover:bg-surface"
-                onClick={() => {
-                  setPendingDialog({ kind: "remove-assets" });
-                  setContextMenu(null);
-                }}
-              >
-                <Trash2 size={14} /> Remove {selectedCount}{" "}
-                {selectedCount === 1 ? "Asset" : "Assets"} from Project
-              </button>
-              <button
-                role="menuitem"
-                className="flex min-h-10 w-full items-center gap-2 rounded-lg px-2.5 text-left text-ui hover:bg-surface"
-                onClick={() => {
-                  setSelectedAssetIds(new Set());
-                  setSelectionAnchor(null);
-                  setContextMenu(null);
-                }}
-              >
-                <X size={14} /> Clear Selection
-              </button>
-            </>
-          ) : (
-            <>
-              <button
-                role="menuitem"
-                className="flex min-h-10 w-full items-center gap-2 rounded-lg px-2.5 text-left text-ui hover:bg-surface"
-                onClick={() => {
-                  onOpenTimeline(contextMenu.sequenceId);
-                  setContextMenu(null);
-                }}
-              >
-                <Film size={14} /> Open Timeline
-              </button>
-              <button
-                role="menuitem"
-                className="flex min-h-10 w-full items-center gap-2 rounded-lg px-2.5 text-left text-ui hover:bg-surface"
-                onClick={() => {
-                  setPendingDialog({ kind: "remove-sequence", sequenceId: contextMenu.sequenceId });
-                  setContextMenu(null);
-                }}
-              >
-                <Trash2 size={14} /> Delete Timeline
-              </button>
-            </>
-          )}
-        </div>
       )}
 
       <Dialog

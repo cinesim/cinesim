@@ -1,5 +1,6 @@
 export * from "./button";
 export * from "./cn";
+export * from "./context-menu";
 export * from "./definition-row";
 export * from "./dialog";
 export * from "./dropdown-select";

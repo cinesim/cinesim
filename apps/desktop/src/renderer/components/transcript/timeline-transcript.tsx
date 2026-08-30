@@ -1,6 +1,18 @@
 import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { Trash2, User, Play, LoaderCircle, RotateCcw, MoveHorizontal, X } from "@cinesim/ui";
-import { Button, cn, Menu, MenuContent, MenuItem, MenuTrigger, SearchField } from "@cinesim/ui";
+import {
+  Button,
+  cn,
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuTrigger,
+  Menu,
+  MenuContent,
+  MenuItem,
+  MenuTrigger,
+  SearchField,
+} from "@cinesim/ui";
 import { timeUs } from "@cinesim/core";
 import type { AssetId, EditorCommand, Project, TimelineRange, TimeUs } from "@cinesim/core";
 import type { TranscriptSnapshot } from "../../../shared/transcript";
@@ -127,7 +139,6 @@ const TranscriptWord = memo(function TranscriptWord({
   color,
   onPointerDown,
   onPointerEnter,
-  onContextMenu,
 }: {
   token: Extract<TranscriptInlineToken, { kind: "word" }>;
   selected: boolean;
@@ -135,7 +146,6 @@ const TranscriptWord = memo(function TranscriptWord({
   color: string | undefined;
   onPointerDown: (event: React.PointerEvent<HTMLButtonElement>) => void;
   onPointerEnter: (event: React.PointerEvent<HTMLButtonElement>) => void;
-  onContextMenu: (event: React.MouseEvent<HTMLButtonElement>) => void;
 }) {
   const wordRef = useRef<HTMLButtonElement>(null);
 
@@ -161,12 +171,12 @@ const TranscriptWord = memo(function TranscriptWord({
         <button
           ref={wordRef}
           type="button"
+          data-transcript-token-id={token.word.id}
           aria-pressed={selected}
           className="px-0.5 py-px text-left leading-7 text-primary outline-none hover:bg-surface/70 focus-visible:bg-surface focus-visible:ring-1 focus-visible:ring-focus"
           style={color ? { color } : undefined}
           onPointerDown={onPointerDown}
           onPointerEnter={onPointerEnter}
-          onContextMenu={onContextMenu}
         >
           {token.word.text}
         </button>{" "}
@@ -245,7 +255,6 @@ export function TimelineTranscript({
   const [speakerFilter, setSpeakerFilter] = useState<string | null>(null);
   const [selection, setSelection] = useState<Set<string>>(() => new Set());
   const [anchorId, setAnchorId] = useState<string | null>(null);
-  const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
   const dragging = useRef(false);
   const speakers = useMemo(() => {
     const counts = new Map<string, number>();
@@ -306,15 +315,6 @@ export function TimelineTranscript({
   }, []);
 
   useEffect(() => {
-    if (!contextMenu) return;
-    const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setContextMenu(null);
-    };
-    window.addEventListener("keydown", closeOnEscape);
-    return () => window.removeEventListener("keydown", closeOnEscape);
-  }, [contextMenu]);
-
-  useEffect(() => {
     function deleteSelection(event: KeyboardEvent): void {
       if (
         event.defaultPrevented ||
@@ -350,16 +350,6 @@ export function TimelineTranscript({
     if (token) onSeek(token.startUs);
   }
 
-  function openContextMenu(id: string, event: React.MouseEvent): void {
-    event.preventDefault();
-    event.stopPropagation();
-    if (!selection.has(id)) selectThrough(id, false);
-    setContextMenu({
-      x: Math.max(8, Math.min(event.clientX, window.innerWidth - 232)),
-      y: Math.max(8, Math.min(event.clientY, window.innerHeight - 230)),
-    });
-  }
-
   async function deleteRanges(mode: "ripple" | "lift"): Promise<void> {
     if (!selectedRanges.length) return;
     const result = await onCommand({
@@ -371,7 +361,6 @@ export function TimelineTranscript({
     if (result.ok) {
       setSelection(new Set());
       setAnchorId(null);
-      setContextMenu(null);
     }
   }
 
@@ -411,115 +400,146 @@ export function TimelineTranscript({
         </div>
       </header>
 
-      <div
-        className="min-h-0 flex-1 overflow-auto px-4 py-4"
-        onContextMenu={(event) => {
-          if (!selectedTokens.length) return;
-          event.preventDefault();
-          setContextMenu({
-            x: Math.max(8, Math.min(event.clientX, window.innerWidth - 232)),
-            y: Math.max(8, Math.min(event.clientY, window.innerHeight - 230)),
-          });
-        }}
-      >
-        {visibleSections.length === 0 ? (
-          <div className="grid h-full min-h-48 place-items-center text-center text-ui text-muted">
-            <div>
-              <p className="font-medium text-secondary">
-                {projection.blocks.length
-                  ? "No transcript matches"
-                  : "The timeline has no transcript content yet"}
-              </p>
-              <p className="mt-1 text-ui-xs">
-                {speakerFilter || query
-                  ? "Clear the search or speaker filter."
-                  : "Add audio or video in Media, then transcribe it here."}
-              </p>
+      <ContextMenu>
+        <ContextMenuTrigger
+          className="min-h-0 flex-1 overflow-auto px-4 py-4"
+          onContextMenu={(event) => {
+            const tokenElement =
+              event.target instanceof Element
+                ? event.target.closest<HTMLElement>("[data-transcript-token-id]")
+                : null;
+            const tokenId = tokenElement?.dataset.transcriptTokenId;
+            if (tokenId) {
+              if (!selection.has(tokenId)) selectThrough(tokenId, false);
+            } else if (selectedTokens.length === 0) event.preventBaseUIHandler();
+          }}
+        >
+          {visibleSections.length === 0 ? (
+            <div className="grid h-full min-h-48 place-items-center text-center text-ui text-muted">
+              <div>
+                <p className="font-medium text-secondary">
+                  {projection.blocks.length
+                    ? "No transcript matches"
+                    : "The timeline has no transcript content yet"}
+                </p>
+                <p className="mt-1 text-ui-xs">
+                  {speakerFilter || query
+                    ? "Clear the search or speaker filter."
+                    : "Add audio or video in Media, then transcribe it here."}
+                </p>
+              </div>
             </div>
-          </div>
-        ) : (
-          <div className="space-y-4">
-            {visibleSections.map((section) => {
-              if (section.kind === "coverage")
+          ) : (
+            <div className="space-y-4">
+              {visibleSections.map((section) => {
+                if (section.kind === "coverage")
+                  return (
+                    <CoverageBlock
+                      key={section.coverage.id}
+                      block={section}
+                      actionLabel={
+                        section.coverage.state === "running" || section.coverage.state === "queued"
+                          ? "Cancel"
+                          : account.status === "signed-in"
+                            ? section.coverage.state === "failed"
+                              ? "Retry"
+                              : "Transcribe"
+                            : "Sign in to transcribe"
+                      }
+                      actionDisabled={
+                        section.coverage.state !== "running" &&
+                        section.coverage.state !== "queued" &&
+                        (account.status !== "signed-in" || !account.transcription)
+                      }
+                      onAction={() => {
+                        if (
+                          section.coverage.state === "running" ||
+                          section.coverage.state === "queued"
+                        )
+                          void onCancelTranscripts([section.coverage.assetId]);
+                        else void onRequestTranscripts([section.coverage.assetId]);
+                      }}
+                    />
+                  );
                 return (
-                  <CoverageBlock
-                    key={section.coverage.id}
-                    block={section}
-                    actionLabel={
-                      section.coverage.state === "running" || section.coverage.state === "queued"
-                        ? "Cancel"
-                        : account.status === "signed-in"
-                          ? section.coverage.state === "failed"
-                            ? "Retry"
-                            : "Transcribe"
-                          : "Sign in to transcribe"
-                    }
-                    actionDisabled={
-                      section.coverage.state !== "running" &&
-                      section.coverage.state !== "queued" &&
-                      (account.status !== "signed-in" || !account.transcription)
-                    }
-                    onAction={() => {
-                      if (
-                        section.coverage.state === "running" ||
-                        section.coverage.state === "queued"
-                      )
-                        void onCancelTranscripts([section.coverage.assetId]);
-                      else void onRequestTranscripts([section.coverage.assetId]);
-                    }}
-                  />
-                );
-              return (
-                <p
-                  key={section.paragraph.id}
-                  className="transcript-document mx-auto max-w-[64ch] py-1 text-center text-[15px] leading-8 text-primary"
-                >
-                  {section.paragraph.blocks.map((block) => {
-                    if (block.kind === "timeline-gap") {
-                      const selected = selection.has(block.gap.id);
-                      return (
-                        <button
-                          key={block.gap.id}
-                          type="button"
-                          aria-pressed={selected}
-                          aria-label={`Timeline gap, ${formatSeconds(block.gap.timelineEndUs - block.gap.timelineStartUs)}`}
-                          title={`Timeline gap · ${formatSeconds(block.gap.timelineEndUs - block.gap.timelineStartUs)}`}
-                          className={cn(
-                            "mx-1 inline-flex border-0 px-1 py-0.5 align-middle text-ui-xs",
-                            selected ? "bg-selection text-primary" : "text-muted hover:bg-surface",
-                          )}
-                          onPointerDown={(event) => {
-                            if (event.button !== 0) return;
-                            dragging.current = true;
-                            selectThrough(block.gap.id, event.shiftKey);
-                          }}
-                          onPointerEnter={(event) => {
-                            if (dragging.current && event.buttons & 1)
-                              selectThrough(block.gap.id, true);
-                          }}
-                          onContextMenu={(event) => openContextMenu(block.gap.id, event)}
-                        >
-                          •••
-                        </button>
-                      );
-                    }
-                    return block.utterance.tokens.map((token) => {
-                      const id = token.kind === "word" ? token.word.id : token.id;
-                      if (token.kind === "word") {
+                  <p
+                    key={section.paragraph.id}
+                    className="transcript-document mx-auto max-w-[64ch] py-1 text-center text-[15px] leading-8 text-primary"
+                  >
+                    {section.paragraph.blocks.map((block) => {
+                      if (block.kind === "timeline-gap") {
+                        const selected = selection.has(block.gap.id);
                         return (
-                          <TranscriptWord
+                          <button
+                            key={block.gap.id}
+                            type="button"
+                            data-transcript-token-id={block.gap.id}
+                            aria-pressed={selected}
+                            aria-label={`Timeline gap, ${formatSeconds(block.gap.timelineEndUs - block.gap.timelineStartUs)}`}
+                            title={`Timeline gap · ${formatSeconds(block.gap.timelineEndUs - block.gap.timelineStartUs)}`}
+                            className={cn(
+                              "mx-1 inline-flex border-0 px-1 py-0.5 align-middle text-ui-xs",
+                              selected
+                                ? "bg-selection text-primary"
+                                : "text-muted hover:bg-surface",
+                            )}
+                            onPointerDown={(event) => {
+                              if (event.button !== 0) return;
+                              dragging.current = true;
+                              selectThrough(block.gap.id, event.shiftKey);
+                            }}
+                            onPointerEnter={(event) => {
+                              if (dragging.current && event.buttons & 1)
+                                selectThrough(block.gap.id, true);
+                            }}
+                          >
+                            •••
+                          </button>
+                        );
+                      }
+                      return block.utterance.tokens.map((token) => {
+                        const id = token.kind === "word" ? token.word.id : token.id;
+                        if (token.kind === "word") {
+                          return (
+                            <TranscriptWord
+                              key={id}
+                              token={token}
+                              selected={selection.has(id)}
+                              active={
+                                playheadUs >= token.word.timelineStartUs &&
+                                playheadUs < token.word.timelineEndUs
+                              }
+                              color={
+                                token.word.speakerClusterId
+                                  ? speakerColors.get(token.word.speakerClusterId)
+                                  : undefined
+                              }
+                              onPointerDown={(event) => {
+                                if (event.button !== 0) return;
+                                dragging.current = true;
+                                selectThrough(id, event.shiftKey);
+                              }}
+                              onPointerEnter={(event) => {
+                                if (dragging.current && event.buttons & 1) selectThrough(id, true);
+                              }}
+                            />
+                          );
+                        }
+                        const selected = selection.has(id);
+                        return (
+                          <button
                             key={id}
-                            token={token}
-                            selected={selection.has(id)}
-                            active={
-                              playheadUs >= token.word.timelineStartUs &&
-                              playheadUs < token.word.timelineEndUs
-                            }
-                            color={
-                              token.word.speakerClusterId
-                                ? speakerColors.get(token.word.speakerClusterId)
-                                : undefined
-                            }
+                            type="button"
+                            data-transcript-token-id={id}
+                            aria-pressed={selected}
+                            aria-label={`Silence, ${formatSeconds(token.timelineEndUs - token.timelineStartUs)}`}
+                            title={`Silence · ${formatSeconds(token.timelineEndUs - token.timelineStartUs)}`}
+                            className={cn(
+                              "mx-1 inline-flex border-0 px-1 py-0.5 align-middle text-ui-xs",
+                              selected
+                                ? "bg-selection text-primary"
+                                : "text-muted hover:bg-surface",
+                            )}
                             onPointerDown={(event) => {
                               if (event.button !== 0) return;
                               dragging.current = true;
@@ -528,101 +548,46 @@ export function TimelineTranscript({
                             onPointerEnter={(event) => {
                               if (dragging.current && event.buttons & 1) selectThrough(id, true);
                             }}
-                            onContextMenu={(event) => openContextMenu(id, event)}
-                          />
+                          >
+                            •••
+                          </button>
                         );
-                      }
-                      const selected = selection.has(id);
-                      return (
-                        <button
-                          key={id}
-                          type="button"
-                          aria-pressed={selected}
-                          aria-label={`Silence, ${formatSeconds(token.timelineEndUs - token.timelineStartUs)}`}
-                          title={`Silence · ${formatSeconds(token.timelineEndUs - token.timelineStartUs)}`}
-                          className={cn(
-                            "mx-1 inline-flex border-0 px-1 py-0.5 align-middle text-ui-xs",
-                            selected ? "bg-selection text-primary" : "text-muted hover:bg-surface",
-                          )}
-                          onPointerDown={(event) => {
-                            if (event.button !== 0) return;
-                            dragging.current = true;
-                            selectThrough(id, event.shiftKey);
-                          }}
-                          onPointerEnter={(event) => {
-                            if (dragging.current && event.buttons & 1) selectThrough(id, true);
-                          }}
-                          onContextMenu={(event) => openContextMenu(id, event)}
-                        >
-                          •••
-                        </button>
-                      );
-                    });
-                  })}
-                </p>
-              );
-            })}
-          </div>
-        )}
-      </div>
-      {contextMenu && selectedTokens.length > 0 && (
-        <div
-          className="fixed inset-0 z-[79]"
-          onPointerDown={() => setContextMenu(null)}
-          onContextMenu={(event) => {
-            event.preventDefault();
-            setContextMenu(null);
-          }}
-        >
-          <div
-            role="menu"
-            aria-label="Transcript selection actions"
-            className="fixed z-[80] w-56 rounded-xl border border-border-strong bg-panel p-1.5 text-ui text-primary shadow-2xl shadow-black/30"
-            style={{ left: contextMenu.x, top: contextMenu.y }}
-            onPointerDown={(event) => event.stopPropagation()}
+                      });
+                    })}
+                  </p>
+                );
+              })}
+            </div>
+          )}
+        </ContextMenuTrigger>
+        <ContextMenuContent aria-label="Transcript selection actions" className="w-56 text-ui">
+          <p className="px-2.5 py-1.5 text-ui-xs font-medium text-muted">
+            Selection · {formatSeconds((selectionEnd ?? 0) - (selectionStart ?? 0))}
+          </p>
+          <ContextMenuItem
+            onClick={() => {
+              if (selectionStart !== undefined && selectionEnd !== undefined)
+                onPlaySelection(selectionStart, selectionEnd);
+            }}
           >
-            <p className="px-2.5 py-1.5 text-ui-xs font-medium text-muted">
-              Selection · {formatSeconds((selectionEnd ?? 0) - (selectionStart ?? 0))}
-            </p>
-            <button
-              role="menuitem"
-              className="flex min-h-10 w-full items-center gap-2 rounded-lg px-2.5 text-left hover:bg-surface"
-              onClick={() => {
-                if (selectionStart !== undefined && selectionEnd !== undefined)
-                  onPlaySelection(selectionStart, selectionEnd);
-                setContextMenu(null);
-              }}
-            >
-              <Play size={14} /> Play selection
-            </button>
-            <button
-              role="menuitem"
-              className="flex min-h-10 w-full items-center gap-2 rounded-lg px-2.5 text-left hover:bg-surface"
-              onClick={() => void deleteRanges("ripple")}
-            >
-              <Trash2 size={14} /> Delete and close gap
-            </button>
-            <button
-              role="menuitem"
-              className="flex min-h-10 w-full items-center gap-2 rounded-lg px-2.5 text-left hover:bg-surface"
-              onClick={() => void deleteRanges("lift")}
-            >
-              <MoveHorizontal size={14} /> Lift and leave gap
-            </button>
-            <button
-              role="menuitem"
-              className="flex min-h-10 w-full items-center gap-2 rounded-lg px-2.5 text-left hover:bg-surface"
-              onClick={() => {
-                setSelection(new Set());
-                setAnchorId(null);
-                setContextMenu(null);
-              }}
-            >
-              <X size={14} /> Clear selection
-            </button>
-          </div>
-        </div>
-      )}
+            <Play size={14} /> Play selection
+          </ContextMenuItem>
+          <ContextMenuItem onClick={() => void deleteRanges("ripple")}>
+            <Trash2 size={14} /> Delete and close gap
+          </ContextMenuItem>
+          <ContextMenuItem onClick={() => void deleteRanges("lift")}>
+            <MoveHorizontal size={14} /> Lift and leave gap
+          </ContextMenuItem>
+          <ContextMenuItem
+            onClick={() => {
+              setSelection(new Set());
+              setAnchorId(null);
+            }}
+          >
+            <X size={14} /> Clear selection
+          </ContextMenuItem>
+        </ContextMenuContent>
+      </ContextMenu>
     </section>
   );
 }
