@@ -31,6 +31,29 @@ export function clampTimelineZoom(zoom: number, minimum = ABSOLUTE_MIN_TIMELINE_
   return Math.min(MAX_TIMELINE_ZOOM, Math.max(minimum, safeZoom));
 }
 
+export function timelineAnchoredScrollLeft({
+  anchorUs,
+  currentPixelsPerUs,
+  currentScrollLeft,
+  nextContentWidth,
+  nextPixelsPerUs,
+  viewportWidth,
+}: {
+  anchorUs: TimeUs;
+  currentPixelsPerUs: number;
+  currentScrollLeft: number;
+  nextContentWidth: number;
+  nextPixelsPerUs: number;
+  viewportWidth: number;
+}): number {
+  const anchorViewportX = anchorUs * currentPixelsPerUs - currentScrollLeft;
+  const requestedScrollLeft = anchorUs * nextPixelsPerUs - anchorViewportX;
+  return Math.min(
+    Math.max(0, nextContentWidth - Math.max(0, viewportWidth)),
+    Math.max(0, requestedScrollLeft),
+  );
+}
+
 export function timelineMajorSecondStep(zoom: number): number {
   const secondsForReadableTick = Math.max(
     1,
