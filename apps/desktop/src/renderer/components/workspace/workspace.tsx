@@ -11,6 +11,8 @@ import type {
 } from "@cinesim/core";
 import { EDITOR_LAYOUT_LIMITS } from "../../../shared/api";
 import type { CutLayoutState, DesktopProjectSession, EditorLayoutState } from "../../../shared/api";
+import { usePanelResize } from "../../hooks/use-panel-resize";
+import type { PanelResizeHandleProps as PanelResizeEvents } from "../../hooks/use-panel-resize";
 import { editShortcutAction } from "../../lib/edit-shortcuts";
 import {
   cutRightGridTemplate,
@@ -165,20 +167,12 @@ function CutWorkspace({
   onImport: () => Promise<unknown>;
   onAddAsset: (asset: Asset) => Promise<unknown>;
 }) {
-  const [layout, setLayout] = useState(initialLayout);
   const [bounds, setBounds] = useState({ width: 0, height: 0 });
   const [selectedRanges, setSelectedRanges] = useState<TimelineRange[]>([]);
   const auditionEndUs = useRef<number | null>(null);
   const rootRef = useRef<HTMLDivElement>(null);
   const upperRef = useRef<HTMLDivElement>(null);
   const rightRef = useRef<HTMLDivElement>(null);
-  const layoutRef = useRef(initialLayout);
-  const resizeOrigin = useRef<{
-    target: CutResizeTarget;
-    x: number;
-    y: number;
-    layout: CutLayoutState;
-  } | null>(null);
   const transcripts = useRendererStore((state) => state.transcripts);
   const account = useRendererStore((state) => state.account);
   const playheadUs = useRendererStore((state) => state.playheadUs);
@@ -189,7 +183,25 @@ function CutWorkspace({
   const cancelTranscripts = useRendererStore((state) => state.cancelTranscripts);
   const saveCutLayout = useRendererStore((state) => state.saveCutLayout);
   const setPlayheadUs = useRendererStore((state) => state.setPlayheadUs);
-  const fitted = fitCutLayout(layout, bounds);
+  const resize = usePanelResize<CutResizeTarget, CutLayoutState>({
+    initialValue: initialLayout,
+    fit: (value) => fitCutLayout(value, bounds),
+    move: (origin, target, delta) => {
+      const next = { ...origin };
+      if (target === "column") next.rightColumnWidth -= delta.x;
+      else if (target === "viewer") next.viewerHeight += delta.y;
+      else next.timelineHeight -= delta.y;
+      return next;
+    },
+    preview: (value) => {
+      if (rootRef.current) rootRef.current.style.gridTemplateRows = cutRootGridTemplate(value);
+      if (upperRef.current)
+        upperRef.current.style.gridTemplateColumns = cutUpperGridTemplate(value);
+      if (rightRef.current) rightRef.current.style.gridTemplateRows = cutRightGridTemplate(value);
+    },
+    commit: saveCutLayout,
+  });
+  const fitted = fitCutLayout(resize.value, bounds);
   const acceptSelection = useCallback((ranges: TimelineRange[]) => {
     setSelectedRanges((current) => {
       if (
@@ -220,52 +232,6 @@ function CutWorkspace({
     viewerControllerRef.current?.pauseTimeline();
     auditionEndUs.current = null;
   }, [playbackPlaying, playheadUs, viewerControllerRef]);
-
-  function applyTransient(next: CutLayoutState): void {
-    const value = fitCutLayout(next, bounds);
-    if (rootRef.current) rootRef.current.style.gridTemplateRows = cutRootGridTemplate(value);
-    if (upperRef.current) upperRef.current.style.gridTemplateColumns = cutUpperGridTemplate(value);
-    if (rightRef.current) rightRef.current.style.gridTemplateRows = cutRightGridTemplate(value);
-    layoutRef.current = value;
-  }
-
-  function startResize(target: CutResizeTarget, event: React.PointerEvent<HTMLDivElement>): void {
-    resizeOrigin.current = {
-      target,
-      x: event.clientX,
-      y: event.clientY,
-      layout: fitCutLayout(layoutRef.current, bounds),
-    };
-    event.currentTarget.setPointerCapture(event.pointerId);
-    event.preventDefault();
-  }
-
-  function moveResize(target: CutResizeTarget, event: React.PointerEvent<HTMLDivElement>): void {
-    const origin = resizeOrigin.current;
-    if (!origin || origin.target !== target) return;
-    const next = { ...origin.layout };
-    if (target === "column") next.rightColumnWidth += origin.x - event.clientX;
-    else if (target === "viewer") next.viewerHeight += event.clientY - origin.y;
-    else next.timelineHeight += origin.y - event.clientY;
-    applyTransient(next);
-  }
-
-  function finishResize(target: CutResizeTarget, event: React.PointerEvent<HTMLDivElement>): void {
-    if (resizeOrigin.current?.target !== target) return;
-    resizeOrigin.current = null;
-    if (event.currentTarget.hasPointerCapture(event.pointerId))
-      event.currentTarget.releasePointerCapture(event.pointerId);
-    setLayout(layoutRef.current);
-    void saveCutLayout(layoutRef.current);
-  }
-
-  function cancelResize(target: CutResizeTarget, _event: React.PointerEvent<HTMLDivElement>): void {
-    const origin = resizeOrigin.current;
-    if (!origin || origin.target !== target) return;
-    resizeOrigin.current = null;
-    applyTransient(origin.layout);
-    setLayout(origin.layout);
-  }
 
   function handleSeek(timeUs: TimeUs): void {
     setPlayheadUs(timeUs);
@@ -304,10 +270,7 @@ function CutWorkspace({
         <PanelResizeHandle
           orientation="vertical"
           label="Resize transcript and preview"
-          onPointerDown={(event) => startResize("column", event)}
-          onPointerMove={(event) => moveResize("column", event)}
-          onPointerUp={(event) => finishResize("column", event)}
-          onPointerCancel={(event) => cancelResize("column", event)}
+          {...resize.handleProps("column")}
         />
         <div
           ref={rightRef}
@@ -325,10 +288,7 @@ function CutWorkspace({
           <PanelResizeHandle
             orientation="horizontal"
             label="Resize viewer and Media Pool"
-            onPointerDown={(event) => startResize("viewer", event)}
-            onPointerMove={(event) => moveResize("viewer", event)}
-            onPointerUp={(event) => finishResize("viewer", event)}
-            onPointerCancel={(event) => cancelResize("viewer", event)}
+            {...resize.handleProps("viewer")}
           />
           <EditMediaPool
             project={project}
@@ -344,10 +304,7 @@ function CutWorkspace({
       <PanelResizeHandle
         orientation="horizontal"
         label="Resize Timeline"
-        onPointerDown={(event) => startResize("timeline", event)}
-        onPointerMove={(event) => moveResize("timeline", event)}
-        onPointerUp={(event) => finishResize("timeline", event)}
-        onPointerCancel={(event) => cancelResize("timeline", event)}
+        {...resize.handleProps("timeline")}
       />
       <Timeline
         project={project}
@@ -378,17 +335,9 @@ export function Workspace({
   cutLayout,
   onOpenTimeline,
 }: WorkspaceProps) {
-  const [layout, setLayout] = useState(editorLayout);
   const [layoutBounds, setLayoutBounds] = useState({ width: 0, height: 0 });
   const layoutRootRef = useRef<HTMLDivElement>(null);
   const upperPanelsRef = useRef<HTMLDivElement>(null);
-  const layoutRef = useRef(editorLayout);
-  const resizeOrigin = useRef<{
-    target: ResizeTarget;
-    x: number;
-    y: number;
-    layout: EditorLayoutState;
-  } | null>(null);
   const viewerControllerRef = useRef<ViewerController | null>(null);
   const setViewerController = useCallback((controller: ViewerController | null) => {
     viewerControllerRef.current = controller;
@@ -410,6 +359,30 @@ export function Workspace({
   const setPlayheadUs = useRendererStore((state) => state.setPlayheadUs);
   const setTool = useRendererStore((state) => state.setTool);
   const toggleSnapping = useRendererStore((state) => state.toggleSnapping);
+  const resize = usePanelResize<ResizeTarget, EditorLayoutState>({
+    initialValue: editorLayout,
+    fit: (value) => fitLayout(value, layoutBounds, mediaPoolOpen, inspectorOpen, notesOpen),
+    move: (origin, target, delta) => {
+      const next = { ...origin };
+      if (target === "mediaPool") next.mediaPoolWidth += delta.x;
+      else if (target === "inspector") next.inspectorWidth -= delta.x;
+      else if (target === "notes") next.notesWidth -= delta.x;
+      else next.timelineHeight -= delta.y;
+      return next;
+    },
+    preview: (value) => {
+      if (layoutRootRef.current)
+        layoutRootRef.current.style.gridTemplateRows = `minmax(${MIN_VIEWER_HEIGHT}px, 1fr) ${SPLITTER_SIZE}px ${value.timelineHeight}px`;
+      if (upperPanelsRef.current)
+        upperPanelsRef.current.style.gridTemplateColumns = upperGridTemplate(
+          value,
+          mediaPoolOpen,
+          inspectorOpen,
+          notesOpen,
+        );
+    },
+    commit: saveEditorLayout,
+  });
   const activeSequence =
     session.project.sequences.find((sequence) => sequence.id === activeSequenceId) ??
     session.project.sequences.find(
@@ -423,7 +396,13 @@ export function Workspace({
         : session.project,
     [activeSequence, session.project],
   );
-  const fittedLayout = fitLayout(layout, layoutBounds, mediaPoolOpen, inspectorOpen, notesOpen);
+  const fittedLayout = fitLayout(
+    resize.value,
+    layoutBounds,
+    mediaPoolOpen,
+    inspectorOpen,
+    notesOpen,
+  );
 
   useEffect(() => {
     const element = layoutRootRef.current;
@@ -496,74 +475,6 @@ export function Workspace({
     toggleSnapping,
   ]);
 
-  function applyTransientLayout(next: EditorLayoutState): void {
-    const fitted = fitLayout(next, layoutBounds, mediaPoolOpen, inspectorOpen, notesOpen);
-    if (layoutRootRef.current)
-      layoutRootRef.current.style.gridTemplateRows = `minmax(${MIN_VIEWER_HEIGHT}px, 1fr) ${SPLITTER_SIZE}px ${fitted.timelineHeight}px`;
-    if (upperPanelsRef.current)
-      upperPanelsRef.current.style.gridTemplateColumns = upperGridTemplate(
-        fitted,
-        mediaPoolOpen,
-        inspectorOpen,
-        notesOpen,
-      );
-    layoutRef.current = fitted;
-  }
-
-  function startResize(target: ResizeTarget, event: React.PointerEvent<HTMLDivElement>): void {
-    const current = fitLayout(
-      layoutRef.current,
-      layoutBounds,
-      mediaPoolOpen,
-      inspectorOpen,
-      notesOpen,
-    );
-    resizeOrigin.current = {
-      target,
-      x: event.clientX,
-      y: event.clientY,
-      layout: current,
-    };
-    layoutRef.current = current;
-    event.currentTarget.setPointerCapture(event.pointerId);
-    event.preventDefault();
-  }
-
-  function moveResize(target: ResizeTarget, event: React.PointerEvent<HTMLDivElement>): void {
-    const origin = resizeOrigin.current;
-    if (!origin || origin.target !== target) return;
-    const next = { ...origin.layout };
-    if (target === "mediaPool")
-      next.mediaPoolWidth = origin.layout.mediaPoolWidth + event.clientX - origin.x;
-    else if (target === "inspector")
-      next.inspectorWidth = origin.layout.inspectorWidth + origin.x - event.clientX;
-    else if (target === "notes")
-      next.notesWidth = origin.layout.notesWidth + origin.x - event.clientX;
-    else next.timelineHeight = origin.layout.timelineHeight + origin.y - event.clientY;
-    applyTransientLayout(next);
-  }
-
-  function finishResize(target: ResizeTarget, event: React.PointerEvent<HTMLDivElement>): void {
-    const origin = resizeOrigin.current;
-    if (!origin || origin.target !== target) return;
-    resizeOrigin.current = null;
-    if (event.currentTarget.hasPointerCapture(event.pointerId))
-      event.currentTarget.releasePointerCapture(event.pointerId);
-    const committed = layoutRef.current;
-    setLayout(committed);
-    void saveEditorLayout(committed);
-  }
-
-  function cancelResize(target: ResizeTarget, event: React.PointerEvent<HTMLDivElement>): void {
-    const origin = resizeOrigin.current;
-    if (!origin || origin.target !== target) return;
-    resizeOrigin.current = null;
-    if (event.currentTarget.hasPointerCapture(event.pointerId))
-      event.currentTarget.releasePointerCapture(event.pointerId);
-    applyTransientLayout(origin.layout);
-    setLayout(origin.layout);
-  }
-
   async function command(input: EditorCommand) {
     return execute(input);
   }
@@ -634,10 +545,7 @@ export function Workspace({
                     <PanelResizeHandle
                       orientation="vertical"
                       label="Resize Media Pool"
-                      onPointerDown={(event) => startResize("mediaPool", event)}
-                      onPointerMove={(event) => moveResize("mediaPool", event)}
-                      onPointerUp={(event) => finishResize("mediaPool", event)}
-                      onPointerCancel={(event) => cancelResize("mediaPool", event)}
+                      {...resize.handleProps("mediaPool")}
                     />
                   </>
                 )}
@@ -654,10 +562,7 @@ export function Workspace({
                     <PanelResizeHandle
                       orientation="vertical"
                       label="Resize Inspector"
-                      onPointerDown={(event) => startResize("inspector", event)}
-                      onPointerMove={(event) => moveResize("inspector", event)}
-                      onPointerUp={(event) => finishResize("inspector", event)}
-                      onPointerCancel={(event) => cancelResize("inspector", event)}
+                      {...resize.handleProps("inspector")}
                     />
                     <Inspector project={editorProject} />
                   </>
@@ -667,10 +572,7 @@ export function Workspace({
                     <PanelResizeHandle
                       orientation="vertical"
                       label="Resize Notes"
-                      onPointerDown={(event) => startResize("notes", event)}
-                      onPointerMove={(event) => moveResize("notes", event)}
-                      onPointerUp={(event) => finishResize("notes", event)}
-                      onPointerCancel={(event) => cancelResize("notes", event)}
+                      {...resize.handleProps("notes")}
                     />
                     <NotesPanel />
                   </>
@@ -679,10 +581,7 @@ export function Workspace({
               <PanelResizeHandle
                 orientation="horizontal"
                 label="Resize Timeline"
-                onPointerDown={(event) => startResize("timeline", event)}
-                onPointerMove={(event) => moveResize("timeline", event)}
-                onPointerUp={(event) => finishResize("timeline", event)}
-                onPointerCancel={(event) => cancelResize("timeline", event)}
+                {...resize.handleProps("timeline")}
               />
               <Timeline
                 project={editorProject}
@@ -715,13 +614,9 @@ export function Workspace({
   );
 }
 
-interface PanelResizeHandleProps {
+interface PanelResizeHandleProps extends PanelResizeEvents {
   orientation: "horizontal" | "vertical";
   label: string;
-  onPointerDown: (event: React.PointerEvent<HTMLDivElement>) => void;
-  onPointerMove: (event: React.PointerEvent<HTMLDivElement>) => void;
-  onPointerUp: (event: React.PointerEvent<HTMLDivElement>) => void;
-  onPointerCancel: (event: React.PointerEvent<HTMLDivElement>) => void;
 }
 
 function PanelResizeHandle({
