@@ -141,24 +141,33 @@ export class CodexRuntime implements AgentProviderRuntime {
       });
       return;
     }
-    let value: unknown;
+    const message = this.#parseLine(line);
+    if (!message || this.#settlePendingRequest(message)) return;
+    this.#dispatchIncomingMessage(message);
+  }
+
+  #parseLine(line: string): Record<string, unknown> | null {
     try {
-      value = JSON.parse(line) as unknown;
+      return asRecord(JSON.parse(line) as unknown);
     } catch {
       if (line.trim()) this.callbacks.onEvent({ kind: "notice", detail: line.trim() });
-      return;
+      return null;
     }
-    const message = asRecord(value);
-    if (!message) return;
-    if (typeof message.id === "number" && ("result" in message || "error" in message)) {
-      const pending = this.#pending.get(message.id);
-      if (!pending) return;
-      clearTimeout(pending.timeout);
-      this.#pending.delete(message.id);
-      if (message.error) pending.reject(new Error(JSON.stringify(message.error)));
-      else pending.resolve(message.result);
-      return;
-    }
+  }
+
+  #settlePendingRequest(message: Record<string, unknown>): boolean {
+    if (typeof message.id !== "number" || (!("result" in message) && !("error" in message)))
+      return false;
+    const pending = this.#pending.get(message.id);
+    if (!pending) return true;
+    clearTimeout(pending.timeout);
+    this.#pending.delete(message.id);
+    if (message.error) pending.reject(new Error(JSON.stringify(message.error)));
+    else pending.resolve(message.result);
+    return true;
+  }
+
+  #dispatchIncomingMessage(message: Record<string, unknown>): void {
     const method = stringValue(message.method);
     if (!method) return;
     if (typeof message.id === "number" || typeof message.id === "string") {

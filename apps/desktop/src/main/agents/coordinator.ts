@@ -9,8 +9,7 @@ import type {
   AgentTurnContext,
 } from "../../shared/contracts";
 import { AgentMcpServer, type AgentToolHooks } from "./mcp/server";
-import type { AgentProviderRuntime, AgentRuntimeEvent } from "./runtimes/types";
-import { createAgentRuntime } from "./runtimes/factory";
+import type { AgentRuntimeEvent } from "./runtimes/types";
 import { AgentSessionStore } from "./session-store";
 import { AgentSessionRegistry } from "./session-registry";
 import type { AgentSettingsStore } from "./settings-store";
@@ -18,17 +17,16 @@ import type { DesktopProjectStore } from "../projects/project-store";
 import { AgentEventPublisher } from "./event-publisher";
 import { AgentApprovalBroker } from "./approval-broker";
 import type { AgentApprovalLease } from "./approval-broker";
-import { AgentRuntimeRegistry } from "./runtime-registry";
 import { AgentStreamBatcher } from "./stream-batcher";
 import { AgentTurnCoordinator } from "./turn-coordinator";
+import { AgentSessionEvents, boundedAgentText } from "./session-events";
+import { isAgentSessionBusy, recoverAgentSession } from "./session-recovery";
+import { AgentRuntimeCoordinator } from "./runtime-coordinator";
 
-const MAX_EVENTS_PER_SESSION = 600;
 const APPROVAL_LEASE_MS = 2 * 60 * 1_000;
 const STREAM_PUBLICATION_INTERVAL_MS = 40;
 const PERSISTENCE_INTERVAL_MS = 1_000;
-const MAX_EVENT_TEXT_BYTES = 1024 * 1024;
-const MAX_EVENT_DETAIL_BYTES = 1024 * 1024;
-const MAX_SESSION_EVENT_BYTES = 8 * 1024 * 1024;
+const MAX_APPROVAL_DETAIL_BYTES = 1024 * 1024;
 
 function now(): string {
   return new Date().toISOString();
@@ -43,34 +41,16 @@ function titleFromMessage(message: string): string {
   return normalized.length > 46 ? `${normalized.slice(0, 45)}…` : normalized;
 }
 
-function boundedUtf8(value: string, maximumBytes: number): string {
-  const encoded = Buffer.from(value);
-  return encoded.byteLength <= maximumBytes
-    ? value
-    : `${encoded.subarray(0, Math.max(0, maximumBytes - 3)).toString("utf8")}…`;
-}
-
-function normalizeEventStrings(event: AgentEvent): void {
-  if (event.text) event.text = boundedUtf8(event.text, MAX_EVENT_TEXT_BYTES);
-  if (event.detail) event.detail = boundedUtf8(event.detail, MAX_EVENT_DETAIL_BYTES);
-  if (event.title) event.title = boundedUtf8(event.title, 4_096);
-  if (event.toolName) event.toolName = boundedUtf8(event.toolName, 256);
-}
-
-function eventBytes(event: AgentEvent): number {
-  return Buffer.byteLength(JSON.stringify(event));
-}
-
 export class AgentCoordinator implements AgentToolHooks {
   #sessions = new AgentSessionRegistry();
-  #runtimes = new AgentRuntimeRegistry();
   #approvals = new AgentApprovalBroker(APPROVAL_LEASE_MS);
   #turns = new AgentTurnCoordinator();
   #saveTimer: NodeJS.Timeout | null = null;
   #streamBatcher = new AgentStreamBatcher(STREAM_PUBLICATION_INTERVAL_MS);
-  #sessionEventBytes = new Map<string, number>();
+  #sessionEvents = new AgentSessionEvents();
   #sessionStore: AgentSessionStore;
   #events: AgentEventPublisher;
+  #runtimeCoordinator: AgentRuntimeCoordinator;
   readonly mcpServer: AgentMcpServer;
 
   constructor(
@@ -83,70 +63,43 @@ export class AgentCoordinator implements AgentToolHooks {
     this.#sessionStore = new AgentSessionStore(path);
     this.#events = new AgentEventPublisher(publishDelta);
     this.mcpServer = new AgentMcpServer(projectStore, this);
+    this.#runtimeCoordinator = new AgentRuntimeCoordinator(
+      settingsStore,
+      this.mcpServer,
+      {
+        event: (sessionId, event) => this.#runtimeEvent(sessionId, event),
+        providerSessionId: (sessionId, providerSessionId) =>
+          this.#recordProviderSessionId(sessionId, providerSessionId),
+        turnStarted: (sessionId, providerTurnId) =>
+          this.#recordTurnStarted(sessionId, providerTurnId),
+        turnCompleted: (sessionId, status, detail) =>
+          void this.#completeTurn(sessionId, status, detail),
+        tokenUsage: (sessionId, usage) => this.#recordTokenUsage(sessionId, usage),
+        approval: (sessionId, title, detail) => this.requestApproval(sessionId, title, detail),
+        exited: (sessionId, detail) => void this.#providerExited(sessionId, detail),
+      },
+      this.#instructions(),
+    );
   }
 
   async load(): Promise<void> {
     try {
-      const providerSettings = this.settingsStore.snapshot().providers;
-      const candidate = await this.#sessionStore.read({
-        claude: providerSettings.claude.effort,
-        codex: providerSettings.codex.effort,
-      });
-      const sessions = candidate.sessions;
-      for (const session of sessions) {
-        const resolvedApprovals = new Set(
-          session.events
-            .filter((event) => event.kind === "approval-resolved")
-            .map((event) => event.requestId),
-        );
-        for (const request of session.events.filter(
-          (event) =>
-            event.kind === "approval-requested" &&
-            event.requestId &&
-            !resolvedApprovals.has(event.requestId),
-        )) {
-          const requestId = request.requestId;
-          if (!requestId) continue;
-          session.events.push({
-            id: crypto.randomUUID(),
-            sessionId: session.id,
-            kind: "approval-resolved",
-            createdAt: now(),
-            requestId,
-            title: "Cancelled",
-            status: "declined",
-          });
-        }
-        if (
-          session.status === "working" ||
-          session.status === "starting" ||
-          session.status === "waiting"
-        ) {
-          session.status = "interrupted";
-          session.activeTurnId = undefined;
-          session.events.push({
-            id: crypto.randomUUID(),
-            sessionId: session.id,
-            kind: "notice",
-            createdAt: now(),
-            title: "Session interrupted",
-            detail:
-              "Cinesim restarted while this agent was running. Send another message to resume.",
-          });
-        }
-        for (const event of session.events) normalizeEventStrings(event);
-        this.#enforceSessionEventBudget(session, true);
-      }
-      this.#sessions.replace({
-        version: 1,
-        sessions,
-        activeSessionByProject: candidate.activeSessionByProject,
-      });
+      await this.#loadSessions();
     } catch {
       this.#sessions.reset();
     }
     await this.mcpServer.start();
     this.#scheduleSave();
+  }
+
+  async #loadSessions(): Promise<void> {
+    const providerSettings = this.settingsStore.snapshot().providers;
+    const stored = await this.#sessionStore.read({
+      claude: providerSettings.claude.effort,
+      codex: providerSettings.codex.effort,
+    });
+    for (const session of stored.sessions) recoverAgentSession(session, this.#sessionEvents);
+    this.#sessions.replace(stored);
   }
 
   snapshot(projectDirectory: string): AgentProjectSnapshot {
@@ -214,11 +167,7 @@ export class AgentCoordinator implements AgentToolHooks {
 
   async update(sessionId: string, input: AgentSessionUpdate): Promise<AgentProjectSnapshot> {
     const session = this.#requireSession(sessionId);
-    if (
-      session.status === "starting" ||
-      session.status === "working" ||
-      session.status === "waiting"
-    )
+    if (isAgentSessionBusy(session))
       throw new Error("Stop this agent before changing its model or approval mode");
     const model = input.model?.trim();
     const nextModel = model || session.model;
@@ -247,7 +196,7 @@ export class AgentCoordinator implements AgentToolHooks {
     this.#sessions.state.sessions = this.#sessions.state.sessions.filter(
       (candidate) => candidate.id !== sessionId,
     );
-    this.#sessionEventBytes.delete(sessionId);
+    this.#sessionEvents.remove(sessionId);
     if (this.#sessions.state.activeSessionByProject[projectDirectory] === sessionId)
       delete this.#sessions.state.activeSessionByProject[projectDirectory];
     return this.#changed(projectDirectory);
@@ -258,7 +207,7 @@ export class AgentCoordinator implements AgentToolHooks {
       .filter((session) => session.projectDirectory === projectDirectory)
       .map((session) => session.id);
     await Promise.all(sessionIds.map((sessionId) => this.#stopRuntime(sessionId)));
-    for (const sessionId of sessionIds) this.#sessionEventBytes.delete(sessionId);
+    for (const sessionId of sessionIds) this.#sessionEvents.remove(sessionId);
     this.#sessions.state.sessions = this.#sessions.state.sessions.filter(
       (session) => session.projectDirectory !== projectDirectory,
     );
@@ -281,62 +230,71 @@ export class AgentCoordinator implements AgentToolHooks {
     context: AgentTurnContext = {},
   ): Promise<AgentProjectSnapshot> {
     const session = this.#requireSession(sessionId);
-    this.#requireOpenProject(session.projectDirectory);
     const message = rawMessage.trim();
+    this.#validateMessage(session, message);
+    const { turnId, turnNumber } = this.#startTurn(session, message);
+    try {
+      await this.#turns.captureBefore(session, turnNumber);
+      await this.#runtimeCoordinator.send(session, this.#runtimeMessage(message, context));
+    } catch (error) {
+      this.#failTurnStart(session, turnId, error);
+    }
+    return this.snapshot(session.projectDirectory);
+  }
+
+  #validateMessage(session: AgentSessionSnapshot, message: string): void {
+    this.#requireOpenProject(session.projectDirectory);
     if (!message || message.length > 100_000) throw new Error("Message is empty or too long");
     const conflicting = this.#sessions.state.sessions.find(
       (candidate) =>
         candidate.id !== session.id &&
         candidate.projectDirectory === session.projectDirectory &&
-        (candidate.status === "starting" ||
-          candidate.status === "working" ||
-          candidate.status === "waiting"),
+        isAgentSessionBusy(candidate),
     );
     if (conflicting) throw new Error(`“${conflicting.title}” is already editing this project`);
-    if (
-      session.status === "starting" ||
-      session.status === "working" ||
-      session.status === "waiting"
-    )
-      throw new Error("This agent is already working");
+    if (isAgentSessionBusy(session)) throw new Error("This agent is already working");
+  }
 
+  #startTurn(
+    session: AgentSessionSnapshot,
+    message: string,
+  ): { turnId: string; turnNumber: number } {
     const turnId = crypto.randomUUID();
-    const turnNumber = session.checkpoints.length + 1;
     session.activeTurnId = turnId;
     session.status = "starting";
     session.updatedAt = now();
     if (session.events.length === 0) session.title = titleFromMessage(message);
     this.#appendEvent(session, { kind: "user-message", text: message, turnId });
     this.#changed(session.projectDirectory);
+    return { turnId, turnNumber: session.checkpoints.length + 1 };
+  }
 
-    try {
-      await this.#turns.captureBefore(session, turnNumber);
-      const runtime = await this.#ensureRuntime(session);
-      const contextLines = [
-        `Project revision: ${this.projectStore.session().revision}`,
-        context.activeSequenceId ? `Active sequence: ${context.activeSequenceId}` : "",
-        context.playheadUs === undefined ? "" : `Playhead: ${context.playheadUs} microseconds`,
-        context.selectedIds?.length ? `Selected IDs: ${context.selectedIds.join(", ")}` : "",
-      ].filter(Boolean);
-      await runtime.send(`${contextLines.join("\n")}\n\nUser request:\n${message}`);
-    } catch (error) {
-      session.status = "failed";
-      session.activeTurnId = undefined;
-      session.updatedAt = now();
-      this.#appendEvent(session, {
-        kind: "error",
-        title: "Could not start agent",
-        detail: messageFrom(error),
-        turnId,
-      });
-      this.#changed(session.projectDirectory);
-    }
-    return this.snapshot(session.projectDirectory);
+  #runtimeMessage(message: string, context: AgentTurnContext): string {
+    const contextLines = [
+      `Project revision: ${this.projectStore.session().revision}`,
+      context.activeSequenceId ? `Active sequence: ${context.activeSequenceId}` : "",
+      context.playheadUs === undefined ? "" : `Playhead: ${context.playheadUs} microseconds`,
+      context.selectedIds?.length ? `Selected IDs: ${context.selectedIds.join(", ")}` : "",
+    ].filter(Boolean);
+    return `${contextLines.join("\n")}\n\nUser request:\n${message}`;
+  }
+
+  #failTurnStart(session: AgentSessionSnapshot, turnId: string, error: unknown): void {
+    session.status = "failed";
+    session.activeTurnId = undefined;
+    session.updatedAt = now();
+    this.#appendEvent(session, {
+      kind: "error",
+      title: "Could not start agent",
+      detail: messageFrom(error),
+      turnId,
+    });
+    this.#changed(session.projectDirectory);
   }
 
   async interrupt(sessionId: string): Promise<AgentProjectSnapshot> {
     const session = this.#requireSession(sessionId);
-    await this.#runtimes.get(sessionId)?.interrupt();
+    await this.#runtimeCoordinator.interrupt(sessionId);
     this.#cancelPendingApprovals(sessionId);
     if (session.activeTurnId)
       await this.#completeTurn(sessionId, "interrupted", "The agent was stopped by the user.");
@@ -405,7 +363,9 @@ export class AgentCoordinator implements AgentToolHooks {
       clearTimeout(this.#saveTimer);
       this.#saveTimer = null;
     }
-    for (const sessionId of this.#runtimes.sessionIds()) await this.#stopRuntime(sessionId);
+    const runningSessionIds = this.#runtimeCoordinator.sessionIds();
+    await this.#runtimeCoordinator.close();
+    for (const sessionId of runningSessionIds) this.#cancelPendingApprovals(sessionId);
     await this.mcpServer.close();
     await this.#save();
   }
@@ -432,15 +392,7 @@ export class AgentCoordinator implements AgentToolHooks {
     failed = false,
   ): Promise<void> {
     const session = this.#requireSession(sessionId);
-    const started = session.events.find((event) => event.id === eventId);
-    if (started) {
-      started.kind = "tool-completed";
-      started.status = failed ? "failed" : "completed";
-      started.detail = detail;
-      started.createdAt = now();
-      normalizeEventStrings(started);
-      this.#enforceSessionEventBudget(session, true);
-    } else {
+    if (!this.#sessionEvents.completeTool(session, eventId, detail, failed)) {
       this.#appendEvent(session, {
         kind: "tool-completed",
         toolName,
@@ -456,8 +408,8 @@ export class AgentCoordinator implements AgentToolHooks {
   requestApproval(sessionId: string, toolName: string, detail: string): Promise<boolean> {
     const session = this.#requireSession(sessionId);
     if (!session.activeTurnId) throw new Error("Approval requires an active agent turn");
-    toolName = boundedUtf8(toolName, 256);
-    detail = boundedUtf8(detail, MAX_EVENT_DETAIL_BYTES);
+    toolName = boundedAgentText(toolName, 256);
+    detail = boundedAgentText(detail, MAX_APPROVAL_DETAIL_BYTES);
     const turnId = session.activeTurnId;
     const { lease, decision } = this.#approvals.request({
       sessionId,
@@ -484,84 +436,31 @@ export class AgentCoordinator implements AgentToolHooks {
     this.notifyProjectChanged();
   }
 
-  async #ensureRuntime(session: AgentSessionSnapshot): Promise<AgentProviderRuntime> {
-    const existing = this.#runtimes.get(session.id);
-    if (existing) return existing;
-    const executablePath = await this.settingsStore.requireTrustedExecutable(session.provider);
-    const credential = this.mcpServer.registerSession({
-      sessionId: session.id,
-      projectDirectory: session.projectDirectory,
-      permissionMode: session.permissionMode,
-    });
-    const callbacks = {
-      onEvent: (event: AgentRuntimeEvent) => this.#runtimeEvent(session.id, event),
-      onProviderSessionId: (providerSessionId: string) => {
-        session.providerSessionId = boundedUtf8(providerSessionId, 512);
-        session.updatedAt = now();
-        this.#changed(session.projectDirectory);
-      },
-      onTurnStarted: (providerTurnId?: string) => {
-        session.status = "working";
-        if (providerTurnId && !session.activeTurnId) session.activeTurnId = providerTurnId;
-        session.updatedAt = now();
-        this.#changed(session.projectDirectory);
-      },
-      onTurnCompleted: (status: "completed" | "failed" | "interrupted", detail?: string) =>
-        void this.#completeTurn(session.id, status, detail),
-      onTokenUsage: (usage: Omit<AgentTokenUsage, "updatedAt">) => {
-        session.tokenUsage = { ...usage, updatedAt: now() };
-        session.updatedAt = now();
-        this.#streamChanged(session.projectDirectory);
-      },
-      onApproval: (title: string, detail: string) =>
-        this.requestApproval(session.id, title, detail),
-      onExit: (detail?: string) => void this.#providerExited(session.id, detail),
-    };
-    const launchOptions = {
-      executablePath,
-      cwd: session.projectDirectory,
-      model: session.model,
-      effort: session.effort,
-      ...(session.providerSessionId ? { providerSessionId: session.providerSessionId } : {}),
-      mcpUrl: credential.url,
-      mcpToken: credential.token,
-      instructions: this.#instructions(),
-    };
-    const runtime = createAgentRuntime(session.provider, launchOptions, callbacks);
-    this.#runtimes.set(session.id, runtime);
-    try {
-      await runtime.start();
-      return runtime;
-    } catch (error) {
-      this.#runtimes.remove(session.id);
-      this.mcpServer.revokeSession(session.id);
-      throw error;
-    }
+  #recordProviderSessionId(sessionId: string, providerSessionId: string): void {
+    const session = this.#requireSession(sessionId);
+    session.providerSessionId = boundedAgentText(providerSessionId, 512);
+    session.updatedAt = now();
+    this.#changed(session.projectDirectory);
+  }
+
+  #recordTurnStarted(sessionId: string, providerTurnId?: string): void {
+    const session = this.#requireSession(sessionId);
+    session.status = "working";
+    if (providerTurnId && !session.activeTurnId) session.activeTurnId = providerTurnId;
+    session.updatedAt = now();
+    this.#changed(session.projectDirectory);
+  }
+
+  #recordTokenUsage(sessionId: string, usage: Omit<AgentTokenUsage, "updatedAt">): void {
+    const session = this.#requireSession(sessionId);
+    session.tokenUsage = { ...usage, updatedAt: now() };
+    session.updatedAt = now();
+    this.#streamChanged(session.projectDirectory);
   }
 
   #runtimeEvent(sessionId: string, event: AgentRuntimeEvent): void {
     const session = this.#requireSession(sessionId);
-    const last = session.events.at(-1);
-    if (
-      event.text &&
-      (event.kind === "assistant-message" || event.kind === "reasoning") &&
-      last?.kind === event.kind &&
-      last.turnId === session.activeTurnId
-    ) {
-      const sessionBytes =
-        this.#sessionEventBytes.get(session.id) ??
-        session.events.reduce((total, candidate) => total + eventBytes(candidate), 0);
-      const previousBytes = eventBytes(last);
-      last.text = boundedUtf8(`${last.text ?? ""}${event.text}`, MAX_EVENT_TEXT_BYTES);
-      last.createdAt = now();
-      this.#sessionEventBytes.set(session.id, sessionBytes - previousBytes + eventBytes(last));
-    } else {
-      this.#appendEvent(session, {
-        ...event,
-        ...(session.activeTurnId ? { turnId: session.activeTurnId } : {}),
-      });
-    }
-    this.#enforceSessionEventBudget(session);
+    this.#sessionEvents.appendRuntime(session, event);
     session.updatedAt = now();
     this.#streamChanged(session.projectDirectory);
   }
@@ -575,6 +474,20 @@ export class AgentCoordinator implements AgentToolHooks {
     const turnId = session.activeTurnId;
     if (!turnId) return;
     const turnNumber = session.checkpoints.length + 1;
+    await this.#recordTurnCheckpoint(session, turnId, turnNumber);
+    this.#appendTurnResult(session, turnId, status, detail);
+    session.status = status === "completed" ? "completed" : status;
+    session.activeTurnId = undefined;
+    session.updatedAt = now();
+    this.#changed(session.projectDirectory);
+    await this.#flushSave();
+  }
+
+  async #recordTurnCheckpoint(
+    session: AgentSessionSnapshot,
+    turnId: string,
+    turnNumber: number,
+  ): Promise<void> {
     try {
       const checkpoint = await this.#turns.complete(session, turnId, turnNumber);
       session.checkpoints.push(checkpoint);
@@ -596,30 +509,29 @@ export class AgentCoordinator implements AgentToolHooks {
         turnId,
       });
     }
-    if (detail)
-      this.#appendEvent(session, {
-        kind: status === "failed" ? "error" : "notice",
-        title: status === "failed" ? "Turn failed" : "Turn interrupted",
-        detail,
-        turnId,
-      });
-    session.status = status === "completed" ? "completed" : status;
-    session.activeTurnId = undefined;
-    session.updatedAt = now();
-    this.#changed(session.projectDirectory);
-    await this.#flushSave();
+  }
+
+  #appendTurnResult(
+    session: AgentSessionSnapshot,
+    turnId: string,
+    status: "completed" | "failed" | "interrupted",
+    detail?: string,
+  ): void {
+    if (!detail) return;
+    this.#appendEvent(session, {
+      kind: status === "failed" ? "error" : "notice",
+      title: status === "failed" ? "Turn failed" : "Turn interrupted",
+      detail,
+      turnId,
+    });
   }
 
   async #stopRuntime(sessionId: string): Promise<void> {
-    await this.#runtimes.stop(sessionId);
-    this.mcpServer.revokeSession(sessionId);
+    await this.#runtimeCoordinator.stop(sessionId);
     this.#cancelPendingApprovals(sessionId);
   }
 
   async #providerExited(sessionId: string, detail?: string): Promise<void> {
-    const wasRegistered = this.#runtimes.remove(sessionId);
-    if (!wasRegistered) return;
-    this.mcpServer.revokeSession(sessionId);
     this.#cancelPendingApprovals(sessionId);
     const session = this.#sessions.state.sessions.find((candidate) => candidate.id === sessionId);
     if (!session) return;
@@ -665,34 +577,7 @@ export class AgentCoordinator implements AgentToolHooks {
     session: AgentSessionSnapshot,
     input: Omit<AgentEvent, "id" | "sessionId" | "createdAt">,
   ): AgentEvent {
-    const event: AgentEvent = {
-      id: crypto.randomUUID(),
-      sessionId: session.id,
-      createdAt: now(),
-      ...input,
-    };
-    normalizeEventStrings(event);
-    session.events.push(event);
-    this.#sessionEventBytes.set(
-      session.id,
-      (this.#sessionEventBytes.get(session.id) ?? 0) + eventBytes(event),
-    );
-    this.#enforceSessionEventBudget(session);
-    return event;
-  }
-
-  #enforceSessionEventBudget(session: AgentSessionSnapshot, recalculate = false): void {
-    let bytes =
-      recalculate || !this.#sessionEventBytes.has(session.id)
-        ? session.events.reduce((total, event) => total + eventBytes(event), 0)
-        : this.#sessionEventBytes.get(session.id)!;
-    while (
-      session.events.length > 1 &&
-      (session.events.length > MAX_EVENTS_PER_SESSION || bytes > MAX_SESSION_EVENT_BYTES)
-    ) {
-      bytes -= eventBytes(session.events.shift()!);
-    }
-    this.#sessionEventBytes.set(session.id, bytes);
+    return this.#sessionEvents.append(session, input);
   }
 
   #requireOpenProject(projectDirectory: string): void {
