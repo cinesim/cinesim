@@ -4,7 +4,7 @@ import type {
   DerivedArtifactKind,
   DerivedArtifactSnapshot,
   FinalizeDerivedWrite,
-} from "../../shared/api";
+} from "../../shared/contracts";
 import {
   WAVEFORM_FORMAT_VERSION,
   waveformByteLength,

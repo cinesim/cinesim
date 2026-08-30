@@ -1,7 +1,7 @@
 import { useEffect, useRef } from "react";
 import { canSplitClipAt, findClip } from "@cinesim/core";
 import type { Project } from "@cinesim/core";
-import type { DesktopProjectSession, EditorLayoutState } from "../../../shared/api";
+import type { DesktopProjectSession, EditorLayoutState } from "../../../shared/contracts";
 import { useElementBounds } from "../../hooks/use-element-bounds";
 import { usePanelResize } from "../../hooks/use-panel-resize";
 import { editShortcutAction } from "../../lib/edit-shortcuts";

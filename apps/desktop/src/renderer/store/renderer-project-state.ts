@@ -4,14 +4,14 @@ import {
   DEFAULT_CUT_LAYOUT,
   DEFAULT_EDITOR_LAYOUT,
   DEFAULT_TRANSCRIPTION_SETTINGS,
-} from "../../shared/api";
+} from "../../shared/contracts";
 import type {
   AccountSnapshot,
   CutLayoutState,
   DesktopAppState,
   DesktopProjectSession,
   EditorLayoutState,
-} from "../../shared/api";
+} from "../../shared/contracts";
 import type { ProjectLifecycle, RendererState } from "./renderer-state";
 
 export const EMPTY_APP_STATE: DesktopAppState = {

@@ -7,7 +7,7 @@ import type {
   AgentSessionUpdate,
   AgentTokenUsage,
   AgentTurnContext,
-} from "../../shared/api";
+} from "../../shared/contracts";
 import { AgentCheckpointStore } from "./checkpoints";
 import { AgentMcpServer, type AgentToolHooks } from "./mcp/server";
 import type { AgentProviderRuntime, AgentRuntimeEvent } from "./runtimes/types";

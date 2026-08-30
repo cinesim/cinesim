@@ -2,7 +2,7 @@ import { lstat, readdir, rm, stat, statfs } from "node:fs/promises";
 import { join } from "node:path";
 import type { Asset, Project } from "@cinesim/core";
 import type { ProjectPaths } from "@cinesim/project-io";
-import type { DerivedArtifactKind, DerivedMediaEvent } from "../../shared/api";
+import type { DerivedArtifactKind, DerivedMediaEvent } from "../../shared/contracts";
 import { fingerprintsEqual, fingerprintSource } from "./source-fingerprint";
 import { DERIVED_GENERATOR_VERSION, emptyPerformance, mimeType } from "./model";
 import type { PersistedArtifact, PersistedAsset, PersistedIndex } from "./model";

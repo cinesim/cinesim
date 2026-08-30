@@ -2,7 +2,7 @@ import { createReadStream } from "node:fs";
 import { stat } from "node:fs/promises";
 import { Readable } from "node:stream";
 import { protocol } from "electron";
-import type { DerivedArtifactKind, DerivedProjectScope } from "../../shared/api";
+import type { DerivedArtifactKind, DerivedProjectScope } from "../../shared/contracts";
 import type { DesktopProjectStore } from "../projects/project-store";
 import type { CloudMediaManager } from "../cloud/manager";
 import { parseDerivedProjectScope } from "./ipc-validation";

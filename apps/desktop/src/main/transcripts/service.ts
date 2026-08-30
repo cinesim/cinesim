@@ -4,7 +4,7 @@ import type { Asset, AssetId, Project } from "@cinesim/core";
 import { secondsToTimeUs, stableJson, timeSeconds, timeUs } from "@cinesim/core";
 import { createCinesimLogger } from "@cinesim/logging";
 import { z } from "zod";
-import type { DerivedProjectScope, SourceFingerprint } from "../../shared/api";
+import type { DerivedProjectScope, SourceFingerprint } from "../../shared/contracts";
 import {
   TRANSCRIPT_ARTIFACT_VERSION,
   TRANSCRIPT_GENERATOR_VERSION,

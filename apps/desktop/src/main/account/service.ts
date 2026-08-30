@@ -9,11 +9,12 @@ import type {
   AccountUser,
   RegisteredProject,
   SignInMethod,
-} from "../../shared/api";
+} from "../../shared/contracts";
 import { parseDesktopAuthCallback } from "../../shared/auth-callback";
 import { LocalAuthCallbackServer, LOCAL_AUTH_CALLBACK_PORT } from "./loopback-callback";
 import { DesktopAuthStorage } from "./storage";
 import { DesktopAccountProfileStore } from "./profile-store";
+import { eventChannels } from "../../shared/contracts/channels";
 
 declare const __CINESIM_CLOUD_ORIGIN__: string;
 
@@ -130,7 +131,7 @@ export class DesktopAccountService {
             try {
               await this.#authenticateToken(token);
             } catch (error) {
-              BrowserWindow.getAllWindows()[0]?.webContents.send("cinesim-auth:error");
+              BrowserWindow.getAllWindows()[0]?.webContents.send(eventChannels.authError);
               log.error(
                 { err: error, operation: "auth-loopback-callback" },
                 "Cinesim authentication callback failed",
@@ -387,7 +388,7 @@ export class DesktopAccountService {
   #receiveDeepLink(value: string): void {
     void this.#handleDeepLink(value).catch((error: unknown) => {
       const target = BrowserWindow.getAllWindows()[0];
-      target?.webContents.send("cinesim-auth:error");
+      target?.webContents.send(eventChannels.authError);
       log.error(
         { err: error, operation: "auth-protocol-callback" },
         "Cinesim authentication callback failed",
@@ -411,7 +412,7 @@ export class DesktopAccountService {
       if (target.isMinimized()) target.restore();
       target.show();
       target.focus();
-      target.webContents.send("cinesim-auth:authenticated");
+      target.webContents.send(eventChannels.authAuthenticated);
     }
     log.info(
       { operation: app.isPackaged ? "auth-protocol-callback" : "auth-loopback-callback" },

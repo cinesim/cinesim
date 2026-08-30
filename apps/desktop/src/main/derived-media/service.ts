@@ -14,7 +14,7 @@ import type {
   DerivedWorkerActivity,
   FinalizeDerivedWrite,
   SourceFingerprint,
-} from "../../shared/api";
+} from "../../shared/contracts";
 import { validFilmstripMetadata } from "./artifact-validation";
 import { DerivedArtifactRepository } from "./artifact-repository";
 import { DerivedIndexRepository } from "./index-repository";

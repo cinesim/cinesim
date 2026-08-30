@@ -29,7 +29,7 @@ import type {
   AgentProviderStatus,
   AgentSessionSnapshot,
   DesktopProjectSession,
-} from "../../../shared/api";
+} from "../../../shared/contracts";
 import { useAgentProjectController } from "../../hooks/use-agent-project-controller";
 import { useDelayedBusy } from "../../hooks/use-delayed-busy";
 import { formatTimecode } from "../../lib/format";

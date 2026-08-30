@@ -1,4 +1,4 @@
-import type { DerivedPerformanceObservation } from "../../shared/api";
+import type { DerivedPerformanceObservation } from "../../shared/contracts";
 import { emptyPerformance, percentile } from "./model";
 import type { PersistedAsset } from "./model";
 

@@ -1,6 +1,6 @@
 import type { AssetId, ClipId, Project, Sequence, TimeUs } from "@cinesim/core";
 import { clipEndUs, normalizeTimelineRanges, timeUs } from "@cinesim/core";
-import type { DerivedProjectScope, SourceFingerprint } from "./api";
+import type { DerivedProjectScope, SourceFingerprint } from "./contracts";
 
 export const TRANSCRIPT_ARTIFACT_VERSION = 1 as const;
 export const TRANSCRIPT_GENERATOR_VERSION = "deepgram-nova-3@3" as const;

@@ -1,7 +1,7 @@
 import { mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { z } from "zod";
-import type { AccountUser } from "../../shared/api";
+import type { AccountUser } from "../../shared/contracts";
 
 const profileSchema = z.object({
   version: z.literal(1),

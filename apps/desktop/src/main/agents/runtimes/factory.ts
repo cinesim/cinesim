@@ -1,4 +1,4 @@
-import type { AgentProviderKind } from "../../../shared/api";
+import type { AgentProviderKind } from "../../../shared/contracts";
 import { ClaudeRuntime } from "./claude";
 import { CodexRuntime } from "./codex";
 import type {

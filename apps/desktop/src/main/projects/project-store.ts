@@ -8,7 +8,7 @@ import type { CloudProjectId, ProjectId } from "@cinesim/core";
 import { createCinesimLogger } from "@cinesim/logging";
 import { CanonicalProjectRepository } from "@cinesim/project-io";
 import { dispatchCommand } from "@cinesim/protocol";
-import type { DesktopProjectSession } from "../../shared/api";
+import type { DesktopProjectSession } from "../../shared/contracts";
 import { DerivedMediaStore } from "../derived-media/service";
 import type { DesktopAccountService } from "../account/service";
 import { TranscriptStore } from "../transcripts/service";

@@ -8,10 +8,11 @@ import { BrowserWindow } from "electron";
 import type { AssetId, CloudAssetId } from "@cinesim/core";
 import { createCinesimLogger } from "@cinesim/logging";
 import { z } from "zod";
-import type { CloudStorageUsage, CloudTransferSnapshot } from "../../shared/api";
+import type { CloudStorageUsage, CloudTransferSnapshot } from "../../shared/contracts";
 import type { DesktopAccountService } from "../account/service";
 import { fingerprintSource } from "../derived-media/source-fingerprint";
 import type { DesktopProjectStore } from "../projects/project-store";
+import { eventChannels } from "../../shared/contracts/channels";
 
 const log = createCinesimLogger({ service: "cloud-media" });
 const MAX_QUEUED_ASSETS = 100;
@@ -695,13 +696,13 @@ export class CloudMediaManager {
   #emit(): void {
     const snapshot = this.snapshots();
     for (const target of BrowserWindow?.getAllWindows?.() ?? [])
-      target.webContents.send("cloud:transfers-changed", snapshot);
+      target.webContents.send(eventChannels.cloudTransfersChanged, snapshot);
   }
 
   #emitProject(): void {
     const session = this.projects.session();
     for (const target of BrowserWindow?.getAllWindows?.() ?? [])
-      target.webContents.send("project:changed", session);
+      target.webContents.send(eventChannels.projectChanged, session);
   }
 
   #recordKey(record: { userId: string; projectDirectory: string; assetId: string }): string {

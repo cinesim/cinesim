@@ -1,5 +1,5 @@
-import { EDITOR_LAYOUT_LIMITS } from "../../shared/api";
-import type { EditorLayoutState } from "../../shared/api";
+import { EDITOR_LAYOUT_LIMITS } from "../../shared/contracts";
+import type { EditorLayoutState } from "../../shared/contracts";
 
 export const EDITOR_SPLITTER_SIZE = 1;
 export const MIN_EDITOR_VIEWER_WIDTH = 320;

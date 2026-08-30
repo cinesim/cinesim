@@ -140,7 +140,7 @@ export function MediaBin({ project, onOpenTimeline }: MediaBinProps) {
     });
     if (!result.ok) return;
     if (cloudAssetIds.length > 0)
-      await window.cinesim.trashCloudAssets(cloudAssetIds).catch(() => undefined);
+      await window.cinesim.cloud.trashAssets(cloudAssetIds).catch(() => undefined);
     setDialog(null);
     selection.clear();
   }
@@ -153,7 +153,7 @@ export function MediaBin({ project, onOpenTimeline }: MediaBinProps) {
   async function generateSelectedProxies() {
     const mediaIds = selectedProxyAssets.map((asset) => asset.id);
     if (mediaIds.length > 0 && derivedScope)
-      await window.cinesim.requestProxyJobs(derivedScope, mediaIds);
+      await window.cinesim.derived.requestProxies(derivedScope, mediaIds);
   }
 
   function toggleCloudOriginal(assetId: AssetId) {

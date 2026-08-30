@@ -5,7 +5,7 @@ import type {
   AgentProviderKind,
   AgentSettings,
   AgentSettingsUpdate,
-} from "../../shared/api";
+} from "../../shared/contracts";
 import {
   inspectAgentExecutable,
   isAgentExecutableIdentity,

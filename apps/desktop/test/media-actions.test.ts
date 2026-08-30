@@ -1,7 +1,7 @@
 import { timeUs } from "@cinesim/core";
 import { describe, expect, it } from "vite-plus/test";
 import type { Asset } from "@cinesim/core";
-import type { DerivedArtifactState, DerivedAssetSnapshot } from "../src/shared/api";
+import type { DerivedArtifactState, DerivedAssetSnapshot } from "../src/shared/contracts";
 import { assetNeedsEditProxy } from "../src/renderer/components/media/media-actions";
 
 const video: Asset = {

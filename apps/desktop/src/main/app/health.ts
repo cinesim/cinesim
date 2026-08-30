@@ -3,7 +3,7 @@ import type {
   ElectronHealthSnapshot,
   ElectronProcessGroupKind,
   ElectronProcessGroupMetric,
-} from "../../shared/api";
+} from "../../shared/contracts";
 
 const PROCESS_GROUPS: ElectronProcessGroupKind[] = ["main", "renderer", "gpu", "utility", "other"];
 

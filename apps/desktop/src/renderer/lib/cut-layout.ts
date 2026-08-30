@@ -1,5 +1,5 @@
-import { CUT_LAYOUT_LIMITS } from "../../shared/api";
-import type { CutLayoutState } from "../../shared/api";
+import { CUT_LAYOUT_LIMITS } from "../../shared/contracts";
+import type { CutLayoutState } from "../../shared/contracts";
 
 export const CUT_SPLITTER_SIZE = 1;
 export const MIN_CUT_TRANSCRIPT_WIDTH = 320;

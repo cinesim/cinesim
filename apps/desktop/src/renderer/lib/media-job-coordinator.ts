@@ -6,8 +6,8 @@ import type {
   DerivedProjectScope,
   FinalizeDerivedWrite,
   TranscriptionSettings,
-} from "../../shared/api";
-import { DEFAULT_TRANSCRIPTION_SETTINGS } from "../../shared/api";
+} from "../../shared/contracts";
+import { DEFAULT_TRANSCRIPTION_SETTINGS } from "../../shared/contracts";
 import type { TranscriptSnapshot } from "../../shared/transcript";
 import type { DerivedWorkerRequest, DerivedWorkerResponse } from "./derived-worker-api";
 import { waveformByteLength, waveformPeakCount } from "../../shared/waveform-format";
@@ -60,10 +60,10 @@ export class MediaJobCoordinator {
   async start(): Promise<void> {
     if (this.#destroyed || this.#worker) return;
     this.#createWorker();
-    this.#unsubscribe = window.cinesim.onDerivedMediaChanged((snapshot) => {
+    this.#unsubscribe = window.cinesim.derived.onChanged((snapshot) => {
       this.#acceptSnapshot(snapshot);
     });
-    const unsubscribeTranscripts = window.cinesim.onTranscriptsChanged((snapshot) => {
+    const unsubscribeTranscripts = window.cinesim.transcripts.onChanged((snapshot) => {
       this.#acceptTranscriptSnapshot(snapshot);
     });
     const unsubscribeDerived = this.#unsubscribe;
@@ -72,8 +72,8 @@ export class MediaJobCoordinator {
       unsubscribeTranscripts();
     };
     const [derived, transcripts] = await Promise.all([
-      window.cinesim.getDerivedMediaSnapshot(this.#projectScope),
-      window.cinesim.getTranscriptSnapshot(this.#projectScope),
+      window.cinesim.derived.get(this.#projectScope),
+      window.cinesim.transcripts.get(this.#projectScope),
     ]);
     this.#acceptSnapshot(derived);
     this.#acceptTranscriptSnapshot(transcripts);
@@ -118,8 +118,8 @@ export class MediaJobCoordinator {
     const mediaIds = project.assets
       .filter((asset) => asset.kind === "video" || asset.kind === "audio")
       .map((asset) => asset.id);
-    this.#acceptSnapshot(await window.cinesim.requestDerivedJobs(this.#projectScope, mediaIds));
-    this.#acceptTranscriptSnapshot(await window.cinesim.getTranscriptSnapshot(this.#projectScope));
+    this.#acceptSnapshot(await window.cinesim.derived.requestJobs(this.#projectScope, mediaIds));
+    this.#acceptTranscriptSnapshot(await window.cinesim.transcripts.get(this.#projectScope));
     await this.#queueAutomaticTranscripts();
   }
 
@@ -142,7 +142,7 @@ export class MediaJobCoordinator {
     if (!assetIds.length) return;
     try {
       this.#acceptTranscriptSnapshot(
-        await window.cinesim.requestTranscriptJobs(this.#projectScope, assetIds),
+        await window.cinesim.transcripts.requestJobs(this.#projectScope, assetIds),
       );
     } catch {
       // Account/service availability is reflected by account health; manual controls remain usable.
@@ -163,12 +163,12 @@ export class MediaJobCoordinator {
       } satisfies DerivedWorkerRequest);
       await Promise.all(
         Object.values(this.#active.writers).map((writerId) =>
-          window.cinesim.cancelDerivedWrite(writerId).catch(() => undefined),
+          window.cinesim.derived.cancelWrite(writerId).catch(() => undefined),
         ),
       );
       if (this.#active.kind === "transcript") {
-        await window.cinesim
-          .failTranscriptJob(this.#projectScope, this.#active.jobId, "canceled")
+        await window.cinesim.transcripts
+          .failJob(this.#projectScope, this.#active.jobId, "canceled")
           .catch(() => undefined);
       }
     }
@@ -312,7 +312,7 @@ export class MediaJobCoordinator {
     this.#active = active;
     try {
       for (const kind of kinds) {
-        const writer = await window.cinesim.beginDerivedWrite(this.#projectScope, {
+        const writer = await window.cinesim.derived.beginWrite(this.#projectScope, {
           assetId: asset.id,
           kind,
           ...(kind === "waveform"
@@ -321,7 +321,7 @@ export class MediaJobCoordinator {
         });
         active.writers[kind] = writer.writerId;
       }
-      await window.cinesim.reportDerivedActivity(this.#projectScope, {
+      await window.cinesim.derived.reportActivity(this.#projectScope, {
         jobId,
         assetId: asset.id,
         jobKind: "perception",
@@ -361,7 +361,7 @@ export class MediaJobCoordinator {
     };
     this.#active = active;
     try {
-      const writer = await window.cinesim.beginDerivedWrite(this.#projectScope, {
+      const writer = await window.cinesim.derived.beginWrite(this.#projectScope, {
         assetId: asset.id,
         kind: "proxy",
         ...(this.#snapshot?.assets[asset.id]?.proxy.profileId
@@ -369,7 +369,7 @@ export class MediaJobCoordinator {
           : {}),
       });
       active.writers.proxy = writer.writerId;
-      await window.cinesim.reportDerivedActivity(this.#projectScope, {
+      await window.cinesim.derived.reportActivity(this.#projectScope, {
         jobId,
         assetId: asset.id,
         jobKind: "proxy",
@@ -399,7 +399,7 @@ export class MediaJobCoordinator {
   async #startTranscript(asset: Asset): Promise<void> {
     if (!this.#worker || this.#active) return;
     try {
-      const { jobId } = await window.cinesim.beginTranscriptJob(this.#projectScope, asset.id);
+      const { jobId } = await window.cinesim.transcripts.beginJob(this.#projectScope, asset.id);
       this.#active = {
         jobId,
         assetId: asset.id,
@@ -431,7 +431,7 @@ export class MediaJobCoordinator {
     if (this.#foregroundPressure === "idle") this.#armWorkerInactivityTimer(active.jobId);
     if (message.type === "activity") {
       if (active.kind === "transcript") return;
-      await window.cinesim.reportDerivedActivity(this.#projectScope, {
+      await window.cinesim.derived.reportActivity(this.#projectScope, {
         jobId: active.jobId,
         assetId: active.assetId,
         jobKind: active.kind,
@@ -446,7 +446,7 @@ export class MediaJobCoordinator {
     }
     if (message.type === "progress") {
       const writerId = active.writers[message.stage];
-      if (writerId) await window.cinesim.updateDerivedProgress(writerId, message.progress);
+      if (writerId) await window.cinesim.derived.updateProgress(writerId, message.progress);
       return;
     }
     if (message.type === "transcript-progress") {
@@ -470,7 +470,7 @@ export class MediaJobCoordinator {
     }
     if (message.type === "transcript-chunk") {
       try {
-        await window.cinesim.transcribeAudioChunk(this.#projectScope, {
+        await window.cinesim.transcripts.transcribeChunk(this.#projectScope, {
           jobId: active.jobId,
           chunkIndex: message.chunkIndex,
           sourceStartUs: message.sourceStartUs,
@@ -494,7 +494,7 @@ export class MediaJobCoordinator {
     }
     if (message.type === "transcript-complete") {
       try {
-        const snapshot = await window.cinesim.finalizeTranscriptJob(
+        const snapshot = await window.cinesim.transcripts.finalizeJob(
           this.#projectScope,
           active.jobId,
         );
@@ -512,14 +512,14 @@ export class MediaJobCoordinator {
     }
     if (message.type === "proxy-progress") {
       const writerId = active.writers.proxy;
-      if (writerId) await window.cinesim.updateDerivedProgress(writerId, message.progress);
+      if (writerId) await window.cinesim.derived.updateProgress(writerId, message.progress);
       return;
     }
     if (message.type === "proxy-chunk") {
       const writerId = active.writers.proxy;
       if (!writerId) return;
       try {
-        await window.cinesim.writeDerivedChunk(
+        await window.cinesim.derived.writeChunk(
           writerId,
           message.offset,
           new Uint8Array(message.data),
@@ -543,7 +543,7 @@ export class MediaJobCoordinator {
       const writerId = active.writers.proxy;
       if (!writerId) return;
       try {
-        await window.cinesim.finalizeDerivedWrite(writerId, { bytes: message.bytes });
+        await window.cinesim.derived.finalizeWrite(writerId, { bytes: message.bytes });
         delete active.writers.proxy;
         this.#clearWorkerInactivityTimer();
         this.#active = null;
@@ -602,7 +602,7 @@ export class MediaJobCoordinator {
       return;
     }
     try {
-      await window.cinesim.reportDerivedPerformance(this.#projectScope, {
+      await window.cinesim.derived.reportPerformance(this.#projectScope, {
         assetId: active.assetId,
         sourceKind: "original",
         operation: "sampling",
@@ -630,13 +630,13 @@ export class MediaJobCoordinator {
     const bytes = new Uint8Array(buffer);
     const chunkSize = 4 * 1024 * 1024;
     for (let offset = 0; offset < bytes.byteLength; offset += chunkSize) {
-      await window.cinesim.writeDerivedChunk(
+      await window.cinesim.derived.writeChunk(
         writerId,
         offset,
         bytes.subarray(offset, Math.min(bytes.byteLength, offset + chunkSize)),
       );
     }
-    await window.cinesim.finalizeDerivedWrite(writerId, { ...metadata, bytes: bytes.byteLength });
+    await window.cinesim.derived.finalizeWrite(writerId, { ...metadata, bytes: bytes.byteLength });
     delete active.writers[kind];
   }
 
@@ -646,15 +646,15 @@ export class MediaJobCoordinator {
     this.#active = null;
     if (!active) return;
     if (active.kind === "transcript") {
-      await window.cinesim
-        .failTranscriptJob(this.#projectScope, active.jobId, failureCode, detail)
+      await window.cinesim.transcripts
+        .failJob(this.#projectScope, active.jobId, failureCode, detail)
         .then((snapshot) => this.#acceptTranscriptSnapshot(snapshot))
         .catch(() => undefined);
       if (!this.#destroyed) await this.#schedule();
       return;
     }
-    await window.cinesim
-      .reportDerivedActivity(this.#projectScope, {
+    await window.cinesim.derived
+      .reportActivity(this.#projectScope, {
         jobId: active.jobId,
         assetId: active.assetId,
         jobKind: active.kind,
@@ -666,12 +666,12 @@ export class MediaJobCoordinator {
       .catch(() => undefined);
     await Promise.all(
       Object.values(active.writers).map((writerId) =>
-        window.cinesim.cancelDerivedWrite(writerId, failureCode, detail).catch(() => undefined),
+        window.cinesim.derived.cancelWrite(writerId, failureCode, detail).catch(() => undefined),
       ),
     );
     if (!this.#destroyed)
-      await window.cinesim
-        .getDerivedMediaSnapshot(this.#projectScope)
+      await window.cinesim.derived
+        .get(this.#projectScope)
         .then((snapshot) => this.#acceptSnapshot(snapshot))
         .catch(() => undefined);
   }

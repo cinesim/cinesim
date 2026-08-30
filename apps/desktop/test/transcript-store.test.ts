@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vite-plus/test";
 import { timeUs, applyCommand, createProject } from "@cinesim/core";
 import type { Asset } from "@cinesim/core";
-import type { DerivedProjectScope, SourceFingerprint } from "../src/shared/api";
+import type { DerivedProjectScope, SourceFingerprint } from "../src/shared/contracts";
 import { parseTranscriptArtifact } from "../src/main/transcripts/artifact";
 import { TranscriptStore } from "../src/main/transcripts/service";
 

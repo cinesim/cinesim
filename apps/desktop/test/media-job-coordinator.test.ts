@@ -1,7 +1,11 @@
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 import { timeUs, applyCommand, createProject } from "@cinesim/core";
 import type { Project } from "@cinesim/core";
-import type { DerivedMediaSnapshot, DesktopApi, FinalizeDerivedWrite } from "../src/shared/api";
+import type {
+  DerivedMediaSnapshot,
+  DesktopApi,
+  FinalizeDerivedWrite,
+} from "../src/shared/contracts";
 import type { TranscriptSnapshot } from "../src/shared/transcript";
 import type {
   DerivedWorkerRequest,
@@ -129,76 +133,80 @@ function setup(initial: DerivedMediaSnapshot, initialTranscripts?: TranscriptSna
   const begun: { assetId: string; kind: string; expectedBytes?: number }[] = [];
   const canceled: { writerId: string; failureCode?: string; detail?: string }[] = [];
   const api = {
-    getDerivedMediaSnapshot: vi.fn(async () => current),
-    requestDerivedJobs: vi.fn(async () => current),
-    requestTranscriptJobs: vi.fn(async (_scope, assetIds: string[]) => {
-      requestedTranscriptAssets.push(assetIds);
-      for (const assetId of assetIds) {
-        const record = transcriptSnapshot.assets[assetId as `asset_${string}`];
-        if (record) record.state = "queued";
-      }
-      return transcriptSnapshot;
-    }),
-    getTranscriptSnapshot: vi.fn(async () => transcriptSnapshot),
-    beginTranscriptJob: vi.fn(async () => ({
-      jobId: "00000000-0000-4000-8000-000000000099",
-    })),
-    transcribeAudioChunk: vi.fn(async (_scope, input) => {
-      transcribedChunks.push(input);
-    }),
-    finalizeTranscriptJob: vi.fn(async (_scope, jobId) => {
-      finalizedTranscriptJobs.push(jobId);
-      if (transcriptSnapshot.assets.asset_fixture)
-        transcriptSnapshot.assets.asset_fixture.state = "ready";
-      return transcriptSnapshot;
-    }),
-    failTranscriptJob,
-    onTranscriptsChanged: vi.fn((listener: (snapshot: TranscriptSnapshot) => void) => {
-      transcriptListener = listener;
-      return () => {
-        transcriptListener = null;
-      };
-    }),
-    onDerivedMediaChanged: vi.fn((listener: (snapshot: DerivedMediaSnapshot) => void) => {
-      derivedMediaListener = listener;
-      return () => {
-        derivedMediaListener = null;
-      };
-    }),
-    beginDerivedWrite: vi.fn(
-      async (_scope, input: { assetId: string; kind: string; expectedBytes?: number }) => {
-        begun.push(input);
-        return { writerId: `${input.kind}-writer` };
-      },
-    ),
-    writeDerivedChunk: vi.fn(async () => undefined),
-    finalizeDerivedWrite: vi.fn(async (writerId: string, result: FinalizeDerivedWrite) => {
-      finalized.push({ writerId, result });
-      const kind = writerId.startsWith("thumbnail")
-        ? "thumbnail"
-        : writerId.startsWith("filmstrip")
-          ? "filmstrip"
-          : "waveform";
-      current.assets.asset_fixture![kind] = { state: "ready", bytes: result.bytes };
-    }),
-    cancelDerivedWrite: vi.fn(async (writerId: string, failureCode?: string, detail?: string) => {
-      canceled.push({
-        writerId,
-        ...(failureCode ? { failureCode } : {}),
-        ...(detail ? { detail } : {}),
-      });
-      const kind = writerId.startsWith("thumbnail")
-        ? "thumbnail"
-        : writerId.startsWith("filmstrip")
-          ? "filmstrip"
-          : "waveform";
-      current.assets.asset_fixture![kind] = failureCode
-        ? { state: "failed", failureCode }
-        : { state: "queued" };
-    }),
-    updateDerivedProgress: vi.fn(async () => undefined),
-    reportDerivedActivity: vi.fn(async () => undefined),
-    reportDerivedPerformance: vi.fn(async () => undefined),
+    transcripts: {
+      requestJobs: vi.fn(async (_scope, assetIds: string[]) => {
+        requestedTranscriptAssets.push(assetIds);
+        for (const assetId of assetIds) {
+          const record = transcriptSnapshot.assets[assetId as `asset_${string}`];
+          if (record) record.state = "queued";
+        }
+        return transcriptSnapshot;
+      }),
+      get: vi.fn(async () => transcriptSnapshot),
+      beginJob: vi.fn(async () => ({
+        jobId: "00000000-0000-4000-8000-000000000099",
+      })),
+      transcribeChunk: vi.fn(async (_scope, input) => {
+        transcribedChunks.push(input);
+      }),
+      finalizeJob: vi.fn(async (_scope, jobId) => {
+        finalizedTranscriptJobs.push(jobId);
+        if (transcriptSnapshot.assets.asset_fixture)
+          transcriptSnapshot.assets.asset_fixture.state = "ready";
+        return transcriptSnapshot;
+      }),
+      failJob: failTranscriptJob,
+      onChanged: vi.fn((listener: (snapshot: TranscriptSnapshot) => void) => {
+        transcriptListener = listener;
+        return () => {
+          transcriptListener = null;
+        };
+      }),
+    },
+    derived: {
+      get: vi.fn(async () => current),
+      requestJobs: vi.fn(async () => current),
+      onChanged: vi.fn((listener: (snapshot: DerivedMediaSnapshot) => void) => {
+        derivedMediaListener = listener;
+        return () => {
+          derivedMediaListener = null;
+        };
+      }),
+      beginWrite: vi.fn(
+        async (_scope, input: { assetId: string; kind: string; expectedBytes?: number }) => {
+          begun.push(input);
+          return { writerId: `${input.kind}-writer` };
+        },
+      ),
+      writeChunk: vi.fn(async () => undefined),
+      finalizeWrite: vi.fn(async (writerId: string, result: FinalizeDerivedWrite) => {
+        finalized.push({ writerId, result });
+        const kind = writerId.startsWith("thumbnail")
+          ? "thumbnail"
+          : writerId.startsWith("filmstrip")
+            ? "filmstrip"
+            : "waveform";
+        current.assets.asset_fixture![kind] = { state: "ready", bytes: result.bytes };
+      }),
+      cancelWrite: vi.fn(async (writerId: string, failureCode?: string, detail?: string) => {
+        canceled.push({
+          writerId,
+          ...(failureCode ? { failureCode } : {}),
+          ...(detail ? { detail } : {}),
+        });
+        const kind = writerId.startsWith("thumbnail")
+          ? "thumbnail"
+          : writerId.startsWith("filmstrip")
+            ? "filmstrip"
+            : "waveform";
+        current.assets.asset_fixture![kind] = failureCode
+          ? { state: "failed", failureCode }
+          : { state: "queued" };
+      }),
+      updateProgress: vi.fn(async () => undefined),
+      reportActivity: vi.fn(async () => undefined),
+      reportPerformance: vi.fn(async () => undefined),
+    },
   } as unknown as DesktopApi;
   vi.stubGlobal("window", { cinesim: api });
   vi.stubGlobal("Worker", FakeWorker);

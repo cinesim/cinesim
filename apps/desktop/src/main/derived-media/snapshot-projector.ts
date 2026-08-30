@@ -5,7 +5,7 @@ import type {
   DerivedMediaSnapshot,
   DerivedProjectScope,
   DerivedRuntimeSnapshot,
-} from "../../shared/api";
+} from "../../shared/contracts";
 import { DERIVED_GENERATOR_VERSION } from "./model";
 import type { PersistedArtifact, PersistedIndex } from "./model";
 

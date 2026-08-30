@@ -30,7 +30,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@cinesim/ui";
-import type { RecentProject } from "../../../shared/api";
+import type { RecentProject } from "../../../shared/contracts";
 import { formatByteCount } from "../../lib/format";
 import { useRendererStore } from "../../store/renderer-store-context";
 import { LibraryGrid } from "../shared/library-card";
@@ -196,8 +196,8 @@ export function Welcome() {
 
   useEffect(() => {
     let active = true;
-    void window.cinesim
-      .getRecentProjectSizes()
+    void window.cinesim.project
+      .getRecentSizes()
       .then((sizes) => {
         if (active) setProjectSizes(sizes);
       })

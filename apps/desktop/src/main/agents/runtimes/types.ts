@@ -1,4 +1,4 @@
-import type { AgentEffort, AgentEventKind, AgentTokenUsage } from "../../../shared/api";
+import type { AgentEffort, AgentEventKind, AgentTokenUsage } from "../../../shared/contracts";
 
 export interface AgentRuntimeEvent {
   kind: AgentEventKind;

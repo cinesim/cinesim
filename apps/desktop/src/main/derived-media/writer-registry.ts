@@ -3,7 +3,7 @@ import { mkdir, open, rm } from "node:fs/promises";
 import { dirname } from "node:path";
 import type { Asset } from "@cinesim/core";
 import type { ProjectPaths } from "@cinesim/project-io";
-import type { BeginDerivedWrite } from "../../shared/api";
+import type { BeginDerivedWrite } from "../../shared/contracts";
 import { waveformByteLength, waveformPeakCount } from "../../shared/waveform-format";
 import { validateWriteInput } from "./artifact-validation";
 import {

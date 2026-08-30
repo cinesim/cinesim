@@ -10,7 +10,7 @@ import type {
   EditorLayoutState,
   ElectronHealthSnapshot,
   TranscriptionSettings,
-} from "../../shared/api";
+} from "../../shared/contracts";
 import type { TranscriptSnapshot } from "../../shared/transcript";
 
 export type Destination = "home" | "project" | "settings";

@@ -8,7 +8,7 @@ import type {
   AgentProviderKind,
   AgentProviderSettings,
   AgentProviderStatus,
-} from "../../shared/api";
+} from "../../shared/contracts";
 
 const execFileAsync = promisify(execFile);
 const PROVIDER_COMMAND: Record<AgentProviderKind, string> = { claude: "claude", codex: "codex" };

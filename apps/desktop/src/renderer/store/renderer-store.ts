@@ -1,5 +1,5 @@
 import { createStore } from "zustand/vanilla";
-import type { DesktopApi } from "../../shared/api";
+import type { DesktopApi } from "../../shared/contracts";
 import { createAccountCloudSlice } from "./account-cloud-slice";
 import { createEditorInteractionSlice } from "./editor-interaction-slice";
 import { createPlaybackMediaSlice } from "./playback-media-slice";

@@ -8,7 +8,7 @@ import type {
   DerivedMediaEvent,
   DerivedProjectScope,
   FinalizeDerivedWrite,
-} from "../../shared/api";
+} from "../../shared/contracts";
 import { decodeWaveformEnvelope } from "../../shared/waveform-format";
 import { validateFinalize } from "./artifact-validation";
 import type { DerivedArtifactRepository } from "./artifact-repository";

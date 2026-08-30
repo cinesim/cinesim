@@ -5,7 +5,7 @@ import type {
   DerivedMediaEvent,
   DerivedMediaSnapshot,
   DerivedProjectScope,
-} from "../../shared/api";
+} from "../../shared/contracts";
 import type { DerivedArtifactRepository } from "./artifact-repository";
 import { projectOpenPersistenceSignature } from "./model";
 import type { PersistedAsset, PersistedIndex } from "./model";

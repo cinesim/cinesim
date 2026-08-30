@@ -1,4 +1,4 @@
-import type { AgentEffort, AgentProviderKind } from "../../shared/api";
+import type { AgentEffort, AgentProviderKind } from "../../shared/contracts";
 
 export const AGENT_PROVIDER_KINDS: readonly AgentProviderKind[] = ["claude", "codex"];
 

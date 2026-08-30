@@ -21,6 +21,7 @@ import { CloudMediaManager } from "../cloud/manager";
 import { registerTranscriptIpc } from "../transcripts/ipc";
 import type { DevelopmentConfiguration } from "./development-configuration";
 import { configureIpcSecurity } from "./secure-ipc";
+import { eventChannels } from "../../shared/contracts/channels";
 
 const log = createCinesimLogger({ service: "desktop" });
 
@@ -72,11 +73,11 @@ export class DesktopApplication implements ApplicationLifecycle {
     await registerMediaProtocol(this.projectStore, cloudMedia);
     this.projectStore.derivedMedia.subscribe((snapshot) => {
       for (const target of BrowserWindow.getAllWindows())
-        target.webContents.send("derived:changed", snapshot);
+        target.webContents.send(eventChannels.derivedChanged, snapshot);
     });
     this.projectStore.transcripts.subscribe((snapshot) => {
       for (const target of BrowserWindow.getAllWindows())
-        target.webContents.send("transcripts:changed", snapshot);
+        target.webContents.send(eventChannels.transcriptsChanged, snapshot);
     });
 
     const agents = new AgentManager(
@@ -85,13 +86,13 @@ export class DesktopApplication implements ApplicationLifecycle {
       this.projectStore,
       (snapshot) => {
         for (const target of BrowserWindow.getAllWindows())
-          target.webContents.send("agents:changed", snapshot);
+          target.webContents.send(eventChannels.agentsChanged, snapshot);
       },
       () => {
         if (!this.projectStore.project) return;
         const session = this.projectStore.session();
         for (const target of BrowserWindow.getAllWindows())
-          target.webContents.send("project:changed", session);
+          target.webContents.send(eventChannels.projectChanged, session);
       },
     );
     this.#agents = agents;

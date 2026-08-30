@@ -13,7 +13,7 @@ import {
   Volume2,
   VolumeX,
 } from "@cinesim/ui";
-import type { DerivedMediaSnapshot } from "../../../shared/api";
+import type { DerivedMediaSnapshot } from "../../../shared/contracts";
 import { timelineSnapCandidates } from "../../lib/timeline-geometry";
 import { useRendererStore } from "../../store/renderer-store-context";
 import { useEditorDnd } from "../workspace/editor-dnd-context";

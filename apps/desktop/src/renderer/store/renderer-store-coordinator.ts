@@ -1,6 +1,6 @@
 import type { StoreApi } from "zustand/vanilla";
 import { sequenceDurationUs, timeUs } from "@cinesim/core";
-import type { DesktopApi, DesktopProjectSession } from "../../shared/api";
+import type { DesktopApi, DesktopProjectSession } from "../../shared/contracts";
 import {
   appStateWithRememberedProject,
   clipExists,
@@ -86,8 +86,8 @@ export class RendererStoreContext {
       }
       const appState = appStateWithRememberedProject(this.get().appState, session);
       const [transfersResult, downloadsResult] = await Promise.allSettled([
-        this.api.getCloudTransfers?.() ?? Promise.resolve([]),
-        this.api.getDownloadedCloudOriginals?.() ?? Promise.resolve([]),
+        this.api.cloud.getTransfers?.() ?? Promise.resolve([]),
+        this.api.cloud.getDownloadedOriginals?.() ?? Promise.resolve([]),
       ]);
       this.set({
         ...hydratedProjectState(session, appState),
@@ -128,10 +128,10 @@ export class RendererStoreContext {
   async hydrateAccountWorkspace(): Promise<void> {
     const [sessionResult, appStateResult, transfersResult, downloadsResult] =
       await Promise.allSettled([
-        this.api.getSession(),
-        this.api.getAppState(),
-        this.api.getCloudTransfers?.() ?? Promise.resolve([]),
-        this.api.getDownloadedCloudOriginals?.() ?? Promise.resolve([]),
+        this.api.project.getSession(),
+        this.api.appState.get(),
+        this.api.cloud.getTransfers?.() ?? Promise.resolve([]),
+        this.api.cloud.getDownloadedOriginals?.() ?? Promise.resolve([]),
       ]);
     if (sessionResult.status === "rejected") {
       const message = messageFrom(sessionResult.reason, "Cinesim could not load your projects");
@@ -168,10 +168,10 @@ export class RendererStoreContext {
     if (this.get().project.status !== "booting") return Promise.resolve();
     this.#initialization = (async () => {
       const workspace = this.hydrateAccountWorkspace();
-      const account = await this.api.getAccountSnapshot().catch(() => INITIAL_ACCOUNT_STATE);
+      const account = await this.api.account.get().catch(() => INITIAL_ACCOUNT_STATE);
       this.set({ account, accountHydrated: true });
       await workspace;
-      const accountAppState = await this.api.getAppState().catch(() => null);
+      const accountAppState = await this.api.appState.get().catch(() => null);
       if (accountAppState) this.set({ appState: accountAppState });
     })();
     return this.#initialization;

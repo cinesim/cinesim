@@ -3,10 +3,11 @@ import type { Logger } from "pino";
 import type { MainEventLoopMonitor } from "./event-loop-monitor";
 import { electronHealthSnapshot } from "./health";
 import { registerIpcHandler } from "./secure-ipc";
+import { appContracts } from "./contracts";
 
 export function registerAppIpc(log: Logger, monitor: MainEventLoopMonitor): void {
   let healthSamplingLogged = false;
-  registerIpcHandler("app:health", () => {
+  registerIpcHandler(appContracts.health, () => {
     const snapshot = electronHealthSnapshot(app.getAppMetrics(), monitor.takeP95());
     if (!healthSamplingLogged) {
       healthSamplingLogged = true;

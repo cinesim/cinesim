@@ -3,7 +3,7 @@ import { useDraggable } from "@dnd-kit/core";
 import { canSplitClipAt, clipDurationUs, timeUs } from "@cinesim/core";
 import type { Asset, Clip, TimeUs, Track } from "@cinesim/core";
 import { cn } from "@cinesim/ui";
-import type { DerivedAssetSnapshot, DerivedMediaSnapshot } from "../../../shared/api";
+import type { DerivedAssetSnapshot, DerivedMediaSnapshot } from "../../../shared/contracts";
 import {
   IDLE_TRIM_GESTURE,
   trimPreviewClip,
