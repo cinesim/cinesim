@@ -244,6 +244,7 @@ describe("CloudMediaManager transfer journal", () => {
       manager.readOriginal(
         "cloud_asset_fixture00000001",
         new Request("cinesim-media://asset/scope/asset_fixture"),
+        "cinesim://app",
       ),
     ).rejects.toThrow("invalid signed URL");
   });

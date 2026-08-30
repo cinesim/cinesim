@@ -1,27 +1,11 @@
-import { app, protocol } from "electron";
+import { app } from "electron";
 import { DesktopApplication, reportApplicationStartFailure } from "./app/application";
 import { installApplicationLifecycle } from "./app/lifecycle";
 import { desktopAccountScheme, DesktopAccountService } from "./account/service";
 import { parseDevelopmentConfiguration } from "./app/development-configuration";
+import { registerCinesimSchemes } from "./app/protocols";
 
-protocol.registerSchemesAsPrivileged([
-  {
-    scheme: "cinesim-media",
-    privileges: {
-      standard: true,
-      secure: true,
-      supportFetchAPI: true,
-      stream: true,
-      corsEnabled: true,
-    },
-  },
-  {
-    scheme: desktopAccountScheme(),
-    privileges: {
-      secure: true,
-    },
-  },
-]);
+registerCinesimSchemes(desktopAccountScheme());
 
 const accountService = new DesktopAccountService();
 accountService.setupMain();

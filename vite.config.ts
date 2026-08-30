@@ -20,6 +20,14 @@ export default defineConfig({
         ],
         env: ["CINESIM_CLOUD_ORIGIN"],
       },
+      "desktop:package": {
+        command: "node apps/desktop/scripts/package.mjs",
+        cache: false,
+      },
+      "desktop:package:verify": {
+        command: "node apps/desktop/scripts/verify-package.mjs",
+        cache: false,
+      },
       "api:build": {
         command: "vp build --config vite.config.ts",
         cwd: "apps/api",
@@ -89,11 +97,11 @@ export default defineConfig({
     "*": "vp check --fix",
   },
   fmt: {
-    ignorePatterns: ["dist/**", ".context/**"],
+    ignorePatterns: ["dist/**", ".context/**", "apps/desktop/release/**"],
     sortPackageJson: {},
   },
   lint: {
-    ignorePatterns: ["dist/**", ".context/**"],
+    ignorePatterns: ["dist/**", ".context/**", "apps/desktop/release/**"],
     plugins: ["eslint", "import", "jsx-a11y", "oxc", "promise", "react", "typescript", "unicorn"],
     options: {
       typeAware: true,

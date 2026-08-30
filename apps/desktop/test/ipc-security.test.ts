@@ -6,7 +6,6 @@ describe("privileged IPC sender policy", () => {
   const developmentPolicy = {
     trustedRendererIds: new Set([7]),
     developmentUrl: new URL("http://127.0.0.1:5173"),
-    applicationPath: "/Applications/Cinesim.app/Contents/Resources/app.asar",
   };
 
   it("accepts only the registered main frame at the configured renderer origin", () => {
@@ -35,23 +34,12 @@ describe("privileged IPC sender policy", () => {
     ).toThrow("Unauthorized IPC sender");
   });
 
-  it("accepts only the packaged renderer entry file outside development", () => {
+  it("accepts only the packaged custom renderer origin outside development", () => {
     const policy = {
       trustedRendererIds: new Set([1]),
-      applicationPath: "/Applications/Cinesim.app/Contents/Resources/app.asar",
     };
-    expect(
-      isTrustedRendererUrl(
-        "file:///Applications/Cinesim.app/Contents/Resources/app.asar/dist/renderer/index.html",
-        policy,
-      ),
-    ).toBe(true);
-    expect(
-      isTrustedRendererUrl(
-        "file:///Applications/Cinesim.app/Contents/Resources/app.asar/dist/renderer/other.html",
-        policy,
-      ),
-    ).toBe(false);
+    expect(isTrustedRendererUrl("cinesim://app/index.html", policy)).toBe(true);
+    expect(isTrustedRendererUrl("cinesim://app/other.html", policy)).toBe(false);
   });
 
   it("accepts only explicit loopback development URLs in unpackaged builds", () => {

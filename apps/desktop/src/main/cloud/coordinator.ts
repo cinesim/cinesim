@@ -21,6 +21,7 @@ import { CloudTransferRepository } from "./transfer-repository";
 import type { TransferRecord } from "./transfer-repository";
 import { CloudUploadScheduler } from "./upload-scheduler";
 import { CloudAssetService } from "./asset-service";
+import { parseSingleByteRange, unsatisfiedRangeResponse } from "../app/http-range";
 
 const log = createCinesimLogger({ service: "cloud-media" });
 
@@ -125,31 +126,55 @@ export class CloudMediaCoordinator {
     return this.#assets.configureAddon(addonBytes);
   }
 
-  async readOriginal(cloudAssetId: string, request: Request): Promise<Response> {
+  async readOriginal(
+    cloudAssetId: string,
+    request: Request,
+    accessControlOrigin: string,
+  ): Promise<Response> {
+    if (request.method !== "GET" && request.method !== "HEAD")
+      return new Response("Method not allowed", {
+        status: 405,
+        headers: { Allow: "GET, HEAD" },
+      });
     const signed = await this.#signedDownload(cloudAssetId);
+    const bounds = parseSingleByteRange(request.headers.get("range"), signed.bytes);
+    if (bounds.kind === "invalid")
+      return unsatisfiedRangeResponse(signed.bytes, accessControlOrigin);
+    const responseHeaders = new Headers({
+      "Accept-Ranges": "bytes",
+      "Access-Control-Allow-Origin": accessControlOrigin,
+      "Content-Length": String(bounds.endExclusive - bounds.start),
+      "Content-Type": "application/octet-stream",
+      "Cache-Control": "no-store",
+    });
+    if (bounds.kind === "range")
+      responseHeaders.set(
+        "Content-Range",
+        `bytes ${bounds.start}-${bounds.endExclusive - 1}/${signed.bytes}`,
+      );
     if (request.method === "HEAD")
       return new Response(null, {
-        headers: {
-          "Accept-Ranges": "bytes",
-          "Access-Control-Allow-Origin": "*",
-          "Content-Length": String(signed.bytes),
-          "Content-Type": "application/octet-stream",
-          "Cache-Control": "no-store",
-        },
+        status: bounds.kind === "range" ? 206 : 200,
+        headers: responseHeaders,
       });
     const headers = new Headers();
-    const range = request.headers.get("range");
-    if (range) headers.set("range", range);
+    if (bounds.kind === "range")
+      headers.set("range", `bytes=${bounds.start}-${bounds.endExclusive - 1}`);
     const response = await fetch(signed.url, { headers, signal: request.signal });
-    if (!response.ok && response.status !== 206) {
+    const expectedStatus = bounds.kind === "range" ? 206 : 200;
+    if (!response.ok || response.status !== expectedStatus) {
       if (response.status === 401 || response.status === 403)
         this.#downloadUrls.delete(cloudAssetId);
       throw new Error(`Cloud original read failed (${response.status})`);
     }
-    const forwarded = new Headers(response.headers);
-    forwarded.set("Access-Control-Allow-Origin", "*");
-    forwarded.set("Cache-Control", "no-store");
-    return new Response(response.body, { status: response.status, headers: forwarded });
+    for (const name of ["etag", "last-modified"] as const) {
+      const value = response.headers.get(name);
+      if (value) responseHeaders.set(name, value.slice(0, 1_024));
+    }
+    const contentType = response.headers.get("content-type");
+    if (contentType?.startsWith("video/") || contentType?.startsWith("audio/"))
+      responseHeaders.set("Content-Type", contentType.slice(0, 256));
+    return new Response(response.body, { status: expectedStatus, headers: responseHeaders });
   }
 
   async downloadedOriginals(): Promise<string[]> {

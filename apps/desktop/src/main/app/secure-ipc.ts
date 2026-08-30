@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { app, ipcMain } from "electron";
+import { ipcMain } from "electron";
 import type { IpcMainInvokeEvent, WebContents } from "electron";
 import { createCinesimLogger } from "@cinesim/logging";
 import { ZodError } from "zod";
@@ -43,7 +43,6 @@ export function assertTrustedIpcSender(event: IpcMainInvokeEvent): void {
   assertIpcSender(event, {
     trustedRendererIds,
     developmentUrl,
-    applicationPath: app.getAppPath(),
   });
 }
 

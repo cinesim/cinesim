@@ -51,6 +51,17 @@
   },
   "build": {
     "appId": "build.cinesim.desktop",
+    "asar": true,
+    "electronFuses": {
+      "enableCookieEncryption": true,
+      "enableEmbeddedAsarIntegrityValidation": true,
+      "enableNodeCliInspectArguments": false,
+      "enableNodeOptionsEnvironmentVariable": false,
+      "grantFileProtocolExtraPrivileges": false,
+      "loadBrowserProcessSpecificV8Snapshot": false,
+      "onlyLoadAppFromAsar": true,
+      "runAsNode": false
+    },
     "productName": "Cinesim",
     "files": [
       "dist/**/*",

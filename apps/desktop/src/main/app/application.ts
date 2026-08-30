@@ -22,6 +22,9 @@ import { registerTranscriptIpc } from "../transcripts/ipc";
 import type { DevelopmentConfiguration } from "./development-configuration";
 import { configureIpcSecurity } from "./secure-ipc";
 import { eventChannels } from "../../shared/contracts/channels";
+import { editorSession } from "./protocols";
+import { registerRendererProtocol } from "./renderer-protocol";
+import { denyPermissionCheck, denyPermissionRequest } from "./editor-security";
 
 const log = createCinesimLogger({ service: "desktop" });
 
@@ -41,6 +44,10 @@ export class DesktopApplication implements ApplicationLifecycle {
   async start(): Promise<void> {
     await app.whenReady();
     this.#eventLoopMonitor.start();
+    const secureEditorSession = editorSession();
+    secureEditorSession.setPermissionCheckHandler(denyPermissionCheck);
+    secureEditorSession.setPermissionRequestHandler(denyPermissionRequest);
+    registerRendererProtocol();
 
     const appState = new DesktopAppStateStore(join(app.getPath("userData"), "ui-state.json"));
     const agentSettings = new AgentSettingsStore(
@@ -80,7 +87,7 @@ export class DesktopApplication implements ApplicationLifecycle {
       );
     }
 
-    await registerMediaProtocol(this.projectStore, cloudMedia);
+    await registerMediaProtocol(this.projectStore, cloudMedia, this.development.rendererUrl);
     this.projectStore.derivedMedia.subscribe((snapshot) => {
       for (const target of BrowserWindow.getAllWindows())
         target.webContents.send(eventChannels.derivedChanged, snapshot);
@@ -141,10 +148,7 @@ export class DesktopApplication implements ApplicationLifecycle {
   }
 
   #openWindow(): void {
-    const window = createEditorWindow(this.development);
-    window.webContents.session.setPermissionRequestHandler((_webContents, _permission, callback) =>
-      callback(false),
-    );
+    createEditorWindow(this.development);
   }
 }
 
