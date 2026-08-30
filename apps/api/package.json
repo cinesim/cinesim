@@ -13,7 +13,7 @@
   },
   "dependencies": {
     "@better-auth/electron": "1.7.2",
-    "@fontsource-variable/geist": "5.3.0",
+    "@fontsource-variable/instrument-sans": "5.3.0",
     "@hono/node-server": "2.1.1",
     "aws4fetch": "1.0.20",
     "better-auth": "1.7.2",

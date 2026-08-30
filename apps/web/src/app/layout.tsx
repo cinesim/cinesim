@@ -1,4 +1,4 @@
-import "@fontsource-variable/geist/wght.css";
+import "@fontsource-variable/instrument-sans/wght.css";
 import "./globals.css";
 
 import type { Metadata, Viewport } from "next";

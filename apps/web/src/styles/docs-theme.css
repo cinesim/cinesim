@@ -2,9 +2,9 @@
    tokens declared in site.css so the docs and the marketing pages are one site. */
 
 @theme {
-  --default-font-family: "Geist Variable", ui-sans-serif, system-ui, sans-serif;
+  --default-font-family: "Instrument Sans Variable", ui-sans-serif, system-ui, sans-serif;
   --default-mono-font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
-  --font-sans: "Geist Variable", ui-sans-serif, system-ui, sans-serif;
+  --font-sans: "Instrument Sans Variable", ui-sans-serif, system-ui, sans-serif;
   --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
 }
 

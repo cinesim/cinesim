@@ -47,7 +47,7 @@
   --ui-font-size-heading: 20px;
   --ui-font-family-document: Georgia, Cambria, "Palatino Linotype", Palatino, serif;
 
-  font-family: "Geist Variable", sans-serif;
+  font-family: "Instrument Sans Variable", sans-serif;
   font-size: var(--ui-font-size-body);
   font-synthesis: none;
   text-rendering: optimizeLegibility;
