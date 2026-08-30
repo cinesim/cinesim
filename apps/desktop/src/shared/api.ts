@@ -324,7 +324,6 @@ export interface AgentSessionUpdate {
 export interface AgentSettingsUpdate {
   defaultProvider?: AgentProviderKind;
   provider?: AgentProviderKind;
-  executablePath?: string;
   model?: string;
   effort?: AgentEffort;
   permissionMode?: AgentPermissionMode;

@@ -1,5 +1,5 @@
 import { join, resolve } from "node:path";
-import { app, BrowserWindow } from "electron";
+import { app, BrowserWindow, safeStorage } from "electron";
 import { electronClient } from "@better-auth/electron/client";
 import { createCinesimLogger } from "@cinesim/logging";
 import { createAuthClient } from "better-auth/client";
@@ -105,7 +105,10 @@ export class DesktopAccountService {
             clientID: "cinesim-desktop",
             channelPrefix: "cinesim-auth",
             storagePrefix: "cinesim-auth",
-            storage: new DesktopAuthStorage(join(app.getPath("userData"), "account-session.json")),
+            storage: new DesktopAuthStorage(
+              join(app.getPath("userData"), "account-session.json"),
+              safeStorage,
+            ),
             sanitizeUser: (user) => ({
               id: user.id,
               name: user.name,
@@ -140,7 +143,7 @@ export class DesktopAccountService {
 
   setupMain(): void {
     this.#client?.setupMain({
-      bridges: true,
+      bridges: false,
       csp: false,
       scheme: false,
       getWindow: () => BrowserWindow.getAllWindows()[0] ?? null,
@@ -243,7 +246,7 @@ export class DesktopAccountService {
           "Add GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET before using Google sign-in",
         );
     }
-    await this.#client.requestAuth();
+    await this.#client.requestAuth(method === "google" ? { provider: "google" } : undefined);
   }
 
   async signOut(): Promise<AccountSnapshot> {

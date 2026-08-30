@@ -71,7 +71,6 @@ export function AgentSettings() {
   }, []);
 
   async function updateProvider(input: {
-    executablePath?: string;
     model?: string;
     effort?: AgentEffort;
     permissionMode?: AgentPermissionMode;
@@ -167,16 +166,7 @@ export function AgentSettings() {
                   className="flex-1"
                   value={configured.executablePath}
                   placeholder={status?.executablePath ?? "Not detected"}
-                  onChange={(event) =>
-                    setSettings({
-                      ...settings,
-                      providers: {
-                        ...settings.providers,
-                        [provider]: { ...configured, executablePath: event.target.value },
-                      },
-                    })
-                  }
-                  onBlur={(event) => void updateProvider({ executablePath: event.target.value })}
+                  readOnly
                 />
                 <button
                   className="grid size-9 place-items-center rounded-md border border-border text-muted hover:bg-surface hover:text-primary"

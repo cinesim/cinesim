@@ -6,6 +6,12 @@ import type {
   AgentSettings,
   AgentSettingsUpdate,
 } from "../../shared/api";
+import {
+  inspectAgentExecutable,
+  isAgentExecutableIdentity,
+  verifyAgentExecutable,
+} from "./executable-trust";
+import type { AgentExecutableIdentity } from "./executable-trust";
 
 const DEFAULT_SETTINGS: AgentSettings = {
   version: 1,
@@ -20,6 +26,12 @@ const DEFAULT_SETTINGS: AgentSettings = {
     },
   },
 };
+
+interface PersistedAgentSettings {
+  version: 2;
+  settings: AgentSettings;
+  executableIdentities: Record<AgentProviderKind, AgentExecutableIdentity | null>;
+}
 
 function isProvider(value: unknown): value is AgentProviderKind {
   return value === "claude" || value === "codex";
@@ -67,15 +79,45 @@ function parseSettings(value: unknown): AgentSettings {
 
 export class AgentSettingsStore {
   #settings: AgentSettings = structuredClone(DEFAULT_SETTINGS);
+  #executableIdentities: Record<AgentProviderKind, AgentExecutableIdentity | null> = {
+    claude: null,
+    codex: null,
+  };
   #writeQueue: Promise<void> = Promise.resolve();
 
   constructor(private readonly path: string) {}
 
   async load(): Promise<void> {
     try {
-      this.#settings = parseSettings(JSON.parse(await readFile(this.path, "utf8")) as unknown);
+      const parsed = JSON.parse(await readFile(this.path, "utf8")) as unknown;
+      const record =
+        parsed && typeof parsed === "object" && !Array.isArray(parsed)
+          ? (parsed as Record<string, unknown>)
+          : {};
+      if (record.version === 2) {
+        this.#settings = parseSettings(record.settings);
+        const identities =
+          record.executableIdentities &&
+          typeof record.executableIdentities === "object" &&
+          !Array.isArray(record.executableIdentities)
+            ? (record.executableIdentities as Record<string, unknown>)
+            : {};
+        for (const provider of ["claude", "codex"] as const) {
+          const identity = identities[provider];
+          this.#executableIdentities[provider] = isAgentExecutableIdentity(identity)
+            ? identity
+            : null;
+          if (!this.#executableIdentities[provider])
+            this.#settings.providers[provider].executablePath = "";
+        }
+      } else {
+        this.#settings = parseSettings(parsed);
+        for (const provider of ["claude", "codex"] as const)
+          this.#settings.providers[provider].executablePath = "";
+      }
     } catch {
       this.#settings = structuredClone(DEFAULT_SETTINGS);
+      this.#executableIdentities = { claude: null, codex: null };
     }
   }
 
@@ -88,7 +130,7 @@ export class AgentSettingsStore {
     if (update.provider) {
       const current = this.#settings.providers[update.provider];
       this.#settings.providers[update.provider] = {
-        executablePath: update.executablePath ?? current.executablePath,
+        executablePath: current.executablePath,
         model: update.model?.trim() || current.model,
         effort: update.effort ?? current.effort,
         permissionMode: update.permissionMode ?? current.permissionMode,
@@ -98,8 +140,31 @@ export class AgentSettingsStore {
     return this.snapshot();
   }
 
+  async trustExecutable(provider: AgentProviderKind, path: string): Promise<AgentSettings> {
+    const identity = await inspectAgentExecutable(path);
+    this.#executableIdentities[provider] = identity;
+    this.#settings.providers[provider].executablePath = identity.path;
+    await this.#queueSave();
+    return this.snapshot();
+  }
+
+  async requireTrustedExecutable(provider: AgentProviderKind): Promise<string> {
+    const identity = this.#executableIdentities[provider];
+    if (!identity)
+      throw new Error(`${provider === "claude" ? "Claude Code" : "Codex"} is not configured`);
+    return verifyAgentExecutable(identity);
+  }
+
   async #queueSave(): Promise<void> {
-    const contents = `${JSON.stringify(this.#settings, null, 2)}\n`;
+    const contents = `${JSON.stringify(
+      {
+        version: 2,
+        settings: this.#settings,
+        executableIdentities: this.#executableIdentities,
+      } satisfies PersistedAgentSettings,
+      null,
+      2,
+    )}\n`;
     const write = this.#writeQueue
       .catch(() => undefined)
       .then(async () => {

@@ -1,10 +1,11 @@
 import { describe, expect, it } from "vite-plus/test";
 import { assertIpcSender, isTrustedRendererUrl } from "../src/main/app/ipc-security";
+import { parseDevelopmentConfiguration } from "../src/main/app/development-configuration";
 
 describe("privileged IPC sender policy", () => {
   const developmentPolicy = {
     trustedRendererIds: new Set([7]),
-    developmentUrl: "http://127.0.0.1:5173",
+    developmentUrl: new URL("http://127.0.0.1:5173"),
     applicationPath: "/Applications/Cinesim.app/Contents/Resources/app.asar",
   };
 
@@ -51,5 +52,61 @@ describe("privileged IPC sender policy", () => {
         policy,
       ),
     ).toBe(false);
+  });
+
+  it("accepts only explicit loopback development URLs in unpackaged builds", () => {
+    for (const rendererUrl of [
+      "https://127.0.0.1:5173",
+      "http://localhost:5173",
+      "http://192.168.1.10:5173",
+      "file:///tmp/index.html",
+      "http://user:secret@127.0.0.1:5173",
+      "not a URL",
+    ]) {
+      expect(() => parseDevelopmentConfiguration({ isPackaged: false, rendererUrl })).toThrow();
+    }
+    expect(
+      parseDevelopmentConfiguration({
+        isPackaged: false,
+        rendererUrl: "http://127.0.0.1:5173/editor",
+      }).rendererUrl?.href,
+    ).toBe("http://127.0.0.1:5173/editor");
+    expect(
+      parseDevelopmentConfiguration({
+        isPackaged: false,
+        rendererUrl: "http://[::1]:5173",
+      }).enabled,
+    ).toBe(true);
+  });
+
+  it("rejects development environment overrides in packaged builds", () => {
+    expect(() =>
+      parseDevelopmentConfiguration({
+        isPackaged: true,
+        rendererUrl: "http://127.0.0.1:5173",
+      }),
+    ).toThrow("not allowed");
+    expect(() =>
+      parseDevelopmentConfiguration({
+        isPackaged: true,
+        diagnosticProject: "/tmp/project",
+      }),
+    ).toThrow("not allowed");
+  });
+
+  it("gates and resolves diagnostic projects behind valid development mode", () => {
+    expect(() =>
+      parseDevelopmentConfiguration({
+        isPackaged: false,
+        diagnosticProject: "relative/project",
+      }),
+    ).toThrow("requires");
+    expect(
+      parseDevelopmentConfiguration({
+        isPackaged: false,
+        rendererUrl: "http://127.0.0.1:5173",
+        diagnosticProject: "relative/project",
+      }).diagnosticProject,
+    ).toMatch(/\/relative\/project$/);
   });
 });

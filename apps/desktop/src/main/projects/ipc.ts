@@ -13,6 +13,7 @@ import type { DesktopProjectStore } from "./project-store";
 import { canonicalProjectSizeBytes } from "./project-size";
 import { isTemporaryMediaSelection } from "./media-import";
 import { registerIpcHandler } from "../app/secure-ipc";
+import { requireUserIntent } from "../app/user-intent";
 
 const projectManifestSchema = z.object({
   version: z.literal(1),
@@ -194,6 +195,12 @@ export function registerProjectIpc(
     projectManifestSchema.parse(
       JSON.parse(await readFile(resolve(canonical, "cinesim.json"), "utf8")) as unknown,
     );
+    await requireUserIntent({
+      title: "Move project to Trash?",
+      message: "Move this Cinesim project to the system Trash?",
+      detail: canonical,
+      confirmLabel: "Move to Trash",
+    });
     await agents.stopProject(directory);
     if (store.directory === directory) await store.close();
     await shell.trashItem(canonical);

@@ -1,8 +1,9 @@
 import { join } from "node:path";
 import { app, BrowserWindow, nativeTheme } from "electron";
+import type { DevelopmentConfiguration } from "./development-configuration";
 import { trustIpcRenderer } from "./secure-ipc";
 
-export function createEditorWindow(): BrowserWindow {
+export function createEditorWindow(configuration: DevelopmentConfiguration): BrowserWindow {
   const window = new BrowserWindow({
     width: 1512,
     height: 982,
@@ -24,8 +25,7 @@ export function createEditorWindow(): BrowserWindow {
   window.once("ready-to-show", () => window.show());
   window.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
   window.webContents.on("will-navigate", (event) => event.preventDefault());
-  const developmentUrl = process.env.CINESIM_DEV_SERVER_URL;
-  if (developmentUrl) void window.loadURL(developmentUrl);
+  if (configuration.rendererUrl) void window.loadURL(configuration.rendererUrl.href);
   else void window.loadFile(join(app.getAppPath(), "dist/renderer/index.html"));
   return window;
 }

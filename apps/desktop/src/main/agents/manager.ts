@@ -24,6 +24,11 @@ interface PersistedAgentState {
 
 interface PendingApproval {
   sessionId: string;
+  turnId: string;
+  toolName: string;
+  detail: string;
+  expiresAt: number;
+  timer: NodeJS.Timeout;
   resolve(accepted: boolean): void;
 }
 
@@ -34,6 +39,7 @@ const EMPTY_STATE: PersistedAgentState = {
 };
 
 const MAX_EVENTS_PER_SESSION = 600;
+const APPROVAL_LEASE_MS = 2 * 60 * 1_000;
 
 function now(): string {
   return new Date().toISOString();
@@ -339,7 +345,12 @@ export class AgentManager implements AgentToolHooks {
     const pending = this.#pendingApprovals.get(requestId);
     if (!pending || pending.sessionId !== sessionId)
       throw new Error("Approval request is no longer active");
+    if (pending.turnId !== session.activeTurnId || Date.now() >= pending.expiresAt) {
+      this.#expireApproval(requestId);
+      throw new Error("Approval request expired");
+    }
     this.#pendingApprovals.delete(requestId);
+    clearTimeout(pending.timer);
     pending.resolve(decision === "accept");
     session.status = "working";
     this.#appendEvent(session, {
@@ -349,6 +360,28 @@ export class AgentManager implements AgentToolHooks {
       status: decision === "accept" ? "completed" : "declined",
     });
     return this.#changed(session.projectDirectory);
+  }
+
+  approvalIntent(sessionId: string, requestId: string): { toolName: string; detail: string } {
+    const session = this.#requireSession(sessionId);
+    const pending = this.#pendingApprovals.get(requestId);
+    if (
+      !pending ||
+      pending.sessionId !== sessionId ||
+      pending.turnId !== session.activeTurnId ||
+      Date.now() >= pending.expiresAt
+    ) {
+      if (pending) this.#expireApproval(requestId);
+      throw new Error("Approval request is no longer active");
+    }
+    return { toolName: pending.toolName, detail: pending.detail };
+  }
+
+  revertIntent(sessionId: string, turnId: string): { turnNumber: number; summary: string } {
+    const session = this.#requireSession(sessionId);
+    const checkpoint = session.checkpoints.find((candidate) => candidate.turnId === turnId);
+    if (!checkpoint) throw new Error("Checkpoint is unavailable for this turn");
+    return { turnNumber: checkpoint.turnNumber, summary: checkpoint.summary };
   }
 
   async revert(sessionId: string, turnId: string): Promise<AgentProjectSnapshot> {
@@ -425,7 +458,9 @@ export class AgentManager implements AgentToolHooks {
 
   requestApproval(sessionId: string, toolName: string, detail: string): Promise<boolean> {
     const session = this.#requireSession(sessionId);
+    if (!session.activeTurnId) throw new Error("Approval requires an active agent turn");
     const requestId = crypto.randomUUID();
+    const turnId = session.activeTurnId;
     session.status = "waiting";
     this.#appendEvent(session, {
       kind: "approval-requested",
@@ -434,11 +469,20 @@ export class AgentManager implements AgentToolHooks {
       detail,
       destructive: true,
       status: "running",
-      ...(session.activeTurnId ? { turnId: session.activeTurnId } : {}),
+      turnId,
     });
     this.#changed(session.projectDirectory);
     return new Promise<boolean>((resolve) => {
-      this.#pendingApprovals.set(requestId, { sessionId, resolve });
+      const timer = setTimeout(() => this.#expireApproval(requestId), APPROVAL_LEASE_MS);
+      this.#pendingApprovals.set(requestId, {
+        sessionId,
+        turnId,
+        toolName,
+        detail,
+        expiresAt: Date.now() + APPROVAL_LEASE_MS,
+        timer,
+        resolve,
+      });
     });
   }
 
@@ -449,11 +493,7 @@ export class AgentManager implements AgentToolHooks {
   async #ensureRuntime(session: AgentSessionSnapshot): Promise<AgentProviderRuntime> {
     const existing = this.#runtimes.get(session.id);
     if (existing) return existing;
-    const providerSettings = this.settingsStore.snapshot().providers[session.provider];
-    if (!providerSettings.executablePath)
-      throw new Error(
-        `${session.provider === "claude" ? "Claude Code" : "Codex"} is not configured`,
-      );
+    const executablePath = await this.settingsStore.requireTrustedExecutable(session.provider);
     const credential = this.mcpServer.registerSession({
       sessionId: session.id,
       projectDirectory: session.projectDirectory,
@@ -484,7 +524,7 @@ export class AgentManager implements AgentToolHooks {
       onExit: (detail?: string) => void this.#providerExited(session.id, detail),
     };
     const launchOptions = {
-      executablePath: providerSettings.executablePath,
+      executablePath,
       cwd: session.projectDirectory,
       model: session.model,
       effort: session.effort,
@@ -607,6 +647,7 @@ export class AgentManager implements AgentToolHooks {
     const session = this.#state.sessions.find((candidate) => candidate.id === sessionId);
     for (const [requestId, pending] of this.#pendingApprovals) {
       if (pending.sessionId === sessionId) {
+        clearTimeout(pending.timer);
         pending.resolve(false);
         this.#pendingApprovals.delete(requestId);
         if (session)
@@ -619,6 +660,25 @@ export class AgentManager implements AgentToolHooks {
           });
       }
     }
+  }
+
+  #expireApproval(requestId: string): void {
+    const pending = this.#pendingApprovals.get(requestId);
+    if (!pending) return;
+    clearTimeout(pending.timer);
+    this.#pendingApprovals.delete(requestId);
+    pending.resolve(false);
+    const session = this.#state.sessions.find((candidate) => candidate.id === pending.sessionId);
+    if (!session) return;
+    session.status = session.activeTurnId === pending.turnId ? "working" : session.status;
+    this.#appendEvent(session, {
+      kind: "approval-resolved",
+      requestId,
+      title: "Approval expired",
+      status: "declined",
+      turnId: pending.turnId,
+    });
+    this.#changed(session.projectDirectory);
   }
 
   #appendEvent(

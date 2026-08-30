@@ -19,6 +19,8 @@ import type { DesktopAccountService } from "../account/service";
 import { registerCloudIpc } from "../cloud/ipc";
 import { CloudMediaManager } from "../cloud/manager";
 import { registerTranscriptIpc } from "../transcripts/ipc";
+import type { DevelopmentConfiguration } from "./development-configuration";
+import { configureIpcSecurity } from "./secure-ipc";
 
 const log = createCinesimLogger({ service: "desktop" });
 
@@ -27,8 +29,12 @@ export class DesktopApplication implements ApplicationLifecycle {
   #agents: AgentManager | null = null;
   #eventLoopMonitor = new MainEventLoopMonitor();
 
-  constructor(private readonly accountService: DesktopAccountService) {
+  constructor(
+    private readonly accountService: DesktopAccountService,
+    private readonly development: DevelopmentConfiguration,
+  ) {
     this.projectStore = new DesktopProjectStore(accountService);
+    configureIpcSecurity({ developmentUrl: development.rendererUrl });
   }
 
   async start(): Promise<void> {
@@ -54,12 +60,8 @@ export class DesktopApplication implements ApplicationLifecycle {
     });
     app.once("will-quit", unsubscribeAccount);
 
-    const diagnosticProject = process.env.CINESIM_DIAGNOSTIC_PROJECT;
-    if (
-      process.env.CINESIM_DEV_SERVER_URL &&
-      diagnosticProject &&
-      diagnosticProject.length <= 4_096
-    ) {
+    const diagnosticProject = this.development.diagnosticProject;
+    if (diagnosticProject) {
       await this.projectStore.open(diagnosticProject);
       log.info(
         { operation: "diagnostic-project-open", projectId: this.projectStore.project?.id },
@@ -128,7 +130,7 @@ export class DesktopApplication implements ApplicationLifecycle {
   }
 
   #openWindow(): void {
-    const window = createEditorWindow();
+    const window = createEditorWindow(this.development);
     window.webContents.session.setPermissionRequestHandler((_webContents, _permission, callback) =>
       callback(false),
     );

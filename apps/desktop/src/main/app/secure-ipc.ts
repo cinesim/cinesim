@@ -3,6 +3,11 @@ import type { IpcMainInvokeEvent, WebContents } from "electron";
 import { assertIpcSender } from "./ipc-security";
 
 const trustedRendererIds = new Set<number>();
+let developmentUrl: URL | undefined;
+
+export function configureIpcSecurity(input: { developmentUrl: URL | null }): void {
+  developmentUrl = input.developmentUrl ?? undefined;
+}
 
 export function trustIpcRenderer(webContents: WebContents): void {
   trustedRendererIds.add(webContents.id);
@@ -12,7 +17,7 @@ export function trustIpcRenderer(webContents: WebContents): void {
 export function assertTrustedIpcSender(event: IpcMainInvokeEvent): void {
   assertIpcSender(event, {
     trustedRendererIds,
-    developmentUrl: process.env.CINESIM_DEV_SERVER_URL,
+    developmentUrl,
     applicationPath: app.getAppPath(),
   });
 }

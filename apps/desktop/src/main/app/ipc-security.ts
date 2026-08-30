@@ -12,14 +12,14 @@ export interface IpcSenderLike {
 
 export interface IpcSecurityPolicy {
   trustedRendererIds: ReadonlySet<number>;
-  developmentUrl?: string | undefined;
+  developmentUrl?: URL | undefined;
   applicationPath: string;
 }
 
 export function isTrustedRendererUrl(value: string, policy: IpcSecurityPolicy): boolean {
   try {
     const url = new URL(value);
-    if (policy.developmentUrl) return url.origin === new URL(policy.developmentUrl).origin;
+    if (policy.developmentUrl) return url.origin === policy.developmentUrl.origin;
     if (url.protocol !== "file:") return false;
     return (
       resolve(fileURLToPath(url)) ===
