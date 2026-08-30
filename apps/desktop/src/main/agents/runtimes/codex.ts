@@ -7,6 +7,9 @@ import type {
 } from "./types";
 import { asRecord, MAX_PROVIDER_LINE_CHARACTERS, stringValue } from "./types";
 import { CODEX_REQUEST_TIMEOUT_MS } from "../runtime-policy";
+import type { AgentTokenUsage } from "../../../shared/contracts";
+
+type RuntimeTokenUsage = Omit<AgentTokenUsage, "updatedAt">;
 
 interface PendingRequest {
   resolve(value: unknown): void;
@@ -167,93 +170,131 @@ export class CodexRuntime implements AgentProviderRuntime {
 
   #handleNotification(method: string, params: Record<string, unknown> | null): void {
     if (!params) return;
-    if (method === "thread/started") {
-      const id = stringValue(asRecord(params.thread)?.id);
-      if (id) {
-        this.#threadId = id;
-        this.callbacks.onProviderSessionId(id);
-      }
+
+    switch (method) {
+      case "thread/started":
+        return this.#handleThreadStarted(params);
+      case "turn/started":
+        return this.#handleTurnStarted(params);
+      case "turn/completed":
+        return this.#handleTurnCompleted(params);
+      case "thread/tokenUsage/updated":
+        return this.#handleTokenUsage(params);
+      case "item/agentMessage/delta":
+        return this.#handleAssistantDelta(params);
+      case "item/reasoning/summaryTextDelta":
+      case "item/reasoning/textDelta":
+        return this.#handleReasoningDelta(params);
+      case "item/started":
+      case "item/completed":
+        return this.#handleItemLifecycle(method, params);
+      case "error":
+        return this.#handleError(params);
+    }
+  }
+
+  #handleThreadStarted(params: Record<string, unknown>): void {
+    const id = stringValue(asRecord(params.thread)?.id);
+    if (!id) return;
+
+    this.#threadId = id;
+    this.callbacks.onProviderSessionId(id);
+  }
+
+  #handleTurnStarted(params: Record<string, unknown>): void {
+    this.#activeTurnId = stringValue(asRecord(params.turn)?.id) ?? this.#activeTurnId;
+    this.callbacks.onTurnStarted(this.#activeTurnId ?? undefined);
+  }
+
+  #handleTurnCompleted(params: Record<string, unknown>): void {
+    const turn = asRecord(params.turn);
+    const status = stringValue(turn?.status);
+    const error = asRecord(turn?.error);
+    this.#activeTurnId = null;
+
+    this.callbacks.onTurnCompleted(
+      status === "failed" ? "failed" : status === "interrupted" ? "interrupted" : "completed",
+      stringValue(error?.message),
+    );
+  }
+
+  #handleTokenUsage(params: Record<string, unknown>): void {
+    const usage = this.#readTokenUsage(params);
+    if (usage) this.callbacks.onTokenUsage(usage);
+  }
+
+  #readTokenUsage(params: Record<string, unknown>): RuntimeTokenUsage | null {
+    const tokenUsage = asRecord(params.tokenUsage);
+    const last = asRecord(tokenUsage?.last);
+    const total = asRecord(tokenUsage?.total);
+    const usedTokens = this.#tokenCount(last?.totalTokens);
+    if (usedTokens === 0) return null;
+
+    const maxTokens = this.#tokenCount(tokenUsage?.modelContextWindow);
+    const inputTokens = this.#tokenCount(last?.inputTokens);
+    const cachedInputTokens = this.#tokenCount(last?.cachedInputTokens);
+    const outputTokens = this.#tokenCount(last?.outputTokens);
+    const reasoningOutputTokens = this.#tokenCount(last?.reasoningOutputTokens);
+    const totalProcessedTokens = this.#tokenCount(total?.totalTokens);
+    const usage: RuntimeTokenUsage = {
+      usedTokens: maxTokens > 0 ? Math.min(usedTokens, maxTokens) : usedTokens,
+    };
+
+    if (maxTokens > 0) usage.maxTokens = maxTokens;
+    if (inputTokens > 0) usage.inputTokens = inputTokens;
+    if (cachedInputTokens > 0) usage.cachedInputTokens = cachedInputTokens;
+    if (outputTokens > 0) usage.outputTokens = outputTokens;
+    if (reasoningOutputTokens > 0) usage.reasoningOutputTokens = reasoningOutputTokens;
+    if (totalProcessedTokens > usedTokens) usage.totalProcessedTokens = totalProcessedTokens;
+
+    return usage;
+  }
+
+  #handleAssistantDelta(params: Record<string, unknown>): void {
+    const delta = stringValue(params.delta);
+    if (!delta) return;
+
+    this.#sawAssistantDelta = true;
+    this.callbacks.onEvent({ kind: "assistant-message", text: delta });
+  }
+
+  #handleReasoningDelta(params: Record<string, unknown>): void {
+    const delta = stringValue(params.delta);
+    if (delta) this.callbacks.onEvent({ kind: "reasoning", text: delta });
+  }
+
+  #handleItemLifecycle(
+    method: "item/started" | "item/completed",
+    params: Record<string, unknown>,
+  ): void {
+    const item = asRecord(params.item);
+    const type = stringValue(item?.type) ?? "Tool";
+
+    if (type === "agentMessage") {
+      if (method !== "item/completed" || this.#sawAssistantDelta) return;
+      const text = stringValue(item?.text);
+      if (text) this.callbacks.onEvent({ kind: "assistant-message", text });
       return;
     }
-    if (method === "turn/started") {
-      this.#activeTurnId = stringValue(asRecord(params.turn)?.id) ?? this.#activeTurnId;
-      this.callbacks.onTurnStarted(this.#activeTurnId ?? undefined);
-      return;
-    }
-    if (method === "turn/completed") {
-      const turn = asRecord(params.turn);
-      const status = stringValue(turn?.status);
-      const error = asRecord(turn?.error);
-      this.#activeTurnId = null;
-      this.callbacks.onTurnCompleted(
-        status === "failed" ? "failed" : status === "interrupted" ? "interrupted" : "completed",
-        stringValue(error?.message),
-      );
-      return;
-    }
-    if (method === "thread/tokenUsage/updated") {
-      const tokenUsage = asRecord(params.tokenUsage);
-      const last = asRecord(tokenUsage?.last);
-      const total = asRecord(tokenUsage?.total);
-      const usedTokens = this.#tokenCount(last?.totalTokens);
-      if (usedTokens > 0) {
-        const maxTokens = this.#tokenCount(tokenUsage?.modelContextWindow);
-        const totalProcessedTokens = this.#tokenCount(total?.totalTokens);
-        const inputTokens = this.#tokenCount(last?.inputTokens);
-        const cachedInputTokens = this.#tokenCount(last?.cachedInputTokens);
-        const outputTokens = this.#tokenCount(last?.outputTokens);
-        const reasoningOutputTokens = this.#tokenCount(last?.reasoningOutputTokens);
-        this.callbacks.onTokenUsage({
-          usedTokens: maxTokens > 0 ? Math.min(usedTokens, maxTokens) : usedTokens,
-          ...(maxTokens > 0 ? { maxTokens } : {}),
-          ...(inputTokens > 0 ? { inputTokens } : {}),
-          ...(cachedInputTokens > 0 ? { cachedInputTokens } : {}),
-          ...(outputTokens > 0 ? { outputTokens } : {}),
-          ...(reasoningOutputTokens > 0 ? { reasoningOutputTokens } : {}),
-          ...(totalProcessedTokens > usedTokens ? { totalProcessedTokens } : {}),
-        });
-      }
-      return;
-    }
-    if (method === "item/agentMessage/delta") {
-      const delta = stringValue(params.delta);
-      if (delta) {
-        this.#sawAssistantDelta = true;
-        this.callbacks.onEvent({ kind: "assistant-message", text: delta });
-      }
-      return;
-    }
-    if (method === "item/reasoning/summaryTextDelta" || method === "item/reasoning/textDelta") {
-      const delta = stringValue(params.delta);
-      if (delta) this.callbacks.onEvent({ kind: "reasoning", text: delta });
-      return;
-    }
-    if (method === "item/started" || method === "item/completed") {
-      const item = asRecord(params.item);
-      const type = stringValue(item?.type) ?? "Tool";
-      if (type === "agentMessage" && method === "item/completed" && !this.#sawAssistantDelta) {
-        const text = stringValue(item?.text);
-        if (text) this.callbacks.onEvent({ kind: "assistant-message", text });
-      } else if (type !== "mcpToolCall" && type !== "reasoning" && type !== "agentMessage") {
-        const detail = stringValue(item?.command) ?? stringValue(item?.text);
-        this.callbacks.onEvent({
-          kind: method === "item/started" ? "tool-started" : "tool-completed",
-          toolName: type,
-          title: type,
-          ...(detail ? { detail } : {}),
-          status: method === "item/started" ? "running" : "completed",
-        });
-      }
-      return;
-    }
-    if (method === "error") {
-      const error = asRecord(params.error);
-      this.callbacks.onEvent({
-        kind: "error",
-        title: "Codex error",
-        detail: stringValue(error?.message) ?? JSON.stringify(params),
-      });
-    }
+
+    if (type === "mcpToolCall" || type === "reasoning") return;
+    const detail = stringValue(item?.command) ?? stringValue(item?.text);
+    this.callbacks.onEvent({
+      kind: method === "item/started" ? "tool-started" : "tool-completed",
+      toolName: type,
+      title: type,
+      ...(detail ? { detail } : {}),
+      status: method === "item/started" ? "running" : "completed",
+    });
+  }
+
+  #handleError(params: Record<string, unknown>): void {
+    const error = asRecord(params.error);
+    this.callbacks.onEvent({
+      kind: "error",
+      title: "Codex error",
+      detail: stringValue(error?.message) ?? JSON.stringify(params),
+    });
   }
 
   async #handleServerRequest(

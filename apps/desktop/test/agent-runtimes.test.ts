@@ -92,15 +92,23 @@ const send = value => console.log(JSON.stringify(value));
 readline.createInterface({input:process.stdin}).on("line", line => {
   const request = JSON.parse(line);
   if (request.method === "initialize") send({id:request.id,result:{}});
-  if (request.method === "thread/start") send({id:request.id,result:{thread:{id:"codex-thread"}}});
+  if (request.method === "thread/start") {
+    send({id:request.id,result:{thread:{id:"codex-thread"}}});
+    send({method:"thread/started",params:{thread:{id:"codex-thread"}}});
+  }
   if (request.method === "turn/start") {
     if (request.params.effort !== "high") process.exit(3);
     send({id:request.id,result:{turn:{id:"codex-turn"}}});
+    send({method:"turn/started",params:{turn:{id:"codex-turn"}}});
     send({id:"approval-1",method:"item/commandExecution/requestApproval",params:{command:"echo test"}});
   }
   if (request.id === "approval-1" && request.result?.decision === "decline") {
+    send({method:"item/reasoning/summaryTextDelta",params:{delta:"Checking the timeline."}});
+    send({method:"item/started",params:{item:{type:"commandExecution",command:"echo test"}}});
+    send({method:"item/completed",params:{item:{type:"commandExecution",command:"echo test"}}});
     send({method:"item/agentMessage/delta",params:{delta:"Changed the timeline."}});
     send({method:"thread/tokenUsage/updated",params:{threadId:"codex-thread",turnId:"codex-turn",tokenUsage:{last:{inputTokens:3000,cachedInputTokens:2000,outputTokens:400,reasoningOutputTokens:100,totalTokens:3500},total:{inputTokens:5000,cachedInputTokens:3000,outputTokens:600,reasoningOutputTokens:200,totalTokens:5800},modelContextWindow:258400}}});
+    send({method:"error",params:{error:{message:"Nonfatal provider notice"}}});
     send({method:"turn/completed",params:{turn:{id:"codex-turn",status:"completed"}}});
   }
 });`,
@@ -112,7 +120,11 @@ readline.createInterface({input:process.stdin}).on("line", line => {
       finish = resolve;
     });
     let approvalRequested = false;
+    const providerSessionIds: string[] = [];
+    const startedTurnIds: Array<string | undefined> = [];
     const runtimeCallbacks = callbacks(finish, events, usages);
+    runtimeCallbacks.onProviderSessionId = (id) => providerSessionIds.push(id);
+    runtimeCallbacks.onTurnStarted = (id) => startedTurnIds.push(id);
     runtimeCallbacks.onApproval = async () => {
       approvalRequested = true;
       return false;
@@ -121,7 +133,29 @@ readline.createInterface({input:process.stdin}).on("line", line => {
     await runtime.start();
     await runtime.send("Move the clip");
     await completed;
+    expect(providerSessionIds).toContain("codex-thread");
+    expect(startedTurnIds).toContain("codex-turn");
+    expect(events).toContainEqual({ kind: "reasoning", text: "Checking the timeline." });
+    expect(events).toContainEqual({
+      kind: "tool-started",
+      toolName: "commandExecution",
+      title: "commandExecution",
+      detail: "echo test",
+      status: "running",
+    });
+    expect(events).toContainEqual({
+      kind: "tool-completed",
+      toolName: "commandExecution",
+      title: "commandExecution",
+      detail: "echo test",
+      status: "completed",
+    });
     expect(events).toContainEqual({ kind: "assistant-message", text: "Changed the timeline." });
+    expect(events).toContainEqual({
+      kind: "error",
+      title: "Codex error",
+      detail: "Nonfatal provider notice",
+    });
     expect(approvalRequested).toBe(true);
     expect(usages).toContainEqual({
       usedTokens: 3_500,
@@ -132,6 +166,44 @@ readline.createInterface({input:process.stdin}).on("line", line => {
       reasoningOutputTokens: 100,
       totalProcessedTokens: 5_800,
     });
+    await runtime.stop();
+  });
+
+  it("uses the completed Codex message when no assistant delta arrived", async () => {
+    const path = await executable(
+      "fake-codex-fallback",
+      `const readline = require("node:readline");
+const send = value => console.log(JSON.stringify(value));
+readline.createInterface({input:process.stdin}).on("line", line => {
+  const request = JSON.parse(line);
+  if (request.method === "initialize") send({id:request.id,result:{}});
+  if (request.method === "thread/start") send({id:request.id,result:{thread:{id:"codex-thread"}}});
+  if (request.method === "turn/start") {
+    send({id:request.id,result:{turn:{id:"codex-turn"}}});
+    send({method:"item/completed",params:{item:{type:"agentMessage",text:"Completed response."}}});
+    send({method:"turn/completed",params:{turn:{id:"codex-turn",status:"failed",error:{message:"Provider failed"}}}});
+  }
+});`,
+    );
+    const events: AgentRuntimeEvent[] = [];
+    let finish!: () => void;
+    const completed = new Promise<void>((resolve) => {
+      finish = resolve;
+    });
+    const completions: Array<{ status: string; detail?: string }> = [];
+    const runtimeCallbacks = callbacks(finish, events);
+    runtimeCallbacks.onTurnCompleted = (status, detail) => {
+      completions.push({ status, ...(detail ? { detail } : {}) });
+      finish();
+    };
+    const runtime = new CodexRuntime(launchOptions(path), runtimeCallbacks);
+
+    await runtime.start();
+    await runtime.send("Return a complete message");
+    await completed;
+
+    expect(events).toContainEqual({ kind: "assistant-message", text: "Completed response." });
+    expect(completions).toEqual([{ status: "failed", detail: "Provider failed" }]);
     await runtime.stop();
   });
 });
