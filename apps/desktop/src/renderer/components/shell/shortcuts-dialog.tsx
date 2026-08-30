@@ -32,6 +32,7 @@ export function ShortcutsDialog({ open, isMac, onClose }: ShortcutsDialogProps) 
     {
       title: "Projects",
       shortcuts: [
+        { label: "New project", keys: `${command}N`, scope: "Home" },
         { label: "Open project", keys: `${command}O`, scope: "Home" },
         { label: "Open recent project", keys: `${command}1–9`, scope: "Home" },
       ],

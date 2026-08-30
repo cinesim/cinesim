@@ -1,10 +1,11 @@
 import { randomUUID } from "node:crypto";
-import { lstat, readFile, realpath } from "node:fs/promises";
+import { lstat, readFile, realpath, stat } from "node:fs/promises";
 import { parse, resolve } from "node:path";
 import { dialog, shell } from "electron";
 import { z } from "zod";
 import { cloudProjectIdSchema, projectIdSchema, settingsSchema } from "@cinesim/core";
 import type { ProjectId } from "@cinesim/core";
+import type { CreateProjectLocation, RecentProjectDetails } from "../../shared/contracts";
 import type { AgentManager } from "../agents/manager";
 import type { DesktopAccountService } from "../account/service";
 import type { CloudMediaManager } from "../cloud/manager";
@@ -22,6 +23,8 @@ const projectManifestSchema = z.object({
 });
 
 export class ProjectIpcController {
+  #createLocation: CreateProjectLocation | null = null;
+
   constructor(
     private readonly store: DesktopProjectStore,
     private readonly appState: DesktopAppStateStore,
@@ -30,18 +33,28 @@ export class ProjectIpcController {
     private readonly cloudMedia: CloudMediaManager,
   ) {}
 
-  async create(name: string, kind: "local" | "cloud") {
-    if (kind === "cloud") await this.#requireSignedInAccount();
+  async chooseCreateLocation(): Promise<CreateProjectLocation | null> {
     const selection = await dialog.showOpenDialog({
-      title: "Choose a parent folder for the new Cinesim project",
-      buttonLabel: "Create here",
+      title: "Choose where to save the new Cinesim project",
+      buttonLabel: "Choose folder",
       properties: ["openDirectory", "createDirectory"],
     });
     if (selection.canceled) return null;
+    const location = { token: randomUUID(), directory: selection.filePaths[0]! };
+    this.#createLocation = location;
+    return location;
+  }
+
+  async create(name: string, kind: "local" | "cloud", locationToken: string) {
+    if (kind === "cloud") await this.#requireSignedInAccount();
+    const location = this.#createLocation;
+    if (!location || location.token !== locationToken)
+      throw new Error("Choose where to save the project before creating it");
+    this.#createLocation = null;
 
     const projectId = projectIdSchema.parse(`project_${randomUUID().replaceAll("-", "")}`);
     const cloudProjectId = await this.#registerCloudProject(kind, projectId, name);
-    const session = await this.store.create(selection.filePaths[0]!, {
+    const session = await this.store.create(location.directory, {
       name,
       projectId,
       ...(cloudProjectId ? { cloudProjectId } : {}),
@@ -73,15 +86,26 @@ export class ProjectIpcController {
     return this.#openRememberedProject(directory, manifest.kind);
   }
 
-  async recentSizes(): Promise<Record<string, number | null>> {
+  async recentDetails(): Promise<Record<string, RecentProjectDetails>> {
     const projects = this.appState.snapshot().recentProjects;
-    const sizes = await Promise.all(
-      projects.map(async (project) => [
-        project.directory,
-        await canonicalProjectSizeBytes(project.directory).catch(() => null),
-      ]),
+    const details = await Promise.all(
+      projects.map(async (project) => {
+        const [size, directoryStats, manifestStats] = await Promise.all([
+          canonicalProjectSizeBytes(project.directory).catch(() => null),
+          stat(project.directory).catch(() => null),
+          stat(resolve(project.directory, "cinesim.json")).catch(() => null),
+        ]);
+        return [
+          project.directory,
+          {
+            sizeBytes: size,
+            createdAt: directoryStats ? directoryStats.birthtimeMs : null,
+            modifiedAt: manifestStats ? manifestStats.mtimeMs : null,
+          },
+        ] as const;
+      }),
     );
-    return Object.fromEntries(sizes);
+    return Object.fromEntries(details);
   }
 
   updateSettings(update: Parameters<DesktopProjectStore["updateSettings"]>[0]) {

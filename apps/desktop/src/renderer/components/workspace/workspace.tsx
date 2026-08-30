@@ -33,8 +33,6 @@ function ProjectWorkspace({ session }: WorkspaceProps) {
   const editorLayout = useRendererStore(editorLayoutFromState);
   const cutLayout = useRendererStore(cutLayoutFromState);
   const onOpenTimeline = useRendererStore((state) => state.showTimeline);
-  const error = useRendererStore((state) => state.operationError);
-  const clearError = useRendererStore((state) => state.clearError);
   const transcripts = useRendererStore((state) => state.transcripts);
   const loadTranscripts = useRendererStore((state) => state.loadTranscripts);
   const selectClip = useRendererStore((state) => state.selectClip);
@@ -97,15 +95,6 @@ function ProjectWorkspace({ session }: WorkspaceProps) {
           )}
         </EditorTransportProvider>
       ) : null}
-
-      {error && (
-        <button
-          className="absolute bottom-3 left-1/2 z-50 -translate-x-1/2 rounded-lg border border-border-strong bg-panel px-4 py-2 text-ui text-primary shadow-xl"
-          onClick={clearError}
-        >
-          {error}
-        </button>
-      )}
     </div>
   );
 }

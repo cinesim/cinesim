@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef } from "react";
 import type { RefObject } from "react";
 import type { Project, TimeUs } from "@cinesim/core";
 import { PlaybackRuntime, WebGpuCompositor } from "@cinesim/engine";
@@ -37,8 +37,8 @@ export function useViewerRuntime({
   const { cacheKey, epoch } = derivedScope;
   const playbackRef = useRef<PlaybackRuntime | null>(null);
   const projectRef = useRef(project);
-  const [error, setError] = useState<string | null>(null);
   const store = useRendererStoreApi();
+  const reportError = useRendererStore((state) => state.reportError);
   const runtime = useRendererStore((state) =>
     state.playbackRuntime?.projectDirectory === projectDirectory &&
     state.playbackRuntime.sequenceId === sequenceId
@@ -55,7 +55,7 @@ export function useViewerRuntime({
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
-    const reportPlaybackError = (caught: Error) => setError(caught.message);
+    const reportPlaybackError = (caught: Error) => reportError(caught.message);
     const compositor = new WebGpuCompositor(canvas, { onError: reportPlaybackError });
     const playback = new PlaybackRuntime(projectRef.current, compositor, {
       sourceResolver: new ProxySourceResolver(
@@ -122,7 +122,17 @@ export function useViewerRuntime({
       setRuntime(projectDirectory, sequenceId, null);
       onController?.(null);
     };
-  }, [cacheKey, canvasRef, epoch, onController, projectDirectory, sequenceId, setRuntime, store]);
+  }, [
+    cacheKey,
+    canvasRef,
+    epoch,
+    onController,
+    projectDirectory,
+    reportError,
+    sequenceId,
+    setRuntime,
+    store,
+  ]);
 
-  return { error, playbackRef, runtime };
+  return { playbackRef, runtime };
 }

@@ -17,6 +17,5 @@ export function useAppRouteController() {
     loading,
     openingProject,
     showStartupLoading: useDelayedBusy(loading),
-    showProjectOpening: useDelayedBusy(openingProject),
   };
 }

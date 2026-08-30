@@ -28,7 +28,11 @@ import type {
   FinalizeDerivedWrite,
 } from "./contracts/derived-media";
 import type { ElectronHealthSnapshot } from "./contracts/health";
-import type { DesktopProjectSession } from "./contracts/project";
+import type {
+  CreateProjectLocation,
+  DesktopProjectSession,
+  RecentProjectDetails,
+} from "./contracts/project";
 
 export interface DesktopAccountApi {
   get(): Promise<AccountSnapshot>;
@@ -53,7 +57,12 @@ export interface DesktopCloudApi {
 }
 
 export interface DesktopProjectApi {
-  create(name: string, kind: "local" | "cloud"): Promise<DesktopProjectSession | null>;
+  chooseCreateLocation(): Promise<CreateProjectLocation | null>;
+  create(
+    name: string,
+    kind: "local" | "cloud",
+    locationToken: string,
+  ): Promise<DesktopProjectSession | null>;
   open(): Promise<DesktopProjectSession | null>;
   openRecent(directory: string): Promise<DesktopProjectSession>;
   importMedia(): Promise<DesktopProjectSession | null>;
@@ -68,7 +77,7 @@ export interface DesktopProjectApi {
   forget(directory: string): Promise<DesktopAppState>;
   trash(directory: string): Promise<DesktopAppState>;
   getSession(): Promise<DesktopProjectSession | null>;
-  getRecentSizes(): Promise<Record<string, number | null>>;
+  getRecentDetails(): Promise<Record<string, RecentProjectDetails>>;
   onChanged(callback: (session: DesktopProjectSession) => void): () => void;
 }
 

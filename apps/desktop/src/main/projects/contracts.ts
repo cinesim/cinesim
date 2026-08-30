@@ -2,7 +2,12 @@ import { z } from "zod";
 import type { CommandResult, EditorCommand, ProjectSettings } from "@cinesim/core";
 import { settingsSchema } from "@cinesim/core";
 import { editorCommandSchema } from "@cinesim/protocol";
-import type { DesktopAppState, DesktopProjectSession } from "../../shared/contracts";
+import type {
+  CreateProjectLocation,
+  DesktopAppState,
+  DesktopProjectSession,
+  RecentProjectDetails,
+} from "../../shared/contracts";
 import { invokeChannels } from "../../shared/contracts/channels";
 import { defineInvokeContract } from "../app/ipc-contract";
 import { desktopPathSchema, emptyRequestSchema } from "../app/ipc-schemas";
@@ -20,14 +25,23 @@ const appStateContract = (channel: string, privilege: "reversible-mutation" | "d
   });
 
 export const projectContracts = {
+  chooseCreateLocation: defineInvokeContract<[], CreateProjectLocation | null>({
+    channel: invokeChannels.project.chooseCreateLocation,
+    request: emptyRequestSchema,
+    privilege: "read",
+  }),
   create: defineInvokeContract<
-    [{ name: string; kind: "local" | "cloud" }],
+    [{ name: string; kind: "local" | "cloud"; locationToken: string }],
     DesktopProjectSession | null
   >({
     channel: invokeChannels.project.create,
     request: z.tuple([
       z
-        .object({ name: z.string().trim().min(1).max(120), kind: z.enum(["local", "cloud"]) })
+        .object({
+          name: z.string().trim().min(1).max(120),
+          kind: z.enum(["local", "cloud"]),
+          locationToken: z.uuid(),
+        })
         .strict(),
     ]),
     privilege: "reversible-mutation",
@@ -46,8 +60,8 @@ export const projectContracts = {
     request: emptyRequestSchema,
     privilege: "read",
   }),
-  recentSizes: defineInvokeContract<[], Record<string, number | null>>({
-    channel: invokeChannels.project.recentSizes,
+  recentDetails: defineInvokeContract<[], Record<string, RecentProjectDetails>>({
+    channel: invokeChannels.project.recentDetails,
     request: emptyRequestSchema,
     privilege: "read",
   }),

@@ -34,12 +34,12 @@ export function CloudStorageSettings() {
   const account = useRendererStore((state) => state.account);
   const transfers = useRendererStore((state) => state.cloudTransfers);
   const session = useRendererStore((state) => sessionFromLifecycle(state.project));
+  const reportError = useRendererStore((state) => state.reportError);
   const [usageState, setUsageState] = useState<CloudUsageState>({ status: "idle" });
   const [busyAssetId, setBusyAssetId] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
   const usage = cloudUsage(usageState);
   const loading = usageState.status === "loading";
-  const error = usageState.status === "failed" ? usageState.error : null;
 
   const refresh = useCallback(async (): Promise<void> => {
     if (account.status !== "signed-in") return;
@@ -47,13 +47,16 @@ export function CloudStorageSettings() {
     try {
       setUsageState({ status: "ready", usage: await window.cinesim.cloud.getUsage() });
     } catch (caught) {
+      const message =
+        caught instanceof Error ? caught.message : "Cloud storage usage is unavailable";
       setUsageState({
         status: "failed",
         previous: usage,
-        error: caught instanceof Error ? caught.message : "Cloud storage usage is unavailable",
+        error: message,
       });
+      reportError(message);
     }
-  }, [account.status, usage]);
+  }, [account.status, reportError, usage]);
 
   useEffect(() => {
     if (account.status !== "signed-in") return;
@@ -67,17 +70,20 @@ export function CloudStorageSettings() {
       })
       .catch((caught: unknown) => {
         if (!active) return;
+        const message =
+          caught instanceof Error ? caught.message : "Cloud storage usage is unavailable";
         setUsageState((current) => ({
           status: "failed",
           previous: cloudUsage(current),
-          error: caught instanceof Error ? caught.message : "Cloud storage usage is unavailable",
+          error: message,
         }));
+        reportError(message);
       });
 
     return () => {
       active = false;
     };
-  }, [account.status, transfers]);
+  }, [account.status, reportError, transfers]);
 
   if (account.status !== "signed-in")
     return <Notice size="default">Sign in to configure and inspect Cinesim Cloud storage.</Notice>;
@@ -104,11 +110,14 @@ export function CloudStorageSettings() {
       setConfirmDelete(null);
       await refresh();
     } catch (caught) {
+      const message =
+        caught instanceof Error ? caught.message : "The cloud asset could not be updated";
       setUsageState({
         status: "failed",
         previous: usage,
-        error: caught instanceof Error ? caught.message : "The cloud asset could not be updated",
+        error: message,
       });
+      reportError(message);
     }
     setBusyAssetId(null);
   }
@@ -121,11 +130,14 @@ export function CloudStorageSettings() {
         usage: await window.cinesim.cloud.configureAddon(addonBytes),
       });
     } catch (caught) {
+      const message =
+        caught instanceof Error ? caught.message : "The storage allowance could not change";
       setUsageState({
         status: "failed",
         previous: usage,
-        error: caught instanceof Error ? caught.message : "The storage allowance could not change",
+        error: message,
       });
+      reportError(message);
     }
   }
 
@@ -167,12 +179,6 @@ export function CloudStorageSettings() {
           </div>
         )}
       </div>
-
-      {error && (
-        <Notice className="mt-4 rounded-lg bg-panel" size="default">
-          {error}
-        </Notice>
-      )}
 
       <div className="mt-5 rounded-xl border border-border bg-panel">
         <div className="border-b border-border px-5 py-4">

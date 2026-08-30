@@ -429,6 +429,16 @@ describe("renderer project controller", () => {
     expect(store.getState().operationError).toBe("Unreadable project");
   });
 
+  it("routes runtime errors through the shell status state", () => {
+    const store = createRendererStore({ api: apiFixture() });
+
+    store.getState().reportError("WebGPU device lost");
+    expect(store.getState().operationError).toBe("WebGPU device lost");
+
+    store.getState().clearError();
+    expect(store.getState().operationError).toBeNull();
+  });
+
   it("preserves a viewed sequence across edits and reconciles stale selection and playhead", async () => {
     const session = sessionFixture();
     const asset: Asset = {

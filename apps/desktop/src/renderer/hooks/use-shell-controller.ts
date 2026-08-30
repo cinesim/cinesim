@@ -22,7 +22,7 @@ export function useShellController() {
     [navigate, setSettingsSection],
   );
   return {
-    auxiliaryMode: destination === "project" ? auxiliaryMode : null,
+    auxiliaryMode: destination === "project" || auxiliaryMode === "metrics" ? auxiliaryMode : null,
     destination,
     goHome,
     interactionLocked: project.status === "opening",
