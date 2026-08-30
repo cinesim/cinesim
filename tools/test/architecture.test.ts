@@ -148,6 +148,7 @@ describe("architecture boundaries", () => {
     );
     for (const collaborator of [
       "DerivedArtifactRepository",
+      "DerivedJobCoordinator",
       "DerivedWriteCoordinator",
       "DerivedOperationQueue",
       "projectDerivedSnapshot",
@@ -161,6 +162,12 @@ describe("architecture boundaries", () => {
     );
     expect(writeCoordinator).toContain("DerivedWriterRegistry");
     expect(writeCoordinator).toContain("validateFinalize");
+    const jobCoordinator = await readFile(
+      join(workspaceRoot, "apps/desktop/src/main/derived-media/job-coordinator.ts"),
+      "utf8",
+    );
+    expect(jobCoordinator).toContain("queueProxyRecord");
+    expect(jobCoordinator).toContain("waitForPerception");
 
     const app = await readFile(join(workspaceRoot, "apps/desktop/src/renderer/app.tsx"), "utf8");
     expect(app).toContain("useAppController");

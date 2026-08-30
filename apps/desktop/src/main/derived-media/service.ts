@@ -18,6 +18,7 @@ import type {
 import { validFilmstripMetadata } from "./artifact-validation";
 import { DerivedArtifactRepository } from "./artifact-repository";
 import { DerivedIndexRepository } from "./index-repository";
+import { DerivedJobCoordinator } from "./job-coordinator";
 import {
   activeDerivedProject,
   beginDerivedProjectPreparation,
@@ -59,6 +60,7 @@ export class DerivedMediaStore {
   #listeners = new Set<(snapshot: DerivedMediaSnapshot) => void>();
   #indexRepository = new DerivedIndexRepository();
   #artifactRepository: DerivedArtifactRepository;
+  #jobs: DerivedJobCoordinator;
   #writes: DerivedWriteCoordinator;
   #operations = new DerivedOperationQueue();
   #performanceTracker = new DerivedPerformanceTracker();
@@ -70,6 +72,24 @@ export class DerivedMediaStore {
 
   constructor(options: DerivedMediaStoreOptions = {}) {
     this.#artifactRepository = new DerivedArtifactRepository(options);
+    this.#jobs = new DerivedJobCoordinator(
+      {
+        serialize: (operation) => this.#serialize(operation),
+        assertScope: (scope) => this.assertScope(scope),
+        project: () => this.#requireProject(),
+        settings: () => this.#settings,
+        index: () => this.#index,
+        asset: (assetId) => this.#requireAsset(assetId),
+        ensureAsset: (asset) => this.#ensureAsset(asset),
+        containedPath: (relativePath) => this.#containedPath(relativePath),
+        persist: () => this.#persist(),
+        emit: () => this.#emit(),
+        snapshot: () => this.snapshot(),
+        subscribe: (listener) => this.subscribe(listener),
+        log: (event) => this.#log(event),
+      },
+      this.#artifactRepository,
+    );
     this.#writes = new DerivedWriteCoordinator(
       {
         serialize: (operation) => this.#serialize(operation),
@@ -81,7 +101,7 @@ export class DerivedMediaStore {
         index: () => this.#index,
         asset: (assetId) => this.#requireAsset(assetId),
         ensureAsset: (asset) => this.#ensureAsset(asset),
-        queueProxy: (asset) => this.#queueProxyRecord(asset),
+        queueProxy: (asset) => this.#jobs.queueProxyRecord(asset),
         updateRuntimeProgress: (assetId, progress) =>
           this.#runtimeTracker.updateWriterProgress(assetId, progress),
         persist: () => this.#persist(),
@@ -198,7 +218,7 @@ export class DerivedMediaStore {
         await this.#refreshStorage();
         for (const asset of project.assets)
           if (this.#settings.proxyGeneration === "automatic" || asset.source.kind === "cloud")
-            await this.#queueProxyRecord(asset);
+            await this.#jobs.queueProxyRecord(asset);
         if (recovered)
           this.#log({ kind: "jobs-recovered", detail: "Interrupted jobs returned to the queue" });
         if (recovered)
@@ -249,7 +269,7 @@ export class DerivedMediaStore {
       const project = this.#requireProject();
       for (const asset of project.assets)
         if (settings.proxyGeneration === "automatic" || asset.source.kind === "cloud")
-          await this.#queueProxyRecord(asset);
+          await this.#jobs.queueProxyRecord(asset);
       if (settings.proxyGeneration === "manual")
         for (const [assetId, record] of Object.entries(this.#index.assets))
           if (
@@ -309,129 +329,30 @@ export class DerivedMediaStore {
   }
 
   async requestJobs(scope: DerivedProjectScope, assetIds: string[]): Promise<DerivedMediaSnapshot> {
-    return this.#serialize(async () => {
-      this.assertScope(scope);
-      return this.#queueRequestedArtifacts(assetIds, true);
-    });
+    return this.#jobs.request(scope, assetIds);
   }
 
   async queuePerception(assetIds: string[]): Promise<DerivedMediaSnapshot> {
-    return this.#serialize(() => this.#queueRequestedArtifacts(assetIds, false));
+    return this.#jobs.queuePerception(assetIds);
   }
 
   async waitForPerception(assetId: string, signal?: AbortSignal): Promise<void> {
-    const terminal = (snapshot: DerivedMediaSnapshot): boolean => {
-      const asset = this.#requireAsset(assetId);
-      const record = snapshot.assets[assetId];
-      if (!record) return false;
-      const kinds: DerivedArtifactKind[] = [];
-      if (asset.kind === "video") kinds.push("thumbnail", "filmstrip");
-      if (asset.kind === "audio" || asset.hasAudio === true) kinds.push("waveform");
-      return kinds.every(
-        (kind) => record[kind].state === "ready" || record[kind].state === "failed",
-      );
-    };
-    if (terminal(this.snapshot())) return;
-    if (signal?.aborted) throw new Error("Cloud transfer canceled");
-    await new Promise<void>((resolve, reject) => {
-      let stop: () => void = () => undefined;
-      let settled = false;
-      const abort = () => {
-        settled = true;
-        stop();
-        reject(new Error("Cloud transfer canceled"));
-      };
-      stop = this.subscribe((snapshot) => {
-        if (!terminal(snapshot)) return;
-        settled = true;
-        stop();
-        signal?.removeEventListener("abort", abort);
-        resolve();
-      });
-      if (settled) stop();
-      else {
-        signal?.addEventListener("abort", abort, { once: true });
-        if (signal?.aborted) abort();
-      }
-    });
+    await this.#jobs.waitForPerception(assetId, signal);
   }
 
   async queueProxy(assetId: string): Promise<DerivedMediaSnapshot> {
-    return this.#serialize(async () => {
-      const asset = this.#requireAsset(assetId);
-      if (asset.kind !== "video" && asset.kind !== "audio")
-        throw new Error("This media type does not support edit proxies yet");
-      await this.#queueProxyRecord(asset, true);
-      await this.#persist();
-      this.#emit();
-      return this.snapshot();
-    });
-  }
-
-  async #queueRequestedArtifacts(
-    assetIds: string[],
-    queueConfiguredProxies: boolean,
-  ): Promise<DerivedMediaSnapshot> {
-    if (assetIds.length > 500) throw new Error("Too many derived job requests");
-    const persistenceSignature = projectOpenPersistenceSignature(this.#index);
-    const project = this.#requireProject();
-    for (const assetId of new Set(assetIds)) {
-      const asset = project.assets.find((candidate) => candidate.id === assetId);
-      if (!asset || (asset.kind !== "video" && asset.kind !== "audio")) continue;
-      const record = await this.#ensureAsset(asset);
-      const kinds: DerivedArtifactKind[] = [];
-      if (asset.kind === "video") kinds.push("thumbnail", "filmstrip");
-      if (asset.kind === "audio" || asset.hasAudio === true) kinds.push("waveform");
-      for (const kind of kinds) {
-        const artifact = record[kind];
-        if (artifact.state === "missing") artifact.state = "queued";
-      }
-      if (
-        queueConfiguredProxies &&
-        (this.#settings.proxyGeneration === "automatic" || asset.source.kind === "cloud")
-      )
-        await this.#queueProxyRecord(asset);
-    }
-    if (projectOpenPersistenceSignature(this.#index) !== persistenceSignature)
-      await this.#persist();
-    this.#emit();
-    return this.snapshot();
+    return this.#jobs.queueProxy(assetId);
   }
 
   async queueProxies(
     scope: DerivedProjectScope,
     assetIds: string[],
   ): Promise<DerivedMediaSnapshot> {
-    this.assertScope(scope);
-    if (assetIds.length === 0 || assetIds.length > 100)
-      throw new Error("Invalid proxy job request");
-    for (const assetId of new Set(assetIds)) await this.queueProxy(assetId);
-    return this.snapshot();
+    return this.#jobs.queueProxies(scope, assetIds);
   }
 
   async waitForProxy(assetId: string, signal?: AbortSignal): Promise<void> {
-    const current = this.snapshot().assets[assetId]?.proxy;
-    if (current?.state === "ready") return;
-    if (current?.state === "failed") throw new Error("The edit proxy could not be generated");
-    await new Promise<void>((resolve, reject) => {
-      const stop = this.subscribe((snapshot) => {
-        const proxy = snapshot.assets[assetId]?.proxy;
-        if (proxy?.state === "ready") {
-          stop();
-          signal?.removeEventListener("abort", abort);
-          resolve();
-        } else if (proxy?.state === "failed") {
-          stop();
-          signal?.removeEventListener("abort", abort);
-          reject(new Error("The edit proxy could not be generated"));
-        }
-      });
-      const abort = () => {
-        stop();
-        reject(new Error("Cloud transfer canceled"));
-      };
-      signal?.addEventListener("abort", abort, { once: true });
-    });
+    await this.#jobs.waitForProxy(assetId, signal);
   }
 
   async beginWrite(
@@ -543,47 +464,6 @@ export class DerivedMediaStore {
     await this.#refreshStorage();
     await this.#persist();
     this.#emit();
-  }
-
-  async #queueProxyRecord(asset: Asset, required = false): Promise<void> {
-    if (asset.kind !== "video" && asset.kind !== "audio") return;
-    if (!this.#artifactRepository.diskHeadroomAvailable) {
-      if (required) throw new Error("Insufficient disk headroom for a proxy");
-      return;
-    }
-    const record = await this.#ensureAsset(asset);
-    const profileId = this.#proxyProfileId();
-    if (record.proxy.state === "ready" && record.proxy.profileId !== profileId) {
-      if (record.proxy.relativePath)
-        await rm(this.#containedPath(record.proxy.relativePath), { force: true });
-      record.proxy.state = "missing";
-      delete record.proxy.relativePath;
-      delete record.proxy.bytes;
-      delete record.proxy.updatedAt;
-      delete record.proxy.lastAccessAt;
-    }
-    if (record.proxy.state === "queued") record.proxy.profileId = profileId;
-    if (record.proxy.state === "missing" || record.proxy.state === "failed") {
-      record.proxy.state = "queued";
-      record.proxy.progress = 0;
-      record.proxy.profileId = profileId;
-      delete record.proxy.failureCode;
-      this.#log({
-        assetId: asset.id,
-        kind: "proxy-queued",
-        detail: `Edit proxy queued with ${profileId}`,
-      });
-    }
-  }
-
-  #proxyProfileId(): string {
-    const settings = this.#settings;
-    return [
-      settings.proxyProfile,
-      settings.proxyMaxLongEdge,
-      settings.proxyFrameRateCap,
-      settings.proxyQuality,
-    ].join("-");
   }
 
   #containedPath(relativePath: string): string {
