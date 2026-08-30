@@ -33,6 +33,12 @@ interface PersistedAgentSettings {
   executableIdentities: Record<AgentProviderKind, AgentExecutableIdentity | null>;
 }
 
+function objectRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
 function isProvider(value: unknown): value is AgentProviderKind {
   return value === "claude" || value === "codex";
 }
@@ -48,33 +54,28 @@ function isEffort(value: unknown): value is AgentEffort {
 }
 
 function parseSettings(value: unknown): AgentSettings {
-  if (typeof value !== "object" || value === null || Array.isArray(value))
-    return structuredClone(DEFAULT_SETTINGS);
-  const candidate = value as Record<string, unknown>;
-  const providers =
-    typeof candidate.providers === "object" && candidate.providers !== null
-      ? (candidate.providers as Record<string, unknown>)
-      : {};
-  const parseProvider = (provider: AgentProviderKind) => {
-    const raw =
-      typeof providers[provider] === "object" && providers[provider] !== null
-        ? (providers[provider] as Record<string, unknown>)
-        : {};
-    return {
-      executablePath: typeof raw.executablePath === "string" ? raw.executablePath : "",
-      model:
-        typeof raw.model === "string" && raw.model.trim().length > 0
-          ? raw.model
-          : DEFAULT_SETTINGS.providers[provider].model,
-      effort: isEffort(raw.effort) ? raw.effort : DEFAULT_SETTINGS.providers[provider].effort,
-      permissionMode: raw.permissionMode === "auto-edit" ? "auto-edit" : "supervised",
-    } as const;
-  };
+  const candidate = objectRecord(value);
+  if (Object.keys(candidate).length === 0) return structuredClone(DEFAULT_SETTINGS);
+  const providers = objectRecord(candidate.providers);
   return {
     version: 1,
     defaultProvider: isProvider(candidate.defaultProvider) ? candidate.defaultProvider : "claude",
-    providers: { claude: parseProvider("claude"), codex: parseProvider("codex") },
+    providers: {
+      claude: parseProviderSettings("claude", providers.claude),
+      codex: parseProviderSettings("codex", providers.codex),
+    },
   };
+}
+
+function parseProviderSettings(provider: AgentProviderKind, value: unknown) {
+  const raw = objectRecord(value);
+  const defaults = DEFAULT_SETTINGS.providers[provider];
+  return {
+    executablePath: typeof raw.executablePath === "string" ? raw.executablePath : "",
+    model: typeof raw.model === "string" && raw.model.trim() ? raw.model : defaults.model,
+    effort: isEffort(raw.effort) ? raw.effort : defaults.effort,
+    permissionMode: raw.permissionMode === "auto-edit" ? "auto-edit" : "supervised",
+  } as const;
 }
 
 export class AgentSettingsStore {
@@ -90,35 +91,40 @@ export class AgentSettingsStore {
   async load(): Promise<void> {
     try {
       const parsed = JSON.parse(await readFile(this.path, "utf8")) as unknown;
-      const record =
-        parsed && typeof parsed === "object" && !Array.isArray(parsed)
-          ? (parsed as Record<string, unknown>)
-          : {};
-      if (record.version === 2) {
-        this.#settings = parseSettings(record.settings);
-        const identities =
-          record.executableIdentities &&
-          typeof record.executableIdentities === "object" &&
-          !Array.isArray(record.executableIdentities)
-            ? (record.executableIdentities as Record<string, unknown>)
-            : {};
-        for (const provider of ["claude", "codex"] as const) {
-          const identity = identities[provider];
-          this.#executableIdentities[provider] = isAgentExecutableIdentity(identity)
-            ? identity
-            : null;
-          if (!this.#executableIdentities[provider])
-            this.#settings.providers[provider].executablePath = "";
-        }
-      } else {
-        this.#settings = parseSettings(parsed);
-        for (const provider of ["claude", "codex"] as const)
-          this.#settings.providers[provider].executablePath = "";
-      }
+      this.#loadParsedSettings(parsed);
     } catch {
-      this.#settings = structuredClone(DEFAULT_SETTINGS);
-      this.#executableIdentities = { claude: null, codex: null };
+      this.#reset();
     }
+  }
+
+  #loadParsedSettings(parsed: unknown): void {
+    const record = objectRecord(parsed);
+    if (record.version !== 2) {
+      this.#settings = parseSettings(parsed);
+      this.#clearExecutablePaths();
+      return;
+    }
+
+    this.#settings = parseSettings(record.settings);
+    const identities = objectRecord(record.executableIdentities);
+    for (const provider of ["claude", "codex"] as const)
+      this.#loadExecutableIdentity(provider, identities[provider]);
+  }
+
+  #loadExecutableIdentity(provider: AgentProviderKind, value: unknown): void {
+    const identity = isAgentExecutableIdentity(value) ? value : null;
+    this.#executableIdentities[provider] = identity;
+    if (!identity) this.#settings.providers[provider].executablePath = "";
+  }
+
+  #clearExecutablePaths(): void {
+    for (const provider of ["claude", "codex"] as const)
+      this.#settings.providers[provider].executablePath = "";
+  }
+
+  #reset(): void {
+    this.#settings = structuredClone(DEFAULT_SETTINGS);
+    this.#executableIdentities = { claude: null, codex: null };
   }
 
   snapshot(): AgentSettings {
