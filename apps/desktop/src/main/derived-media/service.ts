@@ -25,6 +25,7 @@ import {
   completeDerivedProjectPreparation,
   type DerivedProjectLifecycle,
   failDerivedProjectPreparation,
+  type PreparingDerivedProject,
   requireOpenDerivedProject,
 } from "./project-lifecycle";
 import { isAssetId, MAX_DECISION_EVENTS, projectOpenPersistenceSignature } from "./model";
@@ -53,6 +54,11 @@ const DERIVED_FOLDERS = [
 
 interface DerivedMediaStoreOptions {
   diskSpace?: { capacityBytes: number; availableBytes: number };
+}
+
+interface ProjectRecovery {
+  recoveredJobs: boolean;
+  invalidatedFilmstripMetadata: boolean;
 }
 
 export class DerivedMediaStore {
@@ -161,97 +167,165 @@ export class DerivedMediaStore {
     const paths = await ProjectPaths.open(directory);
     await paths.ensureLayout(DERIVED_FOLDERS);
     const canonicalDirectory = paths.canonicalRoot;
-    await this.#serialize(async () => {
-      const preparing = beginDerivedProjectPreparation(this.#lifecycle, paths.root);
-      this.#lifecycle = preparing;
-      try {
-        // A prepared index is safe for a different, inactive project. Reopening the active
-        // directory must read again after queued writer operations have finished.
-        const usePreparedIndex =
-          prepared?.directory === canonicalDirectory && this.#directory !== canonicalDirectory;
-        await this.#closeWriters();
-        const index = usePreparedIndex ? prepared.index : await this.#indexRepository.read(paths);
-        this.#lifecycle = completeDerivedProjectPreparation(preparing, {
-          directory: paths.root,
-          paths,
-          scope: {
-            cacheKey: createHash("sha256").update(canonicalDirectory).digest("hex").slice(0, 24),
-            epoch: randomUUID(),
-          },
-          project,
-          settings: structuredClone(settings),
-          index,
-        });
-        this.#performanceTracker.reset();
-        this.#runtimeTracker.reset();
-        this.#removedAssetIds.clear();
-        const persistenceSignature = projectOpenPersistenceSignature(this.#index);
-        await this.#removeInterruptedTemps();
-        await this.#pruneRemovedAssetsNow();
-        let recovered = false;
-        let invalidatedFilmstripMetadata = false;
-        for (const record of Object.values(this.#index.assets)) {
-          for (const artifact of [
-            record.thumbnail,
-            record.filmstrip,
-            record.waveform,
-            record.proxy,
-          ]) {
-            if (artifact.state === "running") {
-              artifact.state = "queued";
-              artifact.progress = 0;
-              recovered = true;
-            }
-          }
-          if (record.filmstrip.state === "ready" && !validFilmstripMetadata(record.filmstrip)) {
-            if (record.filmstrip.relativePath)
-              await rm(this.#containedPath(record.filmstrip.relativePath), { force: true }).catch(
-                () => undefined,
-              );
-            record.filmstrip.state = "missing";
-            delete record.filmstrip.relativePath;
-            delete record.filmstrip.bytes;
-            invalidatedFilmstripMetadata = true;
-          }
-        }
-        await Promise.all(project.assets.map((asset) => this.#ensureAsset(asset)));
-        await this.#refreshStorage();
-        for (const asset of project.assets)
-          if (this.#settings.proxyGeneration === "automatic" || asset.source.kind === "cloud")
-            await this.#jobs.queueProxyRecord(asset);
-        if (recovered)
-          this.#log({ kind: "jobs-recovered", detail: "Interrupted jobs returned to the queue" });
-        if (recovered)
-          log.warn(
-            { operation: "project-open", projectId: project.id },
-            "interrupted derived jobs returned to the queue",
-          );
-        if (invalidatedFilmstripMetadata)
-          this.#log({
-            kind: "filmstrip-metadata-invalidated",
-            detail: "An inconsistent filmstrip was removed and will be regenerated",
-          });
-        const indexChanged = projectOpenPersistenceSignature(this.#index) !== persistenceSignature;
-        if (indexChanged) await this.#persist();
-        this.#emit();
-        log.info(
-          {
-            operation: "project-open-derived",
-            projectId: project.id,
-            projectCacheKey: this.#requireScope().cacheKey,
-            projectEpoch: this.#requireScope().epoch,
-            indexReadMs: usePreparedIndex ? prepared.readDurationMs : undefined,
-            assetCount: project.assets.length,
-            indexChanged,
-          },
-          "derived media initialized for project",
-        );
-      } catch (error) {
-        const failure = error instanceof Error ? error : new Error(String(error));
-        this.#lifecycle = failDerivedProjectPreparation(preparing, failure);
-        throw failure;
-      }
+    await this.#serialize(() =>
+      this.#setProjectNow(paths, canonicalDirectory, project, settings, prepared),
+    );
+  }
+
+  async #setProjectNow(
+    paths: ProjectPaths,
+    canonicalDirectory: string,
+    project: Project,
+    settings: ProjectSettings,
+    prepared?: PreparedDerivedProject,
+  ): Promise<void> {
+    const preparing = beginDerivedProjectPreparation(this.#lifecycle, paths.root);
+    this.#lifecycle = preparing;
+    try {
+      await this.#initializeProject(
+        preparing,
+        paths,
+        canonicalDirectory,
+        project,
+        settings,
+        prepared,
+      );
+    } catch (error) {
+      const failure = error instanceof Error ? error : new Error(String(error));
+      this.#lifecycle = failDerivedProjectPreparation(preparing, failure);
+      throw failure;
+    }
+  }
+
+  async #initializeProject(
+    preparing: PreparingDerivedProject,
+    paths: ProjectPaths,
+    canonicalDirectory: string,
+    project: Project,
+    settings: ProjectSettings,
+    prepared?: PreparedDerivedProject,
+  ): Promise<void> {
+    // A prepared index is safe for a different, inactive project. Reopening the active directory
+    // must read again after queued writer operations have finished.
+    const usePreparedIndex =
+      prepared?.directory === canonicalDirectory && this.#directory !== canonicalDirectory;
+    await this.#closeWriters();
+    const index = usePreparedIndex ? prepared.index : await this.#indexRepository.read(paths);
+    this.#lifecycle = completeDerivedProjectPreparation(preparing, {
+      directory: paths.root,
+      paths,
+      scope: {
+        cacheKey: createHash("sha256").update(canonicalDirectory).digest("hex").slice(0, 24),
+        epoch: randomUUID(),
+      },
+      project,
+      settings: structuredClone(settings),
+      index,
     });
+    this.#resetProjectRuntime();
+
+    const persistenceSignature = projectOpenPersistenceSignature(this.#index);
+    await this.#removeInterruptedTemps();
+    await this.#pruneRemovedAssetsNow();
+    const recovery = await this.#recoverInterruptedArtifacts();
+    await Promise.all(project.assets.map((asset) => this.#ensureAsset(asset)));
+    await this.#refreshStorage();
+    await this.#queueConfiguredProxies(project);
+    this.#reportProjectRecovery(project, recovery);
+
+    const indexChanged = projectOpenPersistenceSignature(this.#index) !== persistenceSignature;
+    if (indexChanged) await this.#persist();
+    this.#emit();
+    this.#logProjectInitialized(
+      project,
+      usePreparedIndex ? prepared?.readDurationMs : undefined,
+      indexChanged,
+    );
+  }
+
+  #resetProjectRuntime(): void {
+    this.#performanceTracker.reset();
+    this.#runtimeTracker.reset();
+    this.#removedAssetIds.clear();
+  }
+
+  async #recoverInterruptedArtifacts(): Promise<ProjectRecovery> {
+    let recoveredJobs = false;
+    let invalidatedFilmstripMetadata = false;
+    for (const record of Object.values(this.#index.assets)) {
+      recoveredJobs = this.#recoverRunningArtifacts(record) || recoveredJobs;
+      invalidatedFilmstripMetadata =
+        (await this.#invalidateFilmstripMetadata(record)) || invalidatedFilmstripMetadata;
+    }
+    return { recoveredJobs, invalidatedFilmstripMetadata };
+  }
+
+  #recoverRunningArtifacts(record: PersistedAsset): boolean {
+    let recovered = false;
+    for (const artifact of [record.thumbnail, record.filmstrip, record.waveform, record.proxy]) {
+      if (artifact.state !== "running") continue;
+      artifact.state = "queued";
+      artifact.progress = 0;
+      recovered = true;
+    }
+    return recovered;
+  }
+
+  async #invalidateFilmstripMetadata(record: PersistedAsset): Promise<boolean> {
+    if (record.filmstrip.state !== "ready" || validFilmstripMetadata(record.filmstrip))
+      return false;
+    if (record.filmstrip.relativePath) {
+      await rm(this.#containedPath(record.filmstrip.relativePath), { force: true }).catch(
+        () => undefined,
+      );
+    }
+    record.filmstrip.state = "missing";
+    delete record.filmstrip.relativePath;
+    delete record.filmstrip.bytes;
+    return true;
+  }
+
+  async #queueConfiguredProxies(project: Project): Promise<void> {
+    for (const asset of project.assets) {
+      if (this.#settings.proxyGeneration === "automatic" || asset.source.kind === "cloud") {
+        await this.#jobs.queueProxyRecord(asset);
+      }
+    }
+  }
+
+  #reportProjectRecovery(project: Project, recovery: ProjectRecovery): void {
+    if (recovery.recoveredJobs) {
+      this.#log({ kind: "jobs-recovered", detail: "Interrupted jobs returned to the queue" });
+      log.warn(
+        { operation: "project-open", projectId: project.id },
+        "interrupted derived jobs returned to the queue",
+      );
+    }
+    if (recovery.invalidatedFilmstripMetadata) {
+      this.#log({
+        kind: "filmstrip-metadata-invalidated",
+        detail: "An inconsistent filmstrip was removed and will be regenerated",
+      });
+    }
+  }
+
+  #logProjectInitialized(
+    project: Project,
+    indexReadMs: number | undefined,
+    indexChanged: boolean,
+  ): void {
+    log.info(
+      {
+        operation: "project-open-derived",
+        projectId: project.id,
+        projectCacheKey: this.#requireScope().cacheKey,
+        projectEpoch: this.#requireScope().epoch,
+        indexReadMs,
+        assetCount: project.assets.length,
+        indexChanged,
+      },
+      "derived media initialized for project",
+    );
   }
 
   updateProject(project: Project): void {
@@ -264,24 +338,27 @@ export class DerivedMediaStore {
   }
 
   async updateSettings(settings: ProjectSettings): Promise<void> {
-    await this.#serialize(async () => {
-      this.#settings = structuredClone(settings);
-      const project = this.#requireProject();
-      for (const asset of project.assets)
-        if (settings.proxyGeneration === "automatic" || asset.source.kind === "cloud")
-          await this.#jobs.queueProxyRecord(asset);
-      if (settings.proxyGeneration === "manual")
-        for (const [assetId, record] of Object.entries(this.#index.assets))
-          if (
-            record.proxy.state === "queued" &&
-            project.assets.find((asset) => asset.id === assetId)?.source.kind !== "cloud"
-          ) {
-            record.proxy.state = "missing";
-            delete record.proxy.progress;
-          }
-      await this.#persist();
-      this.#emit();
-    });
+    await this.#serialize(() => this.#updateSettingsNow(settings));
+  }
+
+  async #updateSettingsNow(settings: ProjectSettings): Promise<void> {
+    this.#settings = structuredClone(settings);
+    const project = this.#requireProject();
+    await this.#queueConfiguredProxies(project);
+    if (settings.proxyGeneration === "manual") this.#removeAutomaticProxyJobs(project);
+    await this.#persist();
+    this.#emit();
+  }
+
+  #removeAutomaticProxyJobs(project: Project): void {
+    const cloudAssetIds = new Set<string>(
+      project.assets.filter(({ source }) => source.kind === "cloud").map(({ id }) => id),
+    );
+    for (const [assetId, record] of Object.entries(this.#index.assets)) {
+      if (record.proxy.state !== "queued" || cloudAssetIds.has(assetId)) continue;
+      record.proxy.state = "missing";
+      delete record.proxy.progress;
+    }
   }
 
   async pruneRemovedAssets(): Promise<void> {
