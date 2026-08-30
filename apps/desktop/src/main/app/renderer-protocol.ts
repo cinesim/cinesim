@@ -20,26 +20,30 @@ export function rendererMimeType(path: string): string {
   return RENDERER_MIME_TYPES[extname(path).toLowerCase()] ?? "application/octet-stream";
 }
 
+function rendererPathname(requestUrl: string): string | null {
+  const rawPath = /^cinesim:\/\/app([^?#]*)/iu.exec(requestUrl)?.[1];
+  if (!rawPath || /(?:^|\/)(?:\.{1,2}|%2e(?:%2e)?)(?:\/|$)/iu.test(rawPath)) return null;
+
+  const url = new URL(requestUrl);
+  if (url.protocol !== `${CINESIM_RENDERER_SCHEME}:` || url.hostname !== CINESIM_RENDERER_HOST)
+    return null;
+  const pathname = decodeURIComponent(url.pathname);
+  return pathname.includes("\\") || pathname.includes("\0") ? null : pathname;
+}
+
+function containedRendererAsset(pathname: string, applicationPath: string): string | null {
+  const rendererDirectory = resolve(join(applicationPath, "dist", "renderer"));
+  const assetPath = resolve(join(rendererDirectory, pathname.replace(/^\/+/, "")));
+  const relativePath = relative(rendererDirectory, assetPath);
+  const outsideDirectory =
+    relativePath === "" || relativePath === ".." || relativePath.startsWith(`..${sep}`);
+  return outsideDirectory || assetPath === rendererDirectory ? null : assetPath;
+}
+
 export function rendererAssetPath(requestUrl: string, applicationPath: string): string | null {
   try {
-    const rawPath = /^cinesim:\/\/app([^?#]*)/iu.exec(requestUrl)?.[1];
-    if (!rawPath || /(?:^|\/)(?:\.{1,2}|%2e(?:%2e)?)(?:\/|$)/iu.test(rawPath)) return null;
-    const url = new URL(requestUrl);
-    if (url.protocol !== `${CINESIM_RENDERER_SCHEME}:` || url.hostname !== CINESIM_RENDERER_HOST)
-      return null;
-    const pathname = decodeURIComponent(url.pathname);
-    if (pathname.includes("\\") || pathname.includes("\0")) return null;
-    const rendererDirectory = resolve(join(applicationPath, "dist", "renderer"));
-    const assetPath = resolve(join(rendererDirectory, pathname.replace(/^\/+/, "")));
-    const pathWithinRenderer = relative(rendererDirectory, assetPath);
-    if (
-      pathWithinRenderer === "" ||
-      pathWithinRenderer === ".." ||
-      pathWithinRenderer.startsWith(`..${sep}`) ||
-      resolve(assetPath) === rendererDirectory
-    )
-      return null;
-    return assetPath;
+    const pathname = rendererPathname(requestUrl);
+    return pathname ? containedRendererAsset(pathname, applicationPath) : null;
   } catch {
     return null;
   }

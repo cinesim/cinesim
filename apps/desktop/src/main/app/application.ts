@@ -46,17 +46,42 @@ export class DesktopApplication implements ApplicationLifecycle {
   async start(): Promise<void> {
     await app.whenReady();
     this.#eventLoopMonitor.start();
+    this.#configureEditorSession();
+
+    const { appState, agentSettings } = await this.#loadLocalState();
+    const cloudMedia = await this.#createCloudMedia(appState);
+    await this.#openDiagnosticProject();
+    await this.#registerMedia(cloudMedia);
+    const agents = await this.#createAgents(agentSettings);
+    this.#registerIpc(appState, agentSettings, cloudMedia, agents);
+
+    this.#openWindow();
+    app.on("activate", () => {
+      if (this.windows.size === 0) this.#openWindow();
+    });
+  }
+
+  #configureEditorSession(): void {
     const secureEditorSession = editorSession();
     secureEditorSession.setPermissionCheckHandler(denyPermissionCheck);
     secureEditorSession.setPermissionRequestHandler(denyPermissionRequest);
     registerRendererProtocol();
+  }
 
+  async #loadLocalState(): Promise<{
+    appState: DesktopAppStateStore;
+    agentSettings: AgentSettingsStore;
+  }> {
     const appState = new DesktopAppStateStore(join(app.getPath("userData"), "ui-state.json"));
     const agentSettings = new AgentSettingsStore(
       join(app.getPath("userData"), "agent-settings.json"),
     );
     await Promise.all([appState.load(), agentSettings.load()]);
     appState.setAccount(this.accountService.cachedUser()?.id ?? null);
+    return { appState, agentSettings };
+  }
+
+  async #createCloudMedia(appState: DesktopAppStateStore): Promise<CloudMediaManager> {
     const cloudMedia = new CloudMediaManager(
       join(app.getPath("userData"), "cloud-transfers.json"),
       this.accountService,
@@ -77,16 +102,20 @@ export class DesktopApplication implements ApplicationLifecycle {
         void cloudMedia.resumeAvailable();
     });
     app.once("will-quit", unsubscribeAccount);
+    return cloudMedia;
+  }
 
+  async #openDiagnosticProject(): Promise<void> {
     const diagnosticProject = this.development.diagnosticProject;
-    if (diagnosticProject) {
-      await this.projectStore.open(diagnosticProject);
-      log.info(
-        { operation: "diagnostic-project-open", projectId: this.projectStore.project?.id },
-        "opened development diagnostic project",
-      );
-    }
+    if (!diagnosticProject) return;
+    await this.projectStore.open(diagnosticProject);
+    log.info(
+      { operation: "diagnostic-project-open", projectId: this.projectStore.project?.id },
+      "opened development diagnostic project",
+    );
+  }
 
+  async #registerMedia(cloudMedia: CloudMediaManager): Promise<void> {
     await registerMediaProtocol(this.projectStore, cloudMedia, this.development.rendererUrl);
     this.projectStore.derivedMedia.subscribe((snapshot) => {
       this.windows.broadcast(desktopEvents.derivedChanged, snapshot);
@@ -94,7 +123,9 @@ export class DesktopApplication implements ApplicationLifecycle {
     this.projectStore.transcripts.subscribe((snapshot) => {
       this.windows.broadcast(desktopEvents.transcriptsChanged, snapshot);
     });
+  }
 
+  async #createAgents(agentSettings: AgentSettingsStore): Promise<AgentManager> {
     const agents = new AgentManager(
       join(app.getPath("userData"), "agent-sessions.json"),
       agentSettings,
@@ -110,7 +141,15 @@ export class DesktopApplication implements ApplicationLifecycle {
     );
     this.#agents = agents;
     await agents.load();
+    return agents;
+  }
 
+  #registerIpc(
+    appState: DesktopAppStateStore,
+    agentSettings: AgentSettingsStore,
+    cloudMedia: CloudMediaManager,
+    agents: AgentManager,
+  ): void {
     registerProjectIpc(this.projectStore, appState, agents, this.accountService, cloudMedia);
     registerDerivedMediaIpc(this.projectStore.derivedMedia);
     registerTranscriptIpc(this.projectStore.transcripts);
@@ -125,11 +164,6 @@ export class DesktopApplication implements ApplicationLifecycle {
       }
     });
     registerCloudIpc(cloudMedia);
-
-    this.#openWindow();
-    app.on("activate", () => {
-      if (this.windows.size === 0) this.#openWindow();
-    });
   }
 
   async close(): Promise<void> {
