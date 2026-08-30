@@ -1,31 +1,22 @@
 import { Check, ChevronRight, Clapperboard, Film, FolderOpen } from "@cinesim/ui";
 import { cn, Menu, MenuContent, MenuItem, MenuSeparator, MenuTrigger } from "@cinesim/ui";
 import { sequenceDurationUs } from "@cinesim/core";
-import type { DesktopAppState, DesktopProjectSession } from "../../../shared/api";
 import { formatDuration } from "../../lib/format";
-
-interface ProjectBreadcrumbProps {
-  session: DesktopProjectSession;
-  recentProjects: DesktopAppState["recentProjects"];
-  showTimeline: boolean;
-  activeSequenceId: string;
-  onOpenRecent: (directory: string) => void;
-  onOpenProject: () => void;
-  onTimeline: (sequenceId: string) => void;
-}
+import { sessionFromLifecycle } from "../../store/renderer-store";
+import { useRendererStore } from "../../store/renderer-store-context";
 
 const triggerClassName =
   "flex h-8 min-w-0 items-center gap-1.5 rounded-md px-2 text-ui font-medium text-secondary outline-none transition-colors hover:bg-surface hover:text-primary focus-visible:ring-2 focus-visible:ring-focus data-[popup-open]:bg-surface data-[popup-open]:text-primary";
 
-export function ProjectBreadcrumb({
-  session,
-  recentProjects,
-  showTimeline,
-  activeSequenceId,
-  onOpenRecent,
-  onOpenProject,
-  onTimeline,
-}: ProjectBreadcrumbProps) {
+export function ProjectBreadcrumb() {
+  const session = useRendererStore((state) => sessionFromLifecycle(state.project));
+  const recentProjects = useRendererStore((state) => state.appState.recentProjects);
+  const projectSection = useRendererStore((state) => state.projectSection);
+  const activeSequenceId = useRendererStore((state) => state.activeSequenceId);
+  const openRecentProject = useRendererStore((state) => state.openRecentProject);
+  const openProject = useRendererStore((state) => state.openProject);
+  const showTimeline = useRendererStore((state) => state.showTimeline);
+  if (!session) return null;
   const activeSequence =
     session.project.sequences.find((sequence) => sequence.id === activeSequenceId) ??
     session.project.sequences.find((sequence) => sequence.id === session.project.activeSequenceId);
@@ -52,7 +43,10 @@ export function ProjectBreadcrumb({
             .filter((project) => project.directory !== session.directory)
             .slice(0, 8)
             .map((project) => (
-              <MenuItem key={project.directory} onClick={() => onOpenRecent(project.directory)}>
+              <MenuItem
+                key={project.directory}
+                onClick={() => void openRecentProject(project.directory)}
+              >
                 <span className="grid size-7 shrink-0 place-items-center rounded-md bg-panel-muted text-muted">
                   <Clapperboard size={13} />
                 </span>
@@ -63,7 +57,7 @@ export function ProjectBreadcrumb({
               </MenuItem>
             ))}
           <MenuSeparator />
-          <MenuItem onClick={onOpenProject}>
+          <MenuItem onClick={() => void openProject()}>
             <FolderOpen size={14} className="ml-1 shrink-0 text-muted" />
             <span className="text-ui text-secondary group-data-[highlighted]:text-primary">
               Open another project…
@@ -72,7 +66,7 @@ export function ProjectBreadcrumb({
         </MenuContent>
       </Menu>
 
-      {showTimeline && activeSequence && (
+      {(projectSection === "cut" || projectSection === "edit") && activeSequence && (
         <>
           <ChevronRight size={13} className="mx-0.5 shrink-0 text-disabled" />
           <Menu>
@@ -84,7 +78,7 @@ export function ProjectBreadcrumb({
               {session.project.sequences.map((sequence) => {
                 const active = sequence.id === activeSequence.id;
                 return (
-                  <MenuItem key={sequence.id} onClick={() => onTimeline(sequence.id)}>
+                  <MenuItem key={sequence.id} onClick={() => showTimeline(sequence.id)}>
                     <span
                       className={cn(
                         "grid size-7 shrink-0 place-items-center rounded-md",

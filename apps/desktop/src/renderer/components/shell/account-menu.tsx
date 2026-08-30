@@ -1,20 +1,18 @@
 import { useState } from "react";
 import { LoaderCircle, LogOut } from "@cinesim/ui";
 import { Button, cn, Menu, MenuContent, MenuItem, MenuTrigger } from "@cinesim/ui";
-import type { AccountSnapshot } from "../../../shared/api";
+import { useRendererStore } from "../../store/renderer-store-context";
 import { AccountAvatar, accountDisplayName, GoogleMark } from "../account/account-ui";
 
-export type AccountActionResult = { ok: true } | { ok: false; error: string };
-
 interface AccountMenuProps {
-  account: AccountSnapshot;
-  hydrated: boolean;
   width: number;
-  onSignIn: (method: "email" | "google") => Promise<AccountActionResult>;
-  onSignOut: () => Promise<AccountActionResult>;
 }
 
-export function AccountMenu({ account, hydrated, width, onSignIn, onSignOut }: AccountMenuProps) {
+export function AccountMenu({ width }: AccountMenuProps) {
+  const account = useRendererStore((state) => state.account);
+  const hydrated = useRendererStore((state) => state.accountHydrated);
+  const beginSignIn = useRendererStore((state) => state.beginAccountSignIn);
+  const signOutAccount = useRendererStore((state) => state.signOutAccount);
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState<"email" | "google" | "sign-out" | null>(null);
   const [message, setMessage] = useState<string | null>(null);
@@ -22,7 +20,7 @@ export function AccountMenu({ account, hydrated, width, onSignIn, onSignOut }: A
   async function startSignIn(method: "email" | "google"): Promise<void> {
     setBusy(method);
     setMessage(null);
-    const result = await onSignIn(method);
+    const result = await beginSignIn(method);
     setBusy(null);
     if (result.ok) setOpen(false);
     else setMessage(result.error);
@@ -31,7 +29,7 @@ export function AccountMenu({ account, hydrated, width, onSignIn, onSignOut }: A
   async function signOut(): Promise<void> {
     setBusy("sign-out");
     setMessage(null);
-    const result = await onSignOut();
+    const result = await signOutAccount();
     setBusy(null);
     if (result.ok) setOpen(false);
     else setMessage(result.error);

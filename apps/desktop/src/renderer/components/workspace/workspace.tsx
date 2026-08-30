@@ -1,7 +1,12 @@
 import { useEffect, useMemo } from "react";
 import { timeUs } from "@cinesim/core";
 import type { SequenceId } from "@cinesim/core";
-import type { CutLayoutState, DesktopProjectSession, EditorLayoutState } from "../../../shared/api";
+import type { DesktopProjectSession } from "../../../shared/api";
+import {
+  cutLayoutFromState,
+  editorLayoutFromState,
+  sessionFromLifecycle,
+} from "../../store/renderer-store";
 import { useRendererStore } from "../../store/renderer-store-context";
 import { MediaBin } from "../media/media-bin";
 import { CutWorkspace } from "./cut-workspace";
@@ -10,27 +15,24 @@ import { EditWorkspace } from "./edit-workspace";
 
 interface WorkspaceProps {
   session: DesktopProjectSession;
-  section: "media" | "cut" | "edit";
-  activeSequenceId: string;
-  mediaPoolOpen: boolean;
-  inspectorOpen: boolean;
-  notesOpen: boolean;
-  editorLayout: EditorLayoutState;
-  cutLayout: CutLayoutState;
-  onOpenTimeline: (sequenceId: string) => void;
 }
 
-export function Workspace({
-  session,
-  section,
-  activeSequenceId,
-  mediaPoolOpen,
-  inspectorOpen,
-  notesOpen,
-  editorLayout,
-  cutLayout,
-  onOpenTimeline,
-}: WorkspaceProps) {
+export function Workspace() {
+  const session = useRendererStore((state) => sessionFromLifecycle(state.project));
+  return session ? <ProjectWorkspace key={session.directory} session={session} /> : null;
+}
+
+function ProjectWorkspace({ session }: WorkspaceProps) {
+  const section = useRendererStore((state) => state.projectSection);
+  const activeSequenceId = useRendererStore(
+    (state) => state.activeSequenceId ?? session.project.activeSequenceId,
+  );
+  const mediaPoolOpen = useRendererStore((state) => state.mediaPoolOpen);
+  const inspectorOpen = useRendererStore((state) => state.inspectorOpen);
+  const notesOpen = useRendererStore((state) => state.notesOpen);
+  const editorLayout = useRendererStore(editorLayoutFromState);
+  const cutLayout = useRendererStore(cutLayoutFromState);
+  const onOpenTimeline = useRendererStore((state) => state.showTimeline);
   const error = useRendererStore((state) => state.operationError);
   const clearError = useRendererStore((state) => state.clearError);
   const transcripts = useRendererStore((state) => state.transcripts);

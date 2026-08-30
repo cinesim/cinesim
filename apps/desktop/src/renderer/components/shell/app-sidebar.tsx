@@ -10,8 +10,8 @@ import {
   User,
 } from "@cinesim/ui";
 import { cn, Separator } from "@cinesim/ui";
-import type { AccountSnapshot } from "../../../shared/api";
-import type { Destination, ProjectSection, SettingsSection } from "../../store/renderer-store";
+import { sessionFromLifecycle } from "../../store/renderer-store";
+import { useRendererStore } from "../../store/renderer-store-context";
 import { ShortcutHint } from "./shortcuts-dialog";
 
 const SETTINGS_ITEMS = [
@@ -29,33 +29,22 @@ const PROJECT_ITEMS = [
   { section: "edit", label: "Edit", icon: Film, shortcut: "3" },
 ] as const;
 
-interface AppSidebarNavigationProps {
-  destination: Destination;
-  projectAvailable: boolean;
-  projectSection: ProjectSection;
-  settingsSection: SettingsSection;
-  account: AccountSnapshot;
-  isMac: boolean;
-  onHome: () => void;
-  onProjectSection: (section: ProjectSection) => void;
-  onSettingsSection: (section: SettingsSection) => void;
-}
-
-export function AppSidebarNavigation({
-  destination,
-  projectAvailable,
-  projectSection,
-  settingsSection,
-  account,
-  isMac,
-  onHome,
-  onProjectSection,
-  onSettingsSection,
-}: AppSidebarNavigationProps) {
+export function AppSidebarNavigation() {
+  const destination = useRendererStore((state) => state.destination);
+  const projectAvailable = useRendererStore(
+    (state) => sessionFromLifecycle(state.project) !== null,
+  );
+  const projectSection = useRendererStore((state) => state.projectSection);
+  const settingsSection = useRendererStore((state) => state.settingsSection);
+  const account = useRendererStore((state) => state.account);
+  const navigate = useRendererStore((state) => state.navigate);
+  const showProjectSection = useRendererStore((state) => state.showProjectSection);
+  const setSettingsSection = useRendererStore((state) => state.setSettingsSection);
+  const isMac = window.cinesim.platform === "darwin";
   if (destination === "settings")
     return (
       <nav className="space-y-1" aria-label="Settings sections">
-        <SidebarButton active={false} onClick={onHome}>
+        <SidebarButton active={false} onClick={() => navigate("home")}>
           <House size={15} /> <span>Home</span>
           <span className="ml-auto">
             <ShortcutHint>{isMac ? "⌘⇧H" : "Ctrl+⇧H"}</ShortcutHint>
@@ -76,7 +65,7 @@ export function AppSidebarNavigation({
             <SidebarButton
               key={item.section}
               active={settingsSection === item.section}
-              onClick={() => onSettingsSection(item.section)}
+              onClick={() => setSettingsSection(item.section)}
             >
               <Icon size={15} /> {item.label}
             </SidebarButton>
@@ -88,7 +77,7 @@ export function AppSidebarNavigation({
   return (
     <>
       <nav className="space-y-1" aria-label="Application">
-        <SidebarButton active={destination === "home"} onClick={onHome}>
+        <SidebarButton active={destination === "home"} onClick={() => navigate("home")}>
           <House size={15} /> <span>Home</span>
           <span className="ml-auto">
             <ShortcutHint>{isMac ? "⌘⇧H" : "Ctrl+⇧H"}</ShortcutHint>
@@ -106,7 +95,7 @@ export function AppSidebarNavigation({
               <SidebarButton
                 key={item.section}
                 active={projectSection === item.section}
-                onClick={() => onProjectSection(item.section)}
+                onClick={() => showProjectSection(item.section)}
               >
                 <Icon size={15} /> {item.label}
                 <span className="ml-auto">

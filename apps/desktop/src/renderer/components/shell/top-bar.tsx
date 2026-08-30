@@ -2,20 +2,18 @@ import { Bug, FolderOpen, Redo2, Save, Sparkles, Undo2 } from "@cinesim/ui";
 import { Button, Tooltip, TooltipContent, TooltipTrigger } from "@cinesim/ui";
 import { sessionFromLifecycle } from "../../store/renderer-store";
 import { useRendererStore } from "../../store/renderer-store-context";
+import { toggleAuxiliaryMode } from "../../hooks/use-shell-shortcuts";
 
-interface TopBarProps {
-  metricsOpen: boolean;
-  onToggleMetrics: () => void;
-  agentsOpen: boolean;
-  onToggleAgents: () => void;
-}
-
-export function TopBar({ metricsOpen, onToggleMetrics, agentsOpen, onToggleAgents }: TopBarProps) {
+export function TopBar() {
   const session = useRendererStore((state) => sessionFromLifecycle(state.project));
+  const auxiliaryMode = useRendererStore((state) => state.auxiliaryMode);
+  const setAuxiliaryMode = useRendererStore((state) => state.setAuxiliaryMode);
   const undo = useRendererStore((state) => state.undo);
   const redo = useRendererStore((state) => state.redo);
   const save = useRendererStore((state) => state.save);
   const revealProject = useRendererStore((state) => state.revealProject);
+  const metricsOpen = auxiliaryMode === "metrics";
+  const agentsOpen = auxiliaryMode === "agents";
   if (!session) return null;
 
   return (
@@ -75,7 +73,7 @@ export function TopBar({ metricsOpen, onToggleMetrics, agentsOpen, onToggleAgent
               variant={metricsOpen ? "secondary" : "ghost"}
               aria-label={metricsOpen ? "Close Metrics sidebar" : "Open Metrics sidebar"}
               aria-pressed={metricsOpen}
-              onClick={onToggleMetrics}
+              onClick={() => setAuxiliaryMode(toggleAuxiliaryMode(auxiliaryMode, "metrics"))}
             />
           }
         >
@@ -91,7 +89,7 @@ export function TopBar({ metricsOpen, onToggleMetrics, agentsOpen, onToggleAgent
               variant={agentsOpen ? "secondary" : "ghost"}
               aria-label={agentsOpen ? "Close Agents sidebar" : "Open Agents sidebar"}
               aria-pressed={agentsOpen}
-              onClick={onToggleAgents}
+              onClick={() => setAuxiliaryMode(toggleAuxiliaryMode(auxiliaryMode, "agents"))}
             />
           }
         >

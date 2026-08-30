@@ -30,33 +30,11 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@cinesim/ui";
-import type {
-  AccountSnapshot,
-  DesktopAppState,
-  DesktopProjectSession,
-  RecentProject,
-} from "../../../shared/api";
+import type { RecentProject } from "../../../shared/api";
 import { formatByteCount } from "../../lib/format";
-import type { ActionResult } from "../../store/renderer-store";
+import { useRendererStore } from "../../store/renderer-store-context";
 import { LibraryGrid } from "../shared/library-card";
 import { GoogleMark } from "../account/account-ui";
-
-interface WelcomeProps {
-  appState: DesktopAppState;
-  error: string | null;
-  loading: boolean;
-  opening: boolean;
-  account: AccountSnapshot;
-  onCreate: (
-    name: string,
-    kind: "local" | "cloud",
-  ) => Promise<ActionResult<DesktopProjectSession | null>>;
-  onSignIn: (method: "email" | "google") => Promise<ActionResult<void>>;
-  onOpen: () => Promise<ActionResult<DesktopProjectSession | null>>;
-  onOpenRecent: (directory: string) => Promise<ActionResult<DesktopProjectSession>>;
-  onForgetProject: (directory: string) => Promise<ActionResult<DesktopAppState>>;
-  onTrashProject: (directory: string) => Promise<ActionResult<DesktopAppState>>;
-}
 
 function projectGradient(key: string): React.CSSProperties {
   let hash = 0;
@@ -130,19 +108,17 @@ function ProjectGroup({
   );
 }
 
-export function Welcome({
-  appState,
-  error,
-  loading,
-  opening,
-  account,
-  onCreate,
-  onSignIn,
-  onOpen,
-  onOpenRecent,
-  onForgetProject,
-  onTrashProject,
-}: WelcomeProps) {
+export function Welcome() {
+  const appState = useRendererStore((state) => state.appState);
+  const error = useRendererStore((state) => state.operationError);
+  const opening = useRendererStore((state) => state.project.status === "opening");
+  const account = useRendererStore((state) => state.account);
+  const onCreate = useRendererStore((state) => state.createProject);
+  const onSignIn = useRendererStore((state) => state.beginAccountSignIn);
+  const onOpen = useRendererStore((state) => state.openProject);
+  const onOpenRecent = useRendererStore((state) => state.openRecentProject);
+  const onForgetProject = useRendererStore((state) => state.forgetProject);
+  const onTrashProject = useRendererStore((state) => state.trashProject);
   const [names, setNames] = useState({ cloud: "", local: "" });
   const [cloudOpen, setCloudOpen] = useState(
     () => localStorage.getItem("cinesim.home.cloudOpen") !== "false",
@@ -308,8 +284,6 @@ export function Welcome({
       );
     });
   }
-
-  if (loading) return <WelcomeLoadingState />;
 
   return (
     <section className="h-full overflow-y-auto bg-canvas px-5 py-6">
