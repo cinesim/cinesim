@@ -24,9 +24,9 @@ export function registerCloudIpc(manager: CloudMediaManager): void {
   registerIpcHandler(cloudContracts.removeDownload, ({ assetId }) =>
     manager.removeDownload(assetId),
   );
-  registerIpcHandler(cloudContracts.trashAssets, ({ cloudAssetIds }) => {
-    return manager.trashAssets(cloudAssetIds);
-  });
+  registerIpcHandler(cloudContracts.trashAssets, ({ cloudAssetIds }) =>
+    manager.trashAssets(cloudAssetIds),
+  );
   registerIpcHandler(cloudContracts.restoreAsset, ({ cloudAssetId }) =>
     manager.restoreAsset(cloudAssetId),
   );

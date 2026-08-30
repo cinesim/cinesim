@@ -2,6 +2,33 @@ import type { DerivedPerformanceObservation } from "../../shared/contracts";
 import { emptyPerformance, percentile } from "./model";
 import type { PersistedAsset } from "./model";
 
+type PerformanceSummary = PersistedAsset["performance"]["original"];
+type DeadlineWindow = { total: number; missed: number };
+
+function observationKey(observation: DerivedPerformanceObservation): string {
+  return `${observation.assetId}:${observation.sourceKind}`;
+}
+
+function performanceSummary(
+  record: PersistedAsset,
+  sourceKind: DerivedPerformanceObservation["sourceKind"],
+): PerformanceSummary {
+  return sourceKind === "proxy"
+    ? (record.performance.proxy ??= emptyPerformance())
+    : record.performance.original;
+}
+
+function recordCounters(
+  summary: PerformanceSummary,
+  observation: DerivedPerformanceObservation,
+): void {
+  summary.observations += 1;
+  summary.requestsReceived += observation.requestsReceived ?? 0;
+  summary.requestsCoalesced += observation.requestsCoalesced ?? 0;
+  summary.framesPresented += observation.framesPresented ?? 0;
+  summary.framesObsolete += observation.framesObsolete ?? 0;
+}
+
 export class DerivedPerformanceTracker {
   readonly #latencies = new Map<string, number[]>();
   readonly #deadlines = new Map<string, { total: number; missed: number }>();
@@ -19,42 +46,48 @@ export class DerivedPerformanceTracker {
   }
 
   record(record: PersistedAsset, observation: DerivedPerformanceObservation): void {
-    const summary =
-      observation.sourceKind === "proxy"
-        ? (record.performance.proxy ??= emptyPerformance())
-        : record.performance.original;
-    summary.observations += 1;
-    summary.requestsReceived += observation.requestsReceived ?? 0;
-    summary.requestsCoalesced += observation.requestsCoalesced ?? 0;
-    summary.framesPresented += observation.framesPresented ?? 0;
-    summary.framesObsolete += observation.framesObsolete ?? 0;
-    const key = `${observation.assetId}:${observation.sourceKind}`;
-    if (observation.latencyMs !== undefined && observation.operation === "hover-seek") {
-      if (!Number.isFinite(observation.latencyMs) || observation.latencyMs < 0) {
-        throw new Error("Invalid media latency");
-      }
-      const values = this.#latencies.get(key) ?? [];
-      values.push(observation.latencyMs);
-      if (values.length > 64) values.shift();
-      this.#latencies.set(key, values);
-      const p50 = percentile(values, 0.5);
-      const p95 = percentile(values, 0.95);
-      if (p50 === undefined || p95 === undefined) {
-        throw new Error("Media latency sample was not retained");
-      }
-      summary.warmSeekP50Ms = p50;
-      summary.warmSeekP95Ms = p95;
-    }
-    if (observation.deadlineMiss !== undefined) {
-      const deadlines = this.#deadlines.get(key) ?? { total: 0, missed: 0 };
-      deadlines.total += 1;
-      deadlines.missed += Number(observation.deadlineMiss);
-      if (deadlines.total > 100) {
-        deadlines.total = Math.ceil(deadlines.total / 2);
-        deadlines.missed = Math.ceil(deadlines.missed / 2);
-      }
-      this.#deadlines.set(key, deadlines);
-      summary.deadlineMissRate = deadlines.missed / deadlines.total;
-    }
+    const summary = performanceSummary(record, observation.sourceKind);
+    const key = observationKey(observation);
+    recordCounters(summary, observation);
+    this.#recordLatency(key, summary, observation);
+    this.#recordDeadline(key, summary, observation.deadlineMiss);
+  }
+
+  #recordLatency(
+    key: string,
+    summary: PerformanceSummary,
+    observation: DerivedPerformanceObservation,
+  ): void {
+    if (observation.latencyMs === undefined || observation.operation !== "hover-seek") return;
+    if (!Number.isFinite(observation.latencyMs) || observation.latencyMs < 0)
+      throw new Error("Invalid media latency");
+
+    const values = this.#latencies.get(key) ?? [];
+    values.push(observation.latencyMs);
+    if (values.length > 64) values.shift();
+    this.#latencies.set(key, values);
+
+    const p50 = percentile(values, 0.5);
+    const p95 = percentile(values, 0.95);
+    if (p50 === undefined || p95 === undefined)
+      throw new Error("Media latency sample was not retained");
+    summary.warmSeekP50Ms = p50;
+    summary.warmSeekP95Ms = p95;
+  }
+
+  #recordDeadline(key: string, summary: PerformanceSummary, missed: boolean | undefined): void {
+    if (missed === undefined) return;
+    const window = this.#deadlines.get(key) ?? { total: 0, missed: 0 };
+    window.total += 1;
+    window.missed += Number(missed);
+    this.#shrinkDeadlineWindow(window);
+    this.#deadlines.set(key, window);
+    summary.deadlineMissRate = window.missed / window.total;
+  }
+
+  #shrinkDeadlineWindow(window: DeadlineWindow): void {
+    if (window.total <= 100) return;
+    window.total = Math.ceil(window.total / 2);
+    window.missed = Math.ceil(window.missed / 2);
   }
 }

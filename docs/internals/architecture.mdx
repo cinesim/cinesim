@@ -46,6 +46,12 @@ not a second bundler.
 The API has a small Vite config used solely to bundle its system-browser authentication client.
 Hono itself remains a standards-based server entry point.
 
+For targeted main-process readability work, `vp run complexity:report` measures SonarJS cognitive
+complexity for every nontrivial function and writes Markdown and JSON reports under the gitignored
+`.context/` directory. The working contract is a hard ceiling of 15, a helper target of 10, and a
+human-classified orchestration target of 5. This is a refactoring report rather than a CI gate:
+scores identify where to read first, while top-to-bottom clarity remains the acceptance criterion.
+
 ## Project state
 
 `cinesim.json` is the stable entry point. Complex canonical collections live in deterministic JSON

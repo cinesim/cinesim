@@ -63,85 +63,81 @@ function failureDetail(error: unknown): string {
   return String(error);
 }
 
+function status(
+  provider: AgentProviderKind,
+  state: AgentProviderStatus["state"],
+  executablePath: string | null,
+  version: string | null,
+  detail: string | null,
+  accountLabel: string | null = null,
+): AgentProviderStatus {
+  return { provider, state, executablePath, version, accountLabel, detail };
+}
+
+async function detectVersion(
+  provider: AgentProviderKind,
+  executablePath: string,
+): Promise<AgentProviderStatus | string> {
+  try {
+    return (await run(executablePath, ["--version"])).stdout;
+  } catch (error) {
+    return status(provider, "error", executablePath, null, failureDetail(error));
+  }
+}
+
+async function detectClaude(executablePath: string, version: string): Promise<AgentProviderStatus> {
+  try {
+    const auth = JSON.parse((await run(executablePath, ["auth", "status", "--json"])).stdout) as {
+      loggedIn?: boolean;
+      email?: string;
+      subscriptionType?: string;
+    };
+    return status(
+      "claude",
+      auth.loggedIn ? "connected" : "login-required",
+      executablePath,
+      version,
+      auth.loggedIn ? null : "Claude Code is installed but is not logged in.",
+      auth.email ?? auth.subscriptionType ?? null,
+    );
+  } catch (error) {
+    return status("claude", "login-required", executablePath, version, failureDetail(error));
+  }
+}
+
+async function detectCodex(executablePath: string, version: string): Promise<AgentProviderStatus> {
+  try {
+    const result = await run(executablePath, ["login", "status"]);
+    const output = `${result.stdout}\n${result.stderr}`.trim();
+    const loggedIn = /logged in|chatgpt|api key/i.test(output) && !/not logged in/i.test(output);
+    return status(
+      "codex",
+      loggedIn ? "connected" : "login-required",
+      executablePath,
+      version,
+      loggedIn ? null : output || "Codex is installed but is not logged in.",
+      loggedIn ? output.split("\n")[0] || null : null,
+    );
+  } catch (error) {
+    return status("codex", "login-required", executablePath, version, failureDetail(error));
+  }
+}
+
 export async function detectProvider(
   provider: AgentProviderKind,
   settings: AgentProviderSettings,
 ): Promise<AgentProviderStatus> {
   const executablePath = await discoverProviderExecutable(provider, settings.executablePath);
   if (!executablePath) {
-    return {
-      provider,
-      state: "not-found",
-      executablePath: null,
-      version: null,
-      accountLabel: null,
-      detail: settings.executablePath.trim()
-        ? `${settings.executablePath.trim()} is not an executable file.`
-        : `${PROVIDER_COMMAND[provider]} was not found on this Mac.`,
-    };
+    const detail = settings.executablePath.trim()
+      ? `${settings.executablePath.trim()} is not an executable file.`
+      : `${PROVIDER_COMMAND[provider]} was not found on this Mac.`;
+    return status(provider, "not-found", null, null, detail);
   }
 
-  let version: string;
-  try {
-    version = (await run(executablePath, ["--version"])).stdout;
-  } catch (error) {
-    return {
-      provider,
-      state: "error",
-      executablePath,
-      version: null,
-      accountLabel: null,
-      detail: failureDetail(error),
-    };
-  }
-
-  if (provider === "claude") {
-    try {
-      const auth = JSON.parse((await run(executablePath, ["auth", "status", "--json"])).stdout) as {
-        loggedIn?: boolean;
-        email?: string;
-        subscriptionType?: string;
-      };
-      return {
-        provider,
-        state: auth.loggedIn ? "connected" : "login-required",
-        executablePath,
-        version,
-        accountLabel: auth.email ?? auth.subscriptionType ?? null,
-        detail: auth.loggedIn ? null : "Claude Code is installed but is not logged in.",
-      };
-    } catch (error) {
-      return {
-        provider,
-        state: "login-required",
-        executablePath,
-        version,
-        accountLabel: null,
-        detail: failureDetail(error),
-      };
-    }
-  }
-
-  try {
-    const result = await run(executablePath, ["login", "status"]);
-    const status = `${result.stdout}\n${result.stderr}`.trim();
-    const loggedIn = /logged in|chatgpt|api key/i.test(status) && !/not logged in/i.test(status);
-    return {
-      provider,
-      state: loggedIn ? "connected" : "login-required",
-      executablePath,
-      version,
-      accountLabel: loggedIn ? status.split("\n")[0] || null : null,
-      detail: loggedIn ? null : status || "Codex is installed but is not logged in.",
-    };
-  } catch (error) {
-    return {
-      provider,
-      state: "login-required",
-      executablePath,
-      version,
-      accountLabel: null,
-      detail: failureDetail(error),
-    };
-  }
+  const version = await detectVersion(provider, executablePath);
+  if (typeof version !== "string") return version;
+  return provider === "claude"
+    ? detectClaude(executablePath, version)
+    : detectCodex(executablePath, version);
 }

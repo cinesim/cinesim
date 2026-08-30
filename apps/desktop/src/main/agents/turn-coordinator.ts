@@ -9,9 +9,8 @@ export class AgentTurnCoordinator {
   readonly #stores = new Map<string, AgentCheckpointStore>();
 
   async captureBefore(session: AgentSessionSnapshot, turnNumber: number): Promise<void> {
-    await this.#store(session.projectDirectory).capture(
-      this.#store(session.projectDirectory).ref(session.id, turnNumber, "before"),
-    );
+    const store = this.#store(session.projectDirectory);
+    await store.capture(store.ref(session.id, turnNumber, "before"));
   }
 
   async complete(

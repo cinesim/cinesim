@@ -15,6 +15,24 @@ interface MediaBounds {
   endExclusive: number;
 }
 
+interface MediaRequestTarget {
+  assetId: string;
+  accessControlOrigin: string;
+  projectScope: DerivedProjectScope;
+  derivedKind: DerivedArtifactKind | null;
+  url: URL;
+}
+
+const derivedKinds: Record<string, DerivedArtifactKind | undefined> = {
+  thumbnail: "thumbnail",
+  filmstrip: "filmstrip",
+  waveform: "waveform",
+  proxy: "proxy",
+};
+
+const assetIdPattern = /^asset_[a-zA-Z0-9][a-zA-Z0-9_-]*$/u;
+const profileIdPattern = /^[a-z0-9][a-z0-9_-]{0,63}$/u;
+
 export function trustedMediaRequestOrigin(
   request: Pick<Request, "headers" | "referrer">,
   developmentUrl?: URL | null,
@@ -147,109 +165,161 @@ function fileResponse(
   return streamedMediaResponse(store, { ...input, bounds });
 }
 
-export async function registerMediaProtocol(
-  store: DesktopProjectStore,
-  cloudMedia: CloudMediaManager,
-  developmentUrl?: URL | null,
-): Promise<void> {
-  editorSession().protocol.handle(CINESIM_MEDIA_SCHEME, async (request) => {
+class MediaRequestHandler {
+  constructor(
+    private readonly store: DesktopProjectStore,
+    private readonly cloudMedia: CloudMediaManager,
+    private readonly developmentUrl?: URL | null,
+  ) {}
+
+  async handle(request: Request): Promise<Response> {
     const requestStarted = performance.now();
     let diagnosticAssetId: string | undefined;
     try {
-      if (request.method !== "GET" && request.method !== "HEAD")
-        return new Response("Method not allowed", {
-          status: 405,
-          headers: { Allow: "GET, HEAD" },
-        });
-      const accessControlOrigin = trustedMediaRequestOrigin(request, developmentUrl);
-      if (!accessControlOrigin) return new Response("Forbidden", { status: 403 });
-      const url = new URL(request.url);
-      const derivedKind = (
-        {
-          thumbnail: "thumbnail",
-          filmstrip: "filmstrip",
-          waveform: "waveform",
-          proxy: "proxy",
-        } as const
-      )[url.hostname as "thumbnail" | "filmstrip" | "waveform" | "proxy"];
-      if (url.hostname !== "asset" && !derivedKind)
-        return new Response("Not found", { status: 404 });
-      const pathParts = url.pathname.split("/").filter(Boolean);
-      if (pathParts.length !== 2) return new Response("Bad media path", { status: 400 });
-      const [cacheKey, assetId] = pathParts as [string, string];
-      if (!/^asset_[a-zA-Z0-9][a-zA-Z0-9_-]*$/u.test(assetId))
-        return new Response("Bad asset ID", { status: 400 });
-      let projectScope: DerivedProjectScope;
-      try {
-        projectScope = parseDerivedProjectScope({ cacheKey, epoch: url.searchParams.get("epoch") });
-      } catch {
-        return new Response("Bad project scope", { status: 400 });
-      }
-      try {
-        store.derivedMedia.assertScope(projectScope);
-      } catch {
-        return new Response("Stale project scope", { status: 409 });
-      }
-      diagnosticAssetId = assetId;
-      if (derivedKind) {
-        if (url.searchParams.get("v") !== DERIVED_GENERATOR_VERSION)
-          return new Response("Unknown generator version", { status: 404 });
-        const profileId = url.searchParams.get("profile") ?? undefined;
-        const revision = url.searchParams.get("revision") ?? undefined;
-        if (
-          (derivedKind === "proxy" && !profileId) ||
-          (profileId !== undefined && !/^[a-z0-9][a-z0-9_-]{0,63}$/u.test(profileId))
-        )
-          return new Response("Bad proxy profile", { status: 400 });
-        const result = await store.derivedMedia.artifactFile(
-          projectScope,
-          derivedKind as DerivedArtifactKind,
-          assetId,
-          profileId,
-          revision,
-        );
-        return fileResponse(store, request, {
-          path: result.path,
-          size: result.size,
-          mimeType: result.mimeType,
-          assetId,
-          cacheControl: "private, max-age=31536000, immutable",
-          requestStarted,
-          accessControlOrigin,
-        });
-      }
-      const asset = store.project?.assets.find((candidate) => candidate.id === assetId);
-      if (!asset) return new Response("Unknown asset", { status: 404 });
-      if (asset.source.kind === "cloud") {
-        const downloadedPath = await cloudMedia.downloadedOriginalPath(asset.id);
-        if (!downloadedPath)
-          return cloudMedia.readOriginal(asset.source.cloudAssetId, request, accessControlOrigin);
-        return fileResponse(store, request, {
-          path: downloadedPath,
-          size: (await stat(downloadedPath)).size,
-          mimeType: "application/octet-stream",
-          assetId,
-          cacheControl: "no-store",
-          requestStarted,
-          accessControlOrigin,
-        });
-      }
-      return fileResponse(store, request, {
-        path: asset.source.path,
-        size: (await stat(asset.source.path)).size,
-        mimeType: "application/octet-stream",
-        assetId,
-        cacheControl: "no-store",
-        requestStarted,
-        accessControlOrigin,
-      });
+      const target = this.#target(request);
+      if (target instanceof Response) return target;
+      diagnosticAssetId = target.assetId;
+      return target.derivedKind
+        ? await this.#derivedResponse(request, target, target.derivedKind, requestStarted)
+        : await this.#assetResponse(request, target, requestStarted);
     } catch (error) {
-      store.derivedMedia.recordProtocolError(
+      this.store.derivedMedia.recordProtocolError(
         diagnosticAssetId,
         error instanceof Error ? error.message : "Media read failed",
         performance.now() - requestStarted,
       );
       return new Response("MEDIA_READ_FAILED", { status: 500 });
     }
-  });
+  }
+
+  #target(request: Request): MediaRequestTarget | Response {
+    const access = this.#access(request);
+    if (access instanceof Response) return access;
+
+    const url = new URL(request.url);
+    const derivedKind = derivedKinds[url.hostname] ?? null;
+    if (url.hostname !== "asset" && !derivedKind) return new Response("Not found", { status: 404 });
+
+    const pathParts = url.pathname.split("/").filter(Boolean);
+    if (pathParts.length !== 2) return new Response("Bad media path", { status: 400 });
+    const [cacheKey, assetId] = pathParts as [string, string];
+    if (!assetIdPattern.test(assetId)) return new Response("Bad asset ID", { status: 400 });
+
+    const projectScope = this.#projectScope(cacheKey, url);
+    if (projectScope instanceof Response) return projectScope;
+    return { assetId, accessControlOrigin: access, projectScope, derivedKind, url };
+  }
+
+  #access(request: Request): string | Response {
+    if (request.method !== "GET" && request.method !== "HEAD") {
+      return new Response("Method not allowed", {
+        status: 405,
+        headers: { Allow: "GET, HEAD" },
+      });
+    }
+    return (
+      trustedMediaRequestOrigin(request, this.developmentUrl) ??
+      new Response("Forbidden", { status: 403 })
+    );
+  }
+
+  #projectScope(cacheKey: string, url: URL): DerivedProjectScope | Response {
+    let projectScope: DerivedProjectScope;
+    try {
+      projectScope = parseDerivedProjectScope({ cacheKey, epoch: url.searchParams.get("epoch") });
+    } catch {
+      return new Response("Bad project scope", { status: 400 });
+    }
+    try {
+      this.store.derivedMedia.assertScope(projectScope);
+      return projectScope;
+    } catch {
+      return new Response("Stale project scope", { status: 409 });
+    }
+  }
+
+  async #derivedResponse(
+    request: Request,
+    target: MediaRequestTarget,
+    kind: DerivedArtifactKind,
+    requestStarted: number,
+  ): Promise<Response> {
+    if (target.url.searchParams.get("v") !== DERIVED_GENERATOR_VERSION) {
+      return new Response("Unknown generator version", { status: 404 });
+    }
+    const profileId = target.url.searchParams.get("profile") ?? undefined;
+    const revision = target.url.searchParams.get("revision") ?? undefined;
+    if (!this.#validProfile(kind, profileId)) {
+      return new Response("Bad proxy profile", { status: 400 });
+    }
+    const result = await this.store.derivedMedia.artifactFile(
+      target.projectScope,
+      kind,
+      target.assetId,
+      profileId,
+      revision,
+    );
+    return fileResponse(this.store, request, {
+      path: result.path,
+      size: result.size,
+      mimeType: result.mimeType,
+      assetId: target.assetId,
+      cacheControl: "private, max-age=31536000, immutable",
+      requestStarted,
+      accessControlOrigin: target.accessControlOrigin,
+    });
+  }
+
+  #validProfile(kind: DerivedArtifactKind | null, profileId: string | undefined): boolean {
+    if (kind === "proxy" && !profileId) return false;
+    return profileId === undefined || profileIdPattern.test(profileId);
+  }
+
+  async #assetResponse(
+    request: Request,
+    target: MediaRequestTarget,
+    requestStarted: number,
+  ): Promise<Response> {
+    const asset = this.store.project?.assets.find((candidate) => candidate.id === target.assetId);
+    if (!asset) return new Response("Unknown asset", { status: 404 });
+
+    if (asset.source.kind === "cloud") {
+      const downloadedPath = await this.cloudMedia.downloadedOriginalPath(asset.id);
+      if (!downloadedPath) {
+        return this.cloudMedia.readOriginal(
+          asset.source.cloudAssetId,
+          request,
+          target.accessControlOrigin,
+        );
+      }
+      return this.#localFileResponse(request, target, requestStarted, downloadedPath);
+    }
+    return this.#localFileResponse(request, target, requestStarted, asset.source.path);
+  }
+
+  async #localFileResponse(
+    request: Request,
+    target: MediaRequestTarget,
+    requestStarted: number,
+    path: string,
+  ): Promise<Response> {
+    return fileResponse(this.store, request, {
+      path,
+      size: (await stat(path)).size,
+      mimeType: "application/octet-stream",
+      assetId: target.assetId,
+      cacheControl: "no-store",
+      requestStarted,
+      accessControlOrigin: target.accessControlOrigin,
+    });
+  }
+}
+
+export async function registerMediaProtocol(
+  store: DesktopProjectStore,
+  cloudMedia: CloudMediaManager,
+  developmentUrl?: URL | null,
+): Promise<void> {
+  const handler = new MediaRequestHandler(store, cloudMedia, developmentUrl);
+  editorSession().protocol.handle(CINESIM_MEDIA_SCHEME, (request) => handler.handle(request));
 }

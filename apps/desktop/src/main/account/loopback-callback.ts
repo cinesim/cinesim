@@ -13,6 +13,21 @@ const authorizationCodeSchema = z.object({
   state: z.string().min(1),
 });
 
+class CallbackBodyTooLarge extends Error {}
+
+async function readCallbackToken(request: IncomingMessage): Promise<string> {
+  let bytes = 0;
+  const chunks: Buffer[] = [];
+  for await (const value of request) {
+    const chunk = Buffer.isBuffer(value) ? value : Buffer.from(value);
+    bytes += chunk.byteLength;
+    if (bytes > 8_192) throw new CallbackBodyTooLarge();
+    chunks.push(chunk);
+  }
+  const body = JSON.parse(Buffer.concat(chunks).toString("utf8")) as unknown;
+  return callbackBodySchema.parse(body).token;
+}
+
 function authenticationAttemptKey(token: string): string {
   try {
     const decoded = authorizationCodeSchema.parse(
@@ -75,45 +90,49 @@ export class LocalAuthCallbackServer {
 
   async #handle(request: IncomingMessage, response: ServerResponse): Promise<void> {
     const originAllowed = request.headers.origin === this.#options.allowedOrigin;
-    response.setHeader("Vary", "Origin");
-    if (originAllowed)
-      response.setHeader("Access-Control-Allow-Origin", this.#options.allowedOrigin);
+    this.#setOriginHeaders(response, originAllowed);
 
     if (request.method === "OPTIONS") {
-      if (!originAllowed) {
-        response.writeHead(403).end();
-        return;
-      }
-      response.setHeader("Access-Control-Allow-Headers", "content-type");
-      response.setHeader("Access-Control-Allow-Methods", "POST");
-      response.writeHead(204).end();
+      this.#respondToPreflight(response, originAllowed);
       return;
     }
 
-    if (request.method !== "POST" || request.url !== LOCAL_AUTH_CALLBACK_PATH || !originAllowed) {
+    if (!this.#isCallbackRequest(request, originAllowed)) {
       response.writeHead(404).end();
       return;
     }
 
     try {
-      let bytes = 0;
-      const chunks: Buffer[] = [];
-      for await (const value of request) {
-        const chunk = Buffer.isBuffer(value) ? value : Buffer.from(value);
-        bytes += chunk.byteLength;
-        if (bytes > 8_192) {
-          response.writeHead(413).end();
-          return;
-        }
-        chunks.push(chunk);
-      }
-      const input = callbackBodySchema.parse(JSON.parse(Buffer.concat(chunks).toString("utf8")));
-      await this.#deliverToken(input.token);
+      await this.#deliverToken(await readCallbackToken(request));
       response.writeHead(204).end();
-    } catch {
+    } catch (error) {
+      if (error instanceof CallbackBodyTooLarge) {
+        response.writeHead(413).end();
+        return;
+      }
       response.writeHead(400, { "Content-Type": "application/json" });
       response.end(JSON.stringify({ error: "authentication_callback_failed" }));
     }
+  }
+
+  #setOriginHeaders(response: ServerResponse, originAllowed: boolean): void {
+    response.setHeader("Vary", "Origin");
+    if (originAllowed)
+      response.setHeader("Access-Control-Allow-Origin", this.#options.allowedOrigin);
+  }
+
+  #respondToPreflight(response: ServerResponse, originAllowed: boolean): void {
+    if (!originAllowed) {
+      response.writeHead(403).end();
+      return;
+    }
+    response.setHeader("Access-Control-Allow-Headers", "content-type");
+    response.setHeader("Access-Control-Allow-Methods", "POST");
+    response.writeHead(204).end();
+  }
+
+  #isCallbackRequest(request: IncomingMessage, originAllowed: boolean): boolean {
+    return request.method === "POST" && request.url === LOCAL_AUTH_CALLBACK_PATH && originAllowed;
   }
 
   async #deliverToken(token: string): Promise<void> {

@@ -85,6 +85,21 @@ function sessionDeltaOperations(
   previous: AgentSessionSnapshot,
   next: AgentSessionSnapshot,
 ): AgentProjectDeltaOperation[] {
+  const operations = metadataOperations(previous, next);
+  operations.push(...eventOperations(previous, next));
+  if (!equal(previous.checkpoints, next.checkpoints))
+    operations.push({
+      type: "checkpoints-replaced",
+      sessionId: next.id,
+      checkpoints: structuredClone(next.checkpoints),
+    });
+  return operations;
+}
+
+function metadataOperations(
+  previous: AgentSessionSnapshot,
+  next: AgentSessionSnapshot,
+): AgentProjectDeltaOperation[] {
   const operations: AgentProjectDeltaOperation[] = [];
   const patch: AgentSessionMetadataPatch = {};
   for (const key of SESSION_METADATA_KEYS) {
@@ -92,13 +107,20 @@ function sessionDeltaOperations(
   }
   if (Object.keys(patch).length > 0)
     operations.push({ type: "session-patched", sessionId: next.id, patch });
-  if (JSON.stringify(previous.tokenUsage) !== JSON.stringify(next.tokenUsage))
+  if (!equal(previous.tokenUsage, next.tokenUsage))
     operations.push({
       type: "token-usage-changed",
       sessionId: next.id,
       usage: next.tokenUsage ? structuredClone(next.tokenUsage) : null,
     });
+  return operations;
+}
 
+function eventOperations(
+  previous: AgentSessionSnapshot,
+  next: AgentSessionSnapshot,
+): AgentProjectDeltaOperation[] {
+  const operations: AgentProjectDeltaOperation[] = [];
   const previousEvents = new Map(previous.events.map((event) => [event.id, event]));
   const nextEvents = new Map(next.events.map((event) => [event.id, event]));
   const pruned = previous.events
@@ -114,28 +136,30 @@ function sessionDeltaOperations(
         sessionId: next.id,
         event: structuredClone(event),
       });
-    else if (JSON.stringify(prior) !== JSON.stringify(event)) {
-      const appendedText = appendedEventText(prior, event);
-      operations.push(
-        appendedText === null
-          ? { type: "event-patched", sessionId: next.id, event: structuredClone(event) }
-          : {
-              type: "event-text-appended",
-              sessionId: next.id,
-              eventId: event.id,
-              text: appendedText,
-              createdAt: event.createdAt,
-            },
-      );
-    }
+    else if (!equal(prior, event)) operations.push(changedEventOperation(next.id, prior, event));
   }
-  if (JSON.stringify(previous.checkpoints) !== JSON.stringify(next.checkpoints))
-    operations.push({
-      type: "checkpoints-replaced",
-      sessionId: next.id,
-      checkpoints: structuredClone(next.checkpoints),
-    });
   return operations;
+}
+
+function changedEventOperation(
+  sessionId: string,
+  previous: AgentSessionSnapshot["events"][number],
+  next: AgentSessionSnapshot["events"][number],
+): AgentProjectDeltaOperation {
+  const appendedText = appendedEventText(previous, next);
+  return appendedText === null
+    ? { type: "event-patched", sessionId, event: structuredClone(next) }
+    : {
+        type: "event-text-appended",
+        sessionId,
+        eventId: next.id,
+        text: appendedText,
+        createdAt: next.createdAt,
+      };
+}
+
+function equal(left: unknown, right: unknown): boolean {
+  return JSON.stringify(left) === JSON.stringify(right);
 }
 
 function appendedEventText(

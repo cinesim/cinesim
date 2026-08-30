@@ -29,6 +29,17 @@ interface DerivedJobHost {
 
 const MAX_PROXY_REQUEST_ASSETS = 100;
 
+function supportsDerivedArtifacts(asset: Asset | undefined): asset is Asset {
+  return asset?.kind === "video" || asset?.kind === "audio";
+}
+
+function perceptionKinds(asset: Asset): DerivedArtifactKind[] {
+  const kinds: DerivedArtifactKind[] = [];
+  if (asset.kind === "video") kinds.push("thumbnail", "filmstrip");
+  if (asset.kind === "audio" || asset.hasAudio === true) kinds.push("waveform");
+  return kinds;
+}
+
 export class DerivedJobCoordinator {
   constructor(
     private readonly host: DerivedJobHost,
@@ -51,10 +62,7 @@ export class DerivedJobCoordinator {
       const asset = this.host.asset(assetId);
       const record = snapshot.assets[assetId];
       if (!record) return false;
-      const kinds: DerivedArtifactKind[] = [];
-      if (asset.kind === "video") kinds.push("thumbnail", "filmstrip");
-      if (asset.kind === "audio" || asset.hasAudio === true) kinds.push("waveform");
-      return kinds.every(
+      return perceptionKinds(asset).every(
         (kind) => record[kind].state === "ready" || record[kind].state === "failed",
       );
     };
@@ -132,34 +140,15 @@ export class DerivedJobCoordinator {
   }
 
   async queueProxyRecord(asset: Asset, required = false): Promise<void> {
-    if (asset.kind !== "video" && asset.kind !== "audio") return;
+    if (!supportsDerivedArtifacts(asset)) return;
     if (!this.artifacts.diskHeadroomAvailable) {
       if (required) throw new Error("Insufficient disk headroom for a proxy");
       return;
     }
     const record = await this.host.ensureAsset(asset);
     const profileId = this.#proxyProfileId();
-    if (record.proxy.state === "ready" && record.proxy.profileId !== profileId) {
-      if (record.proxy.relativePath)
-        await rm(this.host.containedPath(record.proxy.relativePath), { force: true });
-      record.proxy.state = "missing";
-      delete record.proxy.relativePath;
-      delete record.proxy.bytes;
-      delete record.proxy.updatedAt;
-      delete record.proxy.lastAccessAt;
-    }
-    if (record.proxy.state === "queued") record.proxy.profileId = profileId;
-    if (record.proxy.state === "missing" || record.proxy.state === "failed") {
-      record.proxy.state = "queued";
-      record.proxy.progress = 0;
-      record.proxy.profileId = profileId;
-      delete record.proxy.failureCode;
-      this.host.log({
-        assetId: asset.id,
-        kind: "proxy-queued",
-        detail: `Edit proxy queued with ${profileId}`,
-      });
-    }
+    await this.#invalidateMismatchedProxy(record, profileId);
+    this.#markProxyQueued(asset, record, profileId);
   }
 
   async #queueRequestedArtifacts(
@@ -172,24 +161,50 @@ export class DerivedJobCoordinator {
     const project = this.host.project();
     for (const assetId of new Set(assetIds)) {
       const asset = project.assets.find((candidate) => candidate.id === assetId);
-      if (!asset || (asset.kind !== "video" && asset.kind !== "audio")) continue;
-      const record = await this.host.ensureAsset(asset);
-      const kinds: DerivedArtifactKind[] = [];
-      if (asset.kind === "video") kinds.push("thumbnail", "filmstrip");
-      if (asset.kind === "audio" || asset.hasAudio === true) kinds.push("waveform");
-      for (const kind of kinds) {
-        const artifact = record[kind];
-        if (artifact.state === "missing") artifact.state = "queued";
-      }
-      if (
-        queueConfiguredProxies &&
-        (this.host.settings().proxyGeneration === "automatic" || asset.source.kind === "cloud")
-      )
-        await this.queueProxyRecord(asset);
+      if (supportsDerivedArtifacts(asset))
+        await this.#queueAssetArtifacts(asset, queueConfiguredProxies);
     }
     if (projectOpenPersistenceSignature(index) !== persistenceSignature) await this.host.persist();
     this.host.emit();
     return this.host.snapshot();
+  }
+
+  async #queueAssetArtifacts(asset: Asset, queueConfiguredProxy: boolean): Promise<void> {
+    const record = await this.host.ensureAsset(asset);
+    for (const kind of perceptionKinds(asset)) {
+      if (record[kind].state === "missing") record[kind].state = "queued";
+    }
+    if (queueConfiguredProxy && this.#usesProxy(asset)) await this.queueProxyRecord(asset);
+  }
+
+  #usesProxy(asset: Asset): boolean {
+    return this.host.settings().proxyGeneration === "automatic" || asset.source.kind === "cloud";
+  }
+
+  async #invalidateMismatchedProxy(record: PersistedAsset, profileId: string): Promise<void> {
+    const proxy = record.proxy;
+    if (proxy.state !== "ready" || proxy.profileId === profileId) return;
+    if (proxy.relativePath) await rm(this.host.containedPath(proxy.relativePath), { force: true });
+    proxy.state = "missing";
+    delete proxy.relativePath;
+    delete proxy.bytes;
+    delete proxy.updatedAt;
+    delete proxy.lastAccessAt;
+  }
+
+  #markProxyQueued(asset: Asset, record: PersistedAsset, profileId: string): void {
+    const proxy = record.proxy;
+    if (proxy.state === "queued") proxy.profileId = profileId;
+    if (proxy.state !== "missing" && proxy.state !== "failed") return;
+    proxy.state = "queued";
+    proxy.progress = 0;
+    proxy.profileId = profileId;
+    delete proxy.failureCode;
+    this.host.log({
+      assetId: asset.id,
+      kind: "proxy-queued",
+      detail: `Edit proxy queued with ${profileId}`,
+    });
   }
 
   #proxyProfileId(): string {

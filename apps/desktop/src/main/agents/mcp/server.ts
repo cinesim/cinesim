@@ -93,10 +93,20 @@ export class AgentMcpServer {
   }
 
   async #handle(request: IncomingMessage, response: ServerResponse): Promise<void> {
+    const session = this.#authorizedSession(request, response);
+    if (!session) return;
+    try {
+      await this.#serveRequest(session, request, response);
+    } catch (error) {
+      this.#writeRequestError(response, error);
+    }
+  }
+
+  #authorizedSession(request: IncomingMessage, response: ServerResponse): AgentToolSession | null {
     if (request.url !== "/mcp" || request.method !== "POST") {
       response.writeHead(405, { Allow: "POST", "Content-Type": "application/json" });
       response.end(JSON.stringify({ error: "Method not allowed" }));
-      return;
+      return null;
     }
     const authorization = request.headers.authorization;
     const token = authorization?.startsWith("Bearer ") ? authorization.slice(7) : "";
@@ -104,28 +114,36 @@ export class AgentMcpServer {
     if (!session) {
       response.writeHead(401, { "Content-Type": "application/json" });
       response.end(JSON.stringify({ error: "Invalid agent session credential" }));
-      return;
+      return null;
     }
-    try {
-      const body = await readJsonBody(request);
-      const server = this.#createMcpServer(session);
-      const transport = new StreamableHTTPServerTransport({ enableJsonResponse: true });
-      await server.connect(transport as Parameters<typeof server.connect>[0]);
-      response.once("close", () => {
-        void transport.close();
-        void server.close();
-      });
-      await transport.handleRequest(request, response, body);
-    } catch (error) {
-      if (!response.headersSent) response.writeHead(500, { "Content-Type": "application/json" });
-      response.end(
-        JSON.stringify({
-          jsonrpc: "2.0",
-          error: { code: -32_603, message: error instanceof Error ? error.message : String(error) },
-          id: null,
-        }),
-      );
-    }
+    return session;
+  }
+
+  async #serveRequest(
+    session: AgentToolSession,
+    request: IncomingMessage,
+    response: ServerResponse,
+  ): Promise<void> {
+    const body = await readJsonBody(request);
+    const server = this.#createMcpServer(session);
+    const transport = new StreamableHTTPServerTransport({ enableJsonResponse: true });
+    await server.connect(transport as Parameters<typeof server.connect>[0]);
+    response.once("close", () => {
+      void transport.close();
+      void server.close();
+    });
+    await transport.handleRequest(request, response, body);
+  }
+
+  #writeRequestError(response: ServerResponse, error: unknown): void {
+    if (!response.headersSent) response.writeHead(500, { "Content-Type": "application/json" });
+    response.end(
+      JSON.stringify({
+        jsonrpc: "2.0",
+        error: { code: -32_603, message: error instanceof Error ? error.message : String(error) },
+        id: null,
+      }),
+    );
   }
 
   #createMcpServer(session: AgentToolSession): McpServer {

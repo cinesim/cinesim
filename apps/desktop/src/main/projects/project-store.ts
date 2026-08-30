@@ -229,53 +229,37 @@ export class DesktopProjectStore {
   }
 
   async undo(): Promise<DesktopProjectSession> {
-    return this.#serialize(async () => {
-      this.#requireProject();
-      const project = this.#history!.peekUndo();
-      if (!project) return this.session();
-      const generation = await this.#commit(project, this.#settings);
-      this.#history!.undo();
-      this.#generation = generation;
-      this.derivedMedia.updateProject(this.#history!.project);
-      this.#revision += 1;
-      await this.transcripts
-        .updateProject(this.#history!.project)
-        .catch((error: unknown) =>
-          log.warn({ err: error, operation: "undo" }, "transcript refresh failed"),
-        );
-      const session = this.session();
-      await this.derivedMedia
-        .pruneRemovedAssets()
-        .catch((error: unknown) =>
-          log.warn({ err: error, operation: "undo" }, "derived cleanup after undo failed"),
-        );
-      return session;
-    });
+    return this.#serialize(() => this.#moveHistory("undo"));
   }
 
   async redo(): Promise<DesktopProjectSession> {
-    return this.#serialize(async () => {
-      this.#requireProject();
-      const project = this.#history!.peekRedo();
-      if (!project) return this.session();
-      const generation = await this.#commit(project, this.#settings);
-      this.#history!.redo();
-      this.#generation = generation;
-      this.derivedMedia.updateProject(this.#history!.project);
-      this.#revision += 1;
-      await this.transcripts
-        .updateProject(this.#history!.project)
-        .catch((error: unknown) =>
-          log.warn({ err: error, operation: "redo" }, "transcript refresh failed"),
-        );
-      const session = this.session();
-      await this.derivedMedia
-        .pruneRemovedAssets()
-        .catch((error: unknown) =>
-          log.warn({ err: error, operation: "redo" }, "derived cleanup after redo failed"),
-        );
-      return session;
-    });
+    return this.#serialize(() => this.#moveHistory("redo"));
+  }
+
+  async #moveHistory(direction: "undo" | "redo"): Promise<DesktopProjectSession> {
+    const history = this.#requireHistory();
+    const project = direction === "undo" ? history.peekUndo() : history.peekRedo();
+    if (!project) return this.session();
+
+    const generation = await this.#commit(project, this.#settings);
+    if (direction === "undo") history.undo();
+    else history.redo();
+    this.#generation = generation;
+    this.derivedMedia.updateProject(history.project);
+    this.#revision += 1;
+
+    await this.transcripts
+      .updateProject(history.project)
+      .catch((error: unknown) =>
+        log.warn({ err: error, operation: direction }, "transcript refresh failed"),
+      );
+    const session = this.session();
+    await this.derivedMedia
+      .pruneRemovedAssets()
+      .catch((error: unknown) =>
+        log.warn({ err: error, operation: direction }, `derived cleanup after ${direction} failed`),
+      );
+    return session;
   }
 
   async inspectAndImportMedia(
@@ -345,6 +329,11 @@ export class DesktopProjectStore {
     const project = this.project;
     if (!project) throw new Error("No project is open");
     return project;
+  }
+
+  #requireHistory(): ProjectHistory {
+    if (!this.#history) throw new Error("No project is open");
+    return this.#history;
   }
 
   async #commit(project: Project, settings: ProjectSettings): Promise<string> {

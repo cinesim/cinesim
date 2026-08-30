@@ -25,16 +25,20 @@ export async function inspectAgentExecutable(path: string): Promise<AgentExecuta
 
 export async function verifyAgentExecutable(expected: AgentExecutableIdentity): Promise<string> {
   const actual = await inspectAgentExecutable(expected.path);
-  if (
-    actual.path !== expected.path ||
-    actual.device !== expected.device ||
-    actual.inode !== expected.inode ||
-    actual.size !== expected.size ||
-    actual.modifiedMs !== expected.modifiedMs
-  ) {
+  if (!sameExecutable(actual, expected)) {
     throw new Error("The configured agent executable changed; choose or detect it again");
   }
   return actual.path;
+}
+
+function sameExecutable(left: AgentExecutableIdentity, right: AgentExecutableIdentity): boolean {
+  return (
+    left.path === right.path &&
+    left.device === right.device &&
+    left.inode === right.inode &&
+    left.size === right.size &&
+    left.modifiedMs === right.modifiedMs
+  );
 }
 
 export function isAgentExecutableIdentity(value: unknown): value is AgentExecutableIdentity {

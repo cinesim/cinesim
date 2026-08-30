@@ -26,8 +26,35 @@ const EMPTY_STATE: DesktopAppState = {
   transcriptionSettings: DEFAULT_TRANSCRIPTION_SETTINGS,
 };
 
+interface PersistedDesktopState {
+  local: unknown;
+  accounts: Record<string, unknown>;
+}
+
+interface NumericLimits {
+  min: number;
+  max: number;
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function emptyState(): DesktopAppState {
+  return structuredClone(EMPTY_STATE);
+}
+
+function isFiniteSize(value: unknown, limits: NumericLimits): value is number {
+  return (
+    typeof value === "number" &&
+    Number.isFinite(value) &&
+    value >= limits.min &&
+    value <= limits.max
+  );
+}
+
+function isProjectKind(value: unknown): value is RecentProject["kind"] {
+  return value === "local" || value === "cloud";
 }
 
 function parseRecentProject(value: unknown): RecentProject | null {
@@ -35,10 +62,46 @@ function parseRecentProject(value: unknown): RecentProject | null {
     !isRecord(value) ||
     typeof value.name !== "string" ||
     typeof value.directory !== "string" ||
-    (value.kind !== "local" && value.kind !== "cloud")
+    !isProjectKind(value.kind)
   )
     return null;
   return { name: value.name, directory: value.directory, kind: value.kind };
+}
+
+function parseRecentProjects(value: unknown): RecentProject[] {
+  if (!Array.isArray(value)) return [];
+
+  const projects: RecentProject[] = [];
+  for (const candidate of value) {
+    const project = parseRecentProject(candidate);
+    if (project) projects.push(project);
+    if (projects.length === 12) break;
+  }
+  return projects;
+}
+
+function parseBooleanByProject(value: unknown): Record<string, boolean> {
+  if (!isRecord(value)) return {};
+
+  const result: Record<string, boolean> = {};
+  for (const [directory, candidate] of Object.entries(value)) {
+    if (typeof candidate === "boolean") result[directory] = candidate;
+  }
+  return result;
+}
+
+function parseByProject<T>(
+  value: unknown,
+  parse: (candidate: unknown) => T | null,
+): Record<string, T> {
+  if (!isRecord(value)) return {};
+
+  const result: Record<string, T> = {};
+  for (const [directory, candidate] of Object.entries(value)) {
+    const parsed = parse(candidate);
+    if (parsed) result[directory] = parsed;
+  }
+  return result;
 }
 
 export function parseEditorLayoutState(value: unknown): EditorLayoutState | null {
@@ -47,22 +110,10 @@ export function parseEditorLayoutState(value: unknown): EditorLayoutState | null
   for (const field of fields) {
     const size = value[field];
     const limits = EDITOR_LAYOUT_LIMITS[field];
-    if (
-      typeof size !== "number" ||
-      !Number.isFinite(size) ||
-      size < limits.min ||
-      size > limits.max
-    )
-      return null;
+    if (!isFiniteSize(size, limits)) return null;
   }
   const notesWidth = value.notesWidth ?? DEFAULT_EDITOR_LAYOUT.notesWidth;
-  if (
-    typeof notesWidth !== "number" ||
-    !Number.isFinite(notesWidth) ||
-    notesWidth < EDITOR_LAYOUT_LIMITS.notesWidth.min ||
-    notesWidth > EDITOR_LAYOUT_LIMITS.notesWidth.max
-  )
-    return null;
+  if (!isFiniteSize(notesWidth, EDITOR_LAYOUT_LIMITS.notesWidth)) return null;
   return {
     mediaPoolWidth: value.mediaPoolWidth as number,
     inspectorWidth: value.inspectorWidth as number,
@@ -77,13 +128,7 @@ export function parseCutLayoutState(value: unknown): CutLayoutState | null {
   for (const field of ["rightColumnWidth", "viewerHeight", "timelineHeight"] as const) {
     const size = value[field];
     const limits = CUT_LAYOUT_LIMITS[field];
-    if (
-      typeof size !== "number" ||
-      !Number.isFinite(size) ||
-      size < limits.min ||
-      size > limits.max
-    )
-      return null;
+    if (!isFiniteSize(size, limits)) return null;
     result[field] = size;
   }
   return result;
@@ -101,61 +146,30 @@ export function parseTranscriptionSettings(value: unknown): TranscriptionSetting
 }
 
 function parseState(value: unknown): DesktopAppState {
-  if (!isRecord(value) || value.version !== 1) return structuredClone(EMPTY_STATE);
-  const recentProjects = Array.isArray(value.recentProjects)
-    ? value.recentProjects
-        .map(parseRecentProject)
-        .filter((project): project is RecentProject => project !== null)
-        .slice(0, 12)
-    : [];
-  const mediaPoolOpenByProject: Record<string, boolean> = {};
-  if (isRecord(value.mediaPoolOpenByProject)) {
-    for (const [directory, open] of Object.entries(value.mediaPoolOpenByProject)) {
-      if (typeof open === "boolean") mediaPoolOpenByProject[directory] = open;
-    }
-  }
-  const inspectorOpenByProject: Record<string, boolean> = {};
-  if (isRecord(value.inspectorOpenByProject)) {
-    for (const [directory, open] of Object.entries(value.inspectorOpenByProject)) {
-      if (typeof open === "boolean") inspectorOpenByProject[directory] = open;
-    }
-  }
-  const notesOpenByProject: Record<string, boolean> = {};
-  if (isRecord(value.notesOpenByProject)) {
-    for (const [directory, open] of Object.entries(value.notesOpenByProject)) {
-      if (typeof open === "boolean") notesOpenByProject[directory] = open;
-    }
-  }
-  const editorLayoutsByProject: Record<string, EditorLayoutState> = {};
-  if (isRecord(value.editorLayoutsByProject)) {
-    for (const [directory, layout] of Object.entries(value.editorLayoutsByProject)) {
-      const parsed = parseEditorLayoutState(layout);
-      if (parsed) editorLayoutsByProject[directory] = parsed;
-    }
-  }
-  const cutLayoutsByProject: Record<string, CutLayoutState> = {};
-  if (isRecord(value.cutLayoutsByProject)) {
-    for (const [directory, layout] of Object.entries(value.cutLayoutsByProject)) {
-      const parsed = parseCutLayoutState(layout);
-      if (parsed) cutLayoutsByProject[directory] = parsed;
-    }
-  }
+  if (!isRecord(value) || value.version !== 1) return emptyState();
+
   return {
     version: 1,
-    recentProjects,
-    mediaPoolOpenByProject,
-    inspectorOpenByProject,
-    notesOpenByProject,
-    editorLayoutsByProject,
-    cutLayoutsByProject,
+    recentProjects: parseRecentProjects(value.recentProjects),
+    mediaPoolOpenByProject: parseBooleanByProject(value.mediaPoolOpenByProject),
+    inspectorOpenByProject: parseBooleanByProject(value.inspectorOpenByProject),
+    notesOpenByProject: parseBooleanByProject(value.notesOpenByProject),
+    editorLayoutsByProject: parseByProject(value.editorLayoutsByProject, parseEditorLayoutState),
+    cutLayoutsByProject: parseByProject(value.cutLayoutsByProject, parseCutLayoutState),
     transcriptionSettings:
       parseTranscriptionSettings(value.transcriptionSettings) ??
       structuredClone(DEFAULT_TRANSCRIPTION_SETTINGS),
   };
 }
 
+function parsePersistedDesktopState(value: unknown): PersistedDesktopState | null {
+  if (!isRecord(value) || value.version !== 3) return null;
+  if (!isRecord(value.local) || !isRecord(value.accounts)) return null;
+  return { local: value.local, accounts: value.accounts };
+}
+
 export class DesktopAppStateStore {
-  #local: DesktopAppState = structuredClone(EMPTY_STATE);
+  #local: DesktopAppState = emptyState();
   #accounts: Record<string, DesktopAppState> = {};
   #accountId: string | null = null;
   #writeQueue: Promise<void> = Promise.resolve();
@@ -164,20 +178,17 @@ export class DesktopAppStateStore {
 
   async load(): Promise<void> {
     try {
-      const parsed = JSON.parse(await readFile(this.path, "utf8")) as unknown;
-      if (
-        !isRecord(parsed) ||
-        parsed.version !== 3 ||
-        !isRecord(parsed.local) ||
-        !isRecord(parsed.accounts)
-      )
-        return;
-      this.#local = parseState(parsed.local);
-      for (const [accountId, state] of Object.entries(parsed.accounts)) {
+      const persisted = parsePersistedDesktopState(
+        JSON.parse(await readFile(this.path, "utf8")) as unknown,
+      );
+      if (!persisted) return;
+
+      this.#local = parseState(persisted.local);
+      for (const [accountId, state] of Object.entries(persisted.accounts)) {
         if (accountId) this.#accounts[accountId] = parseState(state);
       }
     } catch {
-      this.#local = structuredClone(EMPTY_STATE);
+      this.#local = emptyState();
       this.#accounts = {};
     }
   }
@@ -187,7 +198,7 @@ export class DesktopAppStateStore {
   }
 
   snapshot(): DesktopAppState {
-    const cloud = this.#currentCloud(false);
+    const cloud = this.#currentCloud();
     return structuredClone({
       version: 1,
       recentProjects: [...(cloud?.recentProjects ?? []), ...this.#local.recentProjects],
@@ -291,22 +302,20 @@ export class DesktopAppStateStore {
     await rename(temporaryPath, this.path);
   }
 
-  #currentCloud(create: boolean): DesktopAppState | null {
+  #currentCloud(): DesktopAppState | null {
     if (!this.#accountId) return null;
-    if (create) return (this.#accounts[this.#accountId] ??= structuredClone(EMPTY_STATE));
     return this.#accounts[this.#accountId] ?? null;
   }
 
   #requireCloud(): DesktopAppState {
-    const state = this.#currentCloud(true);
-    if (!state) throw new Error("Sign in before changing cloud project state");
-    return state;
+    if (!this.#accountId) throw new Error("Sign in before changing cloud project state");
+    return (this.#accounts[this.#accountId] ??= emptyState());
   }
 
   #stateForDirectory(directory: string): DesktopAppState {
     if (this.#local.recentProjects.some((project) => project.directory === directory))
       return this.#local;
-    const cloud = this.#currentCloud(false);
+    const cloud = this.#currentCloud();
     if (cloud?.recentProjects.some((project) => project.directory === directory)) return cloud;
     throw new Error("Project is not in the recent projects list");
   }

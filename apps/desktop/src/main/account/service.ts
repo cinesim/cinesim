@@ -89,51 +89,60 @@ export class DesktopAccountService {
         }),
       );
     try {
-      const account = await this.#gateway.account();
-      if (!account) {
-        await this.#profile.clear();
-        const health = await this.#gateway.health();
-        return this.#publish(
-          signedOutSnapshot({
-            origin: this.#origin,
-            available: true,
-            googleSignIn: health.googleSignIn,
-            transcription: health.transcription,
-          }),
-        );
-      }
-      const health = await this.#gateway.health();
-      const user = this.#normalizeUser(account.user);
-      await this.#profile.set(user);
-      return this.#publish({
-        status: "signed-in",
-        cloudOrigin: this.#origin,
-        serviceAvailable: true,
-        googleSignIn: health.googleSignIn,
-        cloudStorage: health.cloudStorage,
-        transcription: health.transcription,
-        user,
-        detail: null,
-      });
+      return await this.#onlineSnapshot(this.#gateway);
     } catch (error) {
-      log.warn(
-        { err: error, operation: "account-snapshot" },
-        "Account snapshot fell back to offline state",
-      );
-      const user = this.#client.getCookie() ? this.#profile.get() : null;
-      return this.#publish({
-        status: user ? "offline" : "signed-out",
-        cloudOrigin: this.#origin,
-        serviceAvailable: false,
-        googleSignIn: false,
-        cloudStorage: false,
-        transcription: false,
-        user,
-        detail: user
-          ? "Cinesim is offline. Local projects remain available and cloud work will resume automatically."
-          : "The authentication service is unavailable. Local projects remain available without signing in.",
-      });
+      return this.#offlineSnapshot(this.#client, error);
     }
+  }
+
+  async #onlineSnapshot(gateway: AccountGateway): Promise<AccountSnapshot> {
+    const account = await gateway.account();
+    if (!account) {
+      await this.#profile.clear();
+      const health = await gateway.health();
+      return this.#publish(
+        signedOutSnapshot({
+          origin: this.#origin,
+          available: true,
+          googleSignIn: health.googleSignIn,
+          transcription: health.transcription,
+        }),
+      );
+    }
+
+    const health = await gateway.health();
+    const user = this.#normalizeUser(account.user);
+    await this.#profile.set(user);
+    return this.#publish({
+      status: "signed-in",
+      cloudOrigin: this.#origin,
+      serviceAvailable: true,
+      googleSignIn: health.googleSignIn,
+      cloudStorage: health.cloudStorage,
+      transcription: health.transcription,
+      user,
+      detail: null,
+    });
+  }
+
+  #offlineSnapshot(client: AccountAuthAdapter, error: unknown): AccountSnapshot {
+    log.warn(
+      { err: error, operation: "account-snapshot" },
+      "Account snapshot fell back to offline state",
+    );
+    const user = client.getCookie() ? this.#profile.get() : null;
+    return this.#publish({
+      status: user ? "offline" : "signed-out",
+      cloudOrigin: this.#origin,
+      serviceAvailable: false,
+      googleSignIn: false,
+      cloudStorage: false,
+      transcription: false,
+      user,
+      detail: user
+        ? "Cinesim is offline. Local projects remain available and cloud work will resume automatically."
+        : "The authentication service is unavailable. Local projects remain available without signing in.",
+    });
   }
 
   async beginSignIn(method: SignInMethod): Promise<void> {

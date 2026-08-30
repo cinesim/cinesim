@@ -1,5 +1,7 @@
 import { defineConfig } from "vite-plus";
 
+const cognitiveComplexityReport = process.env.CINESIM_COGNITIVE_COMPLEXITY_REPORT === "1";
+
 export default defineConfig({
   defaultPackage: "./apps/desktop",
   run: {
@@ -67,6 +69,10 @@ export default defineConfig({
         command: "tsx tools/benchmarks/history.ts",
         cache: false,
       },
+      "complexity:report": {
+        command: "node tools/cognitive-complexity.mjs",
+        cache: false,
+      },
       typecheck: {
         command: "tsc --noEmit",
       },
@@ -102,6 +108,7 @@ export default defineConfig({
   },
   lint: {
     ignorePatterns: ["dist/**", ".context/**", "apps/desktop/release/**"],
+    ...(cognitiveComplexityReport ? { jsPlugins: ["eslint-plugin-sonarjs"] } : {}),
     plugins: ["eslint", "import", "jsx-a11y", "oxc", "promise", "react", "typescript", "unicorn"],
     options: {
       typeAware: true,
@@ -111,6 +118,9 @@ export default defineConfig({
       "jsx-a11y/click-events-have-key-events": "error",
       "jsx-a11y/no-static-element-interactions": "error",
       "react-hooks/exhaustive-deps": "error",
+      ...(cognitiveComplexityReport
+        ? { "sonarjs/cognitive-complexity": ["warn", 0] as const }
+        : {}),
       "typescript/no-floating-promises": "error",
     },
   },

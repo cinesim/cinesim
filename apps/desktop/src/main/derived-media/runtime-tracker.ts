@@ -8,6 +8,44 @@ import { emptyRuntime } from "./model";
 
 const log = createCinesimLogger({ service: "derived-media" });
 
+type ActiveDerivedJob = NonNullable<DerivedRuntimeSnapshot["activeJob"]>;
+type FinishedActivity = DerivedWorkerActivity & { stage: "completed" | "failed" };
+interface ProtocolRead {
+  assetId: string;
+  start: number;
+  requestedEnd: number;
+  bytesRead: number;
+  durationMs: number;
+  range: boolean;
+}
+
+function activityProgress(activity: DerivedWorkerActivity): number {
+  return activity.completedSamples !== undefined && activity.totalSamples
+    ? activity.completedSamples / activity.totalSamples
+    : 0;
+}
+
+function activeJob(activity: DerivedWorkerActivity, now: string): ActiveDerivedJob {
+  return {
+    jobId: activity.jobId,
+    assetId: activity.assetId,
+    jobKind: activity.jobKind,
+    stage: activity.stage,
+    progress: activityProgress(activity),
+    elapsedMs: activity.elapsedMs,
+    startedAt: now,
+    lastActivityAt: now,
+    ...(activity.completedSamples !== undefined
+      ? { completedSamples: activity.completedSamples }
+      : {}),
+    ...(activity.totalSamples !== undefined ? { totalSamples: activity.totalSamples } : {}),
+  };
+}
+
+function isFinished(activity: DerivedWorkerActivity): activity is FinishedActivity {
+  return activity.stage === "completed" || activity.stage === "failed";
+}
+
 export class DerivedRuntimeTracker {
   #runtime = emptyRuntime();
   #emitTimer: ReturnType<typeof setTimeout> | null = null;
@@ -36,35 +74,31 @@ export class DerivedRuntimeTracker {
 
   reportActivity(activity: DerivedWorkerActivity): void {
     const now = new Date().toISOString();
+    this.#recordActiveJob(activity, now);
+    this.#logActivity(activity);
+    if (isFinished(activity)) this.#completeActiveJob(activity, now);
+    this.onChanged();
+  }
+
+  #recordActiveJob(activity: DerivedWorkerActivity, now: string): void {
     if (activity.stage === "scheduled" || this.#runtime.activeJob?.jobId !== activity.jobId) {
-      this.#runtime.activeJob = {
-        jobId: activity.jobId,
-        assetId: activity.assetId,
-        jobKind: activity.jobKind,
-        stage: activity.stage,
-        progress:
-          activity.completedSamples !== undefined && activity.totalSamples
-            ? activity.completedSamples / activity.totalSamples
-            : 0,
-        elapsedMs: activity.elapsedMs,
-        startedAt: now,
-        lastActivityAt: now,
-        ...(activity.completedSamples !== undefined
-          ? { completedSamples: activity.completedSamples }
-          : {}),
-        ...(activity.totalSamples !== undefined ? { totalSamples: activity.totalSamples } : {}),
-      };
-    } else {
-      const active = this.#runtime.activeJob;
-      active.stage = activity.stage;
-      active.elapsedMs = activity.elapsedMs;
-      active.lastActivityAt = now;
-      if (activity.completedSamples !== undefined)
-        active.completedSamples = activity.completedSamples;
-      if (activity.totalSamples !== undefined) active.totalSamples = activity.totalSamples;
-      if (activity.completedSamples !== undefined && activity.totalSamples)
-        active.progress = activity.completedSamples / activity.totalSamples;
+      this.#runtime.activeJob = activeJob(activity, now);
+      return;
     }
+
+    const active = this.#runtime.activeJob;
+    active.stage = activity.stage;
+    active.elapsedMs = activity.elapsedMs;
+    active.lastActivityAt = now;
+    if (activity.completedSamples !== undefined)
+      active.completedSamples = activity.completedSamples;
+    if (activity.totalSamples !== undefined) active.totalSamples = activity.totalSamples;
+    if (activity.completedSamples !== undefined && activity.totalSamples) {
+      active.progress = activity.completedSamples / activity.totalSamples;
+    }
+  }
+
+  #logActivity(activity: DerivedWorkerActivity): void {
     log.info(
       {
         operation: "worker-activity",
@@ -82,28 +116,27 @@ export class DerivedRuntimeTracker {
       },
       "derived worker activity",
     );
-    if (activity.stage === "completed" || activity.stage === "failed") {
-      this.#runtime.lastJob = {
-        assetId: activity.assetId,
-        jobKind: activity.jobKind,
-        stage: activity.stage,
-        durationMs: activity.elapsedMs,
-        finishedAt: now,
-        ...(activity.failureCode ? { failureCode: activity.failureCode } : {}),
-      };
-      delete this.#runtime.activeJob;
-    }
-    this.onChanged();
   }
 
-  recordProtocolRead(input: {
-    assetId: string;
-    start: number;
-    requestedEnd: number;
-    bytesRead: number;
-    durationMs: number;
-    range: boolean;
-  }): void {
+  #completeActiveJob(activity: FinishedActivity, now: string): void {
+    this.#runtime.lastJob = {
+      assetId: activity.assetId,
+      jobKind: activity.jobKind,
+      stage: activity.stage,
+      durationMs: activity.elapsedMs,
+      finishedAt: now,
+      ...(activity.failureCode ? { failureCode: activity.failureCode } : {}),
+    };
+    delete this.#runtime.activeJob;
+  }
+
+  recordProtocolRead(input: ProtocolRead): void {
+    this.#updateProtocolSummary(input);
+    this.#logProtocolRead(input);
+    this.#scheduleEmit();
+  }
+
+  #updateProtocolSummary(input: ProtocolRead): void {
     const protocol = this.#runtime.protocol;
     protocol.requests += 1;
     protocol.rangeRequests += Number(input.range);
@@ -112,6 +145,9 @@ export class DerivedRuntimeTracker {
     protocol.lastLatencyMs = input.durationMs;
     protocol.lastBytesRead = input.bytesRead;
     protocol.lastAssetId = input.assetId;
+  }
+
+  #logProtocolRead(input: ProtocolRead): void {
     const scope = this.currentScope();
     log.info(
       {
@@ -127,7 +163,6 @@ export class DerivedRuntimeTracker {
       },
       "media protocol range served",
     );
-    this.#scheduleEmit();
   }
 
   recordProtocolError(assetId: string | undefined, detail: string, durationMs: number): void {

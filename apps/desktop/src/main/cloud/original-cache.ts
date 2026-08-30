@@ -45,7 +45,7 @@ export class CloudOriginalCache {
   async downloadedOriginalPath(assetId: string): Promise<string | null> {
     const asset = this.projects.project?.assets.find((candidate) => candidate.id === assetId);
     if (!asset || asset.source.kind !== "cloud" || !this.projects.directory) return null;
-    const directory = await this.#originalsDirectory(this.projects.directory, false);
+    const directory = await this.#existingOriginalsDirectory(this.projects.directory);
     if (!directory) return null;
     const path = join(directory, asset.id);
     const info = await lstat(path).catch(() => null);
@@ -62,21 +62,9 @@ export class CloudOriginalCache {
       throw new Error("Only cloud-backed originals can be kept downloaded");
     if (await this.downloadedOriginalPath(asset.id)) return this.downloadedOriginals();
 
-    const originalsDirectory = await this.#originalsDirectory(projectDirectory, true);
-    if (!originalsDirectory) throw new Error("The downloaded originals directory is unavailable");
+    const originalsDirectory = await this.#ensureOriginalsDirectory(projectDirectory);
     const destination = join(originalsDirectory, asset.id);
-    const existing = this.#downloadOperations.get(destination);
-    if (existing) await existing;
-    else {
-      const operation = this.#downloadOriginal(asset.source.cloudAssetId, destination);
-      this.#downloadOperations.set(destination, operation);
-      try {
-        await operation;
-      } finally {
-        if (this.#downloadOperations.get(destination) === operation)
-          this.#downloadOperations.delete(destination);
-      }
-    }
+    await this.#ensureDownloaded(asset.source.cloudAssetId, destination);
     return this.downloadedOriginals();
   }
 
@@ -85,7 +73,7 @@ export class CloudOriginalCache {
     const asset = this.projects.project?.assets.find((candidate) => candidate.id === assetId);
     if (!projectDirectory || !asset || asset.source.kind !== "cloud")
       throw new Error("Only cloud-backed originals can remove a local download");
-    const originalsDirectory = await this.#originalsDirectory(projectDirectory, false);
+    const originalsDirectory = await this.#existingOriginalsDirectory(projectDirectory);
     if (originalsDirectory) {
       const destination = join(originalsDirectory, asset.id);
       await this.#downloadOperations.get(destination);
@@ -96,7 +84,7 @@ export class CloudOriginalCache {
 
   async removeManagedSource(record: TransferRecord): Promise<void> {
     try {
-      const originalsDirectory = await this.#originalsDirectory(record.projectDirectory, false);
+      const originalsDirectory = await this.#existingOriginalsDirectory(record.projectDirectory);
       if (!originalsDirectory || record.sourcePath !== join(originalsDirectory, record.assetId)) {
         log.warn(
           { operation: "managed-source-cleanup", assetId: record.assetId },
@@ -141,6 +129,34 @@ export class CloudOriginalCache {
       await rm(temporary, { force: true }).catch(() => undefined);
       throw error;
     }
+  }
+
+  async #ensureDownloaded(cloudAssetId: string, destination: string): Promise<void> {
+    const existing = this.#downloadOperations.get(destination);
+    if (existing) {
+      await existing;
+      return;
+    }
+
+    const operation = this.#downloadOriginal(cloudAssetId, destination);
+    this.#downloadOperations.set(destination, operation);
+    try {
+      await operation;
+    } finally {
+      if (this.#downloadOperations.get(destination) === operation) {
+        this.#downloadOperations.delete(destination);
+      }
+    }
+  }
+
+  #existingOriginalsDirectory(projectDirectory: string): Promise<string | null> {
+    return this.#originalsDirectory(projectDirectory, false);
+  }
+
+  async #ensureOriginalsDirectory(projectDirectory: string): Promise<string> {
+    const directory = await this.#originalsDirectory(projectDirectory, true);
+    if (!directory) throw new Error("The downloaded originals directory is unavailable");
+    return directory;
   }
 
   async #originalsDirectory(projectDirectory: string, create: boolean): Promise<string | null> {

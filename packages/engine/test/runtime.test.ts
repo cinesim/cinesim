@@ -718,6 +718,54 @@ describe("PlaybackRuntime transport", () => {
     runtime.destroy();
   });
 
+  it("finishes pausing and publishes stopped state when audio cleanup throws", async () => {
+    const audibleAsset: Asset = { ...asset, hasAudio: true };
+    const reported: Error[] = [];
+    const audioScheduler: PlaybackAudioScheduler = {
+      startTransport: () => undefined,
+      schedule: async () => undefined,
+      resume: async () => undefined,
+      stop: () => {
+        throw new DOMException("Source has not started", "InvalidStateError");
+      },
+      destroy: async () => undefined,
+    };
+    const runtime = new PlaybackRuntime(timelineProject(audibleAsset), compositor([]), {
+      now: () => 0,
+      scheduleFrame: () => 1,
+      cancelFrame: () => undefined,
+      audioSchedulerFactory: () => audioScheduler,
+      onError: (error) => reported.push(error),
+      sourceFactory: () => ({
+        prepare: async () => ({
+          durationUs: timeUs(audibleAsset.durationUs),
+          width: 1920,
+          height: 1080,
+          frameRate: 30,
+          hasAudio: true,
+        }),
+        seek: async () => undefined,
+        getFrame: async (timeUs) => frame(timeUs),
+        buffers: async function* () {
+          // An empty stream is enough to initialize the audio transport.
+        },
+        destroy: () => undefined,
+      }),
+    });
+    await runtime.initialize();
+    runtime.play();
+    await flush();
+
+    let playing = true;
+    const unsubscribe = runtime.subscribe((snapshot) => (playing = snapshot.playing));
+    expect(() => runtime.pause()).not.toThrow();
+    expect(playing).toBe(false);
+    expect(reported.at(-1)?.name).toBe("InvalidStateError");
+
+    unsubscribe();
+    runtime.destroy();
+  });
+
   it("uses the selected proxy source for both picture and audio", async () => {
     const audibleAsset: Asset = { ...asset, hasAudio: true };
     const openedUrls: string[] = [];

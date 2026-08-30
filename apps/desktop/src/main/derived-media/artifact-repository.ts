@@ -2,12 +2,92 @@ import { lstat, readdir, rm, stat, statfs } from "node:fs/promises";
 import { join } from "node:path";
 import type { Asset, Project } from "@cinesim/core";
 import type { ProjectPaths } from "@cinesim/project-io";
-import type { DerivedArtifactKind, DerivedMediaEvent } from "../../shared/contracts";
+import type {
+  DerivedArtifactKind,
+  DerivedMediaEvent,
+  SourceFingerprint,
+} from "../../shared/contracts";
 import { fingerprintsEqual, fingerprintSource } from "./source-fingerprint";
 import { DERIVED_GENERATOR_VERSION, emptyPerformance, mimeType } from "./model";
 import type { PersistedArtifact, PersistedAsset, PersistedIndex } from "./model";
 
 type DecisionLogger = (event: Omit<DerivedMediaEvent, "at">) => void;
+type EvictionKind = "proxy" | "filmstrip" | "waveform";
+type EvictionCandidate = {
+  assetId: string;
+  kind: EvictionKind;
+  artifact: PersistedArtifact;
+};
+
+const EVICTION_KINDS: readonly EvictionKind[] = ["proxy", "filmstrip", "waveform"];
+const EVICTION_PRIORITY: Record<EvictionKind, number> = { proxy: 0, filmstrip: 1, waveform: 2 };
+
+async function sourceFingerprint(asset: Asset): Promise<SourceFingerprint> {
+  if (asset.source.kind === "local") return fingerprintSource(asset.source.path);
+  return { size: 0, mtimeMs: 0, edgeHash: asset.source.cloudAssetId };
+}
+
+function emptyAssetRecord(fingerprint: SourceFingerprint): PersistedAsset {
+  const emptyArtifact = (): PersistedArtifact => ({
+    state: "missing",
+    generatorVersion: DERIVED_GENERATOR_VERSION,
+    sourceFingerprint: fingerprint,
+  });
+  return {
+    sourceFingerprint: fingerprint,
+    thumbnail: emptyArtifact(),
+    filmstrip: emptyArtifact(),
+    waveform: emptyArtifact(),
+    proxy: emptyArtifact(),
+    performance: { original: emptyPerformance() },
+  };
+}
+
+function artifactStorage(
+  index: PersistedIndex,
+): Omit<
+  PersistedIndex["storage"],
+  "budgetBytes" | "safetyReserveBytes" | "evictionCount" | "lastEvictionReason"
+> {
+  let thumbnailBytes = 0;
+  let filmstripBytes = 0;
+  let waveformBytes = 0;
+  let proxyBytes = 0;
+  for (const record of Object.values(index.assets)) {
+    thumbnailBytes += record.thumbnail.bytes ?? 0;
+    filmstripBytes += record.filmstrip.bytes ?? 0;
+    waveformBytes += record.waveform.bytes ?? 0;
+    proxyBytes += record.proxy.bytes ?? 0;
+  }
+  return {
+    totalBytes: thumbnailBytes + filmstripBytes + waveformBytes + proxyBytes,
+    thumbnailBytes,
+    filmstripBytes,
+    waveformBytes,
+    proxyBytes,
+  };
+}
+
+function evictionCandidates(index: PersistedIndex, project: Project): EvictionCandidate[] {
+  return Object.entries(index.assets)
+    .flatMap(([assetId, record]) =>
+      EVICTION_KINDS.map((kind) => ({ assetId, kind, artifact: record[kind] })),
+    )
+    .filter((candidate) => isEvictable(candidate, project))
+    .sort(compareEvictionCandidates);
+}
+
+function isEvictable(candidate: EvictionCandidate, project: Project): boolean {
+  if (candidate.artifact.state !== "ready" || !candidate.artifact.relativePath) return false;
+  if (candidate.kind !== "proxy") return true;
+  const asset = project.assets.find(({ id }) => id === candidate.assetId);
+  return asset?.source.kind !== "cloud";
+}
+
+function compareEvictionCandidates(left: EvictionCandidate, right: EvictionCandidate): number {
+  if (left.kind !== right.kind) return EVICTION_PRIORITY[left.kind] - EVICTION_PRIORITY[right.kind];
+  return (left.artifact.lastAccessAt ?? "").localeCompare(right.artifact.lastAccessAt ?? "");
+}
 
 export interface DerivedArtifactRepositoryOptions {
   diskSpace?: { capacityBytes: number; availableBytes: number };
@@ -30,10 +110,7 @@ export class DerivedArtifactRepository {
   ): Promise<PersistedAsset> {
     const current = index.assets[asset.id];
     if (asset.source.kind === "cloud" && current) return current;
-    const fingerprint =
-      asset.source.kind === "local"
-        ? await fingerprintSource(asset.source.path)
-        : { size: 0, mtimeMs: 0, edgeHash: asset.source.cloudAssetId };
+    const fingerprint = await sourceFingerprint(asset);
     if (current && fingerprintsEqual(current.sourceFingerprint, fingerprint)) return current;
     if (current) {
       await this.removeRecordFiles(paths, current);
@@ -43,19 +120,7 @@ export class DerivedArtifactRepository {
         detail: "Source fingerprint changed; derived artifacts invalidated",
       });
     }
-    const emptyArtifact = (): PersistedArtifact => ({
-      state: "missing",
-      generatorVersion: DERIVED_GENERATOR_VERSION,
-      sourceFingerprint: fingerprint,
-    });
-    const record: PersistedAsset = {
-      sourceFingerprint: fingerprint,
-      thumbnail: emptyArtifact(),
-      filmstrip: emptyArtifact(),
-      waveform: emptyArtifact(),
-      proxy: emptyArtifact(),
-      performance: { original: emptyPerformance() },
-    };
+    const record = emptyAssetRecord(fingerprint);
     index.assets[asset.id] = record;
     return record;
   }
@@ -72,25 +137,11 @@ export class DerivedArtifactRepository {
       256 * 1024 ** 2,
       Math.min(20 * 1024 ** 3, Math.floor(Math.max(0, available - safetyReserveBytes) * 0.25)),
     );
-    let thumbnailBytes = 0;
-    let filmstripBytes = 0;
-    let waveformBytes = 0;
-    let proxyBytes = 0;
-    for (const record of Object.values(index.assets)) {
-      thumbnailBytes += record.thumbnail.bytes ?? 0;
-      filmstripBytes += record.filmstrip.bytes ?? 0;
-      waveformBytes += record.waveform.bytes ?? 0;
-      proxyBytes += record.proxy.bytes ?? 0;
-    }
     index.storage = {
       ...index.storage,
-      totalBytes: thumbnailBytes + filmstripBytes + waveformBytes + proxyBytes,
       budgetBytes,
       safetyReserveBytes,
-      thumbnailBytes,
-      filmstripBytes,
-      waveformBytes,
-      proxyBytes,
+      ...artifactStorage(index),
     };
   }
 
@@ -133,29 +184,7 @@ export class DerivedArtifactRepository {
     log: DecisionLogger,
   ): Promise<void> {
     if (index.storage.totalBytes <= index.storage.budgetBytes) return;
-    const candidates = Object.entries(index.assets)
-      .flatMap(([assetId, record]) =>
-        (["proxy", "filmstrip", "waveform"] as const).map((kind) => ({
-          assetId,
-          kind,
-          artifact: record[kind],
-        })),
-      )
-      .filter(
-        (candidate) =>
-          candidate.artifact.state === "ready" &&
-          candidate.artifact.relativePath &&
-          !(
-            candidate.kind === "proxy" &&
-            project.assets.find((asset) => asset.id === candidate.assetId)?.source.kind === "cloud"
-          ),
-      )
-      .sort((left, right) => {
-        const priority = { proxy: 0, filmstrip: 1, waveform: 2 } as const;
-        if (left.kind !== right.kind) return priority[left.kind] - priority[right.kind];
-        return (left.artifact.lastAccessAt ?? "").localeCompare(right.artifact.lastAccessAt ?? "");
-      });
-    for (const candidate of candidates) {
+    for (const candidate of evictionCandidates(index, project)) {
       if (index.storage.totalBytes <= index.storage.budgetBytes) break;
       await rm(paths.derived(candidate.artifact.relativePath!), { force: true });
       index.storage.totalBytes -= candidate.artifact.bytes ?? 0;
