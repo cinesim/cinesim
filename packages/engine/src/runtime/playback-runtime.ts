@@ -377,7 +377,7 @@ export class PlaybackRuntime {
     this.#audioStartingGeneration = null;
     this.#audioTransportGeneration = null;
     this.#audioSchedulingGeneration = null;
-    this.#audioScheduler?.stop();
+    this.#stopAudioScheduler();
     if (this.#animationFrame) this.#cancelFrame(this.#animationFrame);
     this.#animationFrame = 0;
     this.#resetSequentialCursors();
@@ -713,7 +713,7 @@ export class PlaybackRuntime {
     this.#audioStartingGeneration = null;
     this.#audioTransportGeneration = null;
     this.#audioSchedulingGeneration = null;
-    this.#audioScheduler?.stop();
+    this.#stopAudioScheduler();
   }
 
   #hasAudibleContent(): boolean {
@@ -730,8 +730,16 @@ export class PlaybackRuntime {
     const generation = ++this.#audioGeneration;
     this.#audioStartingGeneration = generation;
     this.#audioTransportGeneration = null;
-    this.#audioScheduler?.stop();
+    this.#stopAudioScheduler();
     this.#runBackground(this.#startAudio(timeUs, generation));
+  }
+
+  #stopAudioScheduler(): void {
+    try {
+      this.#audioScheduler?.stop();
+    } catch (error) {
+      if (!this.#destroyed) this.#reportError(error);
+    }
   }
 
   async #startAudio(startTimeUs: TimeUs, generation: number): Promise<void> {
