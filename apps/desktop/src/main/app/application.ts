@@ -52,6 +52,16 @@ export class DesktopApplication implements ApplicationLifecycle {
       join(app.getPath("userData"), "cloud-transfers.json"),
       this.accountService,
       this.projectStore,
+      {
+        transfersChanged: (snapshot) => {
+          for (const target of BrowserWindow.getAllWindows())
+            target.webContents.send(eventChannels.cloudTransfersChanged, snapshot);
+        },
+        projectChanged: (session) => {
+          for (const target of BrowserWindow.getAllWindows())
+            target.webContents.send(eventChannels.projectChanged, session);
+        },
+      },
     );
     await cloudMedia.load();
     const unsubscribeAccount = this.accountService.subscribe((snapshot) => {
