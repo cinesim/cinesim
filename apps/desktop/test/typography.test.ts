@@ -17,7 +17,7 @@ function sourceFiles(directory: string): string[] {
 }
 
 describe("renderer typography", () => {
-  it("uses Geist, semantic UI sizes, and intentional monospace shortcuts", () => {
+  it("uses Instrument Sans, semantic UI sizes, and intentional monospace shortcuts", () => {
     const violations = uiSources.flatMap((directory) =>
       sourceFiles(directory).flatMap((file) => {
         const source = readFileSync(file, "utf8");
@@ -38,7 +38,7 @@ describe("renderer typography", () => {
     expect(rendererStyles).toContain('@import "../../../../packages/ui/src/tokens.css";');
     expect(authStyles).toContain('@import "../../../../packages/ui/src/tokens.css";');
     expect(tokenStyles.match(/font-family:\s*[^;]+;/g)).toEqual([
-      'font-family: "Geist Variable", sans-serif;',
+      'font-family: "Instrument Sans Variable", sans-serif;',
     ]);
     expect(
       Array.from(

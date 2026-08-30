@@ -77,7 +77,7 @@ describe("desktop protocol policy", () => {
   it("serves packaged renderer files through an explicit MIME allowlist", () => {
     expect(rendererMimeType("index.html")).toBe("text/html; charset=utf-8");
     expect(rendererMimeType("assets/editor.js")).toBe("text/javascript; charset=utf-8");
-    expect(rendererMimeType("assets/geist.woff2")).toBe("font/woff2");
+    expect(rendererMimeType("assets/instrument-sans.woff2")).toBe("font/woff2");
     expect(rendererMimeType("assets/unknown.bin")).toBe("application/octet-stream");
   });
 });

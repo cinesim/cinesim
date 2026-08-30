@@ -1,5 +1,12 @@
-import { ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Pause, Play } from "lucide-react";
-import { Button } from "@cinesim/ui";
+import {
+  Button,
+  ChevronLeft,
+  ChevronRight,
+  ChevronsLeft,
+  ChevronsRight,
+  Pause,
+  Play,
+} from "@cinesim/ui";
 import { timeUs } from "@cinesim/core";
 import type { TimeUs } from "@cinesim/core";
 import { formatTimecode } from "../../lib/format";
