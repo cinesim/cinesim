@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vite-plus/test";
 import { DesktopAppStateStore } from "../src/main/state/app-state-store";
+import { DEFAULT_EDITOR_LAYOUT, DEFAULT_TRANSCRIPTION_SETTINGS } from "../src/shared/contracts";
 
 const temporaryDirectories: string[] = [];
 
@@ -103,6 +104,60 @@ describe("DesktopAppStateStore", () => {
     await store.load();
     store.setAccount("user_one");
     expect(store.snapshot().recentProjects).toEqual([]);
+  });
+
+  it("keeps valid persisted fields and discards malformed entries", async () => {
+    const { path } = await stateFixture();
+    const recentProjects = Array.from({ length: 13 }, (_, index) => ({
+      name: `Project ${index}`,
+      directory: `/films/${index}`,
+      kind: "local",
+    }));
+    await writeFile(
+      path,
+      JSON.stringify({
+        version: 3,
+        local: {
+          version: 1,
+          recentProjects: [...recentProjects, { name: "Broken", directory: 42, kind: "local" }],
+          mediaPoolOpenByProject: { "/films/0": false, broken: "yes" },
+          inspectorOpenByProject: null,
+          notesOpenByProject: { "/films/0": true },
+          editorLayoutsByProject: {
+            "/films/0": { mediaPoolWidth: 300, inspectorWidth: 320, timelineHeight: 280 },
+            broken: { mediaPoolWidth: -1, inspectorWidth: 320, timelineHeight: 280 },
+          },
+          cutLayoutsByProject: {
+            "/films/0": { rightColumnWidth: 440, viewerHeight: 340, timelineHeight: 80 },
+            broken: { rightColumnWidth: Number.POSITIVE_INFINITY },
+          },
+          transcriptionSettings: { generation: "automatic", model: "unknown" },
+        },
+        accounts: {},
+      }),
+    );
+
+    const store = new DesktopAppStateStore(path);
+    await store.load();
+    const snapshot = store.snapshot();
+
+    expect(snapshot.recentProjects).toHaveLength(12);
+    expect(snapshot.recentProjects[0]).toEqual(recentProjects[0]);
+    expect(snapshot.mediaPoolOpenByProject).toEqual({ "/films/0": false });
+    expect(snapshot.inspectorOpenByProject).toEqual({});
+    expect(snapshot.notesOpenByProject).toEqual({ "/films/0": true });
+    expect(snapshot.editorLayoutsByProject).toEqual({
+      "/films/0": {
+        mediaPoolWidth: 300,
+        inspectorWidth: 320,
+        timelineHeight: 280,
+        notesWidth: DEFAULT_EDITOR_LAYOUT.notesWidth,
+      },
+    });
+    expect(snapshot.cutLayoutsByProject).toEqual({
+      "/films/0": { rightColumnWidth: 440, viewerHeight: 340, timelineHeight: 80 },
+    });
+    expect(snapshot.transcriptionSettings).toEqual(DEFAULT_TRANSCRIPTION_SETTINGS);
   });
 
   it("forgets a local project and its device-specific UI preferences", async () => {
