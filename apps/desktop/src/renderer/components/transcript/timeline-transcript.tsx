@@ -23,6 +23,7 @@ import {
   type TranscriptDocumentSection,
   type TranscriptInlineToken,
 } from "../../../shared/transcript";
+import { isEditableKeyboardTarget } from "../../lib/keyboard-target";
 import type { ActionResult, RendererState } from "../../store/renderer-store";
 
 interface TimelineTranscriptProps {
@@ -53,13 +54,6 @@ const SPEAKER_COLORS = [
   "var(--metric-green)",
   "var(--metric-amber)",
 ] as const;
-
-function isEditableTarget(target: EventTarget | null): boolean {
-  return (
-    target instanceof HTMLElement &&
-    (target.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName))
-  );
-}
 
 function formatSeconds(durationUs: number): string {
   const seconds = durationUs / 1_000_000;
@@ -318,7 +312,7 @@ export function TimelineTranscript({
     function deleteSelection(event: KeyboardEvent): void {
       if (
         event.defaultPrevented ||
-        isEditableTarget(event.target) ||
+        isEditableKeyboardTarget(event.target) ||
         (event.key !== "Backspace" && event.key !== "Delete") ||
         selectedRanges.length === 0
       )

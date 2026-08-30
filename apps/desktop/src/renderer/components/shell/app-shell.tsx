@@ -29,8 +29,9 @@ import {
   TooltipTrigger,
 } from "@cinesim/ui";
 import type { AccountSnapshot, DesktopAppState, DesktopProjectSession } from "../../../shared/api";
-import type { SettingsSection } from "../../store/renderer-store";
 import { usePersistentSidebarWidth } from "../../hooks/use-persistent-sidebar-width";
+import { isEditableKeyboardTarget } from "../../lib/keyboard-target";
+import type { SettingsSection } from "../../store/renderer-store";
 import { AccountAvatar, accountDisplayName, GoogleMark } from "../account/account-ui";
 import { ProjectBreadcrumb } from "./project-breadcrumb";
 import { ShortcutHint, ShortcutsDialog } from "./shortcuts-dialog";
@@ -113,13 +114,6 @@ export function projectSectionForShortcut(
   if (event.key === "2") return "cut";
   if (event.key === "3") return "edit";
   return null;
-}
-
-function isEditableShortcutTarget(target: EventTarget | null): boolean {
-  return (
-    target instanceof HTMLElement &&
-    (target.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName))
-  );
 }
 
 export function AppShell({
@@ -209,7 +203,7 @@ export function AppShell({
       const command = event.metaKey || event.ctrlKey;
       const key = event.key.toLowerCase();
       const projectSection =
-        destination === "project" && !isEditableShortcutTarget(event.target)
+        destination === "project" && !isEditableKeyboardTarget(event.target)
           ? projectSectionForShortcut(event)
           : null;
       if (isAgentsSidebarShortcut(event)) {
