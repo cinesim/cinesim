@@ -1,7 +1,7 @@
 import { useEffect, useMemo } from "react";
 import { timeUs } from "@cinesim/core";
 import type { SequenceId } from "@cinesim/core";
-import type { DesktopProjectSession } from "../../../shared/api";
+import type { DesktopProjectSession } from "../../../shared/contracts";
 import {
   cutLayoutFromState,
   editorLayoutFromState,

@@ -1,5 +1,5 @@
 import { isAssetCompatibleWithTrack, sequenceDurationUs, timeUs } from "@cinesim/core";
-import type { DesktopAppState, DesktopProjectSession } from "../../shared/api";
+import type { DesktopAppState, DesktopProjectSession } from "../../shared/contracts";
 import {
   EMPTY_APP_STATE,
   hydratedProjectState,
@@ -37,23 +37,23 @@ export function createProjectSlice(context: RendererStoreContext): ProjectSlice 
       }
       let appState = current.appState;
       try {
-        appState = await api.getAppState();
+        appState = await api.appState.get();
       } catch {
         // Project state is authoritative; UI preferences can use their current defaults.
       }
       set(hydratedProjectState(session, appState));
     },
     createProject: (name, kind) =>
-      context.runProjectOperation("create", () => api.createProject(name.trim(), kind)),
-    openProject: () => context.runProjectOperation("open", () => api.openProject()),
+      context.runProjectOperation("create", () => api.project.create(name.trim(), kind)),
+    openProject: () => context.runProjectOperation("open", () => api.project.open()),
     openRecentProject: (directory) =>
-      context.runProjectOperation("open-recent", () => api.openRecentProject(directory)),
+      context.runProjectOperation("open-recent", () => api.project.openRecent(directory)),
     importMedia: async () => {
       const blocked = context.blockedByProjectOpening<DesktopProjectSession | null>();
       if (blocked) return blocked;
       set({ operationError: null });
       try {
-        const session = await api.importMedia();
+        const session = await api.project.importMedia();
         if (session) context.acceptMutationSession(session);
         return { ok: true, value: session };
       } catch (error) {
@@ -67,7 +67,7 @@ export function createProjectSlice(context: RendererStoreContext): ProjectSlice 
       if (blocked) return blocked;
       set({ operationError: null });
       try {
-        const response = await api.execute(command);
+        const response = await api.project.execute(command);
         context.acceptMutationSession(response.session);
         return { ok: true, value: response.session };
       } catch (error) {
@@ -105,14 +105,15 @@ export function createProjectSlice(context: RendererStoreContext): ProjectSlice 
         ...(audioTrack ? { audioTrackId: audioTrack.id } : {}),
       });
     },
-    undo: () => context.runSessionAction(() => api.undo(), "The edit could not be undone"),
-    redo: () => context.runSessionAction(() => api.redo(), "The edit could not be redone"),
-    save: () => context.runSessionAction(() => api.save(), "The project could not be saved"),
+    undo: () => context.runSessionAction(() => api.project.undo(), "The edit could not be undone"),
+    redo: () => context.runSessionAction(() => api.project.redo(), "The edit could not be redone"),
+    save: () =>
+      context.runSessionAction(() => api.project.save(), "The project could not be saved"),
     revealProject: async () => {
       const blocked = context.blockedByProjectOpening<void>();
       if (blocked) return blocked;
       try {
-        await api.revealProject();
+        await api.project.reveal();
         return { ok: true, value: undefined };
       } catch (error) {
         const message = messageFrom(error, "The project could not be revealed");
@@ -122,7 +123,7 @@ export function createProjectSlice(context: RendererStoreContext): ProjectSlice 
     },
     forgetProject: async (directory) => {
       try {
-        const appState = await api.forgetProject(directory);
+        const appState = await api.project.forget(directory);
         set({ appState, operationError: null });
         return { ok: true, value: appState };
       } catch (error) {
@@ -147,14 +148,14 @@ export function createProjectSlice(context: RendererStoreContext): ProjectSlice 
         await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
       }
       try {
-        const appState = await api.trashProject(directory);
+        const appState = await api.project.trash(directory);
         set({ appState, operationError: null });
         return { ok: true, value: appState };
       } catch (error) {
         const message = messageFrom(error, "The project could not be moved to Trash");
         if (deletingCurrent) {
           try {
-            const reopened = await api.openRecentProject(directory);
+            const reopened = await api.project.openRecent(directory);
             set(hydratedProjectState(reopened, get().appState));
           } catch {
             // The project remains closed if recovery also fails.
@@ -195,10 +196,10 @@ export function createProjectSlice(context: RendererStoreContext): ProjectSlice 
       set({ [key]: next } as Pick<RendererState, typeof key>);
       try {
         const appState = await (panel === "mediaPool"
-          ? api.setProjectMediaPoolOpen(next)
+          ? api.appState.setMediaPoolOpen(next)
           : panel === "inspector"
-            ? api.setProjectInspectorOpen(next)
-            : api.setProjectNotesOpen(next));
+            ? api.appState.setInspectorOpen(next)
+            : api.appState.setNotesOpen(next));
         set({ appState });
         return { ok: true, value: appState };
       } catch (error) {
@@ -211,13 +212,13 @@ export function createProjectSlice(context: RendererStoreContext): ProjectSlice 
     saveEditorLayout: (layout) =>
       saveAppState(
         context,
-        () => api.setProjectEditorLayout(layout),
+        () => api.appState.setEditorLayout(layout),
         "The editor layout could not be saved",
       ),
     saveCutLayout: (layout) =>
       saveAppState(
         context,
-        () => api.setProjectCutLayout(layout),
+        () => api.appState.setCutLayout(layout),
         "The Cut layout could not be saved",
       ),
     saveTranscriptionSettings: async (settings) => {
@@ -225,7 +226,7 @@ export function createProjectSlice(context: RendererStoreContext): ProjectSlice 
         return { ok: false, error: "Sign in to change transcription settings" };
       return saveAppState(
         context,
-        () => api.setTranscriptionSettings(settings),
+        () => api.appState.setTranscriptionSettings(settings),
         "Transcription settings could not be saved",
       );
     },
@@ -243,7 +244,7 @@ export function createProjectSlice(context: RendererStoreContext): ProjectSlice 
     },
     updateProjectSettings: async (update) => {
       try {
-        const session = await api.updateProjectSettings(update);
+        const session = await api.project.updateSettings(update);
         context.acceptMutationSession(session);
         return { ok: true, value: session };
       } catch (error) {

@@ -1,5 +1,5 @@
 import type { Asset } from "@cinesim/core";
-import type { DerivedAssetSnapshot } from "../../../shared/api";
+import type { DerivedAssetSnapshot } from "../../../shared/contracts";
 
 export function assetNeedsEditProxy(
   asset: Asset,

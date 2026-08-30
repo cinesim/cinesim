@@ -17,7 +17,7 @@ import type {
   AgentProviderKind,
   AgentProviderStatus,
   AgentSettings as AgentSettingsState,
-} from "../../../shared/api";
+} from "../../../shared/contracts";
 import { useDelayedBusy } from "../../hooks/use-delayed-busy";
 import {
   cacheAgentProviders,
@@ -48,10 +48,10 @@ export function AgentSettings() {
     setBusy(true);
     setNotice(null);
     try {
-      const nextStatuses = await window.cinesim.refreshAgentProviders();
+      const nextStatuses = await window.cinesim.agents.refreshProviders();
       cacheAgentProviders(nextStatuses);
       setStatuses(nextStatuses);
-      const nextSettings = await window.cinesim.getAgentSettings();
+      const nextSettings = await window.cinesim.agents.getSettings();
       cacheAgentSettings(nextSettings);
       setSettings(nextSettings);
     } catch (error) {
@@ -62,7 +62,7 @@ export function AgentSettings() {
 
   useEffect(() => {
     void (async () => {
-      const value = await window.cinesim.getAgentSettings();
+      const value = await window.cinesim.agents.getSettings();
       cacheAgentSettings(value);
       setSettings(value);
       setProvider(value.defaultProvider);
@@ -71,18 +71,17 @@ export function AgentSettings() {
   }, []);
 
   async function updateProvider(input: {
-    executablePath?: string;
     model?: string;
     effort?: AgentEffort;
     permissionMode?: AgentPermissionMode;
   }): Promise<void> {
-    const next = await window.cinesim.updateAgentSettings({ provider, ...input });
+    const next = await window.cinesim.agents.updateSettings({ provider, ...input });
     cacheAgentSettings(next);
     setSettings(next);
   }
 
   async function chooseExecutable(): Promise<void> {
-    const next = await window.cinesim.chooseAgentExecutable(provider);
+    const next = await window.cinesim.agents.chooseExecutable(provider);
     if (next) {
       cacheAgentSettings(next);
       setSettings(next);
@@ -91,7 +90,7 @@ export function AgentSettings() {
   }
 
   async function makeDefaultProvider(): Promise<void> {
-    const next = await window.cinesim.updateAgentSettings({ defaultProvider: provider });
+    const next = await window.cinesim.agents.updateSettings({ defaultProvider: provider });
     cacheAgentSettings(next);
     setSettings(next);
   }
@@ -150,7 +149,7 @@ export function AgentSettings() {
             <button
               className="mt-3 flex h-8 items-center gap-2 rounded-md border border-border bg-panel px-3 text-ui text-primary hover:bg-surface"
               onClick={() =>
-                void window.cinesim.openAgentLogin(provider).then((message) => setNotice(message))
+                void window.cinesim.agents.openLogin(provider).then((message) => setNotice(message))
               }
             >
               <Terminal size={14} /> Configure login in Terminal
@@ -167,16 +166,7 @@ export function AgentSettings() {
                   className="flex-1"
                   value={configured.executablePath}
                   placeholder={status?.executablePath ?? "Not detected"}
-                  onChange={(event) =>
-                    setSettings({
-                      ...settings,
-                      providers: {
-                        ...settings.providers,
-                        [provider]: { ...configured, executablePath: event.target.value },
-                      },
-                    })
-                  }
-                  onBlur={(event) => void updateProvider({ executablePath: event.target.value })}
+                  readOnly
                 />
                 <button
                   className="grid size-9 place-items-center rounded-md border border-border text-muted hover:bg-surface hover:text-primary"

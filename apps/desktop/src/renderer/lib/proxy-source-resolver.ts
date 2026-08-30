@@ -1,6 +1,6 @@
 import type { AssetId } from "@cinesim/core";
 import type { MediaSourceDescriptor, MediaSourceResolver } from "@cinesim/engine";
-import type { DerivedMediaSnapshot, DerivedProjectScope } from "../../shared/api";
+import type { DerivedMediaSnapshot, DerivedProjectScope } from "../../shared/contracts";
 import { derivedArtifactUrl, originalMediaUrl } from "./media-url";
 
 export class ProxySourceResolver implements MediaSourceResolver {

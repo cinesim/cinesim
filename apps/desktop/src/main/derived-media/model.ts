@@ -9,7 +9,7 @@ import type {
   DerivedRuntimeSnapshot,
   SourceFingerprint,
   SourcePerformanceSnapshot,
-} from "../../shared/api";
+} from "../../shared/contracts";
 
 export const DERIVED_GENERATOR_VERSION = "5";
 export const INDEX_FILE = join(".video", "cache", "media-intelligence.json");

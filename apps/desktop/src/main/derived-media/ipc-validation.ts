@@ -6,18 +6,18 @@ import type {
   DerivedProjectScope,
   DerivedWorkerActivity,
   FinalizeDerivedWrite,
-} from "../../shared/api";
+} from "../../shared/contracts";
 
 const safeNonnegative = z.number().int().nonnegative().safe();
 const boundedCount = safeNonnegative.max(1_000_000_000);
-const derivedProjectScopeSchema = z
+export const derivedProjectScopeSchema = z
   .object({
     cacheKey: z.string().regex(/^[a-f0-9]{24}$/u),
     epoch: z.string().uuid(),
   })
   .transform((value): DerivedProjectScope => value);
 
-const derivedWorkerActivitySchema = z
+export const derivedWorkerActivitySchema = z
   .object({
     jobId: z.string().uuid(),
     assetId: assetIdSchema,

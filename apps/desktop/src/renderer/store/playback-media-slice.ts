@@ -50,7 +50,7 @@ export function createPlaybackMediaSlice(context: RendererStoreContext): Playbac
       const session = sessionFromLifecycle(get().project);
       if (!session) return { ok: false, error: "Open a project before loading transcripts" };
       try {
-        const snapshot = await api.getTranscriptSnapshot(session.derivedScope, assetIds);
+        const snapshot = await api.transcripts.get(session.derivedScope, assetIds);
         get().setTranscripts(session.directory, snapshot);
         return { ok: true, value: get().transcripts ?? snapshot };
       } catch (error) {
@@ -66,7 +66,7 @@ export function createPlaybackMediaSlice(context: RendererStoreContext): Playbac
         return { ok: false, error };
       }
       try {
-        const snapshot = await api.requestTranscriptJobs(session.derivedScope, assetIds);
+        const snapshot = await api.transcripts.requestJobs(session.derivedScope, assetIds);
         set({ transcripts: snapshot, operationError: null });
         return { ok: true, value: snapshot };
       } catch (error) {
@@ -79,7 +79,7 @@ export function createPlaybackMediaSlice(context: RendererStoreContext): Playbac
       const session = sessionFromLifecycle(get().project);
       if (!session) return { ok: false, error: "Open a project before canceling transcripts" };
       try {
-        const snapshot = await api.cancelTranscriptJobs(session.derivedScope, assetIds);
+        const snapshot = await api.transcripts.cancelJobs(session.derivedScope, assetIds);
         get().setTranscripts(session.directory, snapshot);
         return { ok: true, value: snapshot };
       } catch (error) {

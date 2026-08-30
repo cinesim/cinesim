@@ -1,0 +1,58 @@
+import { readFileSync, statSync } from "node:fs";
+import { z } from "zod";
+import type { AccountUser } from "../../shared/contracts";
+import { AtomicFileRepository } from "../app/atomic-file-repository";
+
+const MAX_PROFILE_BYTES = 256 * 1024;
+const profileSchema = z
+  .object({
+    version: z.literal(1),
+    user: z
+      .object({
+        id: z.string().min(1).max(256),
+        name: z.string().max(1_024),
+        email: z.email().max(1_024),
+        emailVerified: z.boolean(),
+        image: z.string().max(8_192).nullable(),
+      })
+      .strict(),
+  })
+  .strict();
+
+export class AccountProfileRepository {
+  #user: AccountUser | null;
+  readonly #files = new AtomicFileRepository();
+
+  constructor(private readonly path: string) {
+    this.#user = this.#read();
+  }
+
+  get(): AccountUser | null {
+    return this.#user ? structuredClone(this.#user) : null;
+  }
+
+  set(user: AccountUser): Promise<void> {
+    const storedUser = structuredClone(user);
+    this.#user = storedUser;
+    return this.#files.writeText(
+      this.path,
+      `${JSON.stringify({ version: 1, user: storedUser }, null, 2)}\n`,
+      { maxBytes: MAX_PROFILE_BYTES, mode: 0o600 },
+    );
+  }
+
+  clear(): Promise<void> {
+    this.#user = null;
+    return this.#files.remove(this.path);
+  }
+
+  #read(): AccountUser | null {
+    try {
+      const metadata = statSync(this.path);
+      if (!metadata.isFile() || metadata.size > MAX_PROFILE_BYTES) return null;
+      return profileSchema.parse(JSON.parse(readFileSync(this.path, "utf8"))).user;
+    } catch {
+      return null;
+    }
+  }
+}

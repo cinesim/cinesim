@@ -1,5 +1,5 @@
 import { join } from "node:path";
-import { app, BrowserWindow } from "electron";
+import { app } from "electron";
 import { createCinesimLogger } from "@cinesim/logging";
 import { registerAgentIpc } from "../agents/ipc";
 import { AgentManager } from "../agents/manager";
@@ -19,6 +19,13 @@ import type { DesktopAccountService } from "../account/service";
 import { registerCloudIpc } from "../cloud/ipc";
 import { CloudMediaManager } from "../cloud/manager";
 import { registerTranscriptIpc } from "../transcripts/ipc";
+import type { DevelopmentConfiguration } from "./development-configuration";
+import { configureIpcSecurity } from "./secure-ipc";
+import { desktopEvents } from "../../shared/contracts/events";
+import { editorSession } from "./protocols";
+import { registerRendererProtocol } from "./renderer-protocol";
+import { denyPermissionCheck, denyPermissionRequest } from "./editor-security";
+import type { EditorWindowRegistry } from "./editor-window-registry";
 
 const log = createCinesimLogger({ service: "desktop" });
 
@@ -27,13 +34,22 @@ export class DesktopApplication implements ApplicationLifecycle {
   #agents: AgentManager | null = null;
   #eventLoopMonitor = new MainEventLoopMonitor();
 
-  constructor(private readonly accountService: DesktopAccountService) {
+  constructor(
+    private readonly accountService: DesktopAccountService,
+    private readonly development: DevelopmentConfiguration,
+    private readonly windows: EditorWindowRegistry,
+  ) {
     this.projectStore = new DesktopProjectStore(accountService);
+    configureIpcSecurity({ developmentUrl: development.rendererUrl });
   }
 
   async start(): Promise<void> {
     await app.whenReady();
     this.#eventLoopMonitor.start();
+    const secureEditorSession = editorSession();
+    secureEditorSession.setPermissionCheckHandler(denyPermissionCheck);
+    secureEditorSession.setPermissionRequestHandler(denyPermissionRequest);
+    registerRendererProtocol();
 
     const appState = new DesktopAppStateStore(join(app.getPath("userData"), "ui-state.json"));
     const agentSettings = new AgentSettingsStore(
@@ -45,6 +61,14 @@ export class DesktopApplication implements ApplicationLifecycle {
       join(app.getPath("userData"), "cloud-transfers.json"),
       this.accountService,
       this.projectStore,
+      {
+        transfersChanged: (snapshot) => {
+          this.windows.broadcast(desktopEvents.cloudTransfersChanged, snapshot);
+        },
+        projectChanged: (session) => {
+          this.windows.broadcast(desktopEvents.projectChanged, session);
+        },
+      },
     );
     await cloudMedia.load();
     const unsubscribeAccount = this.accountService.subscribe((snapshot) => {
@@ -54,12 +78,8 @@ export class DesktopApplication implements ApplicationLifecycle {
     });
     app.once("will-quit", unsubscribeAccount);
 
-    const diagnosticProject = process.env.CINESIM_DIAGNOSTIC_PROJECT;
-    if (
-      process.env.CINESIM_DEV_SERVER_URL &&
-      diagnosticProject &&
-      diagnosticProject.length <= 4_096
-    ) {
+    const diagnosticProject = this.development.diagnosticProject;
+    if (diagnosticProject) {
       await this.projectStore.open(diagnosticProject);
       log.info(
         { operation: "diagnostic-project-open", projectId: this.projectStore.project?.id },
@@ -67,29 +87,25 @@ export class DesktopApplication implements ApplicationLifecycle {
       );
     }
 
-    await registerMediaProtocol(this.projectStore, cloudMedia);
+    await registerMediaProtocol(this.projectStore, cloudMedia, this.development.rendererUrl);
     this.projectStore.derivedMedia.subscribe((snapshot) => {
-      for (const target of BrowserWindow.getAllWindows())
-        target.webContents.send("derived:changed", snapshot);
+      this.windows.broadcast(desktopEvents.derivedChanged, snapshot);
     });
     this.projectStore.transcripts.subscribe((snapshot) => {
-      for (const target of BrowserWindow.getAllWindows())
-        target.webContents.send("transcripts:changed", snapshot);
+      this.windows.broadcast(desktopEvents.transcriptsChanged, snapshot);
     });
 
     const agents = new AgentManager(
       join(app.getPath("userData"), "agent-sessions.json"),
       agentSettings,
       this.projectStore,
-      (snapshot) => {
-        for (const target of BrowserWindow.getAllWindows())
-          target.webContents.send("agents:changed", snapshot);
+      (delta) => {
+        this.windows.broadcast(desktopEvents.agentsDelta, delta);
       },
       () => {
         if (!this.projectStore.project) return;
         const session = this.projectStore.session();
-        for (const target of BrowserWindow.getAllWindows())
-          target.webContents.send("project:changed", session);
+        this.windows.broadcast(desktopEvents.projectChanged, session);
       },
     );
     this.#agents = agents;
@@ -101,7 +117,7 @@ export class DesktopApplication implements ApplicationLifecycle {
     registerAppStateIpc(appState, this.projectStore);
     registerAgentIpc(agents, agentSettings);
     registerAppIpc(log, this.#eventLoopMonitor);
-    registerAccountIpc(this.accountService, async () => {
+    registerAccountIpc(this.accountService, this.windows, async () => {
       appState.setAccount(null);
       if (this.projectStore.project?.cloudProjectId) {
         if (this.projectStore.directory) await agents.stopProject(this.projectStore.directory);
@@ -112,7 +128,7 @@ export class DesktopApplication implements ApplicationLifecycle {
 
     this.#openWindow();
     app.on("activate", () => {
-      if (BrowserWindow.getAllWindows().length === 0) this.#openWindow();
+      if (this.windows.size === 0) this.#openWindow();
     });
   }
 
@@ -128,10 +144,7 @@ export class DesktopApplication implements ApplicationLifecycle {
   }
 
   #openWindow(): void {
-    const window = createEditorWindow();
-    window.webContents.session.setPermissionRequestHandler((_webContents, _permission, callback) =>
-      callback(false),
-    );
+    this.windows.register(createEditorWindow(this.development));
   }
 }
 

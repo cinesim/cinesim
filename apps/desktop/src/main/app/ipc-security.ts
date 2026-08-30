@@ -1,5 +1,4 @@
-import { fileURLToPath } from "node:url";
-import { join, resolve } from "node:path";
+import { CINESIM_RENDERER_ENTRY_URL } from "./protocols";
 
 interface IpcFrameLike {
   url: string;
@@ -12,19 +11,14 @@ export interface IpcSenderLike {
 
 export interface IpcSecurityPolicy {
   trustedRendererIds: ReadonlySet<number>;
-  developmentUrl?: string | undefined;
-  applicationPath: string;
+  developmentUrl?: URL | undefined;
 }
 
 export function isTrustedRendererUrl(value: string, policy: IpcSecurityPolicy): boolean {
   try {
     const url = new URL(value);
-    if (policy.developmentUrl) return url.origin === new URL(policy.developmentUrl).origin;
-    if (url.protocol !== "file:") return false;
-    return (
-      resolve(fileURLToPath(url)) ===
-      resolve(join(policy.applicationPath, "dist/renderer/index.html"))
-    );
+    if (policy.developmentUrl) return url.origin === policy.developmentUrl.origin;
+    return url.href === CINESIM_RENDERER_ENTRY_URL;
   } catch {
     return false;
   }

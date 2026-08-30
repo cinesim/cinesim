@@ -5,7 +5,8 @@ import type {
   AgentRuntimeCallbacks,
   AgentRuntimeLaunchOptions,
 } from "./types";
-import { asRecord, stringValue } from "./types";
+import { asRecord, MAX_PROVIDER_LINE_CHARACTERS, stringValue } from "./types";
+import { CODEX_REQUEST_TIMEOUT_MS } from "../runtime-policy";
 
 interface PendingRequest {
   resolve(value: unknown): void;
@@ -129,6 +130,14 @@ export class CodexRuntime implements AgentProviderRuntime {
   }
 
   #handleLine(line: string): void {
+    if (line.length > MAX_PROVIDER_LINE_CHARACTERS) {
+      this.callbacks.onEvent({
+        kind: "error",
+        title: "Codex output rejected",
+        detail: "The provider emitted a message beyond the runtime size limit.",
+      });
+      return;
+    }
     let value: unknown;
     try {
       value = JSON.parse(line) as unknown;
@@ -270,7 +279,7 @@ export class CodexRuntime implements AgentProviderRuntime {
       const timeout = setTimeout(() => {
         this.#pending.delete(id);
         reject(new Error(`Codex request timed out: ${method}`));
-      }, 30_000);
+      }, CODEX_REQUEST_TIMEOUT_MS);
       this.#pending.set(id, { resolve, reject, timeout });
     });
   }

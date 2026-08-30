@@ -1,6 +1,6 @@
 import { useCallback, useRef, useState } from "react";
 import type { Project, TimelineRange } from "@cinesim/core";
-import type { CutLayoutState, DesktopProjectSession } from "../../../shared/api";
+import type { CutLayoutState, DesktopProjectSession } from "../../../shared/contracts";
 import { useElementBounds } from "../../hooks/use-element-bounds";
 import { usePanelResize } from "../../hooks/use-panel-resize";
 import {

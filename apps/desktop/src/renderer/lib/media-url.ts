@@ -1,5 +1,5 @@
 import type { Asset } from "@cinesim/core";
-import type { DerivedArtifactKind, DerivedProjectScope } from "../../shared/api";
+import type { DerivedArtifactKind, DerivedProjectScope } from "../../shared/contracts";
 
 export function originalMediaUrl(asset: Pick<Asset, "id">, scope: DerivedProjectScope): string {
   return `cinesim-media://asset/${scope.cacheKey}/${asset.id}?epoch=${encodeURIComponent(scope.epoch)}`;

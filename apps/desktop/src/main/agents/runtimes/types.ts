@@ -1,4 +1,7 @@
-import type { AgentEffort, AgentEventKind, AgentTokenUsage } from "../../../shared/api";
+import type { AgentEffort, AgentEventKind, AgentTokenUsage } from "../../../shared/contracts";
+
+export const MAX_PROVIDER_LINE_CHARACTERS = 2_000_000;
+export const MAX_PROVIDER_STRING_CHARACTERS = 1_000_000;
 
 export interface AgentRuntimeEvent {
   kind: AgentEventKind;
@@ -44,5 +47,7 @@ export function asRecord(value: unknown): Record<string, unknown> | null {
 }
 
 export function stringValue(value: unknown): string | undefined {
-  return typeof value === "string" && value.length > 0 ? value : undefined;
+  return typeof value === "string" && value.length > 0
+    ? value.slice(0, MAX_PROVIDER_STRING_CHARACTERS)
+    : undefined;
 }

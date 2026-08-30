@@ -140,4 +140,4 @@ export type DerivedWorkerResponse =
     }
   | { type: "transcript-complete"; jobId: string };
 import type { TimeUs } from "@cinesim/core";
-import type { DerivedProjectScope, DerivedWorkerStage } from "../../shared/api";
+import type { DerivedProjectScope, DerivedWorkerStage } from "../../shared/contracts";

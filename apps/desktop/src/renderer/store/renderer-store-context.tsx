@@ -1,7 +1,7 @@
 import { createContext, useContext, useEffect, useRef, useState } from "react";
 import { useStore } from "zustand";
-import type { DesktopApi } from "../../shared/api";
-import { DEFAULT_TRANSCRIPTION_SETTINGS } from "../../shared/api";
+import type { DesktopApi } from "../../shared/contracts";
+import { DEFAULT_TRANSCRIPTION_SETTINGS } from "../../shared/contracts";
 import { MediaJobCoordinator } from "../lib/media-job-coordinator";
 import {
   createRendererStore,
@@ -73,16 +73,16 @@ function RendererControllerEffects({ api, store }: { api: DesktopApi; store: Ren
 
   useEffect(() => {
     void store.getState().initialize();
-    const unsubscribeProject = api.onProjectChanged((session) => {
+    const unsubscribeProject = api.project.onChanged((session) => {
       void store.getState().receiveExternalSession(session);
     });
-    const unsubscribeAccount = api.onAccountChanged((snapshot) => {
+    const unsubscribeAccount = api.account.onChanged((snapshot) => {
       store.getState().setAccount(snapshot);
     });
-    const unsubscribeCloud = api.onCloudTransfersChanged((snapshot) => {
+    const unsubscribeCloud = api.cloud.onTransfersChanged((snapshot) => {
       store.getState().setCloudTransfers(snapshot);
     });
-    const unsubscribeTranscripts = api.onTranscriptsChanged((snapshot) => {
+    const unsubscribeTranscripts = api.transcripts.onChanged((snapshot) => {
       store.getState().setTranscripts(snapshot.projectDirectory, snapshot);
     });
     return () => {
@@ -163,7 +163,7 @@ function RendererControllerEffects({ api, store }: { api: DesktopApi; store: Ren
         sortedLagSamples[Math.max(0, Math.ceil(sortedLagSamples.length * 0.95) - 1)] ?? 0;
       rendererLagSamples = [];
       try {
-        const snapshot = await api.getElectronHealthSnapshot();
+        const snapshot = await api.health.get();
         if (!destroyed) store.getState().setElectronHealth({ ...snapshot, rendererEventLoopLagMs });
       } catch {
         if (!destroyed) store.getState().setElectronHealth(null);

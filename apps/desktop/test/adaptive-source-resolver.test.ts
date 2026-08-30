@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vite-plus/test";
-import type { DerivedMediaSnapshot } from "../src/shared/api";
+import type { DerivedMediaSnapshot } from "../src/shared/contracts";
 import { ProxySourceResolver } from "../src/renderer/lib/proxy-source-resolver";
 
 const projectScope = {

@@ -1,65 +1,37 @@
 import type { DerivedMediaStore } from "./service";
-import {
-  beginDerivedWriteSchema,
-  derivedPerformanceObservationSchema,
-  finalizeDerivedWriteSchema,
-  parseDerivedProjectScope,
-  parseDerivedWorkerActivity,
-} from "./ipc-validation";
 import { registerIpcHandler } from "../app/secure-ipc";
+import { derivedContracts } from "./contracts";
 
 export function registerDerivedMediaIpc(store: DerivedMediaStore): void {
-  registerIpcHandler("derived:get", (scope: unknown) => {
-    store.assertScope(parseDerivedProjectScope(scope));
+  registerIpcHandler(derivedContracts.get, ({ scope }) => {
+    store.assertScope(scope);
     return store.snapshot();
   });
-  registerIpcHandler("derived:request-jobs", (scope: unknown, assetIds: unknown) => {
-    if (!Array.isArray(assetIds) || assetIds.some((id) => typeof id !== "string"))
-      throw new Error("Invalid derived job request");
-    return store.requestJobs(parseDerivedProjectScope(scope), assetIds);
+  registerIpcHandler(derivedContracts.requestJobs, ({ scope, assetIds }) => {
+    return store.requestJobs(scope, assetIds);
   });
-  registerIpcHandler("derived:request-proxies", (scope: unknown, assetIds: unknown) => {
-    if (!Array.isArray(assetIds) || assetIds.some((id) => typeof id !== "string"))
-      throw new Error("Invalid proxy job request");
-    return store.queueProxies(parseDerivedProjectScope(scope), assetIds);
+  registerIpcHandler(derivedContracts.requestProxies, ({ scope, assetIds }) => {
+    return store.queueProxies(scope, assetIds);
   });
-  registerIpcHandler("derived:write:begin", (scope: unknown, input: unknown) =>
-    store.beginWrite(parseDerivedProjectScope(scope), beginDerivedWriteSchema.parse(input)),
+  registerIpcHandler(derivedContracts.writeBegin, ({ scope, input }) =>
+    store.beginWrite(scope, input),
   );
-  registerIpcHandler("derived:write:chunk", (writerId: unknown, offset: unknown, data: unknown) => {
-    if (typeof writerId !== "string" || typeof offset !== "number" || !(data instanceof Uint8Array))
-      throw new Error("Invalid derived write chunk");
+  registerIpcHandler(derivedContracts.writeChunk, ({ writerId, offset, data }) => {
     return store.writeChunk(writerId, offset, data);
   });
-  registerIpcHandler("derived:write:finalize", (writerId: unknown, result: unknown) => {
-    if (typeof writerId !== "string") throw new Error("Invalid derived writer");
-    return store.finalizeWrite(writerId, finalizeDerivedWriteSchema.parse(result));
+  registerIpcHandler(derivedContracts.writeFinalize, ({ writerId, result }) => {
+    return store.finalizeWrite(writerId, result);
   });
-  registerIpcHandler(
-    "derived:write:cancel",
-    (writerId: unknown, failureCode: unknown, detail: unknown) => {
-      if (
-        typeof writerId !== "string" ||
-        (failureCode !== undefined &&
-          (typeof failureCode !== "string" || !/^[a-z0-9][a-z0-9-]{0,63}$/.test(failureCode))) ||
-        (detail !== undefined && (typeof detail !== "string" || detail.length > 2_000))
-      )
-        throw new Error("Invalid derived writer cancellation");
-      return store.cancelWrite(writerId, failureCode, detail);
-    },
-  );
-  registerIpcHandler("derived:write:progress", (writerId: unknown, progress: unknown) => {
-    if (typeof writerId !== "string" || typeof progress !== "number")
-      throw new Error("Invalid derived progress");
+  registerIpcHandler(derivedContracts.writeCancel, ({ writerId, failureCode, detail }) => {
+    return store.cancelWrite(writerId, failureCode, detail);
+  });
+  registerIpcHandler(derivedContracts.writeProgress, ({ writerId, progress }) => {
     return store.updateProgress(writerId, progress);
   });
-  registerIpcHandler("derived:activity", (scope: unknown, activity: unknown) =>
-    store.reportActivity(parseDerivedProjectScope(scope), parseDerivedWorkerActivity(activity)),
+  registerIpcHandler(derivedContracts.activity, ({ scope, activity }) =>
+    store.reportActivity(scope, activity),
   );
-  registerIpcHandler("derived:performance", (scope: unknown, observation: unknown) =>
-    store.reportPerformance(
-      parseDerivedProjectScope(scope),
-      derivedPerformanceObservationSchema.parse(observation),
-    ),
+  registerIpcHandler(derivedContracts.performance, ({ scope, observation }) =>
+    store.reportPerformance(scope, observation),
   );
 }

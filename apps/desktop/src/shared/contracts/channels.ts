@@ -1,0 +1,104 @@
+export const invokeChannels = {
+  account: {
+    get: "account:get",
+    signIn: "account:sign-in",
+    signOut: "account:sign-out",
+  },
+  agents: {
+    approval: "agents:approval",
+    create: "agents:create",
+    delete: "agents:delete",
+    ensure: "agents:ensure",
+    executableChoose: "agents:executable:choose",
+    get: "agents:get",
+    interrupt: "agents:interrupt",
+    login: "agents:login",
+    providersRefresh: "agents:providers:refresh",
+    revert: "agents:revert",
+    select: "agents:select",
+    send: "agents:send",
+    settingsGet: "agents:settings:get",
+    settingsUpdate: "agents:settings:update",
+    update: "agents:update",
+  },
+  app: { health: "app:health" },
+  appState: {
+    get: "app-state:get",
+    setCutLayout: "app-state:set-cut-layout",
+    setEditorLayout: "app-state:set-editor-layout",
+    setInspectorOpen: "app-state:set-inspector-open",
+    setMediaPoolOpen: "app-state:set-media-pool-open",
+    setNotesOpen: "app-state:set-notes-open",
+    setTranscriptionSettings: "app-state:set-transcription-settings",
+  },
+  cloud: {
+    cancel: "cloud:cancel",
+    configureAddon: "cloud:configure-addon",
+    deleteAsset: "cloud:delete-asset",
+    downloadedOriginals: "cloud:downloaded-originals",
+    keepDownloaded: "cloud:keep-downloaded",
+    removeDownload: "cloud:remove-download",
+    restoreAsset: "cloud:restore-asset",
+    retry: "cloud:retry",
+    transfers: "cloud:transfers",
+    trashAssets: "cloud:trash-assets",
+    usage: "cloud:usage",
+  },
+  derived: {
+    activity: "derived:activity",
+    get: "derived:get",
+    performance: "derived:performance",
+    requestJobs: "derived:request-jobs",
+    requestProxies: "derived:request-proxies",
+    writeBegin: "derived:write:begin",
+    writeCancel: "derived:write:cancel",
+    writeChunk: "derived:write:chunk",
+    writeFinalize: "derived:write:finalize",
+    writeProgress: "derived:write:progress",
+  },
+  project: {
+    create: "project:create",
+    execute: "command:execute",
+    forget: "project:forget",
+    importMedia: "media:import",
+    open: "project:open",
+    openRecent: "project:open-recent",
+    recentSizes: "project:recent-sizes",
+    redo: "project:redo",
+    reveal: "project:reveal",
+    save: "project:save",
+    session: "project:session",
+    settingsUpdate: "project:settings:update",
+    trash: "project:trash",
+    undo: "project:undo",
+  },
+  transcripts: {
+    begin: "transcripts:begin",
+    cancel: "transcripts:cancel",
+    chunk: "transcripts:chunk",
+    fail: "transcripts:fail",
+    finalize: "transcripts:finalize",
+    get: "transcripts:get",
+    request: "transcripts:request",
+  },
+} as const;
+
+export const eventChannels = {
+  accountChanged: "account:changed",
+  agentsDelta: "agents:delta",
+  authAuthenticated: "cinesim-auth:authenticated",
+  authError: "cinesim-auth:error",
+  cloudTransfersChanged: "cloud:transfers-changed",
+  derivedChanged: "derived:changed",
+  projectChanged: "project:changed",
+  transcriptsChanged: "transcripts:changed",
+} as const;
+
+function stringLeaves(value: object): string[] {
+  return Object.values(value).flatMap((entry) =>
+    typeof entry === "string" ? [entry] : stringLeaves(entry),
+  );
+}
+
+export const allInvokeChannels = Object.freeze(stringLeaves(invokeChannels));
+export const allEventChannels = Object.freeze(stringLeaves(eventChannels));

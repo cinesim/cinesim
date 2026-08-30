@@ -1,155 +1,150 @@
 import { contextBridge, ipcRenderer } from "electron";
-import type { EditorCommand } from "@cinesim/core";
-import type { DesktopApi } from "../shared/api";
+import type { AccountSnapshot, DesktopApi } from "../shared/contracts";
+import { eventChannels, invokeChannels } from "../shared/contracts/channels";
+import type { DesktopIpcResult } from "../shared/contracts/ipc";
+import { unwrapDesktopIpcResult } from "../shared/contracts/ipc";
+
+async function invoke<TResult>(channel: string, ...arguments_: unknown[]): Promise<TResult> {
+  const result = (await ipcRenderer.invoke(channel, ...arguments_)) as DesktopIpcResult<TResult>;
+  return unwrapDesktopIpcResult(result);
+}
+
+function subscribe<T>(channel: string, callback: (payload: T) => void): () => void {
+  const listener = (_event: Electron.IpcRendererEvent, payload: T) => callback(payload);
+  ipcRenderer.on(channel, listener);
+  let subscribed = true;
+  return () => {
+    if (!subscribed) return;
+    subscribed = false;
+    ipcRenderer.removeListener(channel, listener);
+  };
+}
 
 const api: DesktopApi = {
-  getAccountSnapshot: () => ipcRenderer.invoke("account:get"),
-  beginAccountSignIn: (method) => ipcRenderer.invoke("account:sign-in", method),
-  signOutAccount: () => ipcRenderer.invoke("account:sign-out"),
-  getCloudStorageUsage: () => ipcRenderer.invoke("cloud:usage"),
-  configureCloudStorageAddon: (addonBytes) =>
-    ipcRenderer.invoke("cloud:configure-addon", addonBytes),
-  getCloudTransfers: () => ipcRenderer.invoke("cloud:transfers"),
-  retryCloudTransfer: (assetId) => ipcRenderer.invoke("cloud:retry", assetId),
-  cancelCloudTransfer: (assetId) => ipcRenderer.invoke("cloud:cancel", assetId),
-  getDownloadedCloudOriginals: () => ipcRenderer.invoke("cloud:downloaded-originals"),
-  keepCloudOriginalDownloaded: (assetId) => ipcRenderer.invoke("cloud:keep-downloaded", assetId),
-  removeCloudOriginalDownload: (assetId) => ipcRenderer.invoke("cloud:remove-download", assetId),
-  trashCloudAssets: (cloudAssetIds) => ipcRenderer.invoke("cloud:trash-assets", cloudAssetIds),
-  restoreCloudAsset: (cloudAssetId) => ipcRenderer.invoke("cloud:restore-asset", cloudAssetId),
-  deleteCloudAsset: (cloudAssetId) => ipcRenderer.invoke("cloud:delete-asset", cloudAssetId),
-  createProject: (name, kind) => ipcRenderer.invoke("project:create", name, kind),
-  openProject: () => ipcRenderer.invoke("project:open"),
-  openRecentProject: (directory) => ipcRenderer.invoke("project:open-recent", directory),
-  importMedia: () => ipcRenderer.invoke("media:import"),
-  getDerivedMediaSnapshot: (scope) => ipcRenderer.invoke("derived:get", scope),
-  requestDerivedJobs: (scope, assetIds) =>
-    ipcRenderer.invoke("derived:request-jobs", scope, assetIds),
-  requestProxyJobs: (scope, assetIds) =>
-    ipcRenderer.invoke("derived:request-proxies", scope, assetIds),
-  getTranscriptSnapshot: (scope, assetIds) =>
-    ipcRenderer.invoke("transcripts:get", scope, assetIds),
-  requestTranscriptJobs: (scope, assetIds) =>
-    ipcRenderer.invoke("transcripts:request", scope, assetIds),
-  cancelTranscriptJobs: (scope, assetIds) =>
-    ipcRenderer.invoke("transcripts:cancel", scope, assetIds),
-  beginTranscriptJob: (scope, assetId) => ipcRenderer.invoke("transcripts:begin", scope, assetId),
-  transcribeAudioChunk: (scope, input) => ipcRenderer.invoke("transcripts:chunk", scope, input),
-  finalizeTranscriptJob: (scope, jobId) => ipcRenderer.invoke("transcripts:finalize", scope, jobId),
-  failTranscriptJob: (scope, jobId, failureCode, detail) =>
-    ipcRenderer.invoke("transcripts:fail", scope, jobId, failureCode, detail),
-  beginDerivedWrite: (scope, input) => ipcRenderer.invoke("derived:write:begin", scope, input),
-  writeDerivedChunk: (writerId, offset, data) =>
-    ipcRenderer.invoke("derived:write:chunk", writerId, offset, data),
-  finalizeDerivedWrite: (writerId, result) =>
-    ipcRenderer.invoke("derived:write:finalize", writerId, result),
-  cancelDerivedWrite: (writerId, failureCode, detail) =>
-    ipcRenderer.invoke("derived:write:cancel", writerId, failureCode, detail),
-  updateDerivedProgress: (writerId, progress) =>
-    ipcRenderer.invoke("derived:write:progress", writerId, progress),
-  reportDerivedActivity: (scope, activity) =>
-    ipcRenderer.invoke("derived:activity", scope, activity),
-  reportDerivedPerformance: (scope, observation) =>
-    ipcRenderer.invoke("derived:performance", scope, observation),
-  execute: (command: EditorCommand) => ipcRenderer.invoke("command:execute", command),
-  undo: () => ipcRenderer.invoke("project:undo"),
-  redo: () => ipcRenderer.invoke("project:redo"),
-  save: () => ipcRenderer.invoke("project:save"),
-  updateProjectSettings: (update) => ipcRenderer.invoke("project:settings:update", update),
-  revealProject: () => ipcRenderer.invoke("project:reveal"),
-  forgetProject: (directory) => ipcRenderer.invoke("project:forget", directory),
-  trashProject: (directory) => ipcRenderer.invoke("project:trash", directory),
-  getSession: () => ipcRenderer.invoke("project:session"),
-  getRecentProjectSizes: () => ipcRenderer.invoke("project:recent-sizes"),
-  getAppState: () => ipcRenderer.invoke("app-state:get"),
-  getElectronHealthSnapshot: () => ipcRenderer.invoke("app:health"),
-  setProjectMediaPoolOpen: (open) => ipcRenderer.invoke("app-state:set-media-pool-open", open),
-  setProjectInspectorOpen: (open) => ipcRenderer.invoke("app-state:set-inspector-open", open),
-  setProjectNotesOpen: (open) => ipcRenderer.invoke("app-state:set-notes-open", open),
-  setProjectEditorLayout: (layout) => ipcRenderer.invoke("app-state:set-editor-layout", layout),
-  setProjectCutLayout: (layout) => ipcRenderer.invoke("app-state:set-cut-layout", layout),
-  setTranscriptionSettings: (settings) =>
-    ipcRenderer.invoke("app-state:set-transcription-settings", settings),
-  getAgentSettings: () => ipcRenderer.invoke("agents:settings:get"),
-  updateAgentSettings: (update) => ipcRenderer.invoke("agents:settings:update", update),
-  refreshAgentProviders: () => ipcRenderer.invoke("agents:providers:refresh"),
-  chooseAgentExecutable: (provider) => ipcRenderer.invoke("agents:executable:choose", provider),
-  openAgentLogin: (provider) => ipcRenderer.invoke("agents:login", provider),
-  getAgents: (projectDirectory) => ipcRenderer.invoke("agents:get", projectDirectory),
-  ensureAgent: (input) => ipcRenderer.invoke("agents:ensure", input),
-  createAgent: (input) => ipcRenderer.invoke("agents:create", input),
-  updateAgent: (sessionId, update) => ipcRenderer.invoke("agents:update", sessionId, update),
-  selectAgent: (projectDirectory, sessionId) =>
-    ipcRenderer.invoke("agents:select", projectDirectory, sessionId),
-  deleteAgent: (projectDirectory, sessionId) =>
-    ipcRenderer.invoke("agents:delete", projectDirectory, sessionId),
-  sendAgentMessage: (sessionId, message, context) =>
-    ipcRenderer.invoke("agents:send", sessionId, message, context),
-  interruptAgent: (sessionId) => ipcRenderer.invoke("agents:interrupt", sessionId),
-  respondAgentApproval: (sessionId, requestId, decision) =>
-    ipcRenderer.invoke("agents:approval", sessionId, requestId, decision),
-  revertAgentTurn: (sessionId, turnId) => ipcRenderer.invoke("agents:revert", sessionId, turnId),
-  onAgentsChanged: (callback) => {
-    const listener = (
-      _event: Electron.IpcRendererEvent,
-      snapshot: Parameters<typeof callback>[0],
-    ) => callback(snapshot);
-    ipcRenderer.on("agents:changed", listener);
-    return () => ipcRenderer.removeListener("agents:changed", listener);
+  account: {
+    get: () => invoke(invokeChannels.account.get),
+    beginSignIn: (method) => invoke(invokeChannels.account.signIn, { method }),
+    signOut: () => invoke(invokeChannels.account.signOut),
+    onChanged: (callback) => {
+      const refreshSnapshot = async () => {
+        try {
+          callback(await invoke<AccountSnapshot>(invokeChannels.account.get));
+        } catch {
+          // The renderer keeps its last safe snapshot if the main process is shutting down.
+        }
+      };
+      const refresh = () => void refreshSnapshot();
+      const channels = [
+        eventChannels.accountChanged,
+        eventChannels.authAuthenticated,
+        eventChannels.authError,
+      ];
+      for (const channel of channels) ipcRenderer.on(channel, refresh);
+      let subscribed = true;
+      return () => {
+        if (!subscribed) return;
+        subscribed = false;
+        for (const channel of channels) ipcRenderer.removeListener(channel, refresh);
+      };
+    },
   },
-  onProjectChanged: (callback) => {
-    const listener = (_event: Electron.IpcRendererEvent, session: Parameters<typeof callback>[0]) =>
-      callback(session);
-    ipcRenderer.on("project:changed", listener);
-    return () => ipcRenderer.removeListener("project:changed", listener);
+  cloud: {
+    getUsage: () => invoke(invokeChannels.cloud.usage),
+    configureAddon: (addonBytes) => invoke(invokeChannels.cloud.configureAddon, { addonBytes }),
+    getTransfers: () => invoke(invokeChannels.cloud.transfers),
+    retryTransfer: (assetId) => invoke(invokeChannels.cloud.retry, { assetId }),
+    cancelTransfer: (assetId) => invoke(invokeChannels.cloud.cancel, { assetId }),
+    getDownloadedOriginals: () => invoke(invokeChannels.cloud.downloadedOriginals),
+    keepOriginalDownloaded: (assetId) => invoke(invokeChannels.cloud.keepDownloaded, { assetId }),
+    removeOriginalDownload: (assetId) => invoke(invokeChannels.cloud.removeDownload, { assetId }),
+    trashAssets: (cloudAssetIds) => invoke(invokeChannels.cloud.trashAssets, { cloudAssetIds }),
+    restoreAsset: (cloudAssetId) => invoke(invokeChannels.cloud.restoreAsset, { cloudAssetId }),
+    deleteAsset: (cloudAssetId) => invoke(invokeChannels.cloud.deleteAsset, { cloudAssetId }),
+    onTransfersChanged: (callback) => subscribe(eventChannels.cloudTransfersChanged, callback),
   },
-  onDerivedMediaChanged: (callback) => {
-    const listener = (
-      _event: Electron.IpcRendererEvent,
-      snapshot: Parameters<typeof callback>[0],
-    ) => callback(snapshot);
-    ipcRenderer.on("derived:changed", listener);
-    return () => ipcRenderer.removeListener("derived:changed", listener);
+  project: {
+    create: (name, kind) => invoke(invokeChannels.project.create, { name, kind }),
+    open: () => invoke(invokeChannels.project.open),
+    openRecent: (directory) => invoke(invokeChannels.project.openRecent, { directory }),
+    importMedia: () => invoke(invokeChannels.project.importMedia),
+    execute: (command) => invoke(invokeChannels.project.execute, { command }),
+    undo: () => invoke(invokeChannels.project.undo),
+    redo: () => invoke(invokeChannels.project.redo),
+    save: () => invoke(invokeChannels.project.save),
+    updateSettings: (update) => invoke(invokeChannels.project.settingsUpdate, { update }),
+    reveal: () => invoke(invokeChannels.project.reveal),
+    forget: (directory) => invoke(invokeChannels.project.forget, { directory }),
+    trash: (directory) => invoke(invokeChannels.project.trash, { directory }),
+    getSession: () => invoke(invokeChannels.project.session),
+    getRecentSizes: () => invoke(invokeChannels.project.recentSizes),
+    onChanged: (callback) => subscribe(eventChannels.projectChanged, callback),
   },
-  onTranscriptsChanged: (callback) => {
-    const listener = (
-      _event: Electron.IpcRendererEvent,
-      snapshot: Parameters<typeof callback>[0],
-    ) => callback(snapshot);
-    ipcRenderer.on("transcripts:changed", listener);
-    return () => ipcRenderer.removeListener("transcripts:changed", listener);
+  derived: {
+    get: (scope) => invoke(invokeChannels.derived.get, { scope }),
+    requestJobs: (scope, assetIds) =>
+      invoke(invokeChannels.derived.requestJobs, { scope, assetIds }),
+    requestProxies: (scope, assetIds) =>
+      invoke(invokeChannels.derived.requestProxies, { scope, assetIds }),
+    beginWrite: (scope, input) => invoke(invokeChannels.derived.writeBegin, { scope, input }),
+    writeChunk: (writerId, offset, data) =>
+      invoke(invokeChannels.derived.writeChunk, { writerId, offset, data }),
+    finalizeWrite: (writerId, result) =>
+      invoke(invokeChannels.derived.writeFinalize, { writerId, result }),
+    cancelWrite: (writerId, failureCode, detail) =>
+      invoke(invokeChannels.derived.writeCancel, { writerId, failureCode, detail }),
+    updateProgress: (writerId, progress) =>
+      invoke(invokeChannels.derived.writeProgress, { writerId, progress }),
+    reportActivity: (scope, activity) =>
+      invoke(invokeChannels.derived.activity, { scope, activity }),
+    reportPerformance: (scope, observation) =>
+      invoke(invokeChannels.derived.performance, { scope, observation }),
+    onChanged: (callback) => subscribe(eventChannels.derivedChanged, callback),
   },
-  onAccountChanged: (callback) => {
-    const refreshSnapshot = async () => {
-      try {
-        const snapshot = await ipcRenderer.invoke("account:get");
-        callback(snapshot);
-      } catch {
-        // The renderer keeps its last safe snapshot if the main process is shutting down.
-      }
-    };
-    const refresh = () => {
-      void refreshSnapshot();
-    };
-    ipcRenderer.on("account:changed", refresh);
-    ipcRenderer.on("cinesim-auth:authenticated", refresh);
-    ipcRenderer.on("cinesim-auth:user-updated", refresh);
-    ipcRenderer.on("cinesim-auth:error", refresh);
-    return () => {
-      ipcRenderer.removeListener("account:changed", refresh);
-      ipcRenderer.removeListener("cinesim-auth:authenticated", refresh);
-      ipcRenderer.removeListener("cinesim-auth:user-updated", refresh);
-      ipcRenderer.removeListener("cinesim-auth:error", refresh);
-    };
+  transcripts: {
+    get: (scope, assetIds) => invoke(invokeChannels.transcripts.get, { scope, assetIds }),
+    requestJobs: (scope, assetIds) =>
+      invoke(invokeChannels.transcripts.request, { scope, assetIds }),
+    cancelJobs: (scope, assetIds) => invoke(invokeChannels.transcripts.cancel, { scope, assetIds }),
+    beginJob: (scope, assetId) => invoke(invokeChannels.transcripts.begin, { scope, assetId }),
+    transcribeChunk: (scope, input) => invoke(invokeChannels.transcripts.chunk, { scope, input }),
+    finalizeJob: (scope, jobId) => invoke(invokeChannels.transcripts.finalize, { scope, jobId }),
+    failJob: (scope, jobId, failureCode, detail) =>
+      invoke(invokeChannels.transcripts.fail, { scope, jobId, failureCode, detail }),
+    onChanged: (callback) => subscribe(eventChannels.transcriptsChanged, callback),
   },
-  onCloudTransfersChanged: (callback) => {
-    const listener = (
-      _event: Electron.IpcRendererEvent,
-      snapshot: Parameters<typeof callback>[0],
-    ) => callback(snapshot);
-    ipcRenderer.on("cloud:transfers-changed", listener);
-    return () => ipcRenderer.removeListener("cloud:transfers-changed", listener);
+  appState: {
+    get: () => invoke(invokeChannels.appState.get),
+    setMediaPoolOpen: (open) => invoke(invokeChannels.appState.setMediaPoolOpen, { open }),
+    setInspectorOpen: (open) => invoke(invokeChannels.appState.setInspectorOpen, { open }),
+    setNotesOpen: (open) => invoke(invokeChannels.appState.setNotesOpen, { open }),
+    setEditorLayout: (layout) => invoke(invokeChannels.appState.setEditorLayout, { layout }),
+    setCutLayout: (layout) => invoke(invokeChannels.appState.setCutLayout, { layout }),
+    setTranscriptionSettings: (settings) =>
+      invoke(invokeChannels.appState.setTranscriptionSettings, { settings }),
   },
+  agents: {
+    getSettings: () => invoke(invokeChannels.agents.settingsGet),
+    updateSettings: (update) => invoke(invokeChannels.agents.settingsUpdate, { update }),
+    refreshProviders: () => invoke(invokeChannels.agents.providersRefresh),
+    chooseExecutable: (provider) => invoke(invokeChannels.agents.executableChoose, { provider }),
+    openLogin: (provider) => invoke(invokeChannels.agents.login, { provider }),
+    get: (projectDirectory) => invoke(invokeChannels.agents.get, { projectDirectory }),
+    ensure: (input) => invoke(invokeChannels.agents.ensure, { input }),
+    create: (input) => invoke(invokeChannels.agents.create, { input }),
+    update: (sessionId, update) => invoke(invokeChannels.agents.update, { sessionId, update }),
+    select: (projectDirectory, sessionId) =>
+      invoke(invokeChannels.agents.select, { projectDirectory, sessionId }),
+    delete: (projectDirectory, sessionId) =>
+      invoke(invokeChannels.agents.delete, { projectDirectory, sessionId }),
+    send: (sessionId, message, context) =>
+      invoke(invokeChannels.agents.send, { sessionId, message, context }),
+    interrupt: (sessionId) => invoke(invokeChannels.agents.interrupt, { sessionId }),
+    respondApproval: (sessionId, requestId, decision) =>
+      invoke(invokeChannels.agents.approval, { sessionId, requestId, decision }),
+    revertTurn: (sessionId, turnId) => invoke(invokeChannels.agents.revert, { sessionId, turnId }),
+    onDelta: (callback) => subscribe(eventChannels.agentsDelta, callback),
+  },
+  health: { get: () => invoke(invokeChannels.app.health) },
   platform: process.platform,
 };
 

@@ -1,4 +1,8 @@
-import type { AgentProjectSnapshot, AgentProviderStatus, AgentSettings } from "../../shared/api";
+import type {
+  AgentProjectSnapshot,
+  AgentProviderStatus,
+  AgentSettings,
+} from "../../shared/contracts";
 
 const projectSnapshots = new Map<string, AgentProjectSnapshot>();
 let settings: AgentSettings | null = null;

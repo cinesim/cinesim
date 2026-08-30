@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vite-plus/test";
-import type { AccountSnapshot } from "../src/shared/api";
+import type { AccountSnapshot } from "../src/shared/contracts";
 import { accountDisplayName } from "../src/renderer/components/account/account-ui";
 
 const baseAccount: AccountSnapshot = {

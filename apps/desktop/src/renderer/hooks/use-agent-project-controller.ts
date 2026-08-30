@@ -7,7 +7,7 @@ import type {
   AgentSettings,
   AgentTurnContext,
   DesktopProjectSession,
-} from "../../shared/api";
+} from "../../shared/contracts";
 import { useRendererStore } from "../store/renderer-store-context";
 import {
   cacheAgentProject,
@@ -17,6 +17,7 @@ import {
   cachedAgentProviders,
   cachedAgentSettings,
 } from "../lib/agent-presentation-cache";
+import { applyAgentProjectDelta } from "../lib/agent-project-delta";
 
 function messageFrom(error: unknown, fallback: string): string {
   return error instanceof Error ? error.message : fallback;
@@ -53,7 +54,7 @@ export function useAgentProjectController(session: DesktopProjectSession) {
     let active = true;
     async function loadSnapshot(): Promise<AgentProjectSnapshot | null> {
       try {
-        const next = await window.cinesim.getAgents(session.directory);
+        const next = await window.cinesim.agents.get(session.directory);
         cacheAgentProject(next);
         if (active) setSnapshot(next);
         return next;
@@ -65,7 +66,7 @@ export function useAgentProjectController(session: DesktopProjectSession) {
 
     async function loadSettings(): Promise<AgentSettings | null> {
       try {
-        const next = await window.cinesim.getAgentSettings();
+        const next = await window.cinesim.agents.getSettings();
         cacheAgentSettings(next);
         if (active) setSettings(next);
         return next;
@@ -77,7 +78,7 @@ export function useAgentProjectController(session: DesktopProjectSession) {
 
     async function loadProviders(): Promise<AgentProviderStatus[] | null> {
       try {
-        const next = await window.cinesim.refreshAgentProviders();
+        const next = await window.cinesim.agents.refreshProviders();
         cacheAgentProviders(next);
         if (active) setProviders(next);
         return next;
@@ -102,7 +103,7 @@ export function useAgentProjectController(session: DesktopProjectSession) {
           connected[0];
         if (preferred) {
           try {
-            nextSnapshot = await window.cinesim.ensureAgent({
+            nextSnapshot = await window.cinesim.agents.ensure({
               projectDirectory: session.directory,
               provider: preferred.provider,
             });
@@ -116,9 +117,17 @@ export function useAgentProjectController(session: DesktopProjectSession) {
         setSnapshot(nextSnapshot);
       }
     })();
-    const unsubscribe = window.cinesim.onAgentsChanged((next) => {
-      cacheAgentProject(next);
-      if (next.projectDirectory === session.directory) setSnapshot(next);
+    const unsubscribe = window.cinesim.agents.onDelta((delta) => {
+      if (delta.projectDirectory !== session.directory) return;
+      setSnapshot((current) => {
+        const next = applyAgentProjectDelta(current, delta);
+        if (!next) {
+          void loadSnapshot();
+          return current;
+        }
+        cacheAgentProject(next);
+        return next;
+      });
     });
     return () => {
       active = false;
@@ -157,7 +166,7 @@ export function useAgentProjectController(session: DesktopProjectSession) {
   async function create(provider: AgentProviderKind): Promise<void> {
     if (
       await runSnapshotAction(
-        () => window.cinesim.createAgent({ projectDirectory: session.directory, provider }),
+        () => window.cinesim.agents.create({ projectDirectory: session.directory, provider }),
         "Could not create agent",
       )
     )
@@ -170,7 +179,7 @@ export function useAgentProjectController(session: DesktopProjectSession) {
     setComposer("");
     const succeeded = await runSnapshotAction(
       () =>
-        window.cinesim.sendAgentMessage(
+        window.cinesim.agents.send(
           activeSession.id,
           message,
           buildAgentTurnContext(activeSequenceId, playheadUs, selectedClipId),
@@ -183,7 +192,7 @@ export function useAgentProjectController(session: DesktopProjectSession) {
   async function updateActiveSession(update: AgentSessionUpdate): Promise<void> {
     if (!activeSession) return;
     await runSnapshotAction(
-      () => window.cinesim.updateAgent(activeSession.id, update),
+      () => window.cinesim.agents.update(activeSession.id, update),
       "Could not update agent settings",
     );
   }
@@ -207,24 +216,24 @@ export function useAgentProjectController(session: DesktopProjectSession) {
     updateActiveSession,
     selectAgent: (sessionId: string) =>
       runSnapshotAction(
-        () => window.cinesim.selectAgent(session.directory, sessionId),
+        () => window.cinesim.agents.select(session.directory, sessionId),
         "Could not select agent",
       ),
     deleteAgent: (sessionId: string) =>
       runSnapshotAction(
-        () => window.cinesim.deleteAgent(session.directory, sessionId),
+        () => window.cinesim.agents.delete(session.directory, sessionId),
         "Could not delete agent",
       ),
     interruptAgent: (sessionId: string) =>
-      runSnapshotAction(() => window.cinesim.interruptAgent(sessionId), "Could not stop agent"),
+      runSnapshotAction(() => window.cinesim.agents.interrupt(sessionId), "Could not stop agent"),
     respondApproval: (sessionId: string, requestId: string, decision: "accept" | "decline") =>
       runSnapshotAction(
-        () => window.cinesim.respondAgentApproval(sessionId, requestId, decision),
+        () => window.cinesim.agents.respondApproval(sessionId, requestId, decision),
         "Could not respond to approval",
       ),
     revertTurn: (sessionId: string, turnId: string) =>
       runSnapshotAction(
-        () => window.cinesim.revertAgentTurn(sessionId, turnId),
+        () => window.cinesim.agents.revertTurn(sessionId, turnId),
         "Could not revert agent turn",
       ),
   };

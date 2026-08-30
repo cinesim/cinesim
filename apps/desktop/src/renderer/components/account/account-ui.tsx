@@ -1,6 +1,6 @@
 import { User } from "@cinesim/ui";
 import { cn } from "@cinesim/ui";
-import type { AccountSnapshot, AccountUser } from "../../../shared/api";
+import type { AccountSnapshot, AccountUser } from "../../../shared/contracts";
 
 export function accountDisplayName(account: AccountSnapshot): string {
   if (!account.user) return account.status === "offline" ? "Offline" : "Sign in";

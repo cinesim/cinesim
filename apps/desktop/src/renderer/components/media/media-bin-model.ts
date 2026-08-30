@@ -1,5 +1,5 @@
 import type { Asset, AssetId, Project } from "@cinesim/core";
-import type { CloudTransferSnapshot } from "../../../shared/api";
+import type { CloudTransferSnapshot } from "../../../shared/contracts";
 
 export interface Point {
   x: number;

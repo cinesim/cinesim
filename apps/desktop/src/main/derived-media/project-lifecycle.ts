@@ -1,6 +1,6 @@
 import type { Project, ProjectSettings } from "@cinesim/core";
 import type { ProjectPaths } from "@cinesim/project-io";
-import type { DerivedProjectScope } from "../../shared/api";
+import type { DerivedProjectScope } from "../../shared/contracts";
 import type { PersistedIndex } from "./model";
 
 export interface OpenDerivedProject {

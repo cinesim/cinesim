@@ -3,9 +3,16 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 import { CloudMediaManager } from "../src/main/cloud/manager";
+import { MIN_MULTIPART_PART_BYTES } from "../src/main/cloud/limits";
 import { timeUs, applyCommand, createProject } from "@cinesim/core";
 
 const temporaryDirectories: string[] = [];
+
+function signedDownloadUrl(path: string): string {
+  const date = new Date();
+  const encodedDate = `${date.getUTCFullYear()}${String(date.getUTCMonth() + 1).padStart(2, "0")}${String(date.getUTCDate()).padStart(2, "0")}T${String(date.getUTCHours()).padStart(2, "0")}${String(date.getUTCMinutes()).padStart(2, "0")}${String(date.getUTCSeconds()).padStart(2, "0")}Z`;
+  return `https://fixture.r2.cloudflarestorage.com/${path}?X-Amz-Date=${encodedDate}&X-Amz-Expires=300`;
+}
 
 afterEach(async () => {
   vi.unstubAllGlobals();
@@ -54,8 +61,9 @@ async function completeUpload(managedSource: boolean) {
           JSON.stringify({
             id: "cloud_upload_fixture0000001",
             cloudAssetId: "cloud_asset_fixture00000001",
-            partSize: 64,
+            partSize: MIN_MULTIPART_PART_BYTES,
             bytes: sourceBytes.byteLength,
+            expiresAt: new Date(Date.now() + 60_000).toISOString(),
             parts: [],
           }),
         );
@@ -236,6 +244,7 @@ describe("CloudMediaManager transfer journal", () => {
       manager.readOriginal(
         "cloud_asset_fixture00000001",
         new Request("cinesim-media://asset/scope/asset_fixture"),
+        "cinesim://app",
       ),
     ).rejects.toThrow("invalid signed URL");
   });
@@ -293,7 +302,7 @@ describe("CloudMediaManager transfer journal", () => {
       authenticatedFetch: async () =>
         new Response(
           JSON.stringify({
-            url: "https://fixture.r2.cloudflarestorage.com/original",
+            url: signedDownloadUrl("original"),
             bytes: downloadedBytes.byteLength,
           }),
         ),

@@ -12,7 +12,7 @@ import type {
   AgentSessionSnapshot,
   AgentSessionUpdate,
   AgentTokenUsage,
-} from "../../../shared/api";
+} from "../../../shared/contracts";
 import {
   AGENT_EFFORTS,
   AGENT_PROVIDER_CATALOG,

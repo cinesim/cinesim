@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { AudioLines, Notice, Select } from "@cinesim/ui";
-import type { TranscriptionSettings as TranscriptionSettingsState } from "../../../shared/api";
+import type { TranscriptionSettings as TranscriptionSettingsState } from "../../../shared/contracts";
 import { useRendererStore } from "../../store/renderer-store-context";
 import { SettingRow, SettingsHeading } from "./settings-layout";
 

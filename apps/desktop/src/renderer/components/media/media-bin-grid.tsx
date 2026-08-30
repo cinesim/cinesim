@@ -12,7 +12,7 @@ import {
 } from "@cinesim/ui";
 import { sequenceDurationUs } from "@cinesim/core";
 import type { Asset, AssetId, Sequence } from "@cinesim/core";
-import type { CloudTransferSnapshot } from "../../../shared/api";
+import type { CloudTransferSnapshot } from "../../../shared/contracts";
 import { formatDuration } from "../../lib/format";
 import { LibraryGrid } from "../shared/library-card";
 import { AssetSourceMetadata } from "./asset-source-metadata";

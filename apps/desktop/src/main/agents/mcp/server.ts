@@ -4,7 +4,7 @@ import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/
 import { localDerivedFile, registerCinesimMcpTools } from "@cinesim/mcp-tools";
 import type { CinesimMcpToolRuntime } from "@cinesim/mcp-tools";
 import { ProjectPaths } from "@cinesim/project-io";
-import type { AgentPermissionMode } from "../../../shared/api";
+import type { AgentPermissionMode } from "../../../shared/contracts";
 import type { DesktopProjectStore } from "../../projects/project-store";
 
 interface AgentToolSession {

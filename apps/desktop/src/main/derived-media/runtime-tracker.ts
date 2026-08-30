@@ -3,7 +3,7 @@ import type {
   DerivedProjectScope,
   DerivedRuntimeSnapshot,
   DerivedWorkerActivity,
-} from "../../shared/api";
+} from "../../shared/contracts";
 import { emptyRuntime } from "./model";
 
 const log = createCinesimLogger({ service: "derived-media" });

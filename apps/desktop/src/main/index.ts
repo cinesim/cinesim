@@ -1,30 +1,22 @@
-import { app, protocol } from "electron";
+import { app } from "electron";
 import { DesktopApplication, reportApplicationStartFailure } from "./app/application";
 import { installApplicationLifecycle } from "./app/lifecycle";
 import { desktopAccountScheme, DesktopAccountService } from "./account/service";
+import { parseDevelopmentConfiguration } from "./app/development-configuration";
+import { registerCinesimSchemes } from "./app/protocols";
+import { EditorWindowRegistry } from "./app/editor-window-registry";
 
-protocol.registerSchemesAsPrivileged([
-  {
-    scheme: "cinesim-media",
-    privileges: {
-      standard: true,
-      secure: true,
-      supportFetchAPI: true,
-      stream: true,
-      corsEnabled: true,
-    },
-  },
-  {
-    scheme: desktopAccountScheme(),
-    privileges: {
-      secure: true,
-    },
-  },
-]);
+registerCinesimSchemes(desktopAccountScheme());
 
-const accountService = new DesktopAccountService();
+const windows = new EditorWindowRegistry();
+const accountService = new DesktopAccountService(windows);
 accountService.setupMain();
-const application = new DesktopApplication(accountService);
+const development = parseDevelopmentConfiguration({
+  isPackaged: app.isPackaged,
+  rendererUrl: process.env.CINESIM_DEV_SERVER_URL,
+  diagnosticProject: process.env.CINESIM_DIAGNOSTIC_PROJECT,
+});
+const application = new DesktopApplication(accountService, development, windows);
 installApplicationLifecycle(application);
 
 void application.start().catch((error: unknown) => {

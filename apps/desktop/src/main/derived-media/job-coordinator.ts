@@ -5,7 +5,8 @@ import type {
   DerivedMediaEvent,
   DerivedMediaSnapshot,
   DerivedProjectScope,
-} from "../../shared/api";
+} from "../../shared/contracts";
+import { MAX_REQUEST_IDS } from "../app/ipc-schemas";
 import type { DerivedArtifactRepository } from "./artifact-repository";
 import { projectOpenPersistenceSignature } from "./model";
 import type { PersistedAsset, PersistedIndex } from "./model";
@@ -25,6 +26,8 @@ interface DerivedJobHost {
   subscribe(listener: (snapshot: DerivedMediaSnapshot) => void): () => void;
   log(event: Omit<DerivedMediaEvent, "at">): void;
 }
+
+const MAX_PROXY_REQUEST_ASSETS = 100;
 
 export class DerivedJobCoordinator {
   constructor(
@@ -97,7 +100,7 @@ export class DerivedJobCoordinator {
     assetIds: string[],
   ): Promise<DerivedMediaSnapshot> {
     this.host.assertScope(scope);
-    if (assetIds.length === 0 || assetIds.length > 100)
+    if (assetIds.length === 0 || assetIds.length > MAX_PROXY_REQUEST_ASSETS)
       throw new Error("Invalid proxy job request");
     for (const assetId of new Set(assetIds)) await this.queueProxy(assetId);
     return this.host.snapshot();
@@ -163,7 +166,7 @@ export class DerivedJobCoordinator {
     assetIds: string[],
     queueConfiguredProxies: boolean,
   ): Promise<DerivedMediaSnapshot> {
-    if (assetIds.length > 500) throw new Error("Too many derived job requests");
+    if (assetIds.length > MAX_REQUEST_IDS) throw new Error("Too many derived job requests");
     const index = this.host.index();
     const persistenceSignature = projectOpenPersistenceSignature(index);
     const project = this.host.project();

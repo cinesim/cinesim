@@ -14,6 +14,7 @@ describe("renderer content security policy", () => {
     expect(policy).not.toContain("ws:");
     expect(policy).not.toContain("ws://");
     expect(policy).not.toContain("http:");
+    expect(policy).not.toContain("user-image:");
   });
 
   it("permits only the loopback Vite WebSocket during development", () => {

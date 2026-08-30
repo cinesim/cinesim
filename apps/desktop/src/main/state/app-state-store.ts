@@ -6,14 +6,14 @@ import {
   DEFAULT_EDITOR_LAYOUT,
   DEFAULT_TRANSCRIPTION_SETTINGS,
   EDITOR_LAYOUT_LIMITS,
-} from "../../shared/api";
+} from "../../shared/contracts";
 import type {
   CutLayoutState,
   DesktopAppState,
   EditorLayoutState,
   RecentProject,
   TranscriptionSettings,
-} from "../../shared/api";
+} from "../../shared/contracts";
 
 const EMPTY_STATE: DesktopAppState = {
   version: 1,

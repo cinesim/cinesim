@@ -33,8 +33,8 @@ export function createAccountCloudSlice(context: RendererStoreContext): AccountC
               }
             : { cloudTransfers: [], downloadedCloudOriginals: [] },
         );
-        void api
-          .getAppState()
+        void api.appState
+          .get()
           .then((appState) => set({ appState }))
           .catch(() => undefined);
       } else if (account.user.id !== previousUserId) {
@@ -47,8 +47,8 @@ export function createAccountCloudSlice(context: RendererStoreContext): AccountC
           });
           void context.hydrateAccountWorkspace();
         } else {
-          void api
-            .getAppState()
+          void api.appState
+            .get()
             .then((appState) => set({ appState }))
             .catch(() => undefined);
         }
@@ -56,7 +56,7 @@ export function createAccountCloudSlice(context: RendererStoreContext): AccountC
     },
     refreshAccount: async () => {
       try {
-        get().setAccount(await api.getAccountSnapshot());
+        get().setAccount(await api.account.get());
       } catch {
         set({
           account: {
@@ -71,7 +71,7 @@ export function createAccountCloudSlice(context: RendererStoreContext): AccountC
     },
     beginAccountSignIn: async (method) => {
       try {
-        await api.beginAccountSignIn(method);
+        await api.account.beginSignIn(method);
         return { ok: true, value: undefined };
       } catch (error) {
         return { ok: false, error: messageFrom(error, "Sign-in could not be started") };
@@ -79,7 +79,7 @@ export function createAccountCloudSlice(context: RendererStoreContext): AccountC
     },
     signOutAccount: async () => {
       try {
-        const account = await api.signOutAccount();
+        const account = await api.account.signOut();
         get().setAccount(account);
         return { ok: true, value: account };
       } catch (error) {
@@ -90,18 +90,18 @@ export function createAccountCloudSlice(context: RendererStoreContext): AccountC
     retryCloudTransfer: (assetId) =>
       updateTransfers(
         context,
-        () => api.retryCloudTransfer(assetId),
+        () => api.cloud.retryTransfer(assetId),
         "The cloud transfer could not be retried",
       ),
     cancelCloudTransfer: (assetId) =>
       updateTransfers(
         context,
-        () => api.cancelCloudTransfer(assetId),
+        () => api.cloud.cancelTransfer(assetId),
         "The cloud transfer could not be canceled",
       ),
     keepCloudOriginalDownloaded: async (assetId) => {
       try {
-        const downloadedCloudOriginals = await api.keepCloudOriginalDownloaded(assetId);
+        const downloadedCloudOriginals = await api.cloud.keepOriginalDownloaded(assetId);
         set({ downloadedCloudOriginals, operationError: null });
         return { ok: true, value: downloadedCloudOriginals };
       } catch (error) {
@@ -112,7 +112,7 @@ export function createAccountCloudSlice(context: RendererStoreContext): AccountC
     },
     removeCloudOriginalDownload: async (assetId) => {
       try {
-        const downloadedCloudOriginals = await api.removeCloudOriginalDownload(assetId);
+        const downloadedCloudOriginals = await api.cloud.removeOriginalDownload(assetId);
         set({ downloadedCloudOriginals, operationError: null });
         return { ok: true, value: downloadedCloudOriginals };
       } catch (error) {

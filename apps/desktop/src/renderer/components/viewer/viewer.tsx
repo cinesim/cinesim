@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "@cinesim/ui";
 import { getSequence, sequenceDurationUs } from "@cinesim/core";
 import type { Project } from "@cinesim/core";
-import type { DerivedProjectScope } from "../../../shared/api";
+import type { DerivedProjectScope } from "../../../shared/contracts";
 import { useEditorTransport } from "../workspace/editor-transport-context";
 import { usePlaybackShortcuts } from "./use-playback-shortcuts";
 import { useViewerRuntime } from "./use-viewer-runtime";

@@ -1,7 +1,7 @@
 import { nearestSampleIndex } from "@cinesim/engine";
 import { timeUs } from "@cinesim/core";
 import type { Asset, Clip, TimeUs } from "@cinesim/core";
-import type { DerivedAssetSnapshot, DerivedMediaSnapshot } from "../../../shared/api";
+import type { DerivedAssetSnapshot, DerivedMediaSnapshot } from "../../../shared/contracts";
 import { derivedArtifactUrl } from "../../lib/media-url";
 import { filmstripPresentationReady, thumbnailPresentation } from "../media/media-skim-surface";
 

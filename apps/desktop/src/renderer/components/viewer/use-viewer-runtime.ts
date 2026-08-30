@@ -3,7 +3,7 @@ import type { RefObject } from "react";
 import type { Project, TimeUs } from "@cinesim/core";
 import { PlaybackRuntime, WebGpuCompositor } from "@cinesim/engine";
 import type { ShuttleDirection } from "@cinesim/engine";
-import type { DerivedProjectScope } from "../../../shared/api";
+import type { DerivedProjectScope } from "../../../shared/contracts";
 import { ProxySourceResolver } from "../../lib/proxy-source-resolver";
 import { useRendererStore, useRendererStoreApi } from "../../store/renderer-store-context";
 
@@ -82,8 +82,8 @@ export function useViewerRuntime({
         (snapshot.playing || snapshot.mode.kind === "asset") &&
         now - lastObservationAt >= minimumInterval
       ) {
-        void window.cinesim
-          .reportDerivedPerformance(
+        void window.cinesim.derived
+          .reportPerformance(
             { cacheKey, epoch },
             {
               assetId: snapshot.activeAssetId,

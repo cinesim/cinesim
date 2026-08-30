@@ -1,6 +1,6 @@
 import { Database } from "@cinesim/ui";
 import { DefinitionRow, SectionHeading } from "@cinesim/ui";
-import type { DerivedMediaSnapshot } from "../../../shared/api";
+import type { DerivedMediaSnapshot } from "../../../shared/contracts";
 import { formatByteCount } from "../../lib/format";
 
 type StorageSnapshot = DerivedMediaSnapshot["storage"];

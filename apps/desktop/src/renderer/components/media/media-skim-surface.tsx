@@ -3,7 +3,7 @@ import { AlertTriangle, Film, Image as ImageIcon, LoaderCircle, Music2 } from "@
 import { nearestSampleIndex, pointerSourceTimeUs } from "@cinesim/engine";
 import { timeUs } from "@cinesim/core";
 import type { Asset, TimeUs } from "@cinesim/core";
-import type { DerivedAssetSnapshot } from "../../../shared/api";
+import type { DerivedAssetSnapshot } from "../../../shared/contracts";
 import { derivedArtifactUrl } from "../../lib/media-url";
 import { useDelayedBusy } from "../../hooks/use-delayed-busy";
 import { useRendererStore } from "../../store/renderer-store-context";

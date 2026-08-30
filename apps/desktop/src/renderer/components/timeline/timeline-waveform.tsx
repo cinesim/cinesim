@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import type { Asset, Clip } from "@cinesim/core";
-import type { DerivedArtifactSnapshot, DerivedMediaSnapshot } from "../../../shared/api";
+import type { DerivedArtifactSnapshot, DerivedMediaSnapshot } from "../../../shared/contracts";
 import { decodeWaveformEnvelope, type WaveformEnvelope } from "../../../shared/waveform-format";
 import { derivedArtifactUrl } from "../../lib/media-url";
 

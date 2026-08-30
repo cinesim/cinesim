@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Cloud, Database, RefreshCw } from "@cinesim/ui";
 import { cn, Notice, Select } from "@cinesim/ui";
-import type { CloudStorageUsage } from "../../../shared/api";
+import type { CloudStorageUsage } from "../../../shared/contracts";
 import { sessionFromLifecycle } from "../../store/renderer-store";
 import { useRendererStore } from "../../store/renderer-store-context";
 import { SettingsHeading } from "./settings-layout";
@@ -45,7 +45,7 @@ export function CloudStorageSettings() {
     if (account.status !== "signed-in") return;
     setUsageState({ status: "loading", previous: usage });
     try {
-      setUsageState({ status: "ready", usage: await window.cinesim.getCloudStorageUsage() });
+      setUsageState({ status: "ready", usage: await window.cinesim.cloud.getUsage() });
     } catch (caught) {
       setUsageState({
         status: "failed",
@@ -59,8 +59,8 @@ export function CloudStorageSettings() {
     if (account.status !== "signed-in") return;
 
     let active = true;
-    void window.cinesim
-      .getCloudStorageUsage()
+    void window.cinesim.cloud
+      .getUsage()
       .then((nextUsage) => {
         if (!active) return;
         setUsageState({ status: "ready", usage: nextUsage });
@@ -98,9 +98,9 @@ export function CloudStorageSettings() {
   async function mutateAsset(id: string, operation: "trash" | "restore" | "delete") {
     setBusyAssetId(id);
     try {
-      if (operation === "trash") await window.cinesim.trashCloudAssets([id]);
-      else if (operation === "restore") await window.cinesim.restoreCloudAsset(id);
-      else await window.cinesim.deleteCloudAsset(id);
+      if (operation === "trash") await window.cinesim.cloud.trashAssets([id]);
+      else if (operation === "restore") await window.cinesim.cloud.restoreAsset(id);
+      else await window.cinesim.cloud.deleteAsset(id);
       setConfirmDelete(null);
       await refresh();
     } catch (caught) {
@@ -118,7 +118,7 @@ export function CloudStorageSettings() {
     try {
       setUsageState({
         status: "ready",
-        usage: await window.cinesim.configureCloudStorageAddon(addonBytes),
+        usage: await window.cinesim.cloud.configureAddon(addonBytes),
       });
     } catch (caught) {
       setUsageState({

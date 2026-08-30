@@ -10,8 +10,8 @@ import {
   type Sequence,
 } from "@cinesim/core";
 import type { RuntimeSnapshot } from "@cinesim/engine";
-import type { DesktopApi, DesktopProjectSession } from "../src/shared/api";
-import type { AccountSnapshot } from "../src/shared/api";
+import type { DesktopApi, DesktopProjectSession } from "../src/shared/contracts";
+import type { AccountSnapshot } from "../src/shared/contracts";
 import type { TranscriptArtifact, TranscriptSnapshot } from "../src/shared/transcript";
 import {
   createRendererStore,
@@ -34,12 +34,47 @@ function sessionFixture(directory = "/projects/fixture"): DesktopProjectSession 
   };
 }
 
-function apiFixture(overrides: Partial<DesktopApi> = {}): DesktopApi {
+interface ApiOverrides {
+  getSession?: DesktopApi["project"]["getSession"];
+  getAppState?: DesktopApi["appState"]["get"];
+  getAccountSnapshot?: DesktopApi["account"]["get"];
+  getCloudTransfers?: DesktopApi["cloud"]["getTransfers"];
+  getDownloadedCloudOriginals?: DesktopApi["cloud"]["getDownloadedOriginals"];
+  keepCloudOriginalDownloaded?: DesktopApi["cloud"]["keepOriginalDownloaded"];
+  removeCloudOriginalDownload?: DesktopApi["cloud"]["removeOriginalDownload"];
+  openProject?: DesktopApi["project"]["open"];
+  openRecentProject?: DesktopApi["project"]["openRecent"];
+  execute?: DesktopApi["project"]["execute"];
+  save?: DesktopApi["project"]["save"];
+  forgetProject?: DesktopApi["project"]["forget"];
+  trashProject?: DesktopApi["project"]["trash"];
+}
+
+function apiFixture(overrides: ApiOverrides = {}): DesktopApi {
   return {
-    getSession: async () => null,
-    getAppState: async () => EMPTY_APP_STATE,
-    getAccountSnapshot: async () => SIGNED_IN_ACCOUNT,
-    ...overrides,
+    project: {
+      getSession: overrides.getSession ?? (async () => null),
+      ...(overrides.openProject ? { open: overrides.openProject } : {}),
+      ...(overrides.openRecentProject ? { openRecent: overrides.openRecentProject } : {}),
+      ...(overrides.execute ? { execute: overrides.execute } : {}),
+      ...(overrides.save ? { save: overrides.save } : {}),
+      ...(overrides.forgetProject ? { forget: overrides.forgetProject } : {}),
+      ...(overrides.trashProject ? { trash: overrides.trashProject } : {}),
+    },
+    appState: { get: overrides.getAppState ?? (async () => EMPTY_APP_STATE) },
+    account: { get: overrides.getAccountSnapshot ?? (async () => SIGNED_IN_ACCOUNT) },
+    cloud: {
+      ...(overrides.getCloudTransfers ? { getTransfers: overrides.getCloudTransfers } : {}),
+      ...(overrides.getDownloadedCloudOriginals
+        ? { getDownloadedOriginals: overrides.getDownloadedCloudOriginals }
+        : {}),
+      ...(overrides.keepCloudOriginalDownloaded
+        ? { keepOriginalDownloaded: overrides.keepCloudOriginalDownloaded }
+        : {}),
+      ...(overrides.removeCloudOriginalDownload
+        ? { removeOriginalDownload: overrides.removeCloudOriginalDownload }
+        : {}),
+    },
   } as DesktopApi;
 }
 

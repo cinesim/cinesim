@@ -1,98 +1,33 @@
 import { execFile } from "node:child_process";
 import { clipboard, dialog } from "electron";
-import { z } from "zod";
-import type {
-  AgentCreateInput,
-  AgentProviderKind,
-  AgentSessionUpdate,
-  AgentSettingsUpdate,
-  AgentTurnContext,
-} from "../../shared/api";
+import type { AgentProviderKind } from "../../shared/contracts";
 import type { AgentManager } from "./manager";
 import { detectProvider } from "./provider-detection";
+import { inspectAgentExecutable } from "./executable-trust";
 import type { AgentSettingsStore } from "./settings-store";
 import { registerIpcHandler } from "../app/secure-ipc";
-
-const providerSchema = z.enum(["claude", "codex"]).pipe(z.custom<AgentProviderKind>());
-const effortSchema = z
-  .enum(["low", "medium", "high", "xhigh", "max"])
-  .pipe(z.custom<NonNullable<AgentSessionUpdate["effort"]>>());
-const permissionModeSchema = z.enum(["supervised", "auto-edit"]);
-const providerSettingsShape = {
-  model: z.string().max(120).optional(),
-  effort: effortSchema.optional(),
-  permissionMode: permissionModeSchema.optional(),
-};
-const agentSettingsUpdateSchema = z
-  .object({
-    defaultProvider: providerSchema.optional(),
-    provider: providerSchema.optional(),
-    executablePath: z.string().max(4096).optional(),
-    ...providerSettingsShape,
-  })
-  .strict()
-  .superRefine((input, context) => {
-    if (
-      input.provider === undefined &&
-      (input.executablePath !== undefined ||
-        input.model !== undefined ||
-        input.effort !== undefined ||
-        input.permissionMode !== undefined)
-    ) {
-      context.addIssue({
-        code: "custom",
-        message: "Choose an agent provider before changing provider settings",
-      });
-    }
-  })
-  .pipe(z.custom<AgentSettingsUpdate>());
-const agentCreateInputSchema = z
-  .object({
-    projectDirectory: z.string().min(1).max(4096),
-    provider: providerSchema,
-    ...providerSettingsShape,
-  })
-  .strict()
-  .pipe(z.custom<AgentCreateInput>());
-const agentTurnContextSchema = z
-  .object({
-    activeSequenceId: z.string().max(200).optional(),
-    playheadUs: z.number().int().safe().nonnegative().optional(),
-    selectedIds: z.array(z.string().max(200)).max(100).optional(),
-  })
-  .strict()
-  .pipe(z.custom<AgentTurnContext>());
-const agentSessionUpdateSchema = z
-  .object(providerSettingsShape)
-  .strict()
-  .pipe(z.custom<AgentSessionUpdate>());
+import { requireUserIntent } from "../app/user-intent";
+import { agentContracts } from "./contracts";
 
 function quoteShellArgument(value: string): string {
   return `'${value.replaceAll("'", `'\\''`)}'`;
 }
 
-function parseAgentSettingsUpdate(value: unknown): AgentSettingsUpdate {
-  return agentSettingsUpdateSchema.parse(value);
-}
-
-function parseAgentCreateInput(value: unknown): AgentCreateInput {
-  return agentCreateInputSchema.parse(value);
-}
-
-function parseAgentTurnContext(value: unknown): AgentTurnContext {
-  return agentTurnContextSchema.parse(value ?? {});
-}
-
-function parseAgentSessionUpdate(value: unknown): AgentSessionUpdate {
-  return agentSessionUpdateSchema.parse(value);
-}
-
 export function registerAgentIpc(agents: AgentManager, settingsStore: AgentSettingsStore): void {
-  registerIpcHandler("agents:settings:get", () => settingsStore.snapshot());
-  registerIpcHandler("agents:settings:update", (update: unknown) =>
-    settingsStore.update(parseAgentSettingsUpdate(update)),
-  );
-  registerIpcHandler("agents:providers:refresh", async () => {
+  registerIpcHandler(agentContracts.settingsGet, () => settingsStore.snapshot());
+  registerIpcHandler(agentContracts.settingsUpdate, async ({ update }) => {
+    if (update.provider && update.permissionMode === "auto-edit") {
+      await requireUserIntent({
+        title: "Allow automatic edits?",
+        message: `Let ${update.provider === "claude" ? "Claude Code" : "Codex"} edit the open project without individual approvals?`,
+        detail:
+          "This trust setting applies to new sessions. You can return to supervised mode at any time.",
+        confirmLabel: "Enable auto-edit",
+      });
+    }
+    return settingsStore.update(update);
+  });
+  registerIpcHandler(agentContracts.providersRefresh, async () => {
     const settings = settingsStore.snapshot();
     const statuses = await Promise.all(
       (["claude", "codex"] as const).map((provider) =>
@@ -101,30 +36,28 @@ export function registerAgentIpc(agents: AgentManager, settingsStore: AgentSetti
     );
     for (const status of statuses) {
       if (!settings.providers[status.provider].executablePath && status.executablePath)
-        await settingsStore.update({
-          provider: status.provider,
-          executablePath: status.executablePath,
-        });
+        await settingsStore.trustExecutable(status.provider, status.executablePath);
     }
     return statuses;
   });
-  registerIpcHandler("agents:executable:choose", async (provider: unknown) => {
-    const parsedProvider = providerSchema.parse(provider);
+  registerIpcHandler(agentContracts.executableChoose, async ({ provider: parsedProvider }) => {
     const selection = await dialog.showOpenDialog({
       title: `Choose ${parsedProvider === "claude" ? "Claude Code" : "Codex"} executable`,
       buttonLabel: "Use executable",
       properties: ["openFile"],
     });
     if (selection.canceled) return null;
-    return settingsStore.update({
-      provider: parsedProvider,
-      executablePath: selection.filePaths[0]!,
+    const identity = await inspectAgentExecutable(selection.filePaths[0]!);
+    await requireUserIntent({
+      title: "Trust agent executable?",
+      message: `Use this ${parsedProvider === "claude" ? "Claude Code" : "Codex"} executable?`,
+      detail: identity.path,
+      confirmLabel: "Trust executable",
     });
+    return settingsStore.trustExecutable(parsedProvider, identity.path);
   });
-  registerIpcHandler("agents:login", async (provider: unknown) => {
-    const parsedProvider = providerSchema.parse(provider);
-    const configured = settingsStore.snapshot().providers[parsedProvider].executablePath;
-    const executable = configured || parsedProvider;
+  registerIpcHandler(agentContracts.login, async ({ provider: parsedProvider }) => {
+    const executable = await settingsStore.requireTrustedExecutable(parsedProvider);
     const command = `${quoteShellArgument(executable)} ${parsedProvider === "claude" ? "/login" : "login"}`;
     clipboard.writeText(command);
     await new Promise<void>((resolve) => {
@@ -132,54 +65,63 @@ export function registerAgentIpc(agents: AgentManager, settingsStore: AgentSetti
     });
     return `Copied “${command}” and opened Terminal. Paste it there to finish signing in.`;
   });
-  registerIpcHandler("agents:get", (projectDirectory: unknown) => {
-    if (typeof projectDirectory !== "string") throw new Error("Invalid project directory");
-    return agents.snapshot(projectDirectory);
-  });
-  registerIpcHandler("agents:create", (input: unknown) =>
-    agents.create(parseAgentCreateInput(input)),
+  registerIpcHandler(agentContracts.get, ({ projectDirectory }) =>
+    agents.snapshot(projectDirectory),
   );
-  registerIpcHandler("agents:ensure", (input: unknown) =>
-    agents.ensure(parseAgentCreateInput(input)),
-  );
-  registerIpcHandler("agents:update", (sessionId: unknown, update: unknown) => {
-    if (typeof sessionId !== "string") throw new Error("Invalid agent session");
-    return agents.update(sessionId, parseAgentSessionUpdate(update));
+  registerIpcHandler(agentContracts.create, async ({ input }) => {
+    if (input.permissionMode === "auto-edit") await confirmSessionAutoEdit(input.provider);
+    return agents.create(input);
   });
-  registerIpcHandler("agents:select", (projectDirectory: unknown, sessionId: unknown) => {
-    if (typeof projectDirectory !== "string" || typeof sessionId !== "string")
-      throw new Error("Invalid agent selection");
+  registerIpcHandler(agentContracts.ensure, async ({ input }) => {
+    if (input.permissionMode === "auto-edit") await confirmSessionAutoEdit(input.provider);
+    return agents.ensure(input);
+  });
+  registerIpcHandler(agentContracts.update, async ({ sessionId, update }) => {
+    if (update.permissionMode === "auto-edit") await confirmSessionAutoEdit();
+    return agents.update(sessionId, update);
+  });
+  registerIpcHandler(agentContracts.select, ({ projectDirectory, sessionId }) => {
     return agents.select(projectDirectory, sessionId);
   });
-  registerIpcHandler("agents:delete", (projectDirectory: unknown, sessionId: unknown) => {
-    if (typeof projectDirectory !== "string" || typeof sessionId !== "string")
-      throw new Error("Invalid agent deletion");
+  registerIpcHandler(agentContracts.delete, ({ projectDirectory, sessionId }) => {
     return agents.delete(projectDirectory, sessionId);
   });
-  registerIpcHandler("agents:send", (sessionId: unknown, message: unknown, context: unknown) => {
-    if (typeof sessionId !== "string" || typeof message !== "string")
-      throw new Error("Invalid agent message");
-    return agents.send(sessionId, message, parseAgentTurnContext(context));
+  registerIpcHandler(agentContracts.send, ({ sessionId, message, context }) => {
+    return agents.send(sessionId, message, context);
   });
-  registerIpcHandler("agents:interrupt", (sessionId: unknown) => {
-    if (typeof sessionId !== "string") throw new Error("Invalid agent session");
+  registerIpcHandler(agentContracts.interrupt, ({ sessionId }) => {
     return agents.interrupt(sessionId);
   });
-  registerIpcHandler(
-    "agents:approval",
-    (sessionId: unknown, requestId: unknown, decision: unknown) => {
-      if (
-        typeof sessionId !== "string" ||
-        typeof requestId !== "string" ||
-        (decision !== "accept" && decision !== "decline")
-      )
-        throw new Error("Invalid approval response");
-      return agents.respondApproval(sessionId, requestId, decision);
-    },
-  );
-  registerIpcHandler("agents:revert", (sessionId: unknown, turnId: unknown) => {
-    if (typeof sessionId !== "string" || typeof turnId !== "string")
-      throw new Error("Invalid checkpoint selection");
+  registerIpcHandler(agentContracts.approval, async ({ sessionId, requestId, decision }) => {
+    if (decision === "accept") {
+      const intent = agents.approvalIntent(sessionId, requestId);
+      await requireUserIntent({
+        title: "Approve agent operation?",
+        message: `Allow ${intent.toolName.replaceAll("_", " ")}?`,
+        detail: intent.detail,
+        confirmLabel: "Approve once",
+      });
+    }
+    return agents.respondApproval(sessionId, requestId, decision);
+  });
+  registerIpcHandler(agentContracts.revert, async ({ sessionId, turnId }) => {
+    const intent = agents.revertIntent(sessionId, turnId);
+    await requireUserIntent({
+      title: "Restore agent checkpoint?",
+      message: `Restore the project to before agent turn ${intent.turnNumber}?`,
+      detail: `${intent.summary}\nCanonical project files will be replaced with the checkpoint state.`,
+      confirmLabel: "Restore checkpoint",
+    });
     return agents.revert(sessionId, turnId);
+  });
+}
+
+async function confirmSessionAutoEdit(provider?: AgentProviderKind): Promise<void> {
+  await requireUserIntent({
+    title: "Allow automatic edits?",
+    message: `Let ${provider ? (provider === "claude" ? "Claude Code" : "Codex") : "this agent"} edit the open project without individual approvals?`,
+    detail:
+      "Automatic edits still use validated Cinesim commands and remain undoable, but individual changes will not ask first.",
+    confirmLabel: "Enable auto-edit",
   });
 }

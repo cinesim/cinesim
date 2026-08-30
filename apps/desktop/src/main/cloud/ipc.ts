@@ -1,34 +1,42 @@
 import type { CloudMediaManager } from "./manager";
+import { cloudContracts } from "./contracts";
 import { registerIpcHandler } from "../app/secure-ipc";
-import { z } from "zod";
-import { assetIdSchema, cloudAssetIdSchema } from "@cinesim/core";
-
-const cloudAssetIdsSchema = z.array(cloudAssetIdSchema).max(100);
+import { requireUserIntent } from "../app/user-intent";
 
 export function registerCloudIpc(manager: CloudMediaManager): void {
-  registerIpcHandler("cloud:usage", () => manager.usage());
-  registerIpcHandler("cloud:configure-addon", (value: unknown) => {
-    return manager.configureAddon(z.number().int().nonnegative().safe().parse(value));
+  registerIpcHandler(cloudContracts.usage, () => manager.usage());
+  registerIpcHandler(cloudContracts.configureAddon, async ({ addonBytes }) => {
+    await requireUserIntent({
+      title: "Change cloud storage allowance?",
+      message: "Confirm this account storage allowance change.",
+      detail: `Requested add-on allowance: ${addonBytes.toLocaleString()} bytes. This may change billing or account limits.`,
+      confirmLabel: "Confirm allowance",
+    });
+    return manager.configureAddon(addonBytes);
   });
-  registerIpcHandler("cloud:transfers", () => manager.snapshots());
-  registerIpcHandler("cloud:retry", (value: unknown) => manager.retry(assetIdSchema.parse(value)));
-  registerIpcHandler("cloud:cancel", (value: unknown) =>
-    manager.cancel(assetIdSchema.parse(value)),
+  registerIpcHandler(cloudContracts.transfers, () => manager.snapshots());
+  registerIpcHandler(cloudContracts.retry, ({ assetId }) => manager.retry(assetId));
+  registerIpcHandler(cloudContracts.cancel, ({ assetId }) => manager.cancel(assetId));
+  registerIpcHandler(cloudContracts.downloadedOriginals, () => manager.downloadedOriginals());
+  registerIpcHandler(cloudContracts.keepDownloaded, ({ assetId }) =>
+    manager.keepDownloaded(assetId),
   );
-  registerIpcHandler("cloud:downloaded-originals", () => manager.downloadedOriginals());
-  registerIpcHandler("cloud:keep-downloaded", (value: unknown) =>
-    manager.keepDownloaded(assetIdSchema.parse(value)),
+  registerIpcHandler(cloudContracts.removeDownload, ({ assetId }) =>
+    manager.removeDownload(assetId),
   );
-  registerIpcHandler("cloud:remove-download", (value: unknown) =>
-    manager.removeDownload(assetIdSchema.parse(value)),
-  );
-  registerIpcHandler("cloud:trash-assets", (value: unknown) => {
-    return manager.trashAssets(cloudAssetIdsSchema.parse(value));
+  registerIpcHandler(cloudContracts.trashAssets, ({ cloudAssetIds }) => {
+    return manager.trashAssets(cloudAssetIds);
   });
-  registerIpcHandler("cloud:restore-asset", (value: unknown) =>
-    manager.restoreAsset(cloudAssetIdSchema.parse(value)),
+  registerIpcHandler(cloudContracts.restoreAsset, ({ cloudAssetId }) =>
+    manager.restoreAsset(cloudAssetId),
   );
-  registerIpcHandler("cloud:delete-asset", (value: unknown) =>
-    manager.deleteAsset(cloudAssetIdSchema.parse(value)),
-  );
+  registerIpcHandler(cloudContracts.deleteAsset, async ({ cloudAssetId }) => {
+    await requireUserIntent({
+      title: "Delete cloud asset permanently?",
+      message: "Permanently delete this asset from Cinesim Cloud?",
+      detail: `Asset: ${cloudAssetId}\nThis cannot be undone.`,
+      confirmLabel: "Delete permanently",
+    });
+    return manager.deleteAsset(cloudAssetId);
+  });
 }

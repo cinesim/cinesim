@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { open, stat } from "node:fs/promises";
-import type { SourceFingerprint } from "../../shared/api";
+import type { SourceFingerprint } from "../../shared/contracts";
 
 const EDGE_BYTES = 64 * 1024;
 
