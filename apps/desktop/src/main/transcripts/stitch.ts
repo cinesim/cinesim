@@ -1,4 +1,4 @@
-import type { Asset } from "@cinesim/core";
+import type { Asset, TimeUs } from "@cinesim/core";
 import { secondsToTimeUs, timeSeconds, timeUs } from "@cinesim/core";
 import type { SourceFingerprint } from "../../shared/contracts";
 import {
@@ -24,95 +24,182 @@ export interface CompletedTranscriptChunk {
   utterances: number;
 }
 
-export async function stitchTranscriptChunks(input: {
+interface StitchTranscriptInput {
   asset: Asset;
   sourceFingerprint: SourceFingerprint;
   options: TranscriptGenerationOptions;
   chunks: readonly CompletedTranscriptChunk[];
   readChunk(chunkIndex: number): Promise<StoredGatewayTranscript>;
-}): Promise<TranscriptArtifact> {
-  const words: TranscriptArtifactWord[] = [];
-  const utterances: TranscriptArtifactUtterance[] = [];
-  const requestIds = new Set<string>();
-  let language: string | null = null;
-  let confidenceTotal = 0;
-  let confidenceCount = 0;
-  for (const chunk of input.chunks.toSorted((left, right) => left.chunkIndex - right.chunkIndex)) {
-    const transcript = await input.readChunk(chunk.chunkIndex);
-    if (transcript.requestId) requestIds.add(transcript.requestId);
-    language ??= transcript.language;
-    const localWordIds: string[] = [];
-    const localUtteranceIds = new Map<number, string>();
-    for (const utterance of transcript.utterances) {
-      const utteranceId = `utterance_${String(utterances.length + 1).padStart(6, "0")}`;
-      for (const wordIndex of utterance.wordIndexes) localUtteranceIds.set(wordIndex, utteranceId);
-      const sourceStartUs = timeUs(
-        Math.max(
-          chunk.sourceStartUs,
-          chunk.sourceStartUs + secondsToTimeUs(timeSeconds(utterance.startSeconds)),
-        ),
-      );
-      const sourceEndUs = timeUs(
-        Math.min(
-          chunk.sourceEndUs,
-          chunk.sourceStartUs + secondsToTimeUs(timeSeconds(utterance.endSeconds)),
-        ),
-      );
-      if (sourceEndUs <= sourceStartUs) continue;
-      utterances.push({
-        id: utteranceId,
-        sourceStartUs,
-        sourceEndUs,
-        ...(utterance.speaker ? { speakerClusterId: `speaker-${utterance.speaker}` } : {}),
-        ...(utterance.confidence === undefined ? {} : { confidence: utterance.confidence }),
-        ...(utterance.detectedLanguage ? { detectedLanguage: utterance.detectedLanguage } : {}),
-        wordIds: [],
-      });
-    }
-    for (let index = 0; index < transcript.words.length; index += 1) {
-      const providerWord = transcript.words[index]!;
-      const sourceStartUs = timeUs(
-        Math.max(
-          chunk.sourceStartUs,
-          chunk.sourceStartUs + secondsToTimeUs(timeSeconds(providerWord.startSeconds)),
-        ),
-      );
-      const sourceEndUs = timeUs(
-        Math.min(
-          chunk.sourceEndUs,
-          chunk.sourceStartUs + secondsToTimeUs(timeSeconds(providerWord.endSeconds)),
-        ),
-      );
-      if (sourceEndUs <= sourceStartUs) continue;
-      const id = `word_${String(words.length + 1).padStart(6, "0")}`;
-      const utteranceId = localUtteranceIds.get(index);
-      words.push({
-        id,
-        text: providerWord.text,
-        sourceStartUs,
-        sourceEndUs,
-        ...(providerWord.confidence === undefined ? {} : { confidence: providerWord.confidence }),
-        ...(providerWord.speaker ? { speakerClusterId: `speaker-${providerWord.speaker}` } : {}),
-        ...(utteranceId ? { utteranceId } : {}),
-        ...(providerWord.paragraphId ? { paragraphId: providerWord.paragraphId } : {}),
-        ...(providerWord.detectedLanguage
-          ? { detectedLanguage: providerWord.detectedLanguage }
-          : {}),
-      });
-      localWordIds[index] = id;
-      if (providerWord.confidence !== undefined) {
-        confidenceTotal += providerWord.confidence;
-        confidenceCount += 1;
-      }
-    }
-    for (const utterance of transcript.utterances) {
-      const utteranceId = localUtteranceIds.get(utterance.wordIndexes[0] ?? -1);
-      const output = utterances.find((candidate) => candidate.id === utteranceId);
-      if (output)
-        output.wordIds = utterance.wordIndexes.flatMap((index) => localWordIds[index] ?? []);
+}
+
+interface StitchState {
+  words: TranscriptArtifactWord[];
+  utterances: TranscriptArtifactUtterance[];
+  requestIds: Set<string>;
+  language: string | null;
+  confidenceTotal: number;
+  confidenceCount: number;
+}
+
+interface ChunkWordIndex {
+  wordIds: string[];
+  utteranceIds: Map<number, string>;
+}
+
+interface SourceRange {
+  sourceStartUs: TimeUs;
+  sourceEndUs: TimeUs;
+}
+
+type GatewayWord = StoredGatewayTranscript["words"][number];
+type GatewayUtterance = StoredGatewayTranscript["utterances"][number];
+
+function createStitchState(): StitchState {
+  return {
+    words: [],
+    utterances: [],
+    requestIds: new Set(),
+    language: null,
+    confidenceTotal: 0,
+    confidenceCount: 0,
+  };
+}
+
+function createChunkWordIndex(): ChunkWordIndex {
+  return { wordIds: [], utteranceIds: new Map() };
+}
+
+function sequenceId(kind: "utterance" | "word", index: number): string {
+  return `${kind}_${String(index + 1).padStart(6, "0")}`;
+}
+
+function sourceRange(
+  chunk: CompletedTranscriptChunk,
+  startSeconds: number,
+  endSeconds: number,
+): SourceRange | null {
+  const sourceStartUs = timeUs(
+    Math.max(chunk.sourceStartUs, chunk.sourceStartUs + secondsToTimeUs(timeSeconds(startSeconds))),
+  );
+  const sourceEndUs = timeUs(
+    Math.min(chunk.sourceEndUs, chunk.sourceStartUs + secondsToTimeUs(timeSeconds(endSeconds))),
+  );
+
+  return sourceEndUs > sourceStartUs ? { sourceStartUs, sourceEndUs } : null;
+}
+
+function recordTranscriptMetadata(state: StitchState, transcript: StoredGatewayTranscript): void {
+  if (transcript.requestId) state.requestIds.add(transcript.requestId);
+  state.language ??= transcript.language;
+}
+
+function appendUtterance(
+  state: StitchState,
+  localIndex: ChunkWordIndex,
+  chunk: CompletedTranscriptChunk,
+  utterance: GatewayUtterance,
+): void {
+  const id = sequenceId("utterance", state.utterances.length);
+  for (const wordIndex of utterance.wordIndexes) localIndex.utteranceIds.set(wordIndex, id);
+
+  const range = sourceRange(chunk, utterance.startSeconds, utterance.endSeconds);
+  if (!range) return;
+
+  state.utterances.push({
+    id,
+    ...range,
+    ...(utterance.speaker ? { speakerClusterId: `speaker-${utterance.speaker}` } : {}),
+    ...(utterance.confidence === undefined ? {} : { confidence: utterance.confidence }),
+    ...(utterance.detectedLanguage ? { detectedLanguage: utterance.detectedLanguage } : {}),
+    wordIds: [],
+  });
+}
+
+function appendUtterances(
+  state: StitchState,
+  localIndex: ChunkWordIndex,
+  chunk: CompletedTranscriptChunk,
+  transcript: StoredGatewayTranscript,
+): void {
+  for (const utterance of transcript.utterances) {
+    appendUtterance(state, localIndex, chunk, utterance);
+  }
+}
+
+function recordWordConfidence(state: StitchState, confidence: number | undefined): void {
+  if (confidence === undefined) return;
+  state.confidenceTotal += confidence;
+  state.confidenceCount += 1;
+}
+
+function appendWord(
+  state: StitchState,
+  localIndex: ChunkWordIndex,
+  chunk: CompletedTranscriptChunk,
+  providerWord: GatewayWord,
+  wordIndex: number,
+): void {
+  const range = sourceRange(chunk, providerWord.startSeconds, providerWord.endSeconds);
+  if (!range) return;
+
+  const id = sequenceId("word", state.words.length);
+  const utteranceId = localIndex.utteranceIds.get(wordIndex);
+  state.words.push({
+    id,
+    text: providerWord.text,
+    ...range,
+    ...(providerWord.confidence === undefined ? {} : { confidence: providerWord.confidence }),
+    ...(providerWord.speaker ? { speakerClusterId: `speaker-${providerWord.speaker}` } : {}),
+    ...(utteranceId ? { utteranceId } : {}),
+    ...(providerWord.paragraphId ? { paragraphId: providerWord.paragraphId } : {}),
+    ...(providerWord.detectedLanguage ? { detectedLanguage: providerWord.detectedLanguage } : {}),
+  });
+  localIndex.wordIds[wordIndex] = id;
+  recordWordConfidence(state, providerWord.confidence);
+}
+
+function appendWords(
+  state: StitchState,
+  localIndex: ChunkWordIndex,
+  chunk: CompletedTranscriptChunk,
+  transcript: StoredGatewayTranscript,
+): void {
+  for (let index = 0; index < transcript.words.length; index += 1) {
+    appendWord(state, localIndex, chunk, transcript.words[index]!, index);
+  }
+}
+
+function connectUtteranceWords(
+  state: StitchState,
+  localIndex: ChunkWordIndex,
+  transcript: StoredGatewayTranscript,
+): void {
+  for (const utterance of transcript.utterances) {
+    const utteranceId = localIndex.utteranceIds.get(utterance.wordIndexes[0] ?? -1);
+    const output = state.utterances.find((candidate) => candidate.id === utteranceId);
+    if (output) {
+      output.wordIds = utterance.wordIndexes.flatMap((index) => localIndex.wordIds[index] ?? []);
     }
   }
-  const requestId = requestIds.size > 0 ? [...requestIds].sort().join(",") : undefined;
+}
+
+function stitchChunk(
+  state: StitchState,
+  chunk: CompletedTranscriptChunk,
+  transcript: StoredGatewayTranscript,
+): void {
+  const localIndex = createChunkWordIndex();
+  recordTranscriptMetadata(state, transcript);
+  appendUtterances(state, localIndex, chunk, transcript);
+  appendWords(state, localIndex, chunk, transcript);
+  connectUtteranceWords(state, localIndex, transcript);
+}
+
+function buildTranscriptArtifact(
+  input: StitchTranscriptInput,
+  state: StitchState,
+): TranscriptArtifact {
+  const requestId = state.requestIds.size > 0 ? [...state.requestIds].sort().join(",") : undefined;
   return parseTranscriptArtifact({
     version: TRANSCRIPT_ARTIFACT_VERSION,
     assetId: input.asset.id,
@@ -125,10 +212,25 @@ export async function stitchTranscriptChunks(input: {
       ...(requestId ? { requestId } : {}),
     },
     options: input.options,
-    language,
+    language: state.language,
     durationUs: input.asset.durationUs,
-    ...(confidenceCount > 0 ? { confidence: confidenceTotal / confidenceCount } : {}),
-    words,
-    utterances: utterances.filter((utterance) => utterance.wordIds.length > 0),
+    ...(state.confidenceCount > 0
+      ? { confidence: state.confidenceTotal / state.confidenceCount }
+      : {}),
+    words: state.words,
+    utterances: state.utterances.filter((utterance) => utterance.wordIds.length > 0),
   });
+}
+
+export async function stitchTranscriptChunks(
+  input: StitchTranscriptInput,
+): Promise<TranscriptArtifact> {
+  const state = createStitchState();
+  const chunks = input.chunks.toSorted((left, right) => left.chunkIndex - right.chunkIndex);
+
+  for (const chunk of chunks) {
+    stitchChunk(state, chunk, await input.readChunk(chunk.chunkIndex));
+  }
+
+  return buildTranscriptArtifact(input, state);
 }
