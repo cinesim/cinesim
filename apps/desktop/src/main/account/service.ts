@@ -179,7 +179,7 @@ export class DesktopAccountService {
       name: user.name,
       email: user.email,
       emailVerified: user.emailVerified,
-      image: user.image ? `user-image://${user.id}` : null,
+      image: null,
     };
   }
 

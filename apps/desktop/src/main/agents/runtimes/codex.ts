@@ -6,6 +6,7 @@ import type {
   AgentRuntimeLaunchOptions,
 } from "./types";
 import { asRecord, MAX_PROVIDER_LINE_CHARACTERS, stringValue } from "./types";
+import { CODEX_REQUEST_TIMEOUT_MS } from "../runtime-policy";
 
 interface PendingRequest {
   resolve(value: unknown): void;
@@ -278,7 +279,7 @@ export class CodexRuntime implements AgentProviderRuntime {
       const timeout = setTimeout(() => {
         this.#pending.delete(id);
         reject(new Error(`Codex request timed out: ${method}`));
-      }, 30_000);
+      }, CODEX_REQUEST_TIMEOUT_MS);
       this.#pending.set(id, { resolve, reject, timeout });
     });
   }

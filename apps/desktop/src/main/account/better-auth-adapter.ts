@@ -53,6 +53,7 @@ export class BetterAuthAdapter implements AccountAuthAdapter {
           clientID: "cinesim-desktop",
           channelPrefix: "cinesim-auth",
           storagePrefix: "cinesim-auth",
+          userImageProxy: { enabled: false },
           storage: new DesktopAuthStorage(
             join(app.getPath("userData"), "account-session.json"),
             safeStorage,

@@ -88,7 +88,6 @@ export const eventChannels = {
   agentsDelta: "agents:delta",
   authAuthenticated: "cinesim-auth:authenticated",
   authError: "cinesim-auth:error",
-  authUserUpdated: "cinesim-auth:user-updated",
   cloudTransfersChanged: "cloud:transfers-changed",
   derivedChanged: "derived:changed",
   projectChanged: "project:changed",

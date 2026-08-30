@@ -8,6 +8,7 @@ import type {
   TranscriptSnapshot,
 } from "../../shared/transcript";
 import { fingerprintsEqual } from "../derived-media/source-fingerprint";
+import { MAX_REQUEST_IDS } from "../app/ipc-schemas";
 import { TranscriptArtifactRepository, validTranscriptAssetId } from "./artifact-repository";
 import { TranscriptChunkRepository } from "./chunk-repository";
 import { TranscriptionGateway } from "./gateway";
@@ -213,8 +214,8 @@ export class TranscriptJobCoordinator {
       this.#assertScope(scope);
       if (!this.account || !this.#gateway) throw new Error("Transcription service is unavailable");
       this.account.requireCachedUser();
-      if (assetIds.length === 0 || assetIds.length > 500) {
-        throw new Error("Select between 1 and 500 assets to transcribe");
+      if (assetIds.length === 0 || assetIds.length > MAX_REQUEST_IDS) {
+        throw new Error(`Select between 1 and ${MAX_REQUEST_IDS} assets to transcribe`);
       }
       for (const assetId of new Set(assetIds)) {
         const asset = this.#requireAsset(assetId);
@@ -253,8 +254,8 @@ export class TranscriptJobCoordinator {
   async cancelJobs(scope: DerivedProjectScope, assetIds: readonly string[]) {
     return this.#serialize(async () => {
       this.#assertScope(scope);
-      if (assetIds.length === 0 || assetIds.length > 500) {
-        throw new Error("Select between 1 and 500 transcript jobs to cancel");
+      if (assetIds.length === 0 || assetIds.length > MAX_REQUEST_IDS) {
+        throw new Error(`Select between 1 and ${MAX_REQUEST_IDS} transcript jobs to cancel`);
       }
       for (const assetId of new Set(assetIds)) {
         const asset = this.#requireAsset(assetId);

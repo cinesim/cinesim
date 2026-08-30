@@ -1,8 +1,6 @@
-import { randomUUID } from "node:crypto";
-import { mkdir, readFile, rename, stat, writeFile } from "node:fs/promises";
-import { dirname } from "node:path";
 import { z } from "zod";
 import { stableJson } from "@cinesim/core";
+import { AtomicFileRepository } from "../app/atomic-file-repository";
 
 const MAX_TRANSFER_JOURNAL_BYTES = 8 * 1024 * 1024;
 
@@ -54,19 +52,16 @@ export const transferRecordSchema = z
 export type TransferRecord = z.infer<typeof transferRecordSchema>;
 
 export class CloudTransferRepository {
-  #writeQueue: Promise<void> = Promise.resolve();
+  readonly #files = new AtomicFileRepository();
 
   constructor(private readonly path: string) {}
 
   async load(): Promise<TransferRecord[]> {
     try {
-      const metadata = await stat(this.path);
-      if (!metadata.isFile() || metadata.size <= 0 || metadata.size > MAX_TRANSFER_JOURNAL_BYTES)
-        throw new Error("Cloud transfer journal is outside its size bound");
       return z
         .array(transferRecordSchema)
         .max(20_000)
-        .parse(JSON.parse(await readFile(this.path, "utf8")));
+        .parse(JSON.parse(await this.#files.readText(this.path, MAX_TRANSFER_JOURNAL_BYTES)));
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
       throw error;
@@ -75,15 +70,8 @@ export class CloudTransferRepository {
 
   async save(records: readonly TransferRecord[]): Promise<void> {
     const contents = stableJson(z.array(transferRecordSchema).max(20_000).parse(records));
-    const temporary = `${this.path}.${process.pid}.${randomUUID()}.tmp`;
-    const operation = this.#writeQueue
-      .catch(() => undefined)
-      .then(async () => {
-        await mkdir(dirname(this.path), { recursive: true });
-        await writeFile(temporary, contents, "utf8");
-        await rename(temporary, this.path);
-      });
-    this.#writeQueue = operation;
-    await operation;
+    await this.#files.writeText(this.path, contents, {
+      maxBytes: MAX_TRANSFER_JOURNAL_BYTES,
+    });
   }
 }

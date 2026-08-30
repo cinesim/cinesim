@@ -1,10 +1,9 @@
-import { randomUUID } from "node:crypto";
-import { readFile, rename, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { z } from "zod";
 import { stableJson } from "@cinesim/core";
 import type { SourceFingerprint } from "../../shared/contracts";
 import { TRANSCRIPT_GENERATOR_VERSION } from "../../shared/transcript";
+import { AtomicFileRepository } from "../app/atomic-file-repository";
 
 const INDEX_PATH = join(".video", "transcripts", "index.json");
 const MAX_INDEX_BYTES = 8 * 1024 * 1024;
@@ -50,20 +49,17 @@ export function emptyTranscriptIndex(): PersistedTranscriptIndex {
 }
 
 export class TranscriptIndexRepository {
-  #writeQueue: Promise<void> = Promise.resolve();
+  readonly #files = new AtomicFileRepository();
 
   async read(directory: string): Promise<PersistedTranscriptIndex> {
     const path = join(directory, INDEX_PATH);
     try {
-      const metadata = await stat(path);
-      if (!metadata.isFile() || metadata.size <= 0 || metadata.size > MAX_INDEX_BYTES)
-        throw new Error("Transcript index is outside its size bound");
       return indexSchema.parse(
-        JSON.parse(await readFile(path, "utf8")),
+        JSON.parse(await this.#files.readText(path, MAX_INDEX_BYTES)),
       ) as PersistedTranscriptIndex;
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === "ENOENT") return emptyTranscriptIndex();
-      await rename(path, `${path}.corrupt-${randomUUID()}`).catch(() => undefined);
+      await this.#files.quarantine(path).catch(() => undefined);
       return emptyTranscriptIndex();
     }
   }
@@ -71,14 +67,6 @@ export class TranscriptIndexRepository {
   async write(directory: string, index: PersistedTranscriptIndex): Promise<void> {
     const contents = stableJson(indexSchema.parse(index));
     const path = join(directory, INDEX_PATH);
-    const temporaryPath = `${path}.${process.pid}.${randomUUID()}.tmp`;
-    const write = this.#writeQueue
-      .catch(() => undefined)
-      .then(async () => {
-        await writeFile(temporaryPath, contents, "utf8");
-        await rename(temporaryPath, path);
-      });
-    this.#writeQueue = write;
-    await write;
+    await this.#files.writeText(path, contents, { maxBytes: MAX_INDEX_BYTES });
   }
 }

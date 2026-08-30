@@ -37,7 +37,6 @@ const api: DesktopApi = {
       const channels = [
         eventChannels.accountChanged,
         eventChannels.authAuthenticated,
-        eventChannels.authUserUpdated,
         eventChannels.authError,
       ];
       for (const channel of channels) ipcRenderer.on(channel, refresh);

@@ -4,7 +4,7 @@ const commonDirectives = [
   "default-src 'self'",
   "script-src 'self'",
   "style-src 'self' 'unsafe-inline'",
-  "img-src 'self' data: blob: cinesim-media: user-image:",
+  "img-src 'self' data: blob: cinesim-media:",
   "media-src 'self' blob: cinesim-media:",
   "worker-src 'self' blob:",
   "object-src 'none'",

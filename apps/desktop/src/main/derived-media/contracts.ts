@@ -9,7 +9,7 @@ import type {
 } from "../../shared/contracts";
 import { invokeChannels } from "../../shared/contracts/channels";
 import { defineInvokeContract } from "../app/ipc-contract";
-import { boundedIdSchema } from "../app/ipc-schemas";
+import { boundedIdSchema, MAX_REQUEST_IDS } from "../app/ipc-schemas";
 import {
   beginDerivedWriteSchema,
   derivedPerformanceObservationSchema,
@@ -19,7 +19,7 @@ import {
 } from "./ipc-validation";
 import { MAX_CHUNK_BYTES } from "./model";
 
-const assetIdsSchema = z.array(z.string().min(1).max(200)).max(500);
+const assetIdsSchema = z.array(z.string().min(1).max(200)).max(MAX_REQUEST_IDS);
 const snapshotContract = <TArguments extends unknown[]>(
   channel: string,
   request: z.ZodType<TArguments>,

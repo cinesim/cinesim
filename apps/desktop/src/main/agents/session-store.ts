@@ -1,9 +1,7 @@
-import { randomUUID } from "node:crypto";
-import { mkdir, readFile, rename, stat, writeFile } from "node:fs/promises";
-import { dirname } from "node:path";
 import { stableJson } from "@cinesim/core";
 import { z } from "zod";
 import type { AgentEffort, AgentProviderKind, AgentSessionSnapshot } from "../../shared/contracts";
+import { AtomicFileRepository } from "../app/atomic-file-repository";
 
 const MAX_AGENT_STATE_BYTES = 64 * 1024 * 1024;
 const timestamp = z.iso.datetime();
@@ -99,30 +97,20 @@ export interface PersistedAgentState {
 }
 
 export class AgentSessionStore {
-  #writeQueue: Promise<void> = Promise.resolve();
+  readonly #files = new AtomicFileRepository();
 
   constructor(private readonly path: string) {}
 
   async read(defaultEffort: Record<AgentProviderKind, AgentEffort>): Promise<PersistedAgentState> {
-    const metadata = await stat(this.path);
-    if (!metadata.isFile() || metadata.size <= 0 || metadata.size > MAX_AGENT_STATE_BYTES)
-      throw new Error("Agent session state is outside its size bound");
-    const value = JSON.parse(await readFile(this.path, "utf8")) as unknown;
+    const value = JSON.parse(
+      await this.#files.readText(this.path, MAX_AGENT_STATE_BYTES),
+    ) as unknown;
     return stateSchema.parse(migrateEffort(value, defaultEffort)) as PersistedAgentState;
   }
 
   async write(value: PersistedAgentState): Promise<void> {
     const contents = stableJson(stateSchema.parse(value));
-    const temporaryPath = `${this.path}.${process.pid}.${randomUUID()}.tmp`;
-    const write = this.#writeQueue
-      .catch(() => undefined)
-      .then(async () => {
-        await mkdir(dirname(this.path), { recursive: true });
-        await writeFile(temporaryPath, contents, "utf8");
-        await rename(temporaryPath, this.path);
-      });
-    this.#writeQueue = write;
-    await write;
+    await this.#files.writeText(this.path, contents, { maxBytes: MAX_AGENT_STATE_BYTES });
   }
 }
 

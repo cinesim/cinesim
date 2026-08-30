@@ -9,6 +9,10 @@ import type {
   AgentProviderSettings,
   AgentProviderStatus,
 } from "../../shared/contracts";
+import {
+  PROVIDER_DETECTION_MAX_OUTPUT_BYTES,
+  PROVIDER_DETECTION_TIMEOUT_MS,
+} from "./runtime-policy";
 
 const execFileAsync = promisify(execFile);
 const PROVIDER_COMMAND: Record<AgentProviderKind, string> = { claude: "claude", codex: "codex" };
@@ -47,8 +51,8 @@ async function run(
   arguments_: string[],
 ): Promise<{ stdout: string; stderr: string }> {
   const result = await execFileAsync(executablePath, arguments_, {
-    timeout: 8_000,
-    maxBuffer: 1024 * 1024,
+    timeout: PROVIDER_DETECTION_TIMEOUT_MS,
+    maxBuffer: PROVIDER_DETECTION_MAX_OUTPUT_BYTES,
     env: process.env,
   });
   return { stdout: result.stdout.trim(), stderr: result.stderr.trim() };

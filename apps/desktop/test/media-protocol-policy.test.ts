@@ -1,7 +1,7 @@
 import { join } from "node:path";
 import { describe, expect, it } from "vite-plus/test";
 import { parseSingleByteRange, unsatisfiedRangeResponse } from "../src/main/app/http-range";
-import { rendererAssetPath } from "../src/main/app/renderer-protocol";
+import { rendererAssetPath, rendererMimeType } from "../src/main/app/renderer-protocol";
 import { trustedMediaRequestOrigin } from "../src/main/derived-media/media-protocol";
 
 describe("desktop protocol policy", () => {
@@ -72,5 +72,12 @@ describe("desktop protocol policy", () => {
       "cinesim://app/assets%00main.js",
     ])
       expect(rendererAssetPath(url, applicationPath)).toBeNull();
+  });
+
+  it("serves packaged renderer files through an explicit MIME allowlist", () => {
+    expect(rendererMimeType("index.html")).toBe("text/html; charset=utf-8");
+    expect(rendererMimeType("assets/editor.js")).toBe("text/javascript; charset=utf-8");
+    expect(rendererMimeType("assets/geist.woff2")).toBe("font/woff2");
+    expect(rendererMimeType("assets/unknown.bin")).toBe("application/octet-stream");
   });
 });

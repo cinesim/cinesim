@@ -5,6 +5,11 @@ import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 import { AgentApprovalBroker } from "../src/main/agents/approval-broker";
 import { AgentSessionStore } from "../src/main/agents/session-store";
 import type { PersistedAgentState } from "../src/main/agents/session-store";
+import {
+  CODEX_REQUEST_TIMEOUT_MS,
+  PROVIDER_DETECTION_MAX_OUTPUT_BYTES,
+  PROVIDER_DETECTION_TIMEOUT_MS,
+} from "../src/main/agents/runtime-policy";
 
 const directories: string[] = [];
 
@@ -38,6 +43,12 @@ function stateFixture(): PersistedAgentState {
 }
 
 describe("agent state safety", () => {
+  it("owns bounded provider detection and request timeout policy", () => {
+    expect(PROVIDER_DETECTION_TIMEOUT_MS).toBe(8_000);
+    expect(PROVIDER_DETECTION_MAX_OUTPUT_BYTES).toBe(1024 * 1024);
+    expect(CODEX_REQUEST_TIMEOUT_MS).toBe(30_000);
+  });
+
   it("strictly validates persisted state while migrating the v1 effort field", async () => {
     const directory = await mkdtemp(join(tmpdir(), "cinesim-agent-state-"));
     directories.push(directory);

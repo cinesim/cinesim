@@ -19,7 +19,6 @@ export const desktopEvents = {
   agentsDelta: event<AgentProjectDelta>(eventChannels.agentsDelta),
   authAuthenticated: event<void>(eventChannels.authAuthenticated),
   authError: event<void>(eventChannels.authError),
-  authUserUpdated: event<void>(eventChannels.authUserUpdated),
   cloudTransfersChanged: event<CloudTransferSnapshot[]>(eventChannels.cloudTransfersChanged),
   derivedChanged: event<DerivedMediaSnapshot>(eventChannels.derivedChanged),
   projectChanged: event<DesktopProjectSession>(eventChannels.projectChanged),

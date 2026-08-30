@@ -1,9 +1,7 @@
-import { randomUUID } from "node:crypto";
 import { readFileSync, statSync } from "node:fs";
-import { mkdir, rename, unlink, writeFile } from "node:fs/promises";
-import { dirname } from "node:path";
 import { z } from "zod";
 import type { AccountUser } from "../../shared/contracts";
+import { AtomicFileRepository } from "../app/atomic-file-repository";
 
 const MAX_PROFILE_BYTES = 256 * 1024;
 const profileSchema = z
@@ -23,7 +21,7 @@ const profileSchema = z
 
 export class AccountProfileRepository {
   #user: AccountUser | null;
-  #writeQueue: Promise<void> = Promise.resolve();
+  readonly #files = new AtomicFileRepository();
 
   constructor(private readonly path: string) {
     this.#user = this.#read();
@@ -36,30 +34,16 @@ export class AccountProfileRepository {
   set(user: AccountUser): Promise<void> {
     const storedUser = structuredClone(user);
     this.#user = storedUser;
-    return this.#serialize(async () => {
-      await mkdir(dirname(this.path), { recursive: true, mode: 0o700 });
-      const temporaryPath = `${this.path}.${process.pid}.${randomUUID()}.tmp`;
-      try {
-        await writeFile(
-          temporaryPath,
-          `${JSON.stringify({ version: 1, user: storedUser }, null, 2)}\n`,
-          { encoding: "utf8", mode: 0o600 },
-        );
-        await rename(temporaryPath, this.path);
-      } catch (error) {
-        await unlink(temporaryPath).catch(() => undefined);
-        throw error;
-      }
-    });
+    return this.#files.writeText(
+      this.path,
+      `${JSON.stringify({ version: 1, user: storedUser }, null, 2)}\n`,
+      { maxBytes: MAX_PROFILE_BYTES, mode: 0o600 },
+    );
   }
 
   clear(): Promise<void> {
     this.#user = null;
-    return this.#serialize(async () => {
-      await unlink(this.path).catch((error: NodeJS.ErrnoException) => {
-        if (error.code !== "ENOENT") throw error;
-      });
-    });
+    return this.#files.remove(this.path);
   }
 
   #read(): AccountUser | null {
@@ -70,11 +54,5 @@ export class AccountProfileRepository {
     } catch {
       return null;
     }
-  }
-
-  #serialize(operation: () => Promise<void>): Promise<void> {
-    const result = this.#writeQueue.catch(() => undefined).then(operation);
-    this.#writeQueue = result;
-    return result;
   }
 }

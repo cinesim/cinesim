@@ -1,4 +1,4 @@
-import { readFile } from "node:fs/promises";
+import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, it } from "vite-plus/test";
 import { allInvokeContracts } from "../src/main/app/all-contracts";
@@ -6,6 +6,20 @@ import { allEventChannels, allInvokeChannels } from "../src/shared/contracts/cha
 import { unwrapDesktopIpcResult } from "../src/shared/contracts/ipc";
 
 const desktopSource = join(import.meta.dirname, "../src");
+
+async function typescriptSources(directory: string): Promise<string[]> {
+  const entries = await readdir(directory, { withFileTypes: true });
+  return (
+    await Promise.all(
+      entries.map((entry) => {
+        const path = join(directory, entry.name);
+        return entry.isDirectory()
+          ? typescriptSources(path)
+          : Promise.resolve(/\.tsx?$/u.test(entry.name) ? [path] : []);
+      }),
+    )
+  ).flat();
+}
 
 describe("desktop IPC contracts", () => {
   it("declares every invoke channel exactly once", () => {
@@ -52,6 +66,33 @@ describe("desktop IPC contracts", () => {
     expect(secureIpc.match(/ipcMain\.handle\(/gu)).toHaveLength(1);
     expect(accountAdapter).toContain("bridges: false");
     expect(accountAdapter).not.toContain("bridges: true");
+
+    const rawPrimitive =
+      /(?:ipcMain\.(?:handle|on)|ipcRenderer\.(?:invoke|on|send)|webContents\.send)\(/u;
+    const allowedFiles = new Set([
+      join(desktopSource, "main/app/editor-window-registry.ts"),
+      join(desktopSource, "main/app/secure-ipc.ts"),
+      join(desktopSource, "preload/index.ts"),
+    ]);
+    for (const path of await typescriptSources(desktopSource)) {
+      const source = await readFile(path, "utf8");
+      if (rawPrimitive.test(source)) expect(allowedFiles.has(path), path).toBe(true);
+    }
+  });
+
+  it("owns the complete privileged scheme inventory", async () => {
+    const protocolManifest = await readFile(join(desktopSource, "main/app/protocols.ts"), "utf8");
+    const accountAdapter = await readFile(
+      join(desktopSource, "main/account/better-auth-adapter.ts"),
+      "utf8",
+    );
+    expect(protocolManifest.match(/registerSchemesAsPrivileged\(/gu)).toHaveLength(1);
+    expect(protocolManifest).not.toContain("bypassCSP");
+    expect(accountAdapter).toContain("userImageProxy: { enabled: false }");
+    for (const path of await typescriptSources(join(desktopSource, "main"))) {
+      if (path.endsWith("/app/protocols.ts")) continue;
+      expect(await readFile(path, "utf8"), path).not.toContain("registerSchemesAsPrivileged(");
+    }
   });
 
   it("uses declared event names without duplicates", () => {

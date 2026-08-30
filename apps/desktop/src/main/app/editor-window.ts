@@ -5,16 +5,21 @@ import { editorWebPreferences, installEditorNavigationPolicy } from "./editor-se
 import { trustIpcRenderer } from "./secure-ipc";
 import { CINESIM_RENDERER_ENTRY_URL } from "./protocols";
 
+const DEFAULT_EDITOR_WINDOW_BOUNDS = {
+  width: 1512,
+  height: 982,
+  minWidth: 1080,
+  minHeight: 700,
+} as const;
+const EDITOR_TRAFFIC_LIGHT_POSITION = { x: 16, y: 14 } as const;
+
 export function createEditorWindow(configuration: DevelopmentConfiguration): BrowserWindow {
   const window = new BrowserWindow({
-    width: 1512,
-    height: 982,
-    minWidth: 1080,
-    minHeight: 700,
+    ...DEFAULT_EDITOR_WINDOW_BOUNDS,
     show: false,
     backgroundColor: nativeTheme.shouldUseDarkColors ? "#111111" : "#f9f9f9",
     titleBarStyle: "hiddenInset",
-    trafficLightPosition: { x: 16, y: 14 },
+    trafficLightPosition: EDITOR_TRAFFIC_LIGHT_POSITION,
     webPreferences: editorWebPreferences(join(app.getAppPath(), "dist/preload/preload.cjs")),
   });
   trustIpcRenderer(window.webContents);
