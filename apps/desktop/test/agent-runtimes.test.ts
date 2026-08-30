@@ -3,7 +3,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vite-plus/test";
 import type { AgentTokenUsage } from "../src/shared/contracts";
-import type { AgentRuntimeCallbacks, AgentRuntimeEvent } from "../src/main/agents/runtimes/types";
+import {
+  MAX_PROVIDER_LINE_CHARACTERS,
+  type AgentRuntimeCallbacks,
+  type AgentRuntimeEvent,
+} from "../src/main/agents/runtimes/types";
 import { ClaudeRuntime } from "../src/main/agents/runtimes/claude";
 import { CodexRuntime } from "../src/main/agents/runtimes/codex";
 
@@ -59,7 +63,9 @@ if (!process.argv.includes("--effort") || !process.argv.includes("high")) proces
 console.log(JSON.stringify({type:"system",subtype:"init",session_id:"claude-session"}));
 readline.createInterface({input:process.stdin}).on("line", () => {
   console.log(JSON.stringify({type:"stream_event",event:{type:"message_start"}}));
+  console.log(JSON.stringify({type:"stream_event",event:{type:"content_block_delta",delta:{type:"thinking_delta",thinking:"Checking the cut"}}}));
   console.log(JSON.stringify({type:"stream_event",event:{type:"content_block_delta",delta:{type:"text_delta",text:"Done"}}}));
+  console.log(JSON.stringify({type:"assistant",message:{content:[{type:"text",text:"Duplicate final text"},{type:"tool_use",name:"Read"},{type:"tool_use",name:"mcp__cinesim__project_inspect"}]}}));
   console.log(JSON.stringify({type:"result",subtype:"success",session_id:"claude-session",usage:{input_tokens:1200,cache_read_input_tokens:800,output_tokens:200},modelUsage:{"test-model":{contextWindow:200000}}}));
 });`,
     );
@@ -69,11 +75,28 @@ readline.createInterface({input:process.stdin}).on("line", () => {
     const completed = new Promise<void>((resolve) => {
       finish = resolve;
     });
-    const runtime = new ClaudeRuntime(launchOptions(path), callbacks(finish, events, usages));
+    const sessionIds: string[] = [];
+    let turnsStarted = 0;
+    const runtimeCallbacks = callbacks(finish, events, usages);
+    runtimeCallbacks.onProviderSessionId = (id) => sessionIds.push(id);
+    runtimeCallbacks.onTurnStarted = () => {
+      turnsStarted += 1;
+    };
+    const runtime = new ClaudeRuntime(launchOptions(path), runtimeCallbacks);
     await runtime.start();
     await runtime.send("Inspect the timeline");
     await completed;
+    expect(sessionIds).toContain("claude-session");
+    expect(turnsStarted).toBe(1);
+    expect(events).toContainEqual({ kind: "reasoning", text: "Checking the cut" });
     expect(events).toContainEqual({ kind: "assistant-message", text: "Done" });
+    expect(events).not.toContainEqual({ kind: "assistant-message", text: "Duplicate final text" });
+    expect(events).toContainEqual({
+      kind: "tool-started",
+      toolName: "Read",
+      title: "Read",
+    });
+    expect(events.some((event) => event.toolName?.startsWith("mcp__cinesim__"))).toBe(false);
     expect(usages).toContainEqual({
       usedTokens: 2_200,
       maxTokens: 200_000,
@@ -81,6 +104,46 @@ readline.createInterface({input:process.stdin}).on("line", () => {
       cachedInputTokens: 800,
       outputTokens: 200,
     });
+    await runtime.stop();
+  });
+
+  it("rejects oversized Claude output and reports malformed lines and failed results", async () => {
+    const path = await executable(
+      "fake-claude-errors",
+      `const readline = require("node:readline");
+const send = value => console.log(JSON.stringify(value));
+readline.createInterface({input:process.stdin}).on("line", () => {
+  console.log("unstructured provider notice");
+  console.log("x".repeat(${MAX_PROVIDER_LINE_CHARACTERS + 1}));
+  send({type:"assistant",message:{content:[{type:"text",text:"Fallback response"}]}});
+  send({type:"result",subtype:"error",errors:["First failure",42,"Second failure"]});
+});`,
+    );
+    const events: AgentRuntimeEvent[] = [];
+    let finish!: () => void;
+    const completed = new Promise<void>((resolve) => {
+      finish = resolve;
+    });
+    const completions: Array<{ status: string; detail?: string }> = [];
+    const runtimeCallbacks = callbacks(finish, events);
+    runtimeCallbacks.onTurnCompleted = (status, detail) => {
+      completions.push({ status, ...(detail ? { detail } : {}) });
+      finish();
+    };
+    const runtime = new ClaudeRuntime(launchOptions(path), runtimeCallbacks);
+
+    await runtime.start();
+    await runtime.send("Return a fallback response");
+    await completed;
+
+    expect(events).toContainEqual({ kind: "notice", detail: "unstructured provider notice" });
+    expect(events).toContainEqual({
+      kind: "error",
+      title: "Claude Code output rejected",
+      detail: "The provider emitted a message beyond the runtime size limit.",
+    });
+    expect(events).toContainEqual({ kind: "assistant-message", text: "Fallback response" });
+    expect(completions).toEqual([{ status: "failed", detail: "First failure\nSecond failure" }]);
     await runtime.stop();
   });
 

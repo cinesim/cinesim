@@ -20,6 +20,12 @@ function lastUsageIteration(usage: Record<string, unknown>): Record<string, unkn
   return usage;
 }
 
+function resultErrors(value: unknown): string | undefined {
+  return Array.isArray(value)
+    ? value.filter((entry): entry is string => typeof entry === "string").join("\n")
+    : undefined;
+}
+
 export class ClaudeRuntime implements AgentProviderRuntime {
   #child: ChildProcessWithoutNullStreams | null = null;
   #sawAssistantDelta = false;
@@ -121,59 +127,96 @@ export class ClaudeRuntime implements AgentProviderRuntime {
   }
 
   #handleLine(line: string): void {
+    const message = this.#parseMessage(line);
+    if (!message) return;
+
+    switch (stringValue(message.type)) {
+      case "system":
+        return this.#handleSystemMessage(message);
+      case "stream_event":
+        return this.#handleStreamEvent(asRecord(message.event));
+      case "assistant":
+        return this.#handleAssistantMessage(message);
+      case "result":
+        return this.#handleResult(message);
+    }
+  }
+
+  #parseMessage(line: string): Record<string, unknown> | null {
     if (line.length > MAX_PROVIDER_LINE_CHARACTERS) {
       this.callbacks.onEvent({
         kind: "error",
         title: "Claude Code output rejected",
         detail: "The provider emitted a message beyond the runtime size limit.",
       });
-      return;
+      return null;
     }
-    let value: unknown;
+
     try {
-      value = JSON.parse(line) as unknown;
+      return asRecord(JSON.parse(line) as unknown);
     } catch {
-      if (line.trim()) this.callbacks.onEvent({ kind: "notice", detail: line.trim() });
+      const detail = line.trim();
+      if (detail) this.callbacks.onEvent({ kind: "notice", detail });
+      return null;
+    }
+  }
+
+  #handleSystemMessage(message: Record<string, unknown>): void {
+    const sessionId = stringValue(message.session_id);
+    if (sessionId) this.callbacks.onProviderSessionId(sessionId);
+  }
+
+  #handleStreamEvent(event: Record<string, unknown> | null): void {
+    if (!event) return;
+
+    if (event.type === "message_start") {
+      this.callbacks.onTurnStarted();
       return;
     }
-    const message = asRecord(value);
-    if (!message) return;
-    const type = stringValue(message.type);
-    if (type === "system") {
-      const sessionId = stringValue(message.session_id);
-      if (sessionId) this.callbacks.onProviderSessionId(sessionId);
+    if (event.type !== "content_block_delta") return;
+    this.#handleContentBlockDelta(asRecord(event.delta));
+  }
+
+  #handleContentBlockDelta(delta: Record<string, unknown> | null): void {
+    const text = stringValue(delta?.text) ?? stringValue(delta?.thinking);
+    if (!text) return;
+
+    if (delta?.type === "thinking_delta") {
+      this.callbacks.onEvent({ kind: "reasoning", text });
+    } else {
+      this.#sawAssistantDelta = true;
+      this.callbacks.onEvent({ kind: "assistant-message", text });
+    }
+  }
+
+  #handleAssistantMessage(message: Record<string, unknown>): void {
+    const assistantMessage = asRecord(message.message);
+    const content = Array.isArray(assistantMessage?.content) ? assistantMessage.content : [];
+
+    for (const blockValue of content) {
+      const block = asRecord(blockValue);
+      if (block) this.#handleAssistantBlock(block);
+    }
+  }
+
+  #handleAssistantBlock(block: Record<string, unknown>): void {
+    if (block.type === "text") {
+      if (this.#sawAssistantDelta) return;
+      const text = stringValue(block.text);
+      if (text) this.callbacks.onEvent({ kind: "assistant-message", text });
       return;
     }
-    if (type === "stream_event") {
-      this.#handleStreamEvent(asRecord(message.event));
-      return;
-    }
-    if (type === "assistant") {
-      const assistantMessage = asRecord(message.message);
-      const content = Array.isArray(assistantMessage?.content) ? assistantMessage.content : [];
-      for (const blockValue of content) {
-        const block = asRecord(blockValue);
-        if (!block) continue;
-        if (block.type === "text" && !this.#sawAssistantDelta) {
-          const text = stringValue(block.text);
-          if (text) this.callbacks.onEvent({ kind: "assistant-message", text });
-        } else if (block.type === "tool_use") {
-          const name = stringValue(block.name) ?? "Tool";
-          if (!name.startsWith("mcp__cinesim__"))
-            this.callbacks.onEvent({ kind: "tool-started", toolName: name, title: name });
-        }
-      }
-      return;
-    }
-    if (type === "result") {
-      this.#handleUsage(message);
-      const subtype = stringValue(message.subtype);
-      const failed = subtype !== "success";
-      const errors = Array.isArray(message.errors)
-        ? message.errors.filter((entry): entry is string => typeof entry === "string").join("\n")
-        : undefined;
-      this.callbacks.onTurnCompleted(failed ? "failed" : "completed", errors);
-    }
+
+    if (block.type !== "tool_use") return;
+    const name = stringValue(block.name) ?? "Tool";
+    if (name.startsWith("mcp__cinesim__")) return;
+    this.callbacks.onEvent({ kind: "tool-started", toolName: name, title: name });
+  }
+
+  #handleResult(message: Record<string, unknown>): void {
+    this.#handleUsage(message);
+    const failed = stringValue(message.subtype) !== "success";
+    this.callbacks.onTurnCompleted(failed ? "failed" : "completed", resultErrors(message.errors));
   }
 
   #handleUsage(message: Record<string, unknown>): void {
@@ -201,22 +244,6 @@ export class ClaudeRuntime implements AgentProviderRuntime {
       ...(outputTokens > 0 ? { outputTokens } : {}),
       ...(totalProcessedTokens > usedTokens ? { totalProcessedTokens } : {}),
     });
-  }
-
-  #handleStreamEvent(event: Record<string, unknown> | null): void {
-    if (!event) return;
-    if (event.type === "message_start") this.callbacks.onTurnStarted();
-    if (event.type === "content_block_delta") {
-      const delta = asRecord(event.delta);
-      const text = stringValue(delta?.text) ?? stringValue(delta?.thinking);
-      if (!text) return;
-      if (delta?.type === "thinking_delta") {
-        this.callbacks.onEvent({ kind: "reasoning", text });
-      } else {
-        this.#sawAssistantDelta = true;
-        this.callbacks.onEvent({ kind: "assistant-message", text });
-      }
-    }
   }
 
   async #write(contents: string): Promise<void> {
