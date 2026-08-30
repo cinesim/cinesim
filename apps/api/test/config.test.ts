@@ -24,6 +24,16 @@ describe("Cinesim API configuration", () => {
     expect(config.r2).toBeNull();
     expect(config.deepgramApiKey).toBeNull();
     expect(config.openRouterApiKey).toBeNull();
+    expect(config.transcriptionLimits).toEqual({
+      perUserConcurrency: 2,
+      serviceConcurrency: 8,
+      requestsPerMinute: 12,
+      networkRequestsPerMinute: 30,
+      userMonthlySeconds: 7_200,
+      serviceMonthlySeconds: 360_000,
+      maximumRequestSeconds: 600,
+      providerTimeoutMs: 75_000,
+    });
     expect(config.cloudIncludedBytes).toBe(10 * 1024 ** 3);
     expect(config.cloudAddonOptionsBytes).toEqual([0]);
   });
@@ -38,6 +48,25 @@ describe("Cinesim API configuration", () => {
     expect(
       readServerConfig(environment({ OPENROUTER_API_KEY: "test-openrouter-key" })),
     ).toMatchObject({ openRouterApiKey: "test-openrouter-key" });
+  });
+
+  it("validates deployable transcription budgets and concurrency", () => {
+    expect(
+      readServerConfig(
+        environment({
+          CINESIM_TRANSCRIPTION_USER_CONCURRENCY: "3",
+          CINESIM_TRANSCRIPTION_SERVICE_MONTHLY_SECONDS: "100000",
+          CINESIM_TRANSCRIPTION_PROVIDER_TIMEOUT_MS: "45000",
+        }),
+      ).transcriptionLimits,
+    ).toMatchObject({
+      perUserConcurrency: 3,
+      serviceMonthlySeconds: 100_000,
+      providerTimeoutMs: 45_000,
+    });
+    expect(() =>
+      readServerConfig(environment({ CINESIM_TRANSCRIPTION_USER_CONCURRENCY: "0" })),
+    ).toThrow(/CINESIM_TRANSCRIPTION_USER_CONCURRENCY/);
   });
 
   it("requires Google credentials as a pair", () => {

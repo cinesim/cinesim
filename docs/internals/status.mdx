@@ -3,13 +3,13 @@ title: Project status
 description: What is built, what is verified, and what is known to be missing or unfinished.
 ---
 
-Cinesim compiles, type-checks, tests, and builds. What it has not had is a full interactive pass on
-real media — the app has not been run against a broad codec and GPU matrix. This page separates
-those two things so nobody has to guess which is which.
+Cinesim compiles, type-checks, tests, and builds. It has not had a full interactive pass against a
+broad codec and GPU matrix. This page separates automated verification from the remaining
+interactive work so nobody has to guess which is which.
 
 <Callout type="warn">
-  Anything under [Not yet verified](#not-yet-verified) is implemented and passing its unit tests but
-  has not been exercised in a running Electron app with real footage.
+  Anything under [Not yet verified](#not-yet-verified) is implemented and passing its automated
+  checks but has not been exercised through the full interactive workflow.
 </Callout>
 
 ## Built and tested
@@ -44,12 +44,12 @@ effort controls, approval modes, a session-scoped MCP endpoint, and Git-object t
 diff and restore.
 
 Verification currently passing: whole-repository TypeScript check, Vite+ format and lint with no
-warnings, 207 tests across 42 files, production builds for main, preload, and renderer, and a CLI
-smoke check.
+warnings, the automated test suite, production builds for main, preload, renderer, API, and web, and
+a CLI smoke check.
 
 ## Not yet verified
 
-- Electron, WebCodecs, WebGPU, and Web Audio behavior against real media across a codec matrix.
+- Interactive Electron, Web Audio, real-media codec, and GPU-driver behavior.
 - Worker-based thumbnail, filmstrip, and proxy paths with real footage.
 - Interactive browser, email, and custom-protocol authentication flows.
 - Provider compatibility with specific installed versions of Claude Code and Codex.
@@ -64,9 +64,9 @@ measurements need the interactive pass above.
 transitions, nested timelines, keyframes, or export and render. Audio embedded in a video clip
 follows that clip; linked and unlinked A/V editing is not modeled.
 
-**Concurrency.** The agent MCP bridge shares Electron main's single project writer, but concurrent
-desktop and external CLI or MCP writes have no cross-process lock or file watcher. Treat one writer
-at a time as a requirement, not a suggestion.
+**Concurrency.** Desktop, CLI, and MCP writers share a cross-process project lock and reject stale
+generations instead of overwriting a newer edit. An already-open client does not live-refresh after
+another process commits; reopen it after a conflict to load the current generation.
 
 **Media.** Exact-frame artifact generation is lookup-only. There is no bundled FFmpeg, so footage
 Chromium cannot decode cannot be proxied. Still-image import is not exposed in the media picker.
@@ -79,9 +79,7 @@ splitting is pending.
 
 ## Next steps
 
-1. Run the media validation matrix, fix platform codec and GPU findings, and capture honest
-   playback, seek, and memory metrics.
+1. Exercise playback across representative operating systems, codec profiles, and GPU drivers,
+   then capture interactive playback and Web Audio metrics.
 2. Tune proxy profiles from those measurements, and add exact-frame jobs to the existing bounded
    worker and storage path.
-3. Add cross-process project locking and file watching, then exercise desktop ↔ CLI ↔ MCP live
-   synchronization in integration tests.

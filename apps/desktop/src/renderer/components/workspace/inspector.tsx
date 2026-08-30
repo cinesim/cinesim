@@ -7,7 +7,7 @@ import {
   EmptyTitle,
   SectionHeading,
 } from "@cinesim/ui";
-import { findClip } from "@cinesim/core";
+import { findClip, timeUs } from "@cinesim/core";
 import type { Project } from "@cinesim/core";
 import { formatDuration } from "../../lib/format";
 import { useRendererStore } from "../../store/renderer-store-context";
@@ -43,7 +43,9 @@ export function Inspector({ project }: { project: Project }) {
               />
               <ReadonlyField
                 label="Duration"
-                value={formatDuration(location.clip.sourceEndUs - location.clip.sourceStartUs)}
+                value={formatDuration(
+                  timeUs(location.clip.sourceEndUs - location.clip.sourceStartUs),
+                )}
               />
               <ReadonlyField
                 label="Source in"

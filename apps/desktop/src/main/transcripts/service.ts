@@ -1,7 +1,7 @@
 import { readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { Asset, AssetId, Project } from "@cinesim/core";
-import { stableJson } from "@cinesim/core";
+import { secondsToTimeUs, stableJson, timeSeconds, timeUs } from "@cinesim/core";
 import { createCinesimLogger } from "@cinesim/logging";
 import { z } from "zod";
 import type { DerivedProjectScope, SourceFingerprint } from "../../shared/api";
@@ -356,6 +356,7 @@ export class TranscriptStore {
         headers: {
           "content-type": "audio/wav",
           "x-cinesim-keyterms": JSON.stringify(job.options.keyterms),
+          "x-cinesim-audio-duration-us": String(input.sourceEndUs - input.sourceStartUs),
         },
         body: Uint8Array.from(input.data).buffer,
         signal: AbortSignal.any([AbortSignal.timeout(90_000), job.abort.signal]),
@@ -479,13 +480,17 @@ export class TranscriptStore {
         const utteranceId = `utterance_${String(utterances.length + 1).padStart(6, "0")}`;
         for (const wordIndex of utterance.wordIndexes)
           localUtteranceIds.set(wordIndex, utteranceId);
-        const sourceStartUs = Math.max(
-          chunk.sourceStartUs,
-          chunk.sourceStartUs + Math.round(utterance.startSeconds * 1_000_000),
+        const sourceStartUs = timeUs(
+          Math.max(
+            chunk.sourceStartUs,
+            chunk.sourceStartUs + secondsToTimeUs(timeSeconds(utterance.startSeconds)),
+          ),
         );
-        const sourceEndUs = Math.min(
-          chunk.sourceEndUs,
-          chunk.sourceStartUs + Math.round(utterance.endSeconds * 1_000_000),
+        const sourceEndUs = timeUs(
+          Math.min(
+            chunk.sourceEndUs,
+            chunk.sourceStartUs + secondsToTimeUs(timeSeconds(utterance.endSeconds)),
+          ),
         );
         if (sourceEndUs <= sourceStartUs) continue;
         utterances.push({
@@ -500,13 +505,17 @@ export class TranscriptStore {
       }
       for (let index = 0; index < chunk.transcript.words.length; index += 1) {
         const providerWord = chunk.transcript.words[index]!;
-        const sourceStartUs = Math.max(
-          chunk.sourceStartUs,
-          chunk.sourceStartUs + Math.round(providerWord.startSeconds * 1_000_000),
+        const sourceStartUs = timeUs(
+          Math.max(
+            chunk.sourceStartUs,
+            chunk.sourceStartUs + secondsToTimeUs(timeSeconds(providerWord.startSeconds)),
+          ),
         );
-        const sourceEndUs = Math.min(
-          chunk.sourceEndUs,
-          chunk.sourceStartUs + Math.round(providerWord.endSeconds * 1_000_000),
+        const sourceEndUs = timeUs(
+          Math.min(
+            chunk.sourceEndUs,
+            chunk.sourceStartUs + secondsToTimeUs(timeSeconds(providerWord.endSeconds)),
+          ),
         );
         if (sourceEndUs <= sourceStartUs) continue;
         const id = `word_${String(words.length + 1).padStart(6, "0")}`;

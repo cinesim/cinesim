@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vite-plus/test";
+import { timeUs } from "@cinesim/core";
 import {
   shouldShowTimelineEmptyState,
   steppedSourceTimeUs,
@@ -28,8 +29,8 @@ describe("viewer presentation helpers", () => {
   });
 
   it("steps source preview frames without leaving the asset duration", () => {
-    expect(steppedSourceTimeUs(1_000_000, 5_000_000, 30, 1)).toBe(1_033_333);
-    expect(steppedSourceTimeUs(0, 5_000_000, 30, -1)).toBe(0);
-    expect(steppedSourceTimeUs(5_000_000, 5_000_000, 30, -1)).toBe(4_966_667);
+    expect(steppedSourceTimeUs(timeUs(1_000_000), timeUs(5_000_000), 30, 1)).toBe(1_033_333);
+    expect(steppedSourceTimeUs(timeUs(0), timeUs(5_000_000), 30, -1)).toBe(0);
+    expect(steppedSourceTimeUs(timeUs(5_000_000), timeUs(5_000_000), 30, -1)).toBe(4_966_667);
   });
 });

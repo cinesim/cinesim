@@ -1,3 +1,4 @@
+import { timeUs } from "@cinesim/core";
 import { describe, expect, it } from "vite-plus/test";
 import type { Asset } from "@cinesim/core";
 import type { DerivedArtifactState, DerivedMediaSnapshot } from "../src/shared/api";
@@ -18,7 +19,7 @@ const asset: Asset = {
   kind: "video",
   name: "fixture.mp4",
   source: { kind: "local", path: "/tmp/fixture.mp4" },
-  durationUs: 2_000_000,
+  durationUs: timeUs(2_000_000),
 };
 
 function snapshot(thumbnailState: DerivedArtifactState): DerivedMediaSnapshot {

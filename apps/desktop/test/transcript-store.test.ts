@@ -2,7 +2,7 @@ import { mkdtemp, mkdir, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vite-plus/test";
-import { applyCommand, createProject } from "@cinesim/core";
+import { timeUs, applyCommand, createProject } from "@cinesim/core";
 import type { Asset } from "@cinesim/core";
 import type { DerivedProjectScope, SourceFingerprint } from "../src/shared/api";
 import { parseTranscriptArtifact } from "../src/main/transcripts/artifact";
@@ -23,7 +23,7 @@ const asset: Asset = {
   kind: "audio",
   name: "Interview with María.wav",
   source: { kind: "local", path: "/media/interview.wav" },
-  durationUs: 10_000_000,
+  durationUs: timeUs(10_000_000),
 };
 
 afterEach(async () => {
@@ -111,15 +111,15 @@ describe("transcript artifact store", () => {
     await store.transcribeChunk(scope, {
       jobId,
       chunkIndex: 0,
-      sourceStartUs: 0,
-      sourceEndUs: 5_000_000,
+      sourceStartUs: timeUs(0),
+      sourceEndUs: timeUs(5_000_000),
       data: new Uint8Array([1, 2, 3]),
     });
     await store.transcribeChunk(scope, {
       jobId,
       chunkIndex: 1,
-      sourceStartUs: 5_000_000,
-      sourceEndUs: 10_000_000,
+      sourceStartUs: timeUs(5_000_000),
+      sourceEndUs: timeUs(10_000_000),
       data: new Uint8Array([4, 5, 6]),
     });
     const snapshot = await store.finalizeJob(scope, jobId);
@@ -146,16 +146,16 @@ describe("transcript artifact store", () => {
         {
           id: "word_000001",
           text: "Hello,",
-          sourceStartUs: 500_000,
-          sourceEndUs: 1_000_000,
+          sourceStartUs: timeUs(500_000),
+          sourceEndUs: timeUs(1_000_000),
           speakerClusterId: "speaker-0",
           utteranceId: "utterance_000001",
         },
         {
           id: "word_000002",
           text: "world.",
-          sourceStartUs: 5_250_000,
-          sourceEndUs: 5_800_000,
+          sourceStartUs: timeUs(5_250_000),
+          sourceEndUs: timeUs(5_800_000),
           speakerClusterId: "speaker-1",
           utteranceId: "utterance_000002",
         },
@@ -266,8 +266,10 @@ describe("transcript artifact store", () => {
           keyterms: [],
         },
         language: "en",
-        durationUs: 10,
-        words: [{ id: "word_000001", text: "invalid", sourceStartUs: 5, sourceEndUs: 20 }],
+        durationUs: timeUs(10),
+        words: [
+          { id: "word_000001", text: "invalid", sourceStartUs: timeUs(5), sourceEndUs: timeUs(20) },
+        ],
         utterances: [],
       }),
     ).toThrow(/word exceeds asset duration/);

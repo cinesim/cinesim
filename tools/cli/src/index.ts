@@ -1,10 +1,15 @@
 #!/usr/bin/env node
 import { existsSync } from "node:fs";
-import { join } from "node:path";
 import { Command } from "commander";
-import type { AssetId, ClipId, SequenceId, Track, TrackId } from "@cinesim/core";
 import { createCinesimLogger } from "@cinesim/logging";
-import { inspectAsset, inspectProject, inspectTimeline, listAssets } from "@cinesim/protocol";
+import { ProjectPaths } from "@cinesim/project-io";
+import {
+  assetIdSchema,
+  inspectAsset,
+  inspectProject,
+  inspectTimeline,
+  listAssets,
+} from "@cinesim/protocol";
 import { DiskProjectStore } from "./project-store";
 import { parseTime } from "./time";
 
@@ -74,7 +79,7 @@ asset
   .option("--json", "Emit structured JSON")
   .action(async (assetId, options) => {
     const loaded = await store();
-    output(inspectAsset(loaded.project, assetId as AssetId), options.json);
+    output(inspectAsset(loaded.project, assetIdSchema.parse(assetId)), options.json);
   });
 asset
   .command("delete")
@@ -84,7 +89,7 @@ asset
     const loaded = await store();
     const result = await loaded.execute({
       type: "asset.remove",
-      assetIds: assetIds as AssetId[],
+      assetIds,
     });
     output({ summary: result.summary, changedIds: result.changedIds }, options.json);
   });
@@ -106,7 +111,7 @@ timeline
     const loaded = await store();
     const result = await loaded.execute({
       type: "sequence.createFromAssets",
-      assetIds: assetIds as AssetId[],
+      assetIds,
       ...(options.name === undefined ? {} : { name: options.name }),
     });
     output({ summary: result.summary, createdIds: result.createdIds }, options.json);
@@ -119,7 +124,7 @@ timeline
     const loaded = await store();
     const result = await loaded.execute({
       type: "sequence.remove",
-      sequenceId: sequenceId as SequenceId,
+      sequenceId,
     });
     output({ summary: result.summary, changedIds: result.changedIds }, options.json);
   });
@@ -135,8 +140,8 @@ track
     const loaded = await store();
     const result = await loaded.execute({
       type: "track.add",
-      sequenceId: (options.sequence ?? loaded.project.activeSequenceId) as SequenceId,
-      kind: kind as Track["kind"],
+      sequenceId: options.sequence ?? loaded.project.activeSequenceId,
+      kind,
       ...(options.name === undefined ? {} : { name: options.name }),
     });
     output({ summary: result.summary, createdIds: result.createdIds }, options.json);
@@ -152,7 +157,7 @@ track
     const loaded = await store();
     const result = await loaded.execute({
       type: "track.update",
-      trackId: trackId as TrackId,
+      trackId,
       ...(options.name === undefined ? {} : { name: options.name }),
       ...(options.muted === undefined ? {} : { muted: options.muted }),
       ...(options.locked === undefined ? {} : { locked: options.locked }),
@@ -168,7 +173,7 @@ track
     const loaded = await store();
     const result = await loaded.execute({
       type: "track.reorder",
-      trackId: trackId as TrackId,
+      trackId,
       index: options.index,
     });
     output({ summary: result.summary, changedIds: result.changedIds }, options.json);
@@ -181,7 +186,7 @@ track
     const loaded = await store();
     const result = await loaded.execute({
       type: "track.remove",
-      trackId: trackId as TrackId,
+      trackId,
     });
     output({ summary: result.summary, changedIds: result.changedIds }, options.json);
   });
@@ -196,7 +201,7 @@ clip
     const loaded = await store();
     const result = await loaded.execute({
       type: "clip.split",
-      clipId: clipId as ClipId,
+      clipId,
       atUs: parseTime(options.at),
     });
     output({ summary: result.summary, createdIds: result.createdIds }, options.json);
@@ -211,9 +216,9 @@ clip
     const loaded = await store();
     const result = await loaded.execute({
       type: "clip.move",
-      clipId: clipId as ClipId,
+      clipId,
       timelineStartUs: parseTime(options.to),
-      ...(options.track === undefined ? {} : { trackId: options.track as TrackId }),
+      ...(options.track === undefined ? {} : { trackId: options.track }),
     });
     output({ summary: result.summary, changedIds: result.changedIds }, options.json);
   });
@@ -226,7 +231,7 @@ clip
     const loaded = await store();
     const result = await loaded.execute({
       type: "clip.trimStart",
-      clipId: clipId as ClipId,
+      clipId,
       atUs: parseTime(options.at),
     });
     output({ summary: result.summary }, options.json);
@@ -240,7 +245,7 @@ clip
     const loaded = await store();
     const result = await loaded.execute({
       type: "clip.trimEnd",
-      clipId: clipId as ClipId,
+      clipId,
       atUs: parseTime(options.at),
     });
     output({ summary: result.summary }, options.json);
@@ -251,7 +256,7 @@ clip
   .option("--json")
   .action(async (clipId, options) => {
     const loaded = await store();
-    const result = await loaded.execute({ type: "clip.remove", clipId: clipId as ClipId });
+    const result = await loaded.execute({ type: "clip.remove", clipId });
     output({ summary: result.summary }, options.json);
   });
 
@@ -261,9 +266,11 @@ program
   .option("--json")
   .action(async (assetId, options) => {
     const loaded = await store();
-    inspectAsset(loaded.project, assetId as AssetId);
-    const path = join(loaded.directory, ".video", "filmstrips", `${assetId}.jpg`);
-    output({ assetId, path, exists: existsSync(path), derived: true }, options.json);
+    const parsedAssetId = assetIdSchema.parse(assetId);
+    inspectAsset(loaded.project, parsedAssetId);
+    const paths = await ProjectPaths.open(loaded.directory);
+    const path = await paths.assertSafeDerivedFile(`.video/filmstrips/${parsedAssetId}.jpg`);
+    output({ assetId: parsedAssetId, path, exists: existsSync(path), derived: true }, options.json);
   });
 
 program
@@ -273,10 +280,15 @@ program
   .option("--json")
   .action(async (assetId, options) => {
     const loaded = await store();
-    inspectAsset(loaded.project, assetId as AssetId);
+    const parsedAssetId = assetIdSchema.parse(assetId);
+    inspectAsset(loaded.project, parsedAssetId);
     const atUs = parseTime(options.at);
-    const path = join(loaded.directory, ".video", "frames", `${assetId}-${atUs}.png`);
-    output({ assetId, atUs, path, exists: existsSync(path), derived: true }, options.json);
+    const paths = await ProjectPaths.open(loaded.directory);
+    const path = await paths.assertSafeDerivedFile(`.video/frames/${parsedAssetId}-${atUs}.png`);
+    output(
+      { assetId: parsedAssetId, atUs, path, exists: existsSync(path), derived: true },
+      options.json,
+    );
   });
 
 program.parseAsync().catch((error: unknown) => {

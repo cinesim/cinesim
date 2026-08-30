@@ -16,8 +16,8 @@ import {
   MenuTrigger,
   PaneHeader,
 } from "@cinesim/ui";
-import { getSequence, sequenceDurationUs } from "@cinesim/core";
-import type { Project } from "@cinesim/core";
+import { getSequence, sequenceDurationUs, timeUs } from "@cinesim/core";
+import type { Project, TimeUs } from "@cinesim/core";
 import type { DerivedProjectScope } from "../../../shared/api";
 import { PlaybackRuntime, WebGpuCompositor } from "@cinesim/engine";
 import type { PreviewMode } from "@cinesim/engine";
@@ -25,9 +25,9 @@ import { ProxySourceResolver } from "../../lib/proxy-source-resolver";
 import { useRendererStore, useRendererStoreApi } from "../../store/renderer-store-context";
 
 export interface ViewerController {
-  seekTimeline(timeUs: number): Promise<void>;
-  enterAssetPreview(assetId: `asset_${string}`, sourceTimeUs: number): void;
-  updateAssetPreview(sourceTimeUs: number): void;
+  seekTimeline(timeUs: TimeUs): Promise<void>;
+  enterAssetPreview(assetId: `asset_${string}`, sourceTimeUs: TimeUs): void;
+  updateAssetPreview(sourceTimeUs: TimeUs): void;
   exitAssetPreview(): Promise<void>;
   playTimeline(): void;
   pauseTimeline(): void;
@@ -99,11 +99,11 @@ export function shouldShowTimelineEmptyState(
 }
 
 export function steppedSourceTimeUs(
-  currentTimeUs: number,
-  durationUs: number,
+  currentTimeUs: TimeUs,
+  durationUs: TimeUs,
   frameRate: number,
   deltaFrames: number,
-): number {
+): TimeUs {
   const safeRate = Number.isFinite(frameRate) && frameRate > 0 ? frameRate : 30;
   const frameCount = Math.max(1, Math.ceil((durationUs * safeRate) / 1_000_000));
   const currentFrame = Math.max(
@@ -111,7 +111,7 @@ export function steppedSourceTimeUs(
     Math.floor((Math.max(0, currentTimeUs) * safeRate) / 1_000_000 + 0.000_1),
   );
   const targetFrame = Math.max(0, Math.min(currentFrame + deltaFrames, frameCount - 1));
-  return Math.min(durationUs, Math.round((targetFrame * 1_000_000) / safeRate));
+  return timeUs(Math.min(durationUs, Math.round((targetFrame * 1_000_000) / safeRate)));
 }
 
 function stepDisplayedFrame(
@@ -134,8 +134,8 @@ function stepDisplayedFrame(
 }
 
 function goToDisplayedStart(playback: PlaybackRuntime, mode: PreviewMode | undefined): void {
-  if (mode?.kind === "asset") playback.enterAssetPreview(mode.assetId, 0);
-  else void playback.seekTimeline(0);
+  if (mode?.kind === "asset") playback.enterAssetPreview(mode.assetId, timeUs(0));
+  else void playback.seekTimeline(timeUs(0));
 }
 
 export function Viewer({

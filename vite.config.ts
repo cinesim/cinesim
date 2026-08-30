@@ -55,6 +55,10 @@ export default defineConfig({
         command: "node tools/dev-local.mjs",
         cache: false,
       },
+      "history:benchmark": {
+        command: "tsx tools/benchmarks/history.ts",
+        cache: false,
+      },
       typecheck: {
         command: "tsc --noEmit",
       },

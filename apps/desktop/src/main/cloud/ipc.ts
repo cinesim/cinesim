@@ -1,42 +1,34 @@
-import { ipcMain } from "electron";
 import type { CloudMediaManager } from "./manager";
+import { registerIpcHandler } from "../app/secure-ipc";
+import { z } from "zod";
+import { assetIdSchema, cloudAssetIdSchema } from "@cinesim/core";
 
-function assetId(value: unknown): string {
-  if (typeof value !== "string" || !/^asset_[a-zA-Z0-9][a-zA-Z0-9_-]*$/.test(value))
-    throw new Error("Invalid asset ID");
-  return value;
-}
-
-function cloudAssetId(value: unknown): string {
-  if (typeof value !== "string" || !/^cloud_asset_[a-zA-Z0-9][a-zA-Z0-9_-]{7,127}$/.test(value))
-    throw new Error("Invalid cloud asset ID");
-  return value;
-}
+const cloudAssetIdsSchema = z.array(cloudAssetIdSchema).max(100);
 
 export function registerCloudIpc(manager: CloudMediaManager): void {
-  ipcMain.handle("cloud:usage", () => manager.usage());
-  ipcMain.handle("cloud:configure-addon", (_event, value: unknown) => {
-    if (typeof value !== "number") throw new Error("Invalid storage allowance");
-    return manager.configureAddon(value);
+  registerIpcHandler("cloud:usage", () => manager.usage());
+  registerIpcHandler("cloud:configure-addon", (value: unknown) => {
+    return manager.configureAddon(z.number().int().nonnegative().safe().parse(value));
   });
-  ipcMain.handle("cloud:transfers", () => manager.snapshots());
-  ipcMain.handle("cloud:retry", (_event, value: unknown) => manager.retry(assetId(value)));
-  ipcMain.handle("cloud:cancel", (_event, value: unknown) => manager.cancel(assetId(value)));
-  ipcMain.handle("cloud:downloaded-originals", () => manager.downloadedOriginals());
-  ipcMain.handle("cloud:keep-downloaded", (_event, value: unknown) =>
-    manager.keepDownloaded(assetId(value)),
+  registerIpcHandler("cloud:transfers", () => manager.snapshots());
+  registerIpcHandler("cloud:retry", (value: unknown) => manager.retry(assetIdSchema.parse(value)));
+  registerIpcHandler("cloud:cancel", (value: unknown) =>
+    manager.cancel(assetIdSchema.parse(value)),
   );
-  ipcMain.handle("cloud:remove-download", (_event, value: unknown) =>
-    manager.removeDownload(assetId(value)),
+  registerIpcHandler("cloud:downloaded-originals", () => manager.downloadedOriginals());
+  registerIpcHandler("cloud:keep-downloaded", (value: unknown) =>
+    manager.keepDownloaded(assetIdSchema.parse(value)),
   );
-  ipcMain.handle("cloud:trash-assets", (_event, value: unknown) => {
-    if (!Array.isArray(value) || value.length > 100) throw new Error("Invalid cloud asset request");
-    return manager.trashAssets(value.map(cloudAssetId));
+  registerIpcHandler("cloud:remove-download", (value: unknown) =>
+    manager.removeDownload(assetIdSchema.parse(value)),
+  );
+  registerIpcHandler("cloud:trash-assets", (value: unknown) => {
+    return manager.trashAssets(cloudAssetIdsSchema.parse(value));
   });
-  ipcMain.handle("cloud:restore-asset", (_event, value: unknown) =>
-    manager.restoreAsset(cloudAssetId(value)),
+  registerIpcHandler("cloud:restore-asset", (value: unknown) =>
+    manager.restoreAsset(cloudAssetIdSchema.parse(value)),
   );
-  ipcMain.handle("cloud:delete-asset", (_event, value: unknown) =>
-    manager.deleteAsset(cloudAssetId(value)),
+  registerIpcHandler("cloud:delete-asset", (value: unknown) =>
+    manager.deleteAsset(cloudAssetIdSchema.parse(value)),
   );
 }

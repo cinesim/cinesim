@@ -1,3 +1,4 @@
+import { timeUs } from "@cinesim/core";
 import { describe, expect, it } from "vite-plus/test";
 import {
   applyCommand,
@@ -17,7 +18,7 @@ describe("canonical serialization", () => {
       kind: "video",
       name: "a.mp4",
       source: { kind: "local", path: "/tmp/a.mp4" },
-      durationUs: 1_000_000,
+      durationUs: timeUs(1_000_000),
     };
     let project = applyCommand(createProject({ name: "Round trip" }), {
       type: "asset.import",
@@ -27,13 +28,13 @@ describe("canonical serialization", () => {
       type: "clip.add",
       trackId: "track_000001",
       assetId: asset.id,
-      timelineStartUs: 0,
+      timelineStartUs: timeUs(0),
     }).project;
     project = applyCommand(project, {
       type: "clip.setFade",
       clipId: "clip_000001",
       edge: "in",
-      durationUs: 200_000,
+      durationUs: timeUs(200_000),
     }).project;
     const files = splitProjectFiles(project);
     const loaded = joinProjectFiles(files.manifest, files.assets, files.timeline);
@@ -47,7 +48,7 @@ describe("canonical serialization", () => {
       kind: "video",
       name: "cloud.mov",
       source: { kind: "cloud", cloudAssetId: "cloud_asset_01hzy3w3fq1h7z6y7rj3a2bcde" },
-      durationUs: 1_000_000,
+      durationUs: timeUs(1_000_000),
     };
     let project = createProject({
       name: "Cloud",
@@ -87,7 +88,7 @@ describe("canonical serialization", () => {
       kind: "video",
       name: "fade.mov",
       source: { kind: "local", path: "/tmp/fade.mov" },
-      durationUs: 1_000_000,
+      durationUs: timeUs(1_000_000),
     };
     let project = applyCommand(createProject({ name: "Invalid fade" }), {
       type: "asset.import",
@@ -97,12 +98,12 @@ describe("canonical serialization", () => {
       type: "clip.add",
       trackId: "track_000001",
       assetId: asset.id,
-      timelineStartUs: 0,
+      timelineStartUs: timeUs(0),
     }).project;
     const files = splitProjectFiles(project);
     Object.assign(files.timeline.sequences[0]!.tracks[0]!.clips[0]!, {
-      fadeInUs: 600_000,
-      fadeOutUs: 600_000,
+      fadeInUs: timeUs(600_000),
+      fadeOutUs: timeUs(600_000),
     });
     expect(() => joinProjectFiles(files.manifest, files.assets, files.timeline)).toThrow(
       /overlapping fades/,
@@ -116,9 +117,9 @@ describe("canonical serialization", () => {
       id: "clip_missing",
       assetId: "asset_missing",
       mediaKind: "video",
-      timelineStartUs: 0,
-      sourceStartUs: 0,
-      sourceEndUs: 1,
+      timelineStartUs: timeUs(0),
+      sourceStartUs: timeUs(0),
+      sourceEndUs: timeUs(1),
       transform: { x: 0, y: 0, scaleX: 1, scaleY: 1, opacity: 1, fit: "contain" },
     });
     expect(() => joinProjectFiles(files.manifest, files.assets, timeline)).toThrow(/missing asset/);
@@ -152,7 +153,7 @@ describe("canonical serialization", () => {
       kind: "video",
       name: "legacy.mov",
       source: { kind: "local", path: "/tmp/legacy.mov" },
-      durationUs: 1_000_000,
+      durationUs: timeUs(1_000_000),
       hasAudio: true,
     };
     const files = splitProjectFiles(
@@ -167,9 +168,9 @@ describe("canonical serialization", () => {
     timeline.sequences[0]!.tracks[0]!.clips.push({
       id: "clip_000001",
       assetId: asset.id,
-      timelineStartUs: 0,
-      sourceStartUs: 0,
-      sourceEndUs: asset.durationUs,
+      timelineStartUs: timeUs(0),
+      sourceStartUs: timeUs(0),
+      sourceEndUs: timeUs(asset.durationUs),
       transform: { x: 0, y: 0, scaleX: 1, scaleY: 1, opacity: 1, fit: "contain" },
     });
 
@@ -192,7 +193,7 @@ describe("canonical serialization", () => {
       kind: "audio",
       name: "audio.wav",
       source: { kind: "local", path: "/tmp/audio.wav" },
-      durationUs: 1_000_000,
+      durationUs: timeUs(1_000_000),
     };
     const files = splitProjectFiles(
       applyCommand(createProject({ name: "Compatibility" }), {
@@ -204,9 +205,9 @@ describe("canonical serialization", () => {
       id: "clip_000001",
       assetId: audio.id,
       mediaKind: "audio",
-      timelineStartUs: 0,
-      sourceStartUs: 0,
-      sourceEndUs: audio.durationUs,
+      timelineStartUs: timeUs(0),
+      sourceStartUs: timeUs(0),
+      sourceEndUs: timeUs(audio.durationUs),
       transform: { x: 0, y: 0, scaleX: 1, scaleY: 1, opacity: 1, fit: "contain" },
     });
     expect(() => joinProjectFiles(files.manifest, files.assets, files.timeline)).toThrow(

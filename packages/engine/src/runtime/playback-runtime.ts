@@ -5,9 +5,10 @@ import {
   clipFadeGainAt,
   getSequence,
   sequenceDurationUs,
+  timeUs,
 } from "@cinesim/core";
 import type { AssetId, Project, TimeUs } from "@cinesim/core";
-import type { PreviewCompositor } from "../compositor/webgpu-compositor";
+import type { CompositorLayer, PreviewCompositor } from "../compositor/webgpu-compositor";
 import { MediabunnyWebCodecsSource } from "../media/mediabunny-source";
 import type {
   AudioSource,
@@ -101,10 +102,27 @@ const frameIndexAt = (timeUs: TimeUs, frameRate: number): number =>
   Math.max(0, Math.floor((timeUs * frameRate) / 1_000_000 + 0.000_1));
 
 const frameTimeUs = (frameIndex: number, frameRate: number): TimeUs =>
-  Math.max(0, Math.round((frameIndex * 1_000_000) / frameRate));
+  timeUs(Math.max(0, Math.round((frameIndex * 1_000_000) / frameRate)));
 
 const frameTimestampUs = (frame: VideoFrame, fallback: TimeUs): TimeUs =>
-  typeof frame.timestamp === "number" ? Math.max(0, Math.round(frame.timestamp)) : fallback;
+  typeof frame.timestamp === "number" ? timeUs(Math.max(0, Math.round(frame.timestamp))) : fallback;
+
+async function collectDecodedLayers(
+  operations: readonly Promise<CompositorLayer | null>[],
+): Promise<CompositorLayer[]> {
+  const settled = await Promise.allSettled(operations);
+  const failure = settled.find(
+    (result): result is PromiseRejectedResult => result.status === "rejected",
+  );
+  if (failure) {
+    for (const result of settled) if (result.status === "fulfilled") result.value?.frame.close();
+    throw failure.reason;
+  }
+  const layers: CompositorLayer[] = [];
+  for (const result of settled)
+    if (result.status === "fulfilled" && result.value) layers.push(result.value);
+  return layers;
+}
 
 /** Owns at most two decoded source frames plus the clone handed to the compositor. */
 class SequentialVideoCursor {
@@ -154,19 +172,19 @@ class SequentialVideoCursor {
     return this.#current.clone();
   }
 
-  async #restart(timeUs: TimeUs): Promise<void> {
+  async #restart(requestedTimeUs: TimeUs): Promise<void> {
     await this.close();
     const generation = this.#generation;
-    const frame = await this.#source.getFrame(timeUs);
+    const frame = await this.#source.getFrame(requestedTimeUs);
     if (generation !== this.#generation) {
       frame?.close();
       return;
     }
     this.#current = frame;
     if (!this.#current || !this.#source.frames) return;
-    const timestampUs = frameTimestampUs(this.#current, timeUs);
+    const timestampUs = frameTimestampUs(this.#current, requestedTimeUs);
     const durationUs = Math.max(1, Math.round(this.#current.duration ?? 1));
-    this.#iterator = this.#source.frames(timestampUs + durationUs);
+    this.#iterator = this.#source.frames(timeUs(timestampUs + durationUs));
   }
 
   async close(): Promise<void> {
@@ -214,7 +232,7 @@ export class PlaybackRuntime {
   readonly #sourceDescriptors = new Map<AssetId, MediaSourceDescriptor>();
   readonly #listeners = new Set<(snapshot: RuntimeSnapshot) => void>();
   readonly #executor: LatestOnlyExecutor<RenderRequest, void>;
-  #mode: PreviewMode = { kind: "timeline", timeUs: 0 };
+  #mode: PreviewMode = { kind: "timeline", timeUs: timeUs(0) };
   #initialized = false;
   #destroyed = false;
   #animationFrame = 0;
@@ -235,7 +253,7 @@ export class PlaybackRuntime {
   #lastActiveSourceKind: MediaSourceKind | null = null;
   #sourcePreviewSuppressions = 0;
   #audioScheduler: PlaybackAudioScheduler | null = null;
-  #audioScheduledUntilUs: TimeUs = 0;
+  #audioScheduledUntilUs: TimeUs = timeUs(0);
   #audioGeneration = 0;
   #audioStartingGeneration: number | null = null;
   #audioTransportGeneration: number | null = null;
@@ -289,7 +307,7 @@ export class PlaybackRuntime {
     this.#seekGeneration += 1;
     this.#resumeAfterSeek = false;
     const durationUs = sequenceDurationUs(getSequence(project));
-    const safeTimeUs = Math.max(0, Math.min(this.#clock.now(), durationUs));
+    const safeTimeUs = timeUs(Math.max(0, Math.min(this.#clock.now(), durationUs)));
     this.#clock.seek(safeTimeUs);
     if (this.#mode.kind === "timeline") this.#mode = { kind: "timeline", timeUs: safeTimeUs };
     this.#resetSequentialCursors();
@@ -370,13 +388,13 @@ export class PlaybackRuntime {
     this.pause();
   }
 
-  async seek(timeUs: TimeUs): Promise<void> {
-    await this.seekTimeline(timeUs);
+  async seek(requestedTimeUs: TimeUs): Promise<void> {
+    await this.seekTimeline(requestedTimeUs);
   }
 
-  async seekTimeline(timeUs: TimeUs): Promise<void> {
+  async seekTimeline(requestedTimeUs: TimeUs): Promise<void> {
     const durationUs = sequenceDurationUs(getSequence(this.#project));
-    const safeTimeUs = Math.max(0, Math.min(Math.round(timeUs), durationUs));
+    const safeTimeUs = timeUs(Math.max(0, Math.min(Math.round(requestedTimeUs), durationUs)));
     const shouldResume = this.#clock.playing || this.#resumeAfterSeek;
     const seekGeneration = ++this.#seekGeneration;
     this.#resumeAfterSeek = shouldResume;
@@ -410,7 +428,7 @@ export class PlaybackRuntime {
     const frameCount = Math.max(1, Math.ceil((durationUs * sequence.frameRate) / 1_000_000));
     const currentFrame = frameIndexAt(this.#clock.now(), sequence.frameRate);
     const targetFrame = Math.max(0, Math.min(currentFrame + deltaFrames, frameCount - 1));
-    const targetUs = Math.min(durationUs, frameTimeUs(targetFrame, sequence.frameRate));
+    const targetUs = timeUs(Math.min(durationUs, frameTimeUs(targetFrame, sequence.frameRate)));
     this.#clock.seek(targetUs);
     this.#mode = { kind: "timeline", timeUs: targetUs };
     await this.#request(this.#mode, "frame-step");
@@ -515,12 +533,12 @@ export class PlaybackRuntime {
       (this.#clock.rate > 0 && rawTimeUs >= durationUs) ||
       (this.#clock.rate < 0 && rawTimeUs <= 0)
     ) {
-      this.#clock.seek(this.#clock.rate > 0 ? durationUs : 0);
+      this.#clock.seek(this.#clock.rate > 0 ? durationUs : timeUs(0));
       this.pause();
       return;
     }
 
-    const safeTimeUs = Math.max(0, Math.min(rawTimeUs, durationUs));
+    const safeTimeUs = timeUs(Math.max(0, Math.min(rawTimeUs, durationUs)));
     const frameIndex = frameIndexAt(safeTimeUs, sequence.frameRate);
     if (frameIndex !== this.#lastPlaybackFrameIndex) {
       if (this.#lastPlaybackFrameIndex !== null)
@@ -567,7 +585,7 @@ export class PlaybackRuntime {
       this.#runBackground(
         this.#scheduleAudioWindow(
           this.#audioScheduledUntilUs,
-          safeTimeUs + 1_800_000,
+          timeUs(safeTimeUs + 1_800_000),
           this.#audioGeneration,
         ),
       );
@@ -603,7 +621,7 @@ export class PlaybackRuntime {
       return frame ? [{ frame, transform: DEFAULT_TRANSFORM }] : [];
     }
     const layers = resolveScene(this.#project, mode.timeUs);
-    const frames = await Promise.all(
+    const frames = await collectDecodedLayers(
       layers.map(async (layer) => {
         const descriptor = this.#sourceResolver.resolve(layer.asset.id);
         const frame = await this.#source(descriptor).getFrame(layer.sourceTimeUs);
@@ -621,44 +639,48 @@ export class PlaybackRuntime {
     const active = layers.at(-1);
     this.#lastActiveAssetId = active?.asset.id ?? null;
     this.#lastActiveSourceKind = active ? this.#sourceResolver.resolve(active.asset.id).kind : null;
-    return frames.filter((value): value is NonNullable<typeof value> => value !== null);
+    return frames;
   }
 
   async #decodeSequential(timeUs: TimeUs) {
     const layers = resolveScene(this.#project, timeUs);
     const activeCursorKeys = new Set<string>();
-    const frames = await Promise.all(
-      layers.map(async (layer) => {
-        const descriptor = this.#sourceResolver.resolve(layer.asset.id);
-        const source = this.#source(descriptor);
-        const key = `${layer.clip.id}:${descriptor.assetId}:${descriptor.kind}:${descriptor.url}`;
-        activeCursorKeys.add(key);
-        let cursor = this.#sequentialCursors.get(key);
-        if (!cursor) {
-          cursor = new SequentialVideoCursor(source);
-          this.#sequentialCursors.set(key, cursor);
-        }
-        const frame = await cursor.frameAt(layer.sourceTimeUs);
-        return frame
-          ? {
-              frame,
-              transform: {
-                ...layer.clip.transform,
-                opacity: layer.clip.transform.opacity * clipFadeGainAt(layer.clip, timeUs),
-              },
-            }
-          : null;
-      }),
-    );
-    for (const [key, cursor] of this.#sequentialCursors) {
-      if (activeCursorKeys.has(key)) continue;
-      this.#sequentialCursors.delete(key);
-      this.#runBackground(cursor.close());
+    let frames: CompositorLayer[];
+    try {
+      frames = await collectDecodedLayers(
+        layers.map(async (layer) => {
+          const descriptor = this.#sourceResolver.resolve(layer.asset.id);
+          const source = this.#source(descriptor);
+          const key = `${layer.clip.id}:${descriptor.assetId}:${descriptor.kind}:${descriptor.url}`;
+          activeCursorKeys.add(key);
+          let cursor = this.#sequentialCursors.get(key);
+          if (!cursor) {
+            cursor = new SequentialVideoCursor(source);
+            this.#sequentialCursors.set(key, cursor);
+          }
+          const frame = await cursor.frameAt(layer.sourceTimeUs);
+          return frame
+            ? {
+                frame,
+                transform: {
+                  ...layer.clip.transform,
+                  opacity: layer.clip.transform.opacity * clipFadeGainAt(layer.clip, timeUs),
+                },
+              }
+            : null;
+        }),
+      );
+    } finally {
+      for (const [key, cursor] of this.#sequentialCursors) {
+        if (activeCursorKeys.has(key)) continue;
+        this.#sequentialCursors.delete(key);
+        this.#runBackground(cursor.close());
+      }
     }
     const active = layers.at(-1);
     this.#lastActiveAssetId = active?.asset.id ?? null;
     this.#lastActiveSourceKind = active ? this.#sourceResolver.resolve(active.asset.id).kind : null;
-    return frames.filter((value): value is NonNullable<typeof value> => value !== null);
+    return frames;
   }
 
   #source(descriptor: MediaSourceDescriptor): VideoSource & Partial<AudioSource> {
@@ -712,16 +734,16 @@ export class PlaybackRuntime {
     this.#runBackground(this.#startAudio(timeUs, generation));
   }
 
-  async #startAudio(timeUs: TimeUs, generation: number): Promise<void> {
+  async #startAudio(startTimeUs: TimeUs, generation: number): Promise<void> {
     this.#audioScheduler ??= this.#audioSchedulerFactory();
     try {
       await this.#audioScheduler.resume();
       if (this.#destroyed || generation !== this.#audioGeneration || !this.#clock.playing) return;
-      this.#audioScheduler.startTransport(timeUs);
+      this.#audioScheduler.startTransport(startTimeUs);
       this.#audioTransportGeneration = generation;
-      this.#audioScheduledUntilUs = timeUs;
+      this.#audioScheduledUntilUs = startTimeUs;
       this.#audioStartingGeneration = null;
-      await this.#scheduleAudioWindow(timeUs, timeUs + 1_800_000, generation);
+      await this.#scheduleAudioWindow(startTimeUs, timeUs(startTimeUs + 1_800_000), generation);
     } finally {
       if (this.#audioStartingGeneration === generation) this.#audioStartingGeneration = null;
     }
@@ -753,9 +775,9 @@ export class PlaybackRuntime {
             clip.timelineStartUs >= toUs
           )
             continue;
-          const timelineFromUs = Math.max(fromUs, clip.timelineStartUs);
-          const timelineToUs = Math.min(toUs, clipEndUs(clip));
-          const sourceFromUs = clip.sourceStartUs + timelineFromUs - clip.timelineStartUs;
+          const timelineFromUs = timeUs(Math.max(fromUs, clip.timelineStartUs));
+          const timelineToUs = timeUs(Math.min(toUs, clipEndUs(clip)));
+          const sourceFromUs = timeUs(clip.sourceStartUs + timelineFromUs - clip.timelineStartUs);
           const source = this.#source(this.#sourceResolver.resolve(asset.id));
           if (!source.buffers) continue;
           work.push(
@@ -763,12 +785,12 @@ export class PlaybackRuntime {
               source as VideoSource & AudioSource,
               sourceFromUs,
               timelineFromUs,
-              timelineToUs - timelineFromUs,
+              timeUs(timelineToUs - timelineFromUs),
               {
                 timelineStartUs: clip.timelineStartUs,
                 timelineEndUs: clipEndUs(clip),
-                fadeInUs: clip.fadeInUs ?? 0,
-                fadeOutUs: clip.fadeOutUs ?? 0,
+                fadeInUs: clip.fadeInUs ?? timeUs(0),
+                fadeOutUs: clip.fadeOutUs ?? timeUs(0),
               },
             ),
           );

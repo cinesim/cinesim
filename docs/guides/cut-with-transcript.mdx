@@ -20,10 +20,9 @@ Use **Settings → Transcription** to switch from manual generation to automatic
 the speech model. Nova-3 is the only current model, so the selector also makes the active provider
 choice explicit without introducing a separate configuration path.
 
-Before the first transcription for an account, Cinesim explains that the operation is remote and
-asks for consent. Bounded audio chunks go directly from the authenticated Cinesim API to Deepgram
-Nova-3. The API credential never enters the desktop app. The generated word timings, speaker
-clusters, utterances, paragraphs,
+Bounded audio chunks go directly from the authenticated Cinesim API to Deepgram Nova-3 when a user
+requests transcription or enables automatic generation. The API credential never enters the
+desktop app. The generated word timings, speaker clusters, utterances, paragraphs,
 punctuation, formatting, detected language, confidence, and retained filler words are stored under
 `.video/transcripts/`, so they can be discarded and regenerated without changing the project.
 

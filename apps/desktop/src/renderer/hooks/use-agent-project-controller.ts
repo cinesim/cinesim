@@ -51,11 +51,6 @@ export function useAgentProjectController(session: DesktopProjectSession) {
 
   useEffect(() => {
     let active = true;
-    setSnapshot(cachedAgentProject(session.directory));
-    setSettings(cachedAgentSettings());
-    setProviders(cachedAgentProviders());
-    setError(null);
-
     async function loadSnapshot(): Promise<AgentProjectSnapshot | null> {
       try {
         const next = await window.cinesim.getAgents(session.directory);

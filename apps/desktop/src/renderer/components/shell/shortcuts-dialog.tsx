@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, Kbd, SearchField } from "@cinesim/ui";
 
 interface ShortcutsDialogProps {
@@ -17,10 +17,6 @@ export const ShortcutHint = Kbd;
 
 export function ShortcutsDialog({ open, isMac, onClose }: ShortcutsDialogProps) {
   const [query, setQuery] = useState("");
-
-  useEffect(() => {
-    if (!open) setQuery("");
-  }, [open]);
 
   const command = isMac ? "⌘" : "Ctrl+";
   const groups: Array<{ title: string; shortcuts: ShortcutRow[] }> = [
@@ -85,7 +81,14 @@ export function ShortcutsDialog({ open, isMac, onClose }: ShortcutsDialogProps) 
     .filter((group) => group.shortcuts.length > 0);
 
   return (
-    <Dialog open={open} onOpenChange={(nextOpen) => !nextOpen && onClose()}>
+    <Dialog
+      open={open}
+      onOpenChange={(nextOpen) => {
+        if (nextOpen) return;
+        setQuery("");
+        onClose();
+      }}
+    >
       <DialogContent className="flex h-[520px] max-h-[calc(100vh-3rem)] max-w-3xl flex-col">
         <DialogHeader className="h-auto shrink-0 gap-5 border-b-0 px-5 pb-3 pt-5">
           <DialogTitle>Keyboard shortcuts</DialogTitle>

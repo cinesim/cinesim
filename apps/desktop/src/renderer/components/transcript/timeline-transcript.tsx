@@ -1,7 +1,8 @@
 import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { Trash2, User, Play, LoaderCircle, RotateCcw, MoveHorizontal, X } from "@cinesim/ui";
 import { Button, cn, Menu, MenuContent, MenuItem, MenuTrigger, SearchField } from "@cinesim/ui";
-import type { AssetId, EditorCommand, Project, TimelineRange } from "@cinesim/core";
+import { timeUs } from "@cinesim/core";
+import type { AssetId, EditorCommand, Project, TimelineRange, TimeUs } from "@cinesim/core";
 import type { TranscriptSnapshot } from "../../../shared/transcript";
 import {
   projectTimelineTranscript,
@@ -11,27 +12,26 @@ import {
   type TranscriptInlineToken,
 } from "../../../shared/transcript";
 import type { ActionResult, RendererState } from "../../store/renderer-store";
-import { useTranscriptionConsent } from "./transcription-consent";
 
 interface TimelineTranscriptProps {
   project: Project;
   sequenceId: string;
   transcripts: TranscriptSnapshot | null;
   account: RendererState["account"];
-  playheadUs: number;
-  onSeek: (timeUs: number) => void;
+  playheadUs: TimeUs;
+  onSeek: (timeUs: TimeUs) => void;
   onCommand: (command: EditorCommand) => Promise<ActionResult<unknown>>;
   onRequestTranscripts: (assetIds: AssetId[]) => Promise<ActionResult<TranscriptSnapshot>>;
   onCancelTranscripts: (assetIds: AssetId[]) => Promise<ActionResult<TranscriptSnapshot>>;
   onSelectionChange: (ranges: TimelineRange[]) => void;
-  onPlaySelection: (startUs: number, endUs: number) => void;
+  onPlaySelection: (startUs: TimeUs, endUs: TimeUs) => void;
 }
 
 interface SelectableToken {
   id: string;
   kind: "word" | "media-silence" | "timeline-gap";
-  startUs: number;
-  endUs: number;
+  startUs: TimeUs;
+  endUs: TimeUs;
   label: string;
 }
 
@@ -62,7 +62,7 @@ function mergeRanges(items: readonly SelectableToken[]): TimelineRange[] {
   for (const range of sorted) {
     const previous = result.at(-1);
     if (previous && range.startUs <= previous.endUs)
-      previous.endUs = Math.max(previous.endUs, range.endUs);
+      previous.endUs = timeUs(Math.max(previous.endUs, range.endUs));
     else result.push({ ...range });
   }
   return result;
@@ -247,11 +247,6 @@ export function TimelineTranscript({
   const [anchorId, setAnchorId] = useState<string | null>(null);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
   const dragging = useRef(false);
-  const transcriptionConsent = useTranscriptionConsent(
-    account.user?.id ?? null,
-    onRequestTranscripts,
-  );
-
   const speakers = useMemo(() => {
     const counts = new Map<string, number>();
     for (const block of projection.blocks) {
@@ -470,7 +465,7 @@ export function TimelineTranscript({
                         section.coverage.state === "queued"
                       )
                         void onCancelTranscripts([section.coverage.assetId]);
-                      else transcriptionConsent.request([section.coverage.assetId]);
+                      else void onRequestTranscripts([section.coverage.assetId]);
                     }}
                   />
                 );
@@ -628,7 +623,6 @@ export function TimelineTranscript({
           </div>
         </div>
       )}
-      {transcriptionConsent.dialog}
     </section>
   );
 }

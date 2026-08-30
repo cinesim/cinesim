@@ -12,6 +12,7 @@ const optionalEnvironmentValue = z.preprocess(
   (value) => (typeof value === "string" && value.trim() === "" ? undefined : value),
   z.string().min(1).optional(),
 );
+const positiveInteger = z.coerce.number().int().positive().safe();
 
 const environmentSchema = z
   .object({
@@ -31,6 +32,14 @@ const environmentSchema = z
     EMAIL_FROM: z.string().min(3),
     DEEPGRAM_API_KEY: optionalEnvironmentValue,
     OPENROUTER_API_KEY: optionalEnvironmentValue,
+    CINESIM_TRANSCRIPTION_USER_CONCURRENCY: positiveInteger.default(2),
+    CINESIM_TRANSCRIPTION_SERVICE_CONCURRENCY: positiveInteger.default(8),
+    CINESIM_TRANSCRIPTION_REQUESTS_PER_MINUTE: positiveInteger.default(12),
+    CINESIM_TRANSCRIPTION_NETWORK_REQUESTS_PER_MINUTE: positiveInteger.default(30),
+    CINESIM_TRANSCRIPTION_USER_MONTHLY_SECONDS: positiveInteger.default(7_200),
+    CINESIM_TRANSCRIPTION_SERVICE_MONTHLY_SECONDS: positiveInteger.default(360_000),
+    CINESIM_TRANSCRIPTION_MAX_REQUEST_SECONDS: positiveInteger.max(3_600).default(600),
+    CINESIM_TRANSCRIPTION_PROVIDER_TIMEOUT_MS: positiveInteger.max(300_000).default(75_000),
     GOOGLE_CLIENT_ID: z.string().optional(),
     GOOGLE_CLIENT_SECRET: z.string().optional(),
     CLOUDFLARE_R2_ACCOUNT_ID: optionalEnvironmentValue,
@@ -103,6 +112,16 @@ export interface ServerConfig {
   emailFrom: string;
   deepgramApiKey: string | null;
   openRouterApiKey: string | null;
+  transcriptionLimits: {
+    perUserConcurrency: number;
+    serviceConcurrency: number;
+    requestsPerMinute: number;
+    networkRequestsPerMinute: number;
+    userMonthlySeconds: number;
+    serviceMonthlySeconds: number;
+    maximumRequestSeconds: number;
+    providerTimeoutMs: number;
+  };
   google: { clientId: string; clientSecret: string } | null;
   r2: {
     accountId: string;
@@ -137,6 +156,16 @@ export function readServerConfig(environment: NodeJS.ProcessEnv): ServerConfig {
     emailFrom: value.EMAIL_FROM,
     deepgramApiKey: value.DEEPGRAM_API_KEY ?? null,
     openRouterApiKey: value.OPENROUTER_API_KEY ?? null,
+    transcriptionLimits: {
+      perUserConcurrency: value.CINESIM_TRANSCRIPTION_USER_CONCURRENCY,
+      serviceConcurrency: value.CINESIM_TRANSCRIPTION_SERVICE_CONCURRENCY,
+      requestsPerMinute: value.CINESIM_TRANSCRIPTION_REQUESTS_PER_MINUTE,
+      networkRequestsPerMinute: value.CINESIM_TRANSCRIPTION_NETWORK_REQUESTS_PER_MINUTE,
+      userMonthlySeconds: value.CINESIM_TRANSCRIPTION_USER_MONTHLY_SECONDS,
+      serviceMonthlySeconds: value.CINESIM_TRANSCRIPTION_SERVICE_MONTHLY_SECONDS,
+      maximumRequestSeconds: value.CINESIM_TRANSCRIPTION_MAX_REQUEST_SECONDS,
+      providerTimeoutMs: value.CINESIM_TRANSCRIPTION_PROVIDER_TIMEOUT_MS,
+    },
     google:
       value.GOOGLE_CLIENT_ID && value.GOOGLE_CLIENT_SECRET
         ? { clientId: value.GOOGLE_CLIENT_ID, clientSecret: value.GOOGLE_CLIENT_SECRET }

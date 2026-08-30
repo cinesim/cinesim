@@ -5,6 +5,7 @@ import {
   clipEndUs,
   DEFAULT_TRANSFORM,
   isAssetMediaCompatibleWithTrack,
+  timeUs,
 } from "../project/types";
 import type { Asset, AssetSource, Clip, Project, Sequence, Track } from "../project/types";
 import {
@@ -58,9 +59,9 @@ function clampClipFades(clip: Clip): void {
   const durationUs = clipEndUs(clip) - clip.timelineStartUs;
   const fadeInUs = Math.min(durationUs, clip.fadeInUs ?? 0);
   const fadeOutUs = Math.min(durationUs - fadeInUs, clip.fadeOutUs ?? 0);
-  if (fadeInUs > 0) clip.fadeInUs = fadeInUs;
+  if (fadeInUs > 0) clip.fadeInUs = timeUs(fadeInUs);
   else delete clip.fadeInUs;
-  if (fadeOutUs > 0) clip.fadeOutUs = fadeOutUs;
+  if (fadeOutUs > 0) clip.fadeOutUs = timeUs(fadeOutUs);
   else delete clip.fadeOutUs;
 }
 
@@ -292,7 +293,7 @@ export function applyCommand(inputProject: Project, command: EditorCommand): Com
       };
       const existingClipIds = allClipIds(project);
       const createdClipIds: ClipId[] = [];
-      let timelineStartUs = 0;
+      let timelineStartUs = timeUs(0);
       for (const asset of assets) {
         const primaryTrack = asset.kind === "audio" ? audioTrack : videoTrack;
         const primaryId = nextId("clip", [...existingClipIds, ...createdClipIds]);
@@ -306,7 +307,7 @@ export function applyCommand(inputProject: Project, command: EditorCommand): Com
           mediaKind: asset.kind === "audio" ? "audio" : "video",
           ...(linkedAudioId ? { linkedClipId: linkedAudioId } : {}),
           timelineStartUs,
-          sourceStartUs: 0,
+          sourceStartUs: timeUs(0),
           sourceEndUs: asset.durationUs,
           transform: { ...DEFAULT_TRANSFORM },
         });
@@ -318,13 +319,13 @@ export function applyCommand(inputProject: Project, command: EditorCommand): Com
             mediaKind: "audio",
             linkedClipId: primaryId,
             timelineStartUs,
-            sourceStartUs: 0,
+            sourceStartUs: timeUs(0),
             sourceEndUs: asset.durationUs,
             transform: { ...DEFAULT_TRANSFORM },
           });
           createdClipIds.push(linkedAudioId);
         }
-        timelineStartUs += asset.durationUs;
+        timelineStartUs = timeUs(timelineStartUs + asset.durationUs);
       }
       const sequence: Sequence = {
         id: sequenceId,
@@ -452,7 +453,7 @@ export function applyCommand(inputProject: Project, command: EditorCommand): Com
       if (!asset) throw new CommandError("ASSET_NOT_FOUND", `Asset not found: ${command.assetId}`);
       const primaryMediaKind = asset.kind === "audio" ? "audio" : "video";
       assertAssetTrackCompatibility(asset, track, primaryMediaKind);
-      const sourceStartUs = command.sourceStartUs ?? 0;
+      const sourceStartUs = command.sourceStartUs ?? timeUs(0);
       const sourceEndUs = command.sourceEndUs ?? asset.durationUs;
       assertTime(sourceStartUs, "sourceStartUs");
       assertTime(sourceEndUs, "sourceEndUs");
@@ -586,7 +587,7 @@ export function applyCommand(inputProject: Project, command: EditorCommand): Com
       assertNoOverlap(targetTrack, moved, moved.id);
       const deltaUs = command.timelineStartUs - location.clip.timelineStartUs;
       const movedLinked = linked
-        ? { ...linked.clip, timelineStartUs: linked.clip.timelineStartUs + deltaUs }
+        ? { ...linked.clip, timelineStartUs: timeUs(linked.clip.timelineStartUs + deltaUs) }
         : null;
       if (movedLinked) {
         assertTime(movedLinked.timelineStartUs, "linkedTimelineStartUs");
@@ -620,14 +621,14 @@ export function applyCommand(inputProject: Project, command: EditorCommand): Com
       const trimmed = {
         ...clip,
         timelineStartUs: command.atUs,
-        sourceStartUs: clip.sourceStartUs + delta,
+        sourceStartUs: timeUs(clip.sourceStartUs + delta),
       };
       assertNoOverlap(track, trimmed, clip.id);
       const linkedTrimmed = linked
         ? {
             ...linked.clip,
             timelineStartUs: command.atUs,
-            sourceStartUs: linked.clip.sourceStartUs + delta,
+            sourceStartUs: timeUs(linked.clip.sourceStartUs + delta),
           }
         : null;
       if (linkedTrimmed) assertNoOverlap(linked!.track, linkedTrimmed, linkedTrimmed.id);
@@ -656,13 +657,15 @@ export function applyCommand(inputProject: Project, command: EditorCommand): Com
       }
       const trimmed = {
         ...clip,
-        sourceEndUs: clip.sourceStartUs + (command.atUs - clip.timelineStartUs),
+        sourceEndUs: timeUs(clip.sourceStartUs + (command.atUs - clip.timelineStartUs)),
       };
       assertNoOverlap(track, trimmed, clip.id);
       const linkedTrimmed = linked
         ? {
             ...linked.clip,
-            sourceEndUs: linked.clip.sourceStartUs + (command.atUs - linked.clip.timelineStartUs),
+            sourceEndUs: timeUs(
+              linked.clip.sourceStartUs + (command.atUs - linked.clip.timelineStartUs),
+            ),
           }
         : null;
       if (linkedTrimmed) assertNoOverlap(linked!.track, linkedTrimmed, linkedTrimmed.id);
@@ -713,7 +716,7 @@ export function applyCommand(inputProject: Project, command: EditorCommand): Com
       const existingIds = allClipIds(project);
       const rightId = nextId("clip", existingIds);
       const linkedRightId = linked ? nextId("clip", [...existingIds, rightId]) : null;
-      const sourceSplitUs = clip.sourceStartUs + (command.atUs - clip.timelineStartUs);
+      const sourceSplitUs = timeUs(clip.sourceStartUs + (command.atUs - clip.timelineStartUs));
       const right: Clip = {
         ...structuredClone(clip),
         id: rightId,
@@ -723,7 +726,7 @@ export function applyCommand(inputProject: Project, command: EditorCommand): Com
       };
       delete right.fadeInUs;
       const linkedSourceSplitUs = linked
-        ? linked.clip.sourceStartUs + (command.atUs - linked.clip.timelineStartUs)
+        ? timeUs(linked.clip.sourceStartUs + (command.atUs - linked.clip.timelineStartUs))
         : null;
       const linkedRight: Clip | null =
         linked && linkedRightId && linkedSourceSplitUs !== null

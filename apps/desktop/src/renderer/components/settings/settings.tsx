@@ -53,10 +53,21 @@ import {
   cachedAgentSettings,
 } from "../../lib/agent-presentation-cache";
 import { AccountAvatar, GoogleMark } from "../account/account-ui";
-import { grantTranscriptionConsent } from "../transcript/transcription-consent";
 
 interface SettingsProps {
   section: SettingsSection;
+}
+
+type CloudUsageState =
+  | { status: "idle" }
+  | { status: "loading"; previous: CloudStorageUsage | null }
+  | { status: "ready"; usage: CloudStorageUsage }
+  | { status: "failed"; previous: CloudStorageUsage | null; error: string };
+
+function cloudUsage(state: CloudUsageState): CloudStorageUsage | null {
+  if (state.status === "ready") return state.usage;
+  if (state.status === "loading" || state.status === "failed") return state.previous;
+  return null;
 }
 
 export function Settings({ section }: SettingsProps) {
@@ -89,7 +100,6 @@ function TranscriptionSettings() {
 
   async function update(next: TranscriptionSettingsState): Promise<void> {
     if (account.status !== "signed-in" || !account.user) return;
-    if (next.generation === "automatic") grantTranscriptionConsent(account.user.id);
     setSaving(true);
     await save(next);
     setSaving(false);
@@ -115,8 +125,7 @@ function TranscriptionSettings() {
             Transcription sends bounded audio chunks directly to Deepgram. Audio leaves this Mac;
             the generated transcript remains disposable data under
             <code className="mx-1 rounded bg-panel-muted px-1 py-0.5 text-primary">.video</code>.
-            Choosing automatic generation authorizes this remote processing for newly encountered
-            speech media while you are signed in.
+            Automatic generation queues newly encountered speech media while you are signed in.
           </Notice>
           <div className="divide-y divide-border rounded-xl border border-border bg-panel">
             <SettingRow
@@ -188,27 +197,50 @@ function CloudStorageSettings() {
   const account = useRendererStore((state) => state.account);
   const transfers = useRendererStore((state) => state.cloudTransfers);
   const session = useRendererStore((state) => sessionFromLifecycle(state.project));
-  const [usage, setUsage] = useState<CloudStorageUsage | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
+  const [usageState, setUsageState] = useState<CloudUsageState>({ status: "idle" });
   const [busyAssetId, setBusyAssetId] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
+  const usage = cloudUsage(usageState);
+  const loading = usageState.status === "loading";
+  const error = usageState.status === "failed" ? usageState.error : null;
 
   const refresh = useCallback(async (): Promise<void> => {
     if (account.status !== "signed-in") return;
-    setLoading(true);
-    setError(null);
+    setUsageState({ status: "loading", previous: usage });
     try {
-      setUsage(await window.cinesim.getCloudStorageUsage());
+      setUsageState({ status: "ready", usage: await window.cinesim.getCloudStorageUsage() });
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Cloud storage usage is unavailable");
+      setUsageState({
+        status: "failed",
+        previous: usage,
+        error: caught instanceof Error ? caught.message : "Cloud storage usage is unavailable",
+      });
     }
-    setLoading(false);
-  }, [account.status]);
+  }, [account.status, usage]);
 
   useEffect(() => {
-    void refresh();
-  }, [refresh, transfers]);
+    if (account.status !== "signed-in") return;
+
+    let active = true;
+    void window.cinesim
+      .getCloudStorageUsage()
+      .then((nextUsage) => {
+        if (!active) return;
+        setUsageState({ status: "ready", usage: nextUsage });
+      })
+      .catch((caught: unknown) => {
+        if (!active) return;
+        setUsageState((current) => ({
+          status: "failed",
+          previous: cloudUsage(current),
+          error: caught instanceof Error ? caught.message : "Cloud storage usage is unavailable",
+        }));
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [account.status, transfers]);
 
   if (account.status !== "signed-in")
     return <Notice size="default">Sign in to configure and inspect Cinesim Cloud storage.</Notice>;
@@ -228,7 +260,6 @@ function CloudStorageSettings() {
 
   async function mutateAsset(id: string, operation: "trash" | "restore" | "delete") {
     setBusyAssetId(id);
-    setError(null);
     try {
       if (operation === "trash") await window.cinesim.trashCloudAssets([id]);
       else if (operation === "restore") await window.cinesim.restoreCloudAsset(id);
@@ -236,20 +267,29 @@ function CloudStorageSettings() {
       setConfirmDelete(null);
       await refresh();
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "The cloud asset could not be updated");
+      setUsageState({
+        status: "failed",
+        previous: usage,
+        error: caught instanceof Error ? caught.message : "The cloud asset could not be updated",
+      });
     }
     setBusyAssetId(null);
   }
 
   async function configureAddon(addonBytes: number): Promise<void> {
-    setLoading(true);
-    setError(null);
+    setUsageState({ status: "loading", previous: usage });
     try {
-      setUsage(await window.cinesim.configureCloudStorageAddon(addonBytes));
+      setUsageState({
+        status: "ready",
+        usage: await window.cinesim.configureCloudStorageAddon(addonBytes),
+      });
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "The storage allowance could not change");
+      setUsageState({
+        status: "failed",
+        previous: usage,
+        error: caught instanceof Error ? caught.message : "The storage allowance could not change",
+      });
     }
-    setLoading(false);
   }
 
   return (

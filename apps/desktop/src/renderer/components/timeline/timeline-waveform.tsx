@@ -89,7 +89,7 @@ export function TimelineWaveform({
   artifact: DerivedArtifactSnapshot;
   derived: DerivedMediaSnapshot;
 }) {
-  const [envelope, setEnvelope] = useState<WaveformEnvelope | null>(null);
+  const [loaded, setLoaded] = useState<{ url: string; envelope: WaveformEnvelope } | null>(null);
   const revision = artifact.updatedAt;
   const url =
     artifact.state === "ready" && revision
@@ -103,17 +103,15 @@ export function TimelineWaveform({
       : null;
 
   useEffect(() => {
-    if (!url) {
-      setEnvelope(null);
-      return;
-    }
+    if (!url) return;
+    const requestedUrl = url;
     let active = true;
     async function load(): Promise<void> {
       try {
-        const next = await loadWaveformEnvelope(url!);
-        if (active) setEnvelope(next);
+        const next = await loadWaveformEnvelope(requestedUrl);
+        if (active) setLoaded({ url: requestedUrl, envelope: next });
       } catch {
-        if (active) setEnvelope(null);
+        // A failed or obsolete artifact has no renderable envelope for this URL.
       }
     }
     void load();
@@ -122,6 +120,7 @@ export function TimelineWaveform({
     };
   }, [url]);
 
+  const envelope = loaded?.url === url ? loaded.envelope : null;
   if (!envelope) return null;
   const path = waveformEnvelopePath(
     envelope,

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vite-plus/test";
-import { DEFAULT_TRANSFORM, type Clip } from "@cinesim/core";
+import { timeUs, DEFAULT_TRANSFORM, type Clip } from "@cinesim/core";
 import {
   IDLE_TRIM_GESTURE,
   trimPreviewClip,
@@ -11,9 +11,9 @@ const clip: Clip = {
   id: "clip_fixture",
   assetId: "asset_fixture",
   mediaKind: "video",
-  timelineStartUs: 2_000_000,
-  sourceStartUs: 1_000_000,
-  sourceEndUs: 5_000_000,
+  timelineStartUs: timeUs(2_000_000),
+  sourceStartUs: timeUs(1_000_000),
+  sourceEndUs: timeUs(5_000_000),
   transform: DEFAULT_TRANSFORM,
 };
 
@@ -39,7 +39,7 @@ describe("timeline trim gesture", () => {
     expect(finished.command).toEqual({
       type: "clip.trimEnd",
       clipId: clip.id,
-      atUs: 5_800_000,
+      atUs: timeUs(5_800_000),
     });
   });
 
@@ -59,13 +59,13 @@ describe("timeline trim gesture", () => {
     });
     expect(moved.command).toBeUndefined();
     expect(trimPreviewRange(moved.state)).toEqual({
-      timelineStartUs: 2_500_000,
-      timelineEndUs: 6_000_000,
+      timelineStartUs: timeUs(2_500_000),
+      timelineEndUs: timeUs(6_000_000),
     });
     expect(trimPreviewClip(moved.state)).toMatchObject({
-      timelineStartUs: 2_500_000,
-      sourceStartUs: 1_500_000,
-      sourceEndUs: 5_000_000,
+      timelineStartUs: timeUs(2_500_000),
+      sourceStartUs: timeUs(1_500_000),
+      sourceEndUs: timeUs(5_000_000),
     });
   });
 
@@ -77,8 +77,8 @@ describe("timeline trim gesture", () => {
       clientX: 100,
       pixelsPerUs: 0.0001,
       frameRate: 30,
-      snapCandidatesUs: [5_755_000],
-      snapToleranceUs: 15_000,
+      snapCandidatesUs: [timeUs(5_755_000)],
+      snapToleranceUs: timeUs(15_000),
       clip,
     });
     const frameQuantized = transitionTrimGesture(started.state, {

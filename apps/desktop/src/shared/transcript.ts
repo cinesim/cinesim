@@ -1,5 +1,5 @@
 import type { AssetId, ClipId, Project, Sequence, TimeUs } from "@cinesim/core";
-import { clipEndUs, normalizeTimelineRanges } from "@cinesim/core";
+import { clipEndUs, normalizeTimelineRanges, timeUs } from "@cinesim/core";
 import type { DerivedProjectScope, SourceFingerprint } from "./api";
 
 export const TRANSCRIPT_ARTIFACT_VERSION = 1 as const;
@@ -259,13 +259,14 @@ function wordsForClip(
   const words = artifact.words.flatMap((word) => {
     const midpointUs = word.sourceStartUs + (word.sourceEndUs - word.sourceStartUs) / 2;
     if (midpointUs < clip.sourceStartUs || midpointUs >= clip.sourceEndUs) return [];
-    const timelineStartUs = Math.max(
-      clip.timelineStartUs,
-      clip.timelineStartUs + word.sourceStartUs - clip.sourceStartUs,
+    const timelineStartUs = timeUs(
+      Math.max(
+        clip.timelineStartUs,
+        clip.timelineStartUs + word.sourceStartUs - clip.sourceStartUs,
+      ),
     );
-    const timelineEndUs = Math.min(
-      clipEnd,
-      clip.timelineStartUs + word.sourceEndUs - clip.sourceStartUs,
+    const timelineEndUs = timeUs(
+      Math.min(clipEnd, clip.timelineStartUs + word.sourceEndUs - clip.sourceStartUs),
     );
     if (timelineEndUs <= timelineStartUs) return [];
     return [
@@ -451,7 +452,7 @@ export function timelineRangesForWordIds(
   for (const word of selected) {
     const previous = ranges.at(-1);
     if (previous?.clipId === word.clipId) {
-      previous.endUs = Math.max(previous.endUs, word.timelineEndUs);
+      previous.endUs = timeUs(Math.max(previous.endUs, word.timelineEndUs));
     } else {
       ranges.push({
         clipId: word.clipId,
@@ -508,7 +509,7 @@ export function projectNarrativeUnits(input: {
   for (const group of dialogue) {
     const previous = units.at(-1);
     if (previous && group.startUs < previous.timelineEndUs) {
-      previous.timelineEndUs = Math.max(previous.timelineEndUs, group.endUs);
+      previous.timelineEndUs = timeUs(Math.max(previous.timelineEndUs, group.endUs));
       previous.clipIds = [...new Set([...previous.clipIds, ...group.clipIds])].sort();
       previous.speakerClusterIds = [
         ...new Set([...previous.speakerClusterIds, ...group.speakerClusterIds]),

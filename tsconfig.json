@@ -21,6 +21,8 @@
       "@cinesim/core": ["./packages/core/src/index.ts"],
       "@cinesim/engine": ["./packages/engine/src/index.ts"],
       "@cinesim/logging": ["./packages/logging/src/index.ts"],
+      "@cinesim/mcp-tools": ["./packages/mcp-tools/src/index.ts"],
+      "@cinesim/project-io": ["./packages/project-io/src/index.ts"],
       "@cinesim/protocol": ["./packages/protocol/src/index.ts"],
       "@cinesim/ui": ["./packages/ui/src/index.ts"]
     }

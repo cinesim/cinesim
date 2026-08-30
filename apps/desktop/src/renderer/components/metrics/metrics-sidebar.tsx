@@ -1,4 +1,5 @@
 import { Activity, Cpu, Gauge, Image, Sparkles } from "@cinesim/ui";
+import { timeUs } from "@cinesim/core";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   DefinitionRow,
@@ -157,7 +158,7 @@ export function MetricsSidebar() {
               <Section icon={<Gauge size={13} />} title="Current state">
                 <MetricRow label="Preview mode" value={metrics?.mode.kind ?? unavailable} />
                 <MetricRow label="Transport" value={metrics?.playing ? "Playing" : "Paused"} />
-                <MetricRow label="Timeline" value={formatTimecode(metrics?.timeUs ?? 0)} />
+                <MetricRow label="Timeline" value={formatTimecode(metrics?.timeUs ?? timeUs(0))} />
                 <MetricRow label="Foreground" value={metrics?.foregroundPressure ?? "Idle"} />
                 <MetricRow label="Active asset" value={metrics?.activeAssetId ?? "None"} />
                 <MetricRow label="Source" value={metrics?.activeSourceKind ?? unavailable} />

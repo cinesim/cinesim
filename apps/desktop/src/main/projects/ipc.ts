@@ -1,9 +1,10 @@
 import { randomUUID } from "node:crypto";
 import { lstat, readFile, realpath } from "node:fs/promises";
 import { parse, resolve } from "node:path";
-import { dialog, ipcMain, shell } from "electron";
-import type { CloudProjectId, EditorCommand, ProjectId } from "@cinesim/core";
-import { settingsSchema } from "@cinesim/core";
+import { dialog, shell } from "electron";
+import { z } from "zod";
+import { cloudProjectIdSchema, projectIdSchema, settingsSchema } from "@cinesim/core";
+import { editorCommandSchema } from "@cinesim/protocol";
 import type { AgentManager } from "../agents/manager";
 import type { DesktopAccountService } from "../account/service";
 import type { CloudMediaManager } from "../cloud/manager";
@@ -11,6 +12,14 @@ import type { DesktopAppStateStore } from "../state/app-state-store";
 import type { DesktopProjectStore } from "./project-store";
 import { canonicalProjectSizeBytes } from "./project-size";
 import { isTemporaryMediaSelection } from "./media-import";
+import { registerIpcHandler } from "../app/secure-ipc";
+
+const projectManifestSchema = z.object({
+  version: z.literal(1),
+  id: projectIdSchema,
+  cloudProjectId: cloudProjectIdSchema.optional(),
+  name: z.string().min(1),
+});
 
 export function registerProjectIpc(
   store: DesktopProjectStore,
@@ -20,32 +29,18 @@ export function registerProjectIpc(
   cloudMedia: CloudMediaManager,
 ): void {
   async function projectManifest(directory: string) {
-    const manifest = JSON.parse(await readFile(resolve(directory, "cinesim.json"), "utf8")) as {
-      version?: unknown;
-      id?: unknown;
-      cloudProjectId?: unknown;
-      name?: unknown;
-    };
-    if (
-      manifest.version !== 1 ||
-      typeof manifest.id !== "string" ||
-      !/^project_[a-zA-Z0-9][a-zA-Z0-9_-]*$/.test(manifest.id) ||
-      (manifest.cloudProjectId !== undefined &&
-        (typeof manifest.cloudProjectId !== "string" ||
-          !/^cloud_project_[a-zA-Z0-9][a-zA-Z0-9_-]{7,127}$/.test(manifest.cloudProjectId))) ||
-      typeof manifest.name !== "string" ||
-      manifest.name.length === 0
-    )
-      throw new Error("This folder is not a supported Cinesim project");
+    const manifest = projectManifestSchema.parse(
+      JSON.parse(await readFile(resolve(directory, "cinesim.json"), "utf8")) as unknown,
+    );
     const base = {
-      id: manifest.id as ProjectId,
+      id: manifest.id,
       name: manifest.name,
     };
     return typeof manifest.cloudProjectId === "string"
       ? {
           ...base,
           kind: "cloud" as const,
-          cloudProjectId: manifest.cloudProjectId as CloudProjectId,
+          cloudProjectId: manifest.cloudProjectId,
         }
       : { ...base, kind: "local" as const };
   }
@@ -81,7 +76,7 @@ export function registerProjectIpc(
     if (assetIds.length > 0) await cloudMedia.queue(assetIds);
   }
 
-  ipcMain.handle("project:create", async (_event, name: unknown, kind: unknown) => {
+  registerIpcHandler("project:create", async (name: unknown, kind: unknown) => {
     if (typeof name !== "string" || name.trim().length === 0 || name.length > 120)
       throw new Error("Invalid project name");
     if (kind !== "local" && kind !== "cloud") throw new Error("Invalid project kind");
@@ -97,11 +92,11 @@ export function registerProjectIpc(
       properties: ["openDirectory", "createDirectory"],
     });
     if (selection.canceled) return null;
-    const projectId = `project_${randomUUID().replaceAll("-", "")}` as ProjectId;
-    let cloudProjectId: CloudProjectId | undefined;
+    const projectId = projectIdSchema.parse(`project_${randomUUID().replaceAll("-", "")}`);
+    let cloudProjectId;
     if (kind === "cloud") {
       const registration = await account.registerProject({ clientProjectId: projectId, name });
-      cloudProjectId = registration.id as CloudProjectId;
+      cloudProjectId = cloudProjectIdSchema.parse(registration.id);
     }
     const session = await store.create(selection.filePaths[0]!, {
       name,
@@ -115,7 +110,7 @@ export function registerProjectIpc(
     });
     return session;
   });
-  ipcMain.handle("project:open", async () => {
+  registerIpcHandler("project:open", async () => {
     const selection = await dialog.showOpenDialog({
       title: "Open a Cinesim project",
       buttonLabel: "Open project",
@@ -136,7 +131,7 @@ export function registerProjectIpc(
     await reconcileLocalOriginals();
     return session;
   });
-  ipcMain.handle("project:open-recent", async (_event, directory: unknown) => {
+  registerIpcHandler("project:open-recent", async (directory: unknown) => {
     if (typeof directory !== "string" || !appState.hasRecent(directory))
       throw new Error("Project is not in the recent projects list");
     const manifest = await projectManifest(directory);
@@ -152,8 +147,8 @@ export function registerProjectIpc(
     await reconcileLocalOriginals();
     return session;
   });
-  ipcMain.handle("project:session", () => (store.project ? store.session() : null));
-  ipcMain.handle("project:recent-sizes", async () => {
+  registerIpcHandler("project:session", () => (store.project ? store.session() : null));
+  registerIpcHandler("project:recent-sizes", async () => {
     const projects = appState.snapshot().recentProjects;
     const sizes = await Promise.all(
       projects.map(async (project) => [
@@ -163,20 +158,20 @@ export function registerProjectIpc(
     );
     return Object.fromEntries(sizes);
   });
-  ipcMain.handle("project:save", () => store.save());
-  ipcMain.handle("project:settings:update", (_event, update: unknown) => {
+  registerIpcHandler("project:save", () => store.save());
+  registerIpcHandler("project:settings:update", (update: unknown) => {
     if (!update || typeof update !== "object" || Array.isArray(update))
       throw new Error("Invalid project settings update");
     const current = store.session().settings;
     const next = settingsSchema.parse({ ...current, ...update });
     return store.updateSettings(next);
   });
-  ipcMain.handle("project:undo", () => store.undo());
-  ipcMain.handle("project:redo", () => store.redo());
-  ipcMain.handle("project:reveal", () =>
+  registerIpcHandler("project:undo", () => store.undo());
+  registerIpcHandler("project:redo", () => store.redo());
+  registerIpcHandler("project:reveal", () =>
     store.directory ? shell.openPath(store.directory) : undefined,
   );
-  ipcMain.handle("project:forget", async (_event, directory: unknown) => {
+  registerIpcHandler("project:forget", async (directory: unknown) => {
     if (
       typeof directory !== "string" ||
       (!appState.hasRecent(directory) && store.directory !== directory)
@@ -185,7 +180,7 @@ export function registerProjectIpc(
     await appState.forgetProject(directory);
     return appState.snapshot();
   });
-  ipcMain.handle("project:trash", async (_event, directory: unknown) => {
+  registerIpcHandler("project:trash", async (directory: unknown) => {
     if (
       typeof directory !== "string" ||
       (!appState.hasRecent(directory) && store.directory !== directory)
@@ -196,16 +191,9 @@ export function registerProjectIpc(
     if ((await lstat(requested)).isSymbolicLink())
       throw new Error("Open the project at its real location before moving it to Trash");
     const canonical = await realpath(requested);
-    const manifest = JSON.parse(await readFile(resolve(canonical, "cinesim.json"), "utf8")) as {
-      version?: unknown;
-      id?: unknown;
-    };
-    if (
-      manifest.version !== 1 ||
-      typeof manifest.id !== "string" ||
-      !manifest.id.startsWith("project_")
-    )
-      throw new Error("The selected folder is not a recognized Cinesim project");
+    projectManifestSchema.parse(
+      JSON.parse(await readFile(resolve(canonical, "cinesim.json"), "utf8")) as unknown,
+    );
     await agents.stopProject(directory);
     if (store.directory === directory) await store.close();
     await shell.trashItem(canonical);
@@ -213,7 +201,7 @@ export function registerProjectIpc(
     await appState.forgetProject(directory);
     return appState.snapshot();
   });
-  ipcMain.handle("media:import", async () => {
+  registerIpcHandler("media:import", async () => {
     if (!store.project) throw new Error("Open a project before importing media");
     const selection = await dialog.showOpenDialog({
       title: "Import media",
@@ -243,5 +231,7 @@ export function registerProjectIpc(
       await cloudMedia.queue(importedAssetIds, managedSourceAssetIds);
     return session;
   });
-  ipcMain.handle("command:execute", (_event, command: EditorCommand) => store.execute(command));
+  registerIpcHandler("command:execute", (command: unknown) =>
+    store.execute(editorCommandSchema.parse(command)),
+  );
 }

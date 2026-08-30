@@ -1,3 +1,4 @@
+import { secondsToTimeUs, timeSeconds, timeUs, timeUsToSeconds } from "@cinesim/core";
 import type { TimeUs } from "@cinesim/core";
 import type { AudioSource } from "../media/video-source";
 
@@ -41,7 +42,7 @@ export class WebAudioScheduler implements PlaybackAudioScheduler {
   readonly #meterSamples: readonly [Float32Array<ArrayBuffer>, Float32Array<ArrayBuffer>];
   #scheduled = new Set<AudioBufferSourceNode>();
   #generation = 0;
-  #transportTimelineUs: TimeUs = 0;
+  #transportTimelineUs: TimeUs = timeUs(0);
   #transportContextTime = 0;
 
   constructor(context = new AudioContext({ latencyHint: "interactive" })) {
@@ -71,7 +72,7 @@ export class WebAudioScheduler implements PlaybackAudioScheduler {
   }
 
   get currentTimeUs(): TimeUs {
-    return Math.round(this.#context.currentTime * 1_000_000);
+    return secondsToTimeUs(timeSeconds(this.#context.currentTime));
   }
 
   startTransport(timelineUs: TimeUs): void {
@@ -84,11 +85,11 @@ export class WebAudioScheduler implements PlaybackAudioScheduler {
     source: AudioSource,
     sourceFromUs: TimeUs,
     timelineFromUs: TimeUs,
-    durationUs = 1_500_000,
+    durationUs = timeUs(1_500_000),
     envelope?: AudioFadeEnvelope,
   ): Promise<void> {
     const generation = this.#generation;
-    for await (const chunk of source.buffers(sourceFromUs, sourceFromUs + durationUs)) {
+    for await (const chunk of source.buffers(sourceFromUs, timeUs(sourceFromUs + durationUs))) {
       if (generation !== this.#generation) return;
       const node = this.#context.createBufferSource();
       node.buffer = chunk.buffer;
@@ -97,16 +98,19 @@ export class WebAudioScheduler implements PlaybackAudioScheduler {
       gain.connect(this.#master);
       this.#scheduled.add(node);
       node.onended = () => this.#scheduled.delete(node);
-      const timelineOffsetSeconds = (timelineFromUs - this.#transportTimelineUs) / 1_000_000;
-      const sourceOffsetSeconds = (chunk.timestampUs - sourceFromUs) / 1_000_000;
+      const timelineOffsetSeconds = timeUsToSeconds(
+        timeUs(timelineFromUs - this.#transportTimelineUs),
+      );
+      const sourceOffsetSeconds = timeUsToSeconds(timeUs(chunk.timestampUs - sourceFromUs));
       const startAt = Math.max(
         this.#context.currentTime,
         this.#transportContextTime + timelineOffsetSeconds + sourceOffsetSeconds,
       );
       if (envelope) {
-        const chunkTimelineStartUs = timelineFromUs + chunk.timestampUs - sourceFromUs;
-        const chunkTimelineEndUs =
-          chunkTimelineStartUs + Math.round(chunk.buffer.duration * 1_000_000);
+        const chunkTimelineStartUs = timeUs(timelineFromUs + chunk.timestampUs - sourceFromUs);
+        const chunkTimelineEndUs = timeUs(
+          chunkTimelineStartUs + secondsToTimeUs(timeSeconds(chunk.buffer.duration)),
+        );
         scheduleFadeAutomation(
           gain.gain,
           startAt,
@@ -154,8 +158,8 @@ function scheduleFadeAutomation(
 ): void {
   const points = [
     timelineStartUs,
-    envelope.timelineStartUs + envelope.fadeInUs,
-    envelope.timelineEndUs - envelope.fadeOutUs,
+    timeUs(envelope.timelineStartUs + envelope.fadeInUs),
+    timeUs(envelope.timelineEndUs - envelope.fadeOutUs),
     timelineEndUs,
   ]
     .filter((timeUs) => timeUs >= timelineStartUs && timeUs <= timelineEndUs)
@@ -163,10 +167,10 @@ function scheduleFadeAutomation(
     .filter((timeUs, index, values) => index === 0 || timeUs !== values[index - 1]);
   const firstUs = points[0] ?? timelineStartUs;
   gain.setValueAtTime(audioFadeGainAt(envelope, firstUs), contextStart);
-  for (const timeUs of points.slice(1)) {
+  for (const pointUs of points.slice(1)) {
     gain.linearRampToValueAtTime(
-      audioFadeGainAt(envelope, timeUs),
-      contextStart + (timeUs - timelineStartUs) / 1_000_000,
+      audioFadeGainAt(envelope, pointUs),
+      contextStart + timeUsToSeconds(timeUs(pointUs - timelineStartUs)),
     );
   }
 }

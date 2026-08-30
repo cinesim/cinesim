@@ -1,4 +1,5 @@
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { timeUs } from "@cinesim/core";
+import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vite-plus/test";
@@ -123,7 +124,7 @@ describe("DesktopProjectStore", () => {
       kind: "audio",
       name: "tone.wav",
       source: { kind: "local", path: mediaPath },
-      durationUs: 1_000_000,
+      durationUs: timeUs(1_000_000),
       hasAudio: true,
     });
   });
@@ -195,7 +196,7 @@ describe("DesktopProjectStore", () => {
           kind: "audio",
           name: "First",
           source: { kind: "local", path: join(parentDirectory, "first.wav") },
-          durationUs: 1_000_000,
+          durationUs: timeUs(1_000_000),
           hasAudio: true,
         },
       }),
@@ -206,7 +207,7 @@ describe("DesktopProjectStore", () => {
           kind: "audio",
           name: "Second",
           source: { kind: "local", path: join(parentDirectory, "second.wav") },
-          durationUs: 1_000_000,
+          durationUs: timeUs(1_000_000),
           hasAudio: true,
         },
       }),
@@ -218,6 +219,51 @@ describe("DesktopProjectStore", () => {
       "asset_first",
       "asset_second",
     ]);
+  });
+
+  it("rejects a stale desktop writer without changing its live session", async () => {
+    const parentDirectory = await mkdtemp(join(tmpdir(), "cinesim-stale-writer-test-"));
+    temporaryDirectories.push(parentDirectory);
+    const creator = new DesktopProjectStore();
+    const created = await creator.create(parentDirectory, "Stale writer fixture");
+    const first = new DesktopProjectStore();
+    const stale = new DesktopProjectStore();
+    await Promise.all([first.open(created.directory), stale.open(created.directory)]);
+    const asset = {
+      id: "asset_first_writer" as const,
+      kind: "audio" as const,
+      name: "First writer",
+      source: { kind: "local" as const, path: join(parentDirectory, "first.wav") },
+      durationUs: timeUs(1_000_000),
+    };
+    await first.execute({ type: "asset.import", asset });
+
+    await expect(
+      stale.execute({
+        type: "asset.import",
+        asset: { ...asset, id: "asset_stale_writer", name: "Stale writer" },
+      }),
+    ).rejects.toMatchObject({ code: "CANONICAL_WRITE_CONFLICT" });
+    expect(stale.project?.assets).toEqual([]);
+    const reopened = new DesktopProjectStore();
+    await expect(reopened.open(created.directory)).resolves.toMatchObject({
+      project: { assets: [expect.objectContaining({ id: "asset_first_writer" })] },
+    });
+  });
+
+  it("rejects a project whose derived layout redirects through a symlink", async () => {
+    const parentDirectory = await mkdtemp(join(tmpdir(), "cinesim-symlink-layout-test-"));
+    temporaryDirectories.push(parentDirectory);
+    const store = new DesktopProjectStore();
+    const created = await store.create(parentDirectory, "Symlink fixture");
+    const outside = join(parentDirectory, "outside");
+    await mkdir(outside);
+    await rm(join(created.directory, ".video", "thumbnails"), { recursive: true });
+    await symlink(outside, join(created.directory, ".video", "thumbnails"));
+
+    await expect(new DesktopProjectStore().open(created.directory)).rejects.toThrow(
+      "Project directory component is unsafe",
+    );
   });
 
   it("persists timeline creation and cascading asset removal through commands", async () => {
@@ -232,7 +278,7 @@ describe("DesktopProjectStore", () => {
         kind: "audio",
         name: "Selected",
         source: { kind: "local", path: join(parentDirectory, "selected.wav") },
-        durationUs: 1_000_000,
+        durationUs: timeUs(1_000_000),
       },
     });
     await store.execute({

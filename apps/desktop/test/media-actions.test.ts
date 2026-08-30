@@ -1,3 +1,4 @@
+import { timeUs } from "@cinesim/core";
 import { describe, expect, it } from "vite-plus/test";
 import type { Asset } from "@cinesim/core";
 import type { DerivedArtifactState, DerivedAssetSnapshot } from "../src/shared/api";
@@ -8,7 +9,7 @@ const video: Asset = {
   kind: "video",
   name: "fixture.mov",
   source: { kind: "cloud", cloudAssetId: "cloud_asset_fixture00000001" },
-  durationUs: 1_000_000,
+  durationUs: timeUs(1_000_000),
 };
 
 function derived(proxyState: DerivedArtifactState): DerivedAssetSnapshot {

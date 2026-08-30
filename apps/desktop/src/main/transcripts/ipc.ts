@@ -1,43 +1,46 @@
-import { ipcMain } from "electron";
+import { z } from "zod";
+import { assetIdSchema, timeUsSchema } from "@cinesim/protocol";
 import type { TranscriptAudioChunkInput } from "../../shared/transcript";
 import { parseDerivedProjectScope } from "../derived-media/ipc-validation";
 import type { TranscriptStore } from "./service";
+import { registerIpcHandler } from "../app/secure-ipc";
 
-function parseAssetIds(value: unknown): string[] {
-  if (
-    !Array.isArray(value) ||
-    value.length > 500 ||
-    value.some((item) => typeof item !== "string")
-  ) {
-    throw new Error("Invalid transcript asset selection");
-  }
-  return value as string[];
-}
+const assetIdsSchema = z.array(assetIdSchema).max(500);
+const transcriptAudioChunkSchema = z
+  .object({
+    jobId: z.string().uuid(),
+    chunkIndex: z.number().int().nonnegative().safe(),
+    sourceStartUs: timeUsSchema,
+    sourceEndUs: timeUsSchema,
+    data: z.instanceof(Uint8Array),
+  })
+  .transform((value): TranscriptAudioChunkInput => value);
+
+const parseAssetIds = (value: unknown) => assetIdsSchema.parse(value);
 
 export function registerTranscriptIpc(store: TranscriptStore): void {
-  ipcMain.handle("transcripts:get", (_event, scope: unknown, assetIds: unknown = []) =>
+  registerIpcHandler("transcripts:get", (scope: unknown, assetIds: unknown = []) =>
     store.snapshot(parseDerivedProjectScope(scope), parseAssetIds(assetIds)),
   );
-  ipcMain.handle("transcripts:request", (_event, scope: unknown, assetIds: unknown) =>
+  registerIpcHandler("transcripts:request", (scope: unknown, assetIds: unknown) =>
     store.requestJobs(parseDerivedProjectScope(scope), parseAssetIds(assetIds)),
   );
-  ipcMain.handle("transcripts:cancel", (_event, scope: unknown, assetIds: unknown) =>
+  registerIpcHandler("transcripts:cancel", (scope: unknown, assetIds: unknown) =>
     store.cancelJobs(parseDerivedProjectScope(scope), parseAssetIds(assetIds)),
   );
-  ipcMain.handle("transcripts:begin", (_event, scope: unknown, assetId: unknown) => {
-    if (typeof assetId !== "string") throw new Error("Invalid transcript asset ID");
-    return store.beginJob(parseDerivedProjectScope(scope), assetId);
+  registerIpcHandler("transcripts:begin", (scope: unknown, assetId: unknown) => {
+    return store.beginJob(parseDerivedProjectScope(scope), assetIdSchema.parse(assetId));
   });
-  ipcMain.handle("transcripts:chunk", (_event, scope: unknown, input: unknown) =>
-    store.transcribeChunk(parseDerivedProjectScope(scope), input as TranscriptAudioChunkInput),
+  registerIpcHandler("transcripts:chunk", (scope: unknown, input: unknown) =>
+    store.transcribeChunk(parseDerivedProjectScope(scope), transcriptAudioChunkSchema.parse(input)),
   );
-  ipcMain.handle("transcripts:finalize", (_event, scope: unknown, jobId: unknown) => {
+  registerIpcHandler("transcripts:finalize", (scope: unknown, jobId: unknown) => {
     if (typeof jobId !== "string") throw new Error("Invalid transcript job ID");
     return store.finalizeJob(parseDerivedProjectScope(scope), jobId);
   });
-  ipcMain.handle(
+  registerIpcHandler(
     "transcripts:fail",
-    (_event, scope: unknown, jobId: unknown, failureCode: unknown, detail: unknown) => {
+    (scope: unknown, jobId: unknown, failureCode: unknown, detail: unknown) => {
       if (
         typeof jobId !== "string" ||
         typeof failureCode !== "string" ||

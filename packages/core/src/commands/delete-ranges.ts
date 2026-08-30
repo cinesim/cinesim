@@ -1,6 +1,6 @@
 import { nextId } from "../ids";
 import type { ClipId, TrackId } from "../ids";
-import { clipEndUs } from "../project/types";
+import { clipEndUs, timeUs } from "../project/types";
 import type { Clip, Project, Sequence, TimeUs, Track } from "../project/types";
 import { CommandError } from "./types";
 import type { CommandResult, EditorCommand, TimelineRange } from "./types";
@@ -55,16 +55,18 @@ export function normalizeTimelineRanges(ranges: readonly TimelineRange[]): Timel
       normalized.push(range);
       continue;
     }
-    previous.endUs = Math.max(previous.endUs, range.endUs);
+    previous.endUs = timeUs(Math.max(previous.endUs, range.endUs));
   }
   return normalized;
 }
 
-function deletedBefore(timeUs: TimeUs, ranges: readonly TimelineRange[]): TimeUs {
-  let durationUs = 0;
+function deletedBefore(currentTimeUs: TimeUs, ranges: readonly TimelineRange[]): TimeUs {
+  let durationUs = timeUs(0);
   for (const range of ranges) {
-    if (range.startUs >= timeUs) break;
-    durationUs += Math.max(0, Math.min(range.endUs, timeUs) - range.startUs);
+    if (range.startUs >= currentTimeUs) break;
+    durationUs = timeUs(
+      durationUs + Math.max(0, Math.min(range.endUs, currentTimeUs) - range.startUs),
+    );
   }
   return durationUs;
 }
@@ -79,9 +81,9 @@ function remainingSegments(clip: Clip, ranges: readonly TimelineRange[]): ClipSe
     if (range.endUs <= cursorUs) continue;
     if (range.startUs >= endUs) break;
     if (range.startUs > cursorUs) {
-      segments.push({ startUs: cursorUs, endUs: Math.min(range.startUs, endUs) });
+      segments.push({ startUs: cursorUs, endUs: timeUs(Math.min(range.startUs, endUs)) });
     }
-    cursorUs = Math.max(cursorUs, range.endUs);
+    cursorUs = timeUs(Math.max(cursorUs, range.endUs));
     if (cursorUs >= endUs) break;
   }
   if (cursorUs < endUs) segments.push({ startUs: cursorUs, endUs });
@@ -107,9 +109,9 @@ function clampFades(clip: Clip): void {
   const durationUs = clipEndUs(clip) - clip.timelineStartUs;
   const fadeInUs = Math.min(durationUs, clip.fadeInUs ?? 0);
   const fadeOutUs = Math.min(durationUs - fadeInUs, clip.fadeOutUs ?? 0);
-  if (fadeInUs > 0) clip.fadeInUs = fadeInUs;
+  if (fadeInUs > 0) clip.fadeInUs = timeUs(fadeInUs);
   else delete clip.fadeInUs;
-  if (fadeOutUs > 0) clip.fadeOutUs = fadeOutUs;
+  if (fadeOutUs > 0) clip.fadeOutUs = timeUs(fadeOutUs);
   else delete clip.fadeOutUs;
 }
 
@@ -171,12 +173,13 @@ function createOutputs(
       output.id = nextId("clip", allocatedIds);
       allocatedIds.push(output.id);
     }
-    output.timelineStartUs =
+    output.timelineStartUs = timeUs(
       mode === "ripple"
         ? segment.startUs - deletedBefore(segment.startUs, ranges)
-        : segment.startUs;
-    output.sourceStartUs = clip.sourceStartUs + (segment.startUs - originalStartUs);
-    output.sourceEndUs = clip.sourceStartUs + (segment.endUs - originalStartUs);
+        : segment.startUs,
+    );
+    output.sourceStartUs = timeUs(clip.sourceStartUs + (segment.startUs - originalStartUs));
+    output.sourceEndUs = timeUs(clip.sourceStartUs + (segment.endUs - originalStartUs));
     if (segment.startUs !== originalStartUs) delete output.fadeInUs;
     if (segment.endUs !== originalEndUs) delete output.fadeOutUs;
     clampFades(output);

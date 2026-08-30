@@ -1,32 +1,12 @@
 import { randomUUID } from "node:crypto";
 import { constants } from "node:fs";
-import {
-  copyFile,
-  link,
-  lstat,
-  mkdir,
-  readFile,
-  rename,
-  rm,
-  stat,
-  writeFile,
-} from "node:fs/promises";
-import { dirname, join } from "node:path";
-import {
-  createProject,
-  DEFAULT_SETTINGS,
-  joinProjectFiles,
-  PROJECT_FILES,
-  ProjectHistory,
-  settingsFromToml,
-  settingsToToml,
-  settingsSchema,
-  splitProjectFiles,
-  stableJson,
-} from "@cinesim/core";
+import { copyFile, link, lstat, mkdir, rm, stat, writeFile } from "node:fs/promises";
+import { join } from "node:path";
+import { createProject, DEFAULT_SETTINGS, ProjectHistory, settingsSchema } from "@cinesim/core";
 import type { EditorCommand, Project, ProjectSettings } from "@cinesim/core";
 import type { CloudProjectId, ProjectId } from "@cinesim/core";
 import { createCinesimLogger } from "@cinesim/logging";
+import { CanonicalProjectRepository } from "@cinesim/project-io";
 import { dispatchCommand } from "@cinesim/protocol";
 import type { DesktopProjectSession } from "../../shared/api";
 import { DerivedMediaStore } from "../derived-media/service";
@@ -56,24 +36,26 @@ const PROJECT_GITIGNORE = `.video/
 .DS_Store
 `;
 
-async function readJson(path: string): Promise<unknown> {
-  return JSON.parse(await readFile(path, "utf8")) as unknown;
-}
-
-async function atomicWrite(path: string, contents: string): Promise<void> {
-  const tempPath = `${path}.tmp`;
-  await mkdir(dirname(path), { recursive: true });
-  await writeFile(tempPath, contents, "utf8");
-  await rename(tempPath, path);
-}
-
 async function writeIfMissing(path: string, contents: string): Promise<void> {
   try {
     await stat(path);
-  } catch {
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
     await writeFile(path, contents, "utf8");
   }
 }
+
+const DERIVED_FOLDERS = [
+  "cache",
+  "proxies",
+  "originals",
+  "thumbnails",
+  "waveforms",
+  "filmstrips",
+  "frames",
+  "runtime",
+  "transcripts",
+] as const;
 
 async function createAvailableProjectDirectory(
   parentDirectory: string,
@@ -98,6 +80,8 @@ export class DesktopProjectStore {
   #history: ProjectHistory | null = null;
   #settings: ProjectSettings = DEFAULT_SETTINGS;
   #revision = 0;
+  #repository: CanonicalProjectRepository | null = null;
+  #generation: string | null = null;
   #operationQueue: Promise<unknown> = Promise.resolve();
 
   constructor(accountService: DesktopAccountService | null = null) {
@@ -138,14 +122,21 @@ export class DesktopProjectStore {
             }),
         name,
       });
+      const repository = await CanonicalProjectRepository.open(directory);
+      await this.#ensureLayout(repository);
+      const generation = await repository.commit({
+        project,
+        settings: DEFAULT_SETTINGS,
+        expectedGeneration: null,
+      });
       this.#directory = directory;
+      this.#repository = repository;
       this.#history = new ProjectHistory(project);
       this.#settings = DEFAULT_SETTINGS;
+      this.#generation = generation;
       this.#revision = 1;
-      await this.#ensureLayout();
-      await this.derivedMedia.setProject(directory, project, undefined, this.#settings);
-      await this.transcripts.setProject(directory, project, this.derivedMedia.scope());
-      return this.#persist();
+      await this.#publishDependentProject();
+      return this.session();
     });
   }
 
@@ -160,25 +151,23 @@ export class DesktopProjectStore {
       );
       try {
         const readsStartedAt = performance.now();
-        const [manifest, assets, timeline, settingsSource, preparedDerived] = await Promise.all([
-          readJson(join(directory, PROJECT_FILES.manifest)),
-          readJson(join(directory, PROJECT_FILES.assets)),
-          readJson(join(directory, PROJECT_FILES.timeline)),
-          readFile(join(directory, PROJECT_FILES.settings), "utf8"),
-          this.derivedMedia.prepareProject(directory),
+        const repository = await CanonicalProjectRepository.open(directory);
+        await this.#ensureLayout(repository);
+        const [snapshot, preparedDerived] = await Promise.all([
+          repository.load(),
+          this.derivedMedia.prepareProject(repository.paths.root),
         ]);
         const readDurationMs = performance.now() - readsStartedAt;
-        const settings = settingsFromToml(settingsSource);
         this.#directory = directory;
-        this.#history = new ProjectHistory(joinProjectFiles(manifest, assets, timeline));
-        this.#settings = settings;
+        this.#repository = repository;
+        this.#history = new ProjectHistory(snapshot.project);
+        this.#settings = snapshot.settings;
+        this.#generation = snapshot.generation;
         this.#revision += 1;
-        const layoutStartedAt = performance.now();
-        await this.#ensureLayout();
-        const layoutDurationMs = performance.now() - layoutStartedAt;
+        const layoutDurationMs = 0;
         const derivedStartedAt = performance.now();
         await this.derivedMedia.setProject(
-          directory,
+          repository.paths.root,
           this.#history.project,
           preparedDerived,
           this.#settings,
@@ -221,25 +210,15 @@ export class DesktopProjectStore {
     });
   }
 
-  async #ensureLayout(): Promise<void> {
-    const directory = this.#requireDirectory();
+  async #ensureLayout(repository: CanonicalProjectRepository): Promise<void> {
+    await repository.paths.ensureLayout(DERIVED_FOLDERS);
     await Promise.all([
-      mkdir(join(directory, ".cinesim"), { recursive: true }),
-      ...[
-        "cache",
-        "proxies",
-        "originals",
-        "thumbnails",
-        "waveforms",
-        "filmstrips",
-        "frames",
-        "runtime",
-        "transcripts",
-      ].map((folder) => mkdir(join(directory, ".video", folder), { recursive: true })),
-    ]);
-    await Promise.all([
-      writeIfMissing(join(directory, "AGENTS.md"), PROJECT_AGENTS),
-      writeIfMissing(join(directory, ".gitignore"), PROJECT_GITIGNORE),
+      repository.paths
+        .assertSafeFile("AGENTS.md")
+        .then((path) => writeIfMissing(path, PROJECT_AGENTS)),
+      repository.paths
+        .assertSafeFile(".gitignore")
+        .then((path) => writeIfMissing(path, PROJECT_GITIGNORE)),
     ]);
   }
 
@@ -249,22 +228,22 @@ export class DesktopProjectStore {
 
   async updateSettings(update: Partial<ProjectSettings>): Promise<DesktopProjectSession> {
     return this.#serialize(async () => {
-      this.#settings = settingsSchema.parse({ ...this.#settings, ...update });
+      const settings = settingsSchema.parse({ ...this.#settings, ...update });
+      const generation = await this.#commit(this.#requireProject(), settings);
+      this.#settings = settings;
+      this.#generation = generation;
       this.#revision += 1;
-      await this.derivedMedia.updateSettings(this.#settings);
-      return this.#persist();
+      await this.derivedMedia
+        .updateSettings(this.#settings)
+        .catch((error: unknown) =>
+          log.warn({ err: error, operation: "settings-update" }, "derived settings refresh failed"),
+        );
+      return this.session();
     });
   }
 
   async #persist(): Promise<DesktopProjectSession> {
-    const directory = this.#requireDirectory();
-    const files = splitProjectFiles(this.#requireProject());
-    await Promise.all([
-      atomicWrite(join(directory, PROJECT_FILES.manifest), stableJson(files.manifest)),
-      atomicWrite(join(directory, PROJECT_FILES.assets), stableJson(files.assets)),
-      atomicWrite(join(directory, PROJECT_FILES.timeline), stableJson(files.timeline)),
-      atomicWrite(join(directory, PROJECT_FILES.settings), settingsToToml(this.#settings)),
-    ]);
+    this.#generation = await this.#commit(this.#requireProject(), this.#settings);
     return this.session();
   }
 
@@ -281,11 +260,16 @@ export class DesktopProjectStore {
           (error as Error & { code: string }).code = dispatched.error.code;
           throw error;
         }
-        this.#history!.commit(dispatched.value.command);
+        const generation = await this.#commit(dispatched.value.project, this.#settings);
+        this.#history!.commitApplied(dispatched.value);
+        this.#generation = generation;
         this.derivedMedia.updateProject(this.#history!.project);
-        await this.transcripts.updateProject(this.#history!.project);
         this.#revision += 1;
-        await this.#persist();
+        await this.transcripts
+          .updateProject(this.#history!.project)
+          .catch((error: unknown) =>
+            log.warn({ err: error, operation: command.type }, "transcript refresh failed"),
+          );
         await this.derivedMedia
           .pruneRemovedAssets()
           .catch((error: unknown) =>
@@ -320,11 +304,19 @@ export class DesktopProjectStore {
   async undo(): Promise<DesktopProjectSession> {
     return this.#serialize(async () => {
       this.#requireProject();
+      const project = this.#history!.peekUndo();
+      if (!project) return this.session();
+      const generation = await this.#commit(project, this.#settings);
       this.#history!.undo();
+      this.#generation = generation;
       this.derivedMedia.updateProject(this.#history!.project);
-      await this.transcripts.updateProject(this.#history!.project);
       this.#revision += 1;
-      const session = await this.#persist();
+      await this.transcripts
+        .updateProject(this.#history!.project)
+        .catch((error: unknown) =>
+          log.warn({ err: error, operation: "undo" }, "transcript refresh failed"),
+        );
+      const session = this.session();
       await this.derivedMedia
         .pruneRemovedAssets()
         .catch((error: unknown) =>
@@ -337,11 +329,19 @@ export class DesktopProjectStore {
   async redo(): Promise<DesktopProjectSession> {
     return this.#serialize(async () => {
       this.#requireProject();
+      const project = this.#history!.peekRedo();
+      if (!project) return this.session();
+      const generation = await this.#commit(project, this.#settings);
       this.#history!.redo();
+      this.#generation = generation;
       this.derivedMedia.updateProject(this.#history!.project);
-      await this.transcripts.updateProject(this.#history!.project);
       this.#revision += 1;
-      const session = await this.#persist();
+      await this.transcripts
+        .updateProject(this.#history!.project)
+        .catch((error: unknown) =>
+          log.warn({ err: error, operation: "redo" }, "transcript refresh failed"),
+        );
+      const session = this.session();
       await this.derivedMedia
         .pruneRemovedAssets()
         .catch((error: unknown) =>
@@ -404,6 +404,8 @@ export class DesktopProjectStore {
       this.#directory = null;
       this.#history = null;
       this.#settings = DEFAULT_SETTINGS;
+      this.#repository = null;
+      this.#generation = null;
       this.#revision += 1;
     });
   }
@@ -432,20 +434,28 @@ export class DesktopProjectStore {
   }
 
   async #managedOriginalsDirectory(): Promise<string> {
-    const videoDirectory = join(this.#requireDirectory(), ".video");
-    const originalsDirectory = join(videoDirectory, "originals");
-    const [videoInfo, originalsInfo] = await Promise.all([
-      lstat(videoDirectory),
-      lstat(originalsDirectory),
-    ]);
-    if (
-      videoInfo.isSymbolicLink() ||
-      !videoInfo.isDirectory() ||
-      originalsInfo.isSymbolicLink() ||
-      !originalsInfo.isDirectory()
-    )
-      throw new Error("Managed originals must stay inside .video");
-    return originalsDirectory;
+    await this.#requireRepository().paths.ensureDirectory(".video/originals");
+    return join(this.#requireDirectory(), ".video", "originals");
+  }
+
+  async #commit(project: Project, settings: ProjectSettings): Promise<string> {
+    return this.#requireRepository().commit({
+      project,
+      settings,
+      expectedGeneration: this.#generation,
+    });
+  }
+
+  async #publishDependentProject(): Promise<void> {
+    const directory = this.#requireDirectory();
+    const project = this.#requireProject();
+    await this.derivedMedia.setProject(directory, project, undefined, this.#settings);
+    await this.transcripts.setProject(directory, project, this.derivedMedia.scope());
+  }
+
+  #requireRepository(): CanonicalProjectRepository {
+    if (!this.#repository) throw new Error("No project is open");
+    return this.#repository;
   }
 
   #serialize<T>(operation: () => Promise<T>): Promise<T> {

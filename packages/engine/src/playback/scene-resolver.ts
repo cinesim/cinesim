@@ -1,4 +1,4 @@
-import { clipEndUs, getSequence } from "@cinesim/core";
+import { clipEndUs, getSequence, timeUs } from "@cinesim/core";
 import type { Asset, Clip, Project, TimeUs, Track } from "@cinesim/core";
 
 export interface ResolvedLayer {
@@ -30,7 +30,7 @@ export function resolveScene(project: Project, timelineTimeUs: TimeUs): Resolved
       asset,
       clip,
       track,
-      sourceTimeUs: clip.sourceStartUs + timelineTimeUs - clip.timelineStartUs,
+      sourceTimeUs: timeUs(clip.sourceStartUs + timelineTimeUs - clip.timelineStartUs),
     });
   }
   return layers;
@@ -39,7 +39,7 @@ export function resolveScene(project: Project, timelineTimeUs: TimeUs): Resolved
 export function findUpcomingLayers(
   project: Project,
   timelineTimeUs: TimeUs,
-  lookAheadUs = 1_000_000,
+  lookAheadUs: TimeUs = timeUs(1_000_000),
 ): ResolvedLayer[] {
   const sequence = getSequence(project);
   const assets = new Map(project.assets.map((asset) => [asset.id, asset]));

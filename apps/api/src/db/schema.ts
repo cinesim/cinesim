@@ -208,11 +208,53 @@ export const storageEntitlement = pgTable("storage_entitlement", {
     .notNull(),
 });
 
+export const transcriptionUsage = pgTable(
+  "transcription_usage",
+  {
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    period: text("period").notNull(),
+    chargedMilliseconds: bigint("charged_milliseconds", { mode: "number" }).notNull().default(0),
+    requestCount: integer("request_count").notNull().default(0),
+    updatedAt: timestamp("updated_at")
+      .defaultNow()
+      .$onUpdate(() => /* @__PURE__ */ new Date())
+      .notNull(),
+  },
+  (table) => [primaryKey({ columns: [table.userId, table.period] })],
+);
+
+export const transcriptionRequest = pgTable(
+  "transcription_request",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    networkKey: text("network_key").notNull(),
+    period: text("period").notNull(),
+    state: text("state").notNull(),
+    reservedMilliseconds: bigint("reserved_milliseconds", { mode: "number" }).notNull(),
+    chargedMilliseconds: bigint("charged_milliseconds", { mode: "number" }).notNull(),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    expiresAt: timestamp("expires_at").notNull(),
+    completedAt: timestamp("completed_at"),
+  },
+  (table) => [
+    index("transcription_request_user_created_idx").on(table.userId, table.createdAt),
+    index("transcription_request_network_created_idx").on(table.networkKey, table.createdAt),
+    index("transcription_request_active_idx").on(table.state, table.expiresAt),
+  ],
+);
+
 export const userRelations = relations(user, ({ many }) => ({
   sessions: many(session),
   accounts: many(account),
   cloudProjects: many(cloudProject),
   cloudAssets: many(cloudAsset),
+  transcriptionRequests: many(transcriptionRequest),
+  transcriptionUsage: many(transcriptionUsage),
 }));
 
 export const cloudProjectRelations = relations(cloudProject, ({ one, many }) => ({
