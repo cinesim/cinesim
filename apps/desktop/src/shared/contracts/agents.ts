@@ -100,8 +100,39 @@ export interface AgentSessionSnapshot {
 
 export interface AgentProjectSnapshot {
   projectDirectory: string;
+  revision: number;
   activeSessionId: string | null;
   sessions: AgentSessionSnapshot[];
+}
+
+export type AgentSessionMetadataPatch = Partial<
+  Omit<AgentSessionSnapshot, "id" | "projectDirectory" | "events" | "checkpoints" | "tokenUsage">
+>;
+
+export type AgentProjectDeltaOperation =
+  | { type: "project-reset"; snapshot: AgentProjectSnapshot }
+  | { type: "active-session-changed"; sessionId: string | null }
+  | { type: "session-created"; session: AgentSessionSnapshot }
+  | { type: "session-removed"; sessionId: string }
+  | { type: "session-patched"; sessionId: string; patch: AgentSessionMetadataPatch }
+  | { type: "event-appended"; sessionId: string; event: AgentEvent }
+  | {
+      type: "event-text-appended";
+      sessionId: string;
+      eventId: string;
+      text: string;
+      createdAt: string;
+    }
+  | { type: "event-patched"; sessionId: string; event: AgentEvent }
+  | { type: "events-pruned"; sessionId: string; eventIds: string[] }
+  | { type: "checkpoints-replaced"; sessionId: string; checkpoints: AgentCheckpoint[] }
+  | { type: "token-usage-changed"; sessionId: string; usage: AgentTokenUsage | null };
+
+export interface AgentProjectDelta {
+  projectDirectory: string;
+  baseRevision: number;
+  revision: number;
+  operations: AgentProjectDeltaOperation[];
 }
 
 export interface AgentTurnContext {

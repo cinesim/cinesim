@@ -5,7 +5,7 @@ import type {
   AgentRuntimeCallbacks,
   AgentRuntimeLaunchOptions,
 } from "./types";
-import { asRecord, stringValue } from "./types";
+import { asRecord, MAX_PROVIDER_LINE_CHARACTERS, stringValue } from "./types";
 
 function tokenCount(value: unknown): number {
   return typeof value === "number" && Number.isFinite(value) && value >= 0 ? Math.round(value) : 0;
@@ -121,6 +121,14 @@ export class ClaudeRuntime implements AgentProviderRuntime {
   }
 
   #handleLine(line: string): void {
+    if (line.length > MAX_PROVIDER_LINE_CHARACTERS) {
+      this.callbacks.onEvent({
+        kind: "error",
+        title: "Claude Code output rejected",
+        detail: "The provider emitted a message beyond the runtime size limit.",
+      });
+      return;
+    }
     let value: unknown;
     try {
       value = JSON.parse(line) as unknown;

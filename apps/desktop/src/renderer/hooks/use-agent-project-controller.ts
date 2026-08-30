@@ -17,6 +17,7 @@ import {
   cachedAgentProviders,
   cachedAgentSettings,
 } from "../lib/agent-presentation-cache";
+import { applyAgentProjectDelta } from "../lib/agent-project-delta";
 
 function messageFrom(error: unknown, fallback: string): string {
   return error instanceof Error ? error.message : fallback;
@@ -116,9 +117,17 @@ export function useAgentProjectController(session: DesktopProjectSession) {
         setSnapshot(nextSnapshot);
       }
     })();
-    const unsubscribe = window.cinesim.agents.onChanged((next) => {
-      cacheAgentProject(next);
-      if (next.projectDirectory === session.directory) setSnapshot(next);
+    const unsubscribe = window.cinesim.agents.onDelta((delta) => {
+      if (delta.projectDirectory !== session.directory) return;
+      setSnapshot((current) => {
+        const next = applyAgentProjectDelta(current, delta);
+        if (!next) {
+          void loadSnapshot();
+          return current;
+        }
+        cacheAgentProject(next);
+        return next;
+      });
     });
     return () => {
       active = false;

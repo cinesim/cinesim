@@ -1,6 +1,6 @@
 import type { TranscriptSnapshot } from "../transcript";
 import type { AccountSnapshot } from "./account";
-import type { AgentProjectSnapshot } from "./agents";
+import type { AgentProjectDelta } from "./agents";
 import type { CloudTransferSnapshot } from "./cloud";
 import type { DerivedMediaSnapshot } from "./derived-media";
 import type { DesktopProjectSession } from "./project";
@@ -17,7 +17,7 @@ function event<TPayload>(channel: string): DesktopEventContract<TPayload> {
 
 export const desktopEvents = {
   accountChanged: event<AccountSnapshot | undefined>(eventChannels.accountChanged),
-  agentsChanged: event<AgentProjectSnapshot>(eventChannels.agentsChanged),
+  agentsDelta: event<AgentProjectDelta>(eventChannels.agentsDelta),
   cloudTransfersChanged: event<CloudTransferSnapshot[]>(eventChannels.cloudTransfersChanged),
   derivedChanged: event<DerivedMediaSnapshot>(eventChannels.derivedChanged),
   projectChanged: event<DesktopProjectSession>(eventChannels.projectChanged),

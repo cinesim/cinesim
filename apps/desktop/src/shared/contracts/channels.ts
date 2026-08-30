@@ -85,7 +85,7 @@ export const invokeChannels = {
 
 export const eventChannels = {
   accountChanged: "account:changed",
-  agentsChanged: "agents:changed",
+  agentsDelta: "agents:delta",
   authAuthenticated: "cinesim-auth:authenticated",
   authError: "cinesim-auth:error",
   authUserUpdated: "cinesim-auth:user-updated",

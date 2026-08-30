@@ -3,6 +3,7 @@ import type { TranscriptAudioChunkInput, TranscriptSnapshot } from "./transcript
 import type { AccountSnapshot, SignInMethod } from "./contracts/account";
 import type {
   AgentCreateInput,
+  AgentProjectDelta,
   AgentProjectSnapshot,
   AgentProviderKind,
   AgentProviderStatus,
@@ -138,7 +139,7 @@ export interface DesktopAgentApi {
     decision: "accept" | "decline",
   ): Promise<AgentProjectSnapshot>;
   revertTurn(sessionId: string, turnId: string): Promise<AgentProjectSnapshot>;
-  onChanged(callback: (snapshot: AgentProjectSnapshot) => void): () => void;
+  onDelta(callback: (delta: AgentProjectDelta) => void): () => void;
 }
 
 export interface DesktopApi {

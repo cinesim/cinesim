@@ -94,9 +94,9 @@ export class DesktopApplication implements ApplicationLifecycle {
       join(app.getPath("userData"), "agent-sessions.json"),
       agentSettings,
       this.projectStore,
-      (snapshot) => {
+      (delta) => {
         for (const target of BrowserWindow.getAllWindows())
-          target.webContents.send(eventChannels.agentsChanged, snapshot);
+          target.webContents.send(eventChannels.agentsDelta, delta);
       },
       () => {
         if (!this.projectStore.project) return;

@@ -143,7 +143,7 @@ const api: DesktopApi = {
     respondApproval: (sessionId, requestId, decision) =>
       invoke(invokeChannels.agents.approval, { sessionId, requestId, decision }),
     revertTurn: (sessionId, turnId) => invoke(invokeChannels.agents.revert, { sessionId, turnId }),
-    onChanged: (callback) => subscribe(eventChannels.agentsChanged, callback),
+    onDelta: (callback) => subscribe(eventChannels.agentsDelta, callback),
   },
   health: { get: () => invoke(invokeChannels.app.health) },
   platform: process.platform,
