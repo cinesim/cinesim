@@ -31,15 +31,18 @@ export const cloudContracts = {
     request: emptyRequestSchema,
     privilege: "read",
   }),
-  keepDownloaded: assetStringsContract(invokeChannels.cloud.keepDownloaded),
-  removeDownload: assetStringsContract(invokeChannels.cloud.removeDownload),
+  keepDownloaded: assetStringListContract(invokeChannels.cloud.keepDownloaded),
+  removeDownload: assetStringListContract(invokeChannels.cloud.removeDownload),
   trashAssets: defineInvokeContract<[{ cloudAssetIds: CloudAssetId[] }], void>({
     channel: invokeChannels.cloud.trashAssets,
     request: z.tuple([z.object({ cloudAssetIds: cloudAssetIdsSchema }).strict()]),
     privilege: "reversible-mutation",
   }),
-  restoreAsset: cloudAssetVoidContract(invokeChannels.cloud.restoreAsset, "reversible-mutation"),
-  deleteAsset: cloudAssetVoidContract(invokeChannels.cloud.deleteAsset, "destructive"),
+  restoreAsset: cloudAssetMutationContract(
+    invokeChannels.cloud.restoreAsset,
+    "reversible-mutation",
+  ),
+  deleteAsset: cloudAssetMutationContract(invokeChannels.cloud.deleteAsset, "destructive"),
 } as const;
 
 function assetTransferContract(channel: string) {
@@ -50,7 +53,7 @@ function assetTransferContract(channel: string) {
   });
 }
 
-function assetStringsContract(channel: string) {
+function assetStringListContract(channel: string) {
   return defineInvokeContract<[{ assetId: AssetId }], string[]>({
     channel,
     request: z.tuple([z.object({ assetId: assetIdSchema }).strict()]),
@@ -58,7 +61,10 @@ function assetStringsContract(channel: string) {
   });
 }
 
-function cloudAssetVoidContract(channel: string, privilege: "reversible-mutation" | "destructive") {
+function cloudAssetMutationContract(
+  channel: string,
+  privilege: "reversible-mutation" | "destructive",
+) {
   return defineInvokeContract<[{ cloudAssetId: CloudAssetId }], void>({
     channel,
     request: z.tuple([z.object({ cloudAssetId: cloudAssetIdSchema }).strict()]),

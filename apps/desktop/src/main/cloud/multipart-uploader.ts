@@ -6,6 +6,23 @@ import {
   MAX_SIGNED_PARTS_PER_REQUEST,
 } from "./limits";
 
+interface MultipartUploadInput {
+  upload: CloudUpload;
+  sourcePath: string;
+  sourceBytes: number;
+  signal: AbortSignal;
+  onPartComplete(bytes: number): Promise<void> | void;
+}
+
+interface UploadPartInput {
+  part: SignedUploadPart;
+  upload: CloudUpload;
+  sourceBytes: number;
+  signal: AbortSignal;
+  handle: Awaited<ReturnType<typeof open>>;
+  onPartComplete(bytes: number): Promise<void> | void;
+}
+
 class GlobalPartSemaphore {
   #active = 0;
   readonly #waiting: Array<() => void> = [];
@@ -37,13 +54,7 @@ export class MultipartUploader {
 
   constructor(private readonly gateway: Pick<CloudStorageGateway, "signParts" | "recordPart">) {}
 
-  async upload(input: {
-    upload: CloudUpload;
-    sourcePath: string;
-    sourceBytes: number;
-    signal: AbortSignal;
-    onPartComplete(bytes: number): Promise<void> | void;
-  }): Promise<void> {
+  async upload(input: MultipartUploadInput): Promise<void> {
     const { upload, sourceBytes, signal } = input;
     if (upload.bytes !== sourceBytes) throw new Error("Cloud upload size did not match the source");
     const partCount = Math.ceil(sourceBytes / upload.partSize);
@@ -79,14 +90,7 @@ export class MultipartUploader {
     }
   }
 
-  async #uploadPart(input: {
-    part: SignedUploadPart;
-    upload: CloudUpload;
-    sourceBytes: number;
-    signal: AbortSignal;
-    handle: Awaited<ReturnType<typeof open>>;
-    onPartComplete(bytes: number): Promise<void> | void;
-  }): Promise<void> {
+  async #uploadPart(input: UploadPartInput): Promise<void> {
     const position = (input.part.partNumber - 1) * input.upload.partSize;
     const length = Math.min(input.upload.partSize, input.sourceBytes - position);
     if (length <= 0) throw new Error("Cloud storage signed an out-of-range multipart part");
