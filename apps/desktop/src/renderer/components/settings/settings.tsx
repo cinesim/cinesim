@@ -53,7 +53,6 @@ import {
   cachedAgentSettings,
 } from "../../lib/agent-presentation-cache";
 import { AccountAvatar, GoogleMark } from "../account/account-ui";
-import { grantTranscriptionConsent } from "../transcript/transcription-consent";
 
 interface SettingsProps {
   section: SettingsSection;
@@ -101,7 +100,6 @@ function TranscriptionSettings() {
 
   async function update(next: TranscriptionSettingsState): Promise<void> {
     if (account.status !== "signed-in" || !account.user) return;
-    if (next.generation === "automatic") grantTranscriptionConsent(account.user.id);
     setSaving(true);
     await save(next);
     setSaving(false);
@@ -127,8 +125,7 @@ function TranscriptionSettings() {
             Transcription sends bounded audio chunks directly to Deepgram. Audio leaves this Mac;
             the generated transcript remains disposable data under
             <code className="mx-1 rounded bg-panel-muted px-1 py-0.5 text-primary">.video</code>.
-            Choosing automatic generation authorizes this remote processing for newly encountered
-            speech media while you are signed in.
+            Automatic generation queues newly encountered speech media while you are signed in.
           </Notice>
           <div className="divide-y divide-border rounded-xl border border-border bg-panel">
             <SettingRow

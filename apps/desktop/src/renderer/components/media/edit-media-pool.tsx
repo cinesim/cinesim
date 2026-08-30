@@ -18,7 +18,6 @@ import type { TranscriptAssetSnapshot } from "../../../shared/transcript";
 import { formatDuration } from "../../lib/format";
 import { useRendererStore } from "../../store/renderer-store-context";
 import { useEditorDnd } from "../workspace/editor-dnd-context";
-import { useTranscriptionConsent } from "../transcript/transcription-consent";
 import { AssetSourceMetadata } from "./asset-source-metadata";
 import { MediaSkimSurface } from "./media-skim-surface";
 
@@ -42,10 +41,6 @@ export function EditMediaPool({
   const account = useRendererStore((state) => state.account);
   const requestTranscripts = useRendererStore((state) => state.requestTranscripts);
   const cancelTranscripts = useRendererStore((state) => state.cancelTranscripts);
-  const transcriptionConsent = useTranscriptionConsent(
-    account.user?.id ?? null,
-    requestTranscripts,
-  );
   const normalizedQuery = query.trim().toLowerCase();
   const assets = useMemo(
     () => project.assets.filter((asset) => asset.name.toLowerCase().includes(normalizedQuery)),
@@ -73,7 +68,7 @@ export function EditMediaPool({
                 asset={asset}
                 transcript={transcripts?.assets[asset.id]}
                 transcriptionAvailable={account.status === "signed-in" && account.transcription}
-                onRequestTranscript={() => transcriptionConsent.request([asset.id])}
+                onRequestTranscript={() => void requestTranscripts([asset.id])}
                 onCancelTranscript={() => cancelTranscripts([asset.id])}
                 onAddAsset={onAddAsset}
                 onPreviewAsset={onPreviewAsset}
@@ -101,7 +96,6 @@ export function EditMediaPool({
           Import media
         </Button>
       </div>
-      {transcriptionConsent.dialog}
     </aside>
   );
 }

@@ -12,7 +12,6 @@ import {
   type TranscriptInlineToken,
 } from "../../../shared/transcript";
 import type { ActionResult, RendererState } from "../../store/renderer-store";
-import { useTranscriptionConsent } from "./transcription-consent";
 
 interface TimelineTranscriptProps {
   project: Project;
@@ -248,11 +247,6 @@ export function TimelineTranscript({
   const [anchorId, setAnchorId] = useState<string | null>(null);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
   const dragging = useRef(false);
-  const transcriptionConsent = useTranscriptionConsent(
-    account.user?.id ?? null,
-    onRequestTranscripts,
-  );
-
   const speakers = useMemo(() => {
     const counts = new Map<string, number>();
     for (const block of projection.blocks) {
@@ -471,7 +465,7 @@ export function TimelineTranscript({
                         section.coverage.state === "queued"
                       )
                         void onCancelTranscripts([section.coverage.assetId]);
-                      else transcriptionConsent.request([section.coverage.assetId]);
+                      else void onRequestTranscripts([section.coverage.assetId]);
                     }}
                   />
                 );
@@ -629,7 +623,6 @@ export function TimelineTranscript({
           </div>
         </div>
       )}
-      {transcriptionConsent.dialog}
     </section>
   );
 }
