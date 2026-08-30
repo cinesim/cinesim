@@ -6,6 +6,8 @@ import { timeUs, applyCommand, createProject } from "@cinesim/core";
 import type { Asset } from "@cinesim/core";
 import type { DerivedProjectScope, SourceFingerprint } from "../src/shared/contracts";
 import { parseTranscriptArtifact } from "../src/main/transcripts/artifact";
+import { TranscriptChunkRepository } from "../src/main/transcripts/chunk-repository";
+import { MAX_GATEWAY_RESPONSE_BYTES } from "../src/main/transcripts/gateway";
 import { TranscriptStore } from "../src/main/transcripts/service";
 
 const directories: string[] = [];
@@ -79,6 +81,55 @@ function gatewayResponse(input: {
         wordIndexes: [0],
       },
     ],
+  };
+}
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, resolve, reject };
+}
+
+function accountWith(fetch: (path: string, init?: RequestInit) => Promise<Response>) {
+  return {
+    requireCachedUser: () => ({ id: "user-1" }),
+    authenticatedFetch: fetch,
+  };
+}
+
+function oneChunkResponse() {
+  return gatewayResponse({
+    requestId: "request-one",
+    text: "Complete.",
+    start: 0.5,
+    end: 1,
+    speaker: "0",
+  });
+}
+
+async function preparedStore(
+  directory: string,
+  account: ReturnType<typeof accountWith>,
+  dependencies: ConstructorParameters<typeof TranscriptStore>[2] = {},
+) {
+  const store = new TranscriptStore(account, async () => fingerprint, dependencies);
+  await store.setProject(directory, fixtureProject(), scope);
+  await store.requestJobs(scope, [asset.id]);
+  const { jobId } = await store.beginJob(scope, asset.id);
+  return { store, jobId };
+}
+
+function completeChunk(jobId: string) {
+  return {
+    jobId,
+    chunkIndex: 0,
+    sourceStartUs: timeUs(0),
+    sourceEndUs: asset.durationUs,
+    data: new Uint8Array([1, 2, 3]),
   };
 }
 
@@ -237,6 +288,141 @@ describe("transcript artifact store", () => {
     const store = new TranscriptStore(null, async () => fingerprint);
     await store.setProject(directory, fixtureProject(), scope);
     await expect(store.requestJobs(scope, [asset.id])).rejects.toThrow(/unavailable/);
+  });
+
+  it("reserves a chunk index before awaiting the gateway", async () => {
+    const directory = await fixtureDirectory();
+    const response = deferred<Response>();
+    const { store, jobId } = await preparedStore(
+      directory,
+      accountWith(async () => response.promise),
+    );
+    const first = store.transcribeChunk(scope, completeChunk(jobId));
+
+    await expect(store.transcribeChunk(scope, completeChunk(jobId))).rejects.toThrow(
+      /Invalid transcript audio chunk/,
+    );
+    response.resolve(Response.json(oneChunkResponse()));
+    await first;
+    expect((await store.finalizeJob(scope, jobId)).assets[asset.id]?.state).toBe("ready");
+  });
+
+  it("rejects finalization while a chunk is in flight", async () => {
+    const directory = await fixtureDirectory();
+    const response = deferred<Response>();
+    const { store, jobId } = await preparedStore(
+      directory,
+      accountWith(async () => response.promise),
+    );
+    const chunk = store.transcribeChunk(scope, completeChunk(jobId));
+
+    await expect(store.finalizeJob(scope, jobId)).rejects.toThrow(/busy/);
+    response.resolve(Response.json(oneChunkResponse()));
+    await chunk;
+  });
+
+  it("makes an in-flight gateway result inert after cancellation", async () => {
+    const directory = await fixtureDirectory();
+    const response = deferred<Response>();
+    const { store, jobId } = await preparedStore(
+      directory,
+      accountWith(async () => response.promise),
+    );
+    const chunk = store.transcribeChunk(scope, completeChunk(jobId));
+
+    const canceled = await store.cancelJobs(scope, [asset.id]);
+    response.resolve(Response.json(oneChunkResponse()));
+    await expect(chunk).rejects.toThrow(/no longer active/);
+    expect(canceled.assets[asset.id]).toMatchObject({ state: "failed", failureCode: "canceled" });
+  });
+
+  it("makes an in-flight result inert after switching projects", async () => {
+    const firstDirectory = await fixtureDirectory();
+    const secondDirectory = await fixtureDirectory();
+    const response = deferred<Response>();
+    const { store, jobId } = await preparedStore(
+      firstDirectory,
+      accountWith(async () => response.promise),
+    );
+    const chunk = store.transcribeChunk(scope, completeChunk(jobId));
+    const nextScope = { ...scope, epoch: "123e4567-e89b-12d3-a456-426614174001" };
+
+    await store.setProject(secondDirectory, fixtureProject(), nextScope);
+    response.resolve(Response.json(oneChunkResponse()));
+    await expect(chunk).rejects.toThrow(/no longer active/);
+    expect((await store.snapshot(nextScope)).assets[asset.id]?.state).toBe("missing");
+  });
+
+  it("rolls back a reserved chunk when incremental persistence fails", async () => {
+    const directory = await fixtureDirectory();
+    const repository = new TranscriptChunkRepository();
+    let failWrite = true;
+    const chunkRepository: TranscriptChunkRepository = Object.create(repository);
+    chunkRepository.write = async (...input) => {
+      if (failWrite) {
+        failWrite = false;
+        throw new Error("fixture write failure");
+      }
+      return repository.write(...input);
+    };
+    const { store, jobId } = await preparedStore(
+      directory,
+      accountWith(async () => Response.json(oneChunkResponse())),
+      { chunkRepository },
+    );
+
+    await expect(store.transcribeChunk(scope, completeChunk(jobId))).rejects.toThrow(
+      /fixture write failure/,
+    );
+    await store.transcribeChunk(scope, completeChunk(jobId));
+    expect((await store.finalizeJob(scope, jobId)).assets[asset.id]?.state).toBe("ready");
+  });
+
+  it("rejects an oversized gateway response before parsing JSON", async () => {
+    const directory = await fixtureDirectory();
+    const { store, jobId } = await preparedStore(
+      directory,
+      accountWith(
+        async () =>
+          new Response("{}", {
+            headers: { "content-length": String(MAX_GATEWAY_RESPONSE_BYTES + 1) },
+          }),
+      ),
+    );
+
+    await expect(store.transcribeChunk(scope, completeChunk(jobId))).rejects.toThrow(/size limit/);
+  });
+
+  it("rejects non-contiguous source ranges", async () => {
+    const directory = await fixtureDirectory();
+    const { store, jobId } = await preparedStore(
+      directory,
+      accountWith(async () => Response.json(oneChunkResponse())),
+    );
+
+    await expect(
+      store.transcribeChunk(scope, {
+        ...completeChunk(jobId),
+        sourceStartUs: timeUs(1),
+      }),
+    ).rejects.toThrow(/Invalid transcript audio chunk/);
+  });
+
+  it("permits a deliberate retry after a gateway timeout", async () => {
+    const directory = await fixtureDirectory();
+    let calls = 0;
+    const { store, jobId } = await preparedStore(
+      directory,
+      accountWith(async () => {
+        calls += 1;
+        if (calls === 1) throw new Error("gateway timeout");
+        return Response.json(oneChunkResponse());
+      }),
+    );
+
+    await expect(store.transcribeChunk(scope, completeChunk(jobId))).rejects.toThrow(/timeout/);
+    await store.transcribeChunk(scope, completeChunk(jobId));
+    expect((await store.finalizeJob(scope, jobId)).assets[asset.id]?.state).toBe("ready");
   });
 
   it("rejects artifacts that could map words outside the asset", () => {
