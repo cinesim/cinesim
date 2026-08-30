@@ -1,6 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import { readFile, rename, rm } from "node:fs/promises";
-import { relative } from "node:path";
+import { rm } from "node:fs/promises";
 import { DEFAULT_SETTINGS } from "@cinesim/core";
 import type { Asset, Project, ProjectSettings } from "@cinesim/core";
 import { createCinesimLogger } from "@cinesim/logging";
@@ -16,8 +15,7 @@ import type {
   FinalizeDerivedWrite,
   SourceFingerprint,
 } from "../../shared/api";
-import { decodeWaveformEnvelope } from "../../shared/waveform-format";
-import { validateFinalize, validFilmstripMetadata } from "./artifact-validation";
+import { validFilmstripMetadata } from "./artifact-validation";
 import { DerivedArtifactRepository } from "./artifact-repository";
 import { DerivedIndexRepository } from "./index-repository";
 import {
@@ -36,7 +34,7 @@ import { DerivedPerformanceTracker } from "./performance-tracker";
 import { DerivedRuntimeTracker } from "./runtime-tracker";
 import { projectDerivedSnapshot } from "./snapshot-projector";
 import { DerivedOperationQueue } from "./operation-queue";
-import { DerivedWriterRegistry } from "./writer-registry";
+import { DerivedWriteCoordinator } from "./write-coordinator";
 
 const log = createCinesimLogger({ service: "derived-media" });
 
@@ -61,7 +59,7 @@ export class DerivedMediaStore {
   #listeners = new Set<(snapshot: DerivedMediaSnapshot) => void>();
   #indexRepository = new DerivedIndexRepository();
   #artifactRepository: DerivedArtifactRepository;
-  #writers = new DerivedWriterRegistry();
+  #writes: DerivedWriteCoordinator;
   #operations = new DerivedOperationQueue();
   #performanceTracker = new DerivedPerformanceTracker();
   #removedAssetIds = new Set<string>();
@@ -72,6 +70,26 @@ export class DerivedMediaStore {
 
   constructor(options: DerivedMediaStoreOptions = {}) {
     this.#artifactRepository = new DerivedArtifactRepository(options);
+    this.#writes = new DerivedWriteCoordinator(
+      {
+        serialize: (operation) => this.#serialize(operation),
+        assertScope: (scope) => this.assertScope(scope),
+        directory: () => this.#requireDirectory(),
+        paths: () => this.#requirePaths(),
+        project: () => this.#requireProject(),
+        settings: () => this.#settings,
+        index: () => this.#index,
+        asset: (assetId) => this.#requireAsset(assetId),
+        ensureAsset: (asset) => this.#ensureAsset(asset),
+        queueProxy: (asset) => this.#queueProxyRecord(asset),
+        updateRuntimeProgress: (assetId, progress) =>
+          this.#runtimeTracker.updateWriterProgress(assetId, progress),
+        persist: () => this.#persist(),
+        emit: () => this.#emit(),
+        log: (event) => this.#log(event),
+      },
+      this.#artifactRepository,
+    );
   }
 
   get #directory(): string | null {
@@ -420,137 +438,19 @@ export class DerivedMediaStore {
     scope: DerivedProjectScope,
     input: BeginDerivedWrite,
   ): Promise<{ writerId: string }> {
-    return this.#serialize(async () => {
-      this.assertScope(scope);
-      if (input.kind === "proxy" && !this.#artifactRepository.diskHeadroomAvailable)
-        throw new Error("Insufficient disk headroom for a proxy");
-      const directory = this.#requireDirectory();
-      const asset = this.#requireAsset(input.assetId);
-      const record = await this.#ensureAsset(asset);
-      const writer = await this.#writers.begin(directory, this.#requirePaths(), asset, input);
-      const artifact = record[input.kind];
-      artifact.state = "running";
-      artifact.progress = 0;
-      delete artifact.failureCode;
-      artifact.updatedAt = new Date().toISOString();
-      await this.#persist();
-      this.#emit();
-      log.info(
-        { operation: "write-begin", assetId: input.assetId, artifactKind: input.kind },
-        "derived artifact write started",
-      );
-      return { writerId: writer.id };
-    });
+    return this.#writes.begin(scope, input);
   }
 
   async writeChunk(writerId: string, offset: number, data: Uint8Array): Promise<void> {
-    await this.#serialize(async () => {
-      const writer = await this.#writers.writeChunk(
-        writerId,
-        this.#requireDirectory(),
-        this.#index,
-        offset,
-        data,
-      );
-      if (!writer) return;
-      this.#emit();
-    });
+    await this.#writes.writeChunk(writerId, offset, data);
   }
 
   async finalizeWrite(writerId: string, result: FinalizeDerivedWrite): Promise<void> {
-    await this.#serialize(async () => {
-      const writer = this.#writers.get(writerId, this.#requireDirectory());
-      if (!writer) return;
-      if (
-        !Number.isSafeInteger(result.bytes) ||
-        result.bytes <= 0 ||
-        result.bytes !== writer.maxEnd
-      )
-        throw new Error("Derived artifact size does not match written data");
-      if (writer.expectedBytes && result.bytes !== writer.expectedBytes)
-        throw new Error("Derived artifact does not match expected size");
-      validateFinalize(writer.kind, result, this.#requireAsset(writer.assetId));
-      await writer.handle.sync();
-      if (writer.kind === "waveform") {
-        const bytes = await readFile(writer.tempPath);
-        const envelope = decodeWaveformEnvelope(Uint8Array.from(bytes).buffer);
-        if (
-          envelope.version !== result.waveformFormatVersion ||
-          envelope.peakCount !== result.peakCount
-        )
-          throw new Error("Waveform payload does not match its metadata");
-      }
-      await writer.handle.close();
-      await rename(writer.tempPath, writer.finalPath);
-      this.#writers.complete(writer.id);
-      const record = this.#index.assets[writer.assetId]!;
-      const artifact = record[writer.kind];
-      artifact.state = "ready";
-      artifact.relativePath = relative(this.#requireDirectory(), writer.finalPath);
-      artifact.bytes = result.bytes;
-      artifact.progress = 1;
-      artifact.updatedAt = new Date().toISOString();
-      artifact.lastAccessAt = artifact.updatedAt;
-      if (writer.profileId) artifact.profileId = writer.profileId;
-      if (result.sourceTimeUs !== undefined) artifact.sourceTimeUs = result.sourceTimeUs;
-      if (result.tileTimesUs) artifact.tileTimesUs = result.tileTimesUs;
-      if (result.columns !== undefined) artifact.columns = result.columns;
-      if (result.rows !== undefined) artifact.rows = result.rows;
-      if (result.tileWidth !== undefined) artifact.tileWidth = result.tileWidth;
-      if (result.tileHeight !== undefined) artifact.tileHeight = result.tileHeight;
-      if (result.peakCount !== undefined) artifact.peakCount = result.peakCount;
-      if (result.waveformFormatVersion !== undefined)
-        artifact.waveformFormatVersion = result.waveformFormatVersion;
-      this.#log({
-        assetId: writer.assetId,
-        kind: `${writer.kind}-ready`,
-        detail: `${writer.kind} generated (${result.bytes} bytes)`,
-      });
-      await this.#artifactRepository.refreshStorage(this.#requireDirectory(), this.#index);
-      if (writer.kind === "proxy" && this.#settings.proxyGeneration === "automatic")
-        await this.#queueProxyRecord(this.#requireAsset(writer.assetId));
-      await this.#artifactRepository.evict(
-        this.#requirePaths(),
-        this.#requireDirectory(),
-        this.#index,
-        this.#requireProject(),
-        (event) => this.#log(event),
-      );
-      await this.#persist();
-      this.#emit();
-      log.info(
-        {
-          operation: "write-finalize",
-          assetId: writer.assetId,
-          artifactKind: writer.kind,
-          bytes: result.bytes,
-        },
-        "derived artifact write completed",
-      );
-    });
+    await this.#writes.finalize(writerId, result);
   }
 
   async updateProgress(writerId: string, progress: number): Promise<void> {
-    await this.#serialize(async () => {
-      if (!Number.isFinite(progress) || progress < 0 || progress > 1)
-        throw new Error("Invalid derived progress");
-      const writer = this.#writers.get(writerId, this.#requireDirectory());
-      if (!writer) return;
-      this.#index.assets[writer.assetId]![writer.kind].progress = progress;
-      this.#runtimeTracker.updateWriterProgress(writer.assetId, progress);
-      if (this.#writers.progressBucket(writerId, progress)) {
-        log.info(
-          {
-            operation: "worker-progress",
-            assetId: writer.assetId,
-            artifactKind: writer.kind,
-            progress,
-          },
-          "derived worker progressed",
-        );
-      }
-      this.#emit();
-    });
+    await this.#writes.updateProgress(writerId, progress);
   }
 
   reportActivity(scope: DerivedProjectScope, activity: DerivedWorkerActivity): void {
@@ -574,28 +474,7 @@ export class DerivedMediaStore {
   }
 
   async cancelWrite(writerId: string, failureCode?: string, detail?: string): Promise<void> {
-    await this.#serialize(async () => {
-      const writer = this.#writers.get(writerId, this.#requireDirectory());
-      if (!writer) return;
-      await this.#writers.cancel(writer);
-      const artifact = this.#index.assets[writer.assetId]![writer.kind];
-      artifact.state = failureCode ? "failed" : "queued";
-      artifact.progress = 0;
-      if (failureCode) artifact.failureCode = failureCode;
-      else delete artifact.failureCode;
-      artifact.updatedAt = new Date().toISOString();
-      await this.#persist();
-      this.#emit();
-      const context = {
-        operation: "write-cancel",
-        assetId: writer.assetId,
-        artifactKind: writer.kind,
-        ...(failureCode ? { failureCode } : {}),
-        ...(detail ? { detail } : {}),
-      };
-      if (failureCode) log.error(context, "derived artifact generation failed");
-      else log.info(context, "derived artifact write returned to the queue");
-    });
+    await this.#writes.cancel(writerId, failureCode, detail);
   }
 
   async reportPerformance(
@@ -655,7 +534,7 @@ export class DerivedMediaStore {
     ];
     if (removedIds.length === 0) return;
     const removed = new Set(removedIds);
-    await this.#writers.removeAssets(removed);
+    await this.#writes.removeAssets(removed);
     await this.#artifactRepository.removeAssets(this.#requirePaths(), this.#index, removedIds);
     for (const assetId of removedIds) {
       this.#performanceTracker.remove(assetId);
@@ -760,7 +639,7 @@ export class DerivedMediaStore {
   }
 
   async #closeWriters(): Promise<void> {
-    await this.#writers.closeAll();
+    await this.#writes.closeAll();
   }
 
   #serialize<T>(operation: () => Promise<T>): Promise<T> {

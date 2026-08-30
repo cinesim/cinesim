@@ -148,13 +148,19 @@ describe("architecture boundaries", () => {
     );
     for (const collaborator of [
       "DerivedArtifactRepository",
-      "DerivedWriterRegistry",
+      "DerivedWriteCoordinator",
       "DerivedOperationQueue",
       "projectDerivedSnapshot",
     ])
       expect(derivedService).toContain(collaborator);
     expect(derivedService).not.toContain("new Map<string, WriterSession>");
     expect(derivedService).not.toContain("statfs(");
+    const writeCoordinator = await readFile(
+      join(workspaceRoot, "apps/desktop/src/main/derived-media/write-coordinator.ts"),
+      "utf8",
+    );
+    expect(writeCoordinator).toContain("DerivedWriterRegistry");
+    expect(writeCoordinator).toContain("validateFinalize");
 
     const app = await readFile(join(workspaceRoot, "apps/desktop/src/renderer/app.tsx"), "utf8");
     expect(app).toContain("useAppController");
