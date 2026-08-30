@@ -20,6 +20,7 @@ const accountResponseSchema = z
 const healthResponseSchema = z
   .object({
     ok: z.literal(true),
+    environment: z.enum(["development", "test", "preview", "staging", "production"]),
     googleSignIn: z.boolean(),
     cloudStorage: z.boolean(),
     transcription: z.boolean(),

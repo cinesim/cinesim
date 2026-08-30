@@ -22,6 +22,7 @@ describe("AccountGateway", () => {
       new Response(
         JSON.stringify({
           ok: true,
+          environment: "development",
           googleSignIn: false,
           cloudStorage: true,
           transcription: true,

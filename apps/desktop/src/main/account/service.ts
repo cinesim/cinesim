@@ -1,5 +1,6 @@
 import { join } from "node:path";
 import { app } from "electron";
+import { createCinesimLogger } from "@cinesim/logging";
 import type {
   AccountSnapshot,
   AccountUser,
@@ -19,6 +20,8 @@ import type { AccountResponse } from "./gateway";
 import { AccountProfileRepository } from "./profile-repository";
 
 declare const __CINESIM_CLOUD_ORIGIN__: string;
+
+const log = createCinesimLogger({ service: "desktop-account" });
 
 export { desktopAccountScheme } from "./better-auth-adapter";
 
@@ -112,7 +115,11 @@ export class DesktopAccountService {
         user,
         detail: null,
       });
-    } catch {
+    } catch (error) {
+      log.warn(
+        { err: error, operation: "account-snapshot" },
+        "Account snapshot fell back to offline state",
+      );
       const user = this.#client.getCookie() ? this.#profile.get() : null;
       return this.#publish({
         status: user ? "offline" : "signed-out",
