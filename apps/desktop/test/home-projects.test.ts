@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vite-plus/test";
 import type { RecentProject, RecentProjectDetails } from "../src/shared/contracts";
-import { sortHomeProjects } from "../src/renderer/components/home/home-projects";
+import {
+  projectModifiedLabel,
+  sortHomeProjects,
+} from "../src/renderer/components/home/home-projects";
 
 const projects: RecentProject[] = [
   { name: "Zebra", directory: "/projects/zebra", kind: "cloud" },
@@ -35,5 +38,23 @@ describe("home project sorting", () => {
         "/projects/zebra": details["/projects/zebra"]!,
       }).map(({ name }) => name),
     ).toEqual(["Zebra", "Alpha 2", "alpha 10"]);
+  });
+});
+
+describe("home project modified labels", () => {
+  const now = 1_800_000_000;
+
+  it.each([
+    [now - 42_000, "Modified 42 seconds ago"],
+    [now - 2 * 60_000, "Modified 2 minutes ago"],
+    [now - 3 * 3_600_000, "Modified 3 hours ago"],
+    [now - 4 * 86_400_000, "Modified 4 days ago"],
+  ])("formats elapsed time by its largest useful unit", (timestamp, label) => {
+    expect(projectModifiedLabel(timestamp, now)).toBe(label);
+  });
+
+  it("reports loading and unavailable timestamps", () => {
+    expect(projectModifiedLabel(undefined, now)).toBe("Modified time loading…");
+    expect(projectModifiedLabel(null, now)).toBe("Modified time unavailable");
   });
 });

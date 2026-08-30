@@ -11,6 +11,7 @@ export interface PreviewCardProps {
   previewClassName?: string;
   previewStyle?: CSSProperties;
   size?: "default" | "compact";
+  variant?: "default" | "frameless";
   ariaLabel?: string;
   title?: string;
   disabled?: boolean;
@@ -29,6 +30,7 @@ export function PreviewCard({
   previewClassName,
   previewStyle,
   size = "default",
+  variant = "default",
   ariaLabel,
   title,
   disabled,
@@ -43,7 +45,11 @@ export function PreviewCard({
         data-preview-card-preview
         data-slot="preview-card-preview"
         className={cn(
-          "relative grid aspect-video w-full place-items-center overflow-hidden border-b border-border text-muted",
+          "relative grid aspect-video w-full place-items-center overflow-hidden text-muted",
+          variant === "default"
+            ? "border-b border-border"
+            : "rounded-md transition-shadow group-hover:shadow-lg group-hover:shadow-black/10",
+          variant === "frameless" && selected && "ring-2 ring-accent/70",
           previewClassName,
         )}
         style={previewStyle}
@@ -63,7 +69,14 @@ export function PreviewCard({
       </div>
       <div
         data-slot="preview-card-body"
-        className={cn("relative", size === "compact" ? "min-h-14 p-2" : "min-h-[68px] p-3")}
+        className={cn(
+          "relative",
+          variant === "frameless"
+            ? "pt-2"
+            : size === "compact"
+              ? "min-h-14 p-2"
+              : "min-h-[68px] p-3",
+        )}
       >
         {children}
       </div>
@@ -74,9 +87,13 @@ export function PreviewCard({
     <article
       data-slot="preview-card"
       className={cn(
-        "group relative min-w-0 overflow-hidden rounded-md border border-border bg-panel text-left shadow-sm transition",
-        interactive && "hover:border-border-strong hover:shadow-lg hover:shadow-black/10",
-        selected && "border-accent ring-2 ring-accent/70",
+        "group relative min-w-0 text-left transition",
+        variant === "default" &&
+          "overflow-hidden rounded-md border border-border bg-panel shadow-sm",
+        variant === "default" &&
+          interactive &&
+          "hover:border-border-strong hover:shadow-lg hover:shadow-black/10",
+        variant === "default" && selected && "border-accent ring-2 ring-accent/70",
       )}
       data-selected={selected || undefined}
     >

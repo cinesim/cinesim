@@ -1,6 +1,6 @@
 import type { Asset } from "@cinesim/core";
 
-function sourceMetadata(asset: Asset): string | null {
+export function assetSourceMetadataLabel(asset: Asset): string | null {
   if (asset.kind !== "video" && asset.kind !== "image") return null;
 
   const dimensions = asset.width && asset.height ? `${asset.width} × ${asset.height}` : null;
@@ -12,7 +12,7 @@ function sourceMetadata(asset: Asset): string | null {
 }
 
 export function AssetSourceMetadata({ asset, className }: { asset: Asset; className: string }) {
-  const metadata = sourceMetadata(asset);
+  const metadata = assetSourceMetadataLabel(asset);
   if (!metadata) return null;
 
   return <p className={className}>{metadata}</p>;

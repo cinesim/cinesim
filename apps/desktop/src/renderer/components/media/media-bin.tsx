@@ -1,13 +1,15 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { X } from "@cinesim/ui";
-import { Button, Kbd, PaneHeader, SearchField } from "@cinesim/ui";
+import { Button, Kbd, SearchField } from "@cinesim/ui";
 import type { Asset, AssetId, Project, Sequence } from "@cinesim/core";
 import { useRendererStore } from "../../store/renderer-store-context";
+import { LibraryToolbar, LibraryViewToggle, useLibraryView } from "../shared/library-card";
 import { assetNeedsEditProxy } from "./media-actions";
 import { MediaBinContextMenu } from "./media-bin-context-menu";
 import { MediaBinDialogs } from "./media-bin-dialogs";
 import type { MediaBinDialog } from "./media-bin-dialogs";
 import { MediaBinGrid } from "./media-bin-grid";
+import { MediaBinList } from "./media-bin-list";
 import { nextTimelineName, summarizeAssetUsage } from "./media-bin-model";
 import { useMediaBinSelection } from "./use-media-bin-selection";
 
@@ -18,6 +20,7 @@ interface MediaBinProps {
 
 export function MediaBin({ project, onOpenTimeline }: MediaBinProps) {
   const [query, setQuery] = useState("");
+  const [view, setView] = useLibraryView("cinesim.media.view");
   const [dialog, setDialog] = useState<MediaBinDialog | null>(null);
   const [timelineName, setTimelineName] = useState("");
   const modifier = window.cinesim.platform === "darwin" ? "⌘" : "Ctrl+";
@@ -163,35 +166,39 @@ export function MediaBin({ project, onOpenTimeline }: MediaBinProps) {
 
   return (
     <section className="relative flex h-full min-h-0 flex-col bg-canvas">
-      <PaneHeader size="lg" className="gap-3">
-        <SearchField
-          className="min-w-52 max-w-sm flex-1"
-          placeholder="Search media and timelines"
-          value={query}
-          onChange={(event) => setQuery(event.target.value)}
-        />
-        {selectedCount > 0 ? (
-          <div className="ml-auto flex h-8 items-center gap-2 rounded-md border border-accent/60 bg-accent/10 px-2 text-ui-xs font-medium text-primary">
-            <span>{selectedCount} selected</span>
-            <button
-              type="button"
-              className="grid size-5 place-items-center rounded hover:bg-surface"
-              aria-label="Clear asset selection"
-              onClick={selection.clear}
-            >
-              <X size={12} />
-            </button>
-          </div>
-        ) : (
-          <span className="ml-auto text-ui-xs text-muted">
-            {project.sequences.length + project.assets.length} items
-          </span>
-        )}
+      <LibraryToolbar
+        title="Media"
+        count={project.sequences.length + project.assets.length}
+        search={
+          <SearchField
+            className="w-96 min-w-52 max-w-[32vw]"
+            placeholder="Search media and timelines"
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+          />
+        }
+      >
+        <div className="flex w-28 shrink-0 justify-end">
+          {selectedCount > 0 && (
+            <div className="flex h-8 items-center gap-2 rounded-md border border-accent/60 bg-accent/10 px-2 text-ui-xs font-medium text-primary">
+              <span>{selectedCount} selected</span>
+              <button
+                type="button"
+                className="grid size-5 place-items-center rounded hover:bg-surface"
+                aria-label="Clear asset selection"
+                onClick={selection.clear}
+              >
+                <X size={12} />
+              </button>
+            </div>
+          )}
+        </div>
+        <LibraryViewToggle label="Media view" view={view} onViewChange={setView} />
         <Button onClick={() => void importMedia()}>
           Import media
           <Kbd className="ml-1">{modifier}I</Kbd>
         </Button>
-      </PaneHeader>
+      </LibraryToolbar>
 
       <div className="min-h-0 flex-1 overflow-y-auto px-5 py-6">
         <MediaBinContextMenu
@@ -213,23 +220,38 @@ export function MediaBin({ project, onOpenTimeline }: MediaBinProps) {
           onSelectOnly={selection.selectOnly}
           onToggleCloudOriginal={toggleCloudOriginal}
         >
-          <MediaBinGrid
-            assets={assets}
-            cloudTransfers={cloudTransfers}
-            downloadedCloudOriginals={downloadedCloudOriginals}
-            gridRef={selection.gridRef}
-            hasQuery={Boolean(normalizedQuery)}
-            query={query}
-            selectedAssetIds={selection.selectedIds}
-            sequences={sequences}
-            onAddAsset={(asset) => void addToTimeline(asset)}
-            onOpenTimeline={onOpenTimeline}
-            onPointerCancel={selection.finishMarquee}
-            onPointerDown={selection.beginMarquee}
-            onPointerMove={selection.moveMarquee}
-            onPointerUp={selection.finishMarquee}
-            onSelectAsset={(assetId, event) => selection.select(assetId, event)}
-          />
+          {view === "grid" ? (
+            <MediaBinGrid
+              assets={assets}
+              cloudTransfers={cloudTransfers}
+              downloadedCloudOriginals={downloadedCloudOriginals}
+              gridRef={selection.gridRef}
+              hasQuery={Boolean(normalizedQuery)}
+              query={query}
+              selectedAssetIds={selection.selectedIds}
+              sequences={sequences}
+              onAddAsset={(asset) => void addToTimeline(asset)}
+              onOpenTimeline={onOpenTimeline}
+              onPointerCancel={selection.finishMarquee}
+              onPointerDown={selection.beginMarquee}
+              onPointerMove={selection.moveMarquee}
+              onPointerUp={selection.finishMarquee}
+              onSelectAsset={(assetId, event) => selection.select(assetId, event)}
+            />
+          ) : (
+            <MediaBinList
+              assets={assets}
+              cloudTransfers={cloudTransfers}
+              downloadedCloudOriginals={downloadedCloudOriginals}
+              hasQuery={Boolean(normalizedQuery)}
+              query={query}
+              selectedAssetIds={selection.selectedIds}
+              sequences={sequences}
+              onAddAsset={(asset) => void addToTimeline(asset)}
+              onOpenTimeline={onOpenTimeline}
+              onSelectAsset={(assetId, event) => selection.select(assetId, event)}
+            />
+          )}
         </MediaBinContextMenu>
       </div>
 

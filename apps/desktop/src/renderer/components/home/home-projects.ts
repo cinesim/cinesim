@@ -4,6 +4,23 @@ export type ProjectSort = "name" | "modified" | "created" | "size";
 
 const nameCollator = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" });
 
+export function projectModifiedLabel(timestamp: number | null | undefined, now: number): string {
+  if (timestamp === undefined) return "Modified time loading…";
+  if (timestamp === null) return "Modified time unavailable";
+
+  const elapsedSeconds = Math.max(0, Math.floor((now - timestamp) / 1_000));
+  const [amount, unit] =
+    elapsedSeconds < 60
+      ? [elapsedSeconds, "second"]
+      : elapsedSeconds < 3_600
+        ? [Math.floor(elapsedSeconds / 60), "minute"]
+        : elapsedSeconds < 86_400
+          ? [Math.floor(elapsedSeconds / 3_600), "hour"]
+          : [Math.floor(elapsedSeconds / 86_400), "day"];
+
+  return `Modified ${amount} ${unit}${amount === 1 ? "" : "s"} ago`;
+}
+
 function compareNames(left: RecentProject, right: RecentProject): number {
   return (
     nameCollator.compare(left.name, right.name) ||

@@ -60,7 +60,7 @@ export function AccountMenu({ width }: AccountMenuProps) {
         side="top"
         align="start"
         sideOffset={8}
-        className="p-2"
+        className="border-0 bg-surface p-2"
         style={{ width: width - 16 }}
       >
         {!hydrated ? (
