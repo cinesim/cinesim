@@ -1,16 +1,12 @@
-import { BrowserWindow } from "electron";
 import type { DesktopAccountService } from "./service";
 import { accountContracts } from "./contracts";
-import { eventChannels } from "../../shared/contracts/channels";
+import { desktopEvents } from "../../shared/contracts/events";
 import { registerIpcHandler } from "../app/secure-ipc";
-
-function broadcastAccountChanged(): void {
-  for (const target of BrowserWindow.getAllWindows())
-    target.webContents.send(eventChannels.accountChanged);
-}
+import type { EditorWindowRegistry } from "../app/editor-window-registry";
 
 export function registerAccountIpc(
   service: DesktopAccountService,
+  windows: EditorWindowRegistry,
   onSignOut: () => Promise<void>,
 ): void {
   registerIpcHandler(accountContracts.get, () => service.snapshot());
@@ -20,7 +16,7 @@ export function registerAccountIpc(
   registerIpcHandler(accountContracts.signOut, async () => {
     const snapshot = await service.signOut();
     await onSignOut();
-    broadcastAccountChanged();
+    windows.broadcast(desktopEvents.accountChanged);
     return snapshot;
   });
 }

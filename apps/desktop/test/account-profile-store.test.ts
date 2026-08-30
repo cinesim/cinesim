@@ -2,7 +2,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vite-plus/test";
-import { DesktopAccountProfileStore } from "../src/main/account/profile-store";
+import { AccountProfileRepository } from "../src/main/account/profile-repository";
 
 const temporaryDirectories: string[] = [];
 
@@ -25,11 +25,11 @@ describe("DesktopAccountProfileStore", () => {
       image: null,
     };
 
-    const store = new DesktopAccountProfileStore(path);
-    store.set(user);
-    expect(new DesktopAccountProfileStore(path).get()).toEqual(user);
+    const store = new AccountProfileRepository(path);
+    await store.set(user);
+    expect(new AccountProfileRepository(path).get()).toEqual(user);
 
-    store.clear();
-    expect(new DesktopAccountProfileStore(path).get()).toBeNull();
+    await store.clear();
+    expect(new AccountProfileRepository(path).get()).toBeNull();
   });
 });

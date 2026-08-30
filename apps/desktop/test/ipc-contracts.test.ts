@@ -44,11 +44,14 @@ describe("desktop IPC contracts", () => {
   it("keeps raw Electron IPC primitives inside the guarded boundary", async () => {
     const preload = await readFile(join(desktopSource, "preload/index.ts"), "utf8");
     const secureIpc = await readFile(join(desktopSource, "main/app/secure-ipc.ts"), "utf8");
-    const accountService = await readFile(join(desktopSource, "main/account/service.ts"), "utf8");
+    const accountAdapter = await readFile(
+      join(desktopSource, "main/account/better-auth-adapter.ts"),
+      "utf8",
+    );
     expect(preload.match(/ipcRenderer\.invoke\(/gu)).toHaveLength(1);
     expect(secureIpc.match(/ipcMain\.handle\(/gu)).toHaveLength(1);
-    expect(accountService).toContain("bridges: false");
-    expect(accountService).not.toContain("bridges: true");
+    expect(accountAdapter).toContain("bridges: false");
+    expect(accountAdapter).not.toContain("bridges: true");
   });
 
   it("uses declared event names without duplicates", () => {

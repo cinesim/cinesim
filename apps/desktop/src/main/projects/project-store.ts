@@ -1,7 +1,4 @@
-import { randomUUID } from "node:crypto";
-import { constants } from "node:fs";
-import { copyFile, link, lstat, mkdir, rm, stat, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { rm } from "node:fs/promises";
 import { createProject, DEFAULT_SETTINGS, ProjectHistory, settingsSchema } from "@cinesim/core";
 import type { EditorCommand, Project, ProjectSettings } from "@cinesim/core";
 import type { CloudProjectId, ProjectId } from "@cinesim/core";
@@ -13,65 +10,15 @@ import { DerivedMediaStore } from "../derived-media/service";
 import type { DesktopAccountService } from "../account/service";
 import { TranscriptStore } from "../transcripts/service";
 import { inspectMedia } from "./media-import";
+import {
+  createAvailableProjectDirectory,
+  ensureProjectLayout,
+  projectDirectorySlug,
+} from "./project-layout";
+import { stageManagedOriginal } from "./managed-originals";
+import { publishDependentProject } from "./dependent-project";
 
 const log = createCinesimLogger({ service: "desktop-commands" });
-
-const PROJECT_AGENTS = `# Project creative direction
-
-This is a Cinesim video editing project.
-
-- Prefer the Cinesim CLI or MCP tools for timeline edits.
-- Canonical state is \`cinesim.json\` and \`.cinesim/\`.
-- Human-readable settings are in \`.cinesim/settings.toml\`.
-- \`.video/\` contains generated caches, optional downloaded originals, proxies, perception
-  artifacts, and runtime files.
-- Derived files may be deleted and regenerated. Do not edit them manually.
-- Cinesim may offload originals under the signed-in account's storage policy. Agents must not move
-  or modify source media directly.
-
-Add creative direction below this line.
-`;
-
-const PROJECT_GITIGNORE = `.video/
-.DS_Store
-`;
-
-async function writeIfMissing(path: string, contents: string): Promise<void> {
-  try {
-    await stat(path);
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-    await writeFile(path, contents, "utf8");
-  }
-}
-
-const DERIVED_FOLDERS = [
-  "cache",
-  "proxies",
-  "originals",
-  "thumbnails",
-  "waveforms",
-  "filmstrips",
-  "frames",
-  "runtime",
-  "transcripts",
-] as const;
-
-async function createAvailableProjectDirectory(
-  parentDirectory: string,
-  slug: string,
-): Promise<string> {
-  for (let ordinal = 1; ordinal <= 10_000; ordinal += 1) {
-    const directory = join(parentDirectory, ordinal === 1 ? slug : `${slug}-${ordinal}`);
-    try {
-      await mkdir(directory, { recursive: false });
-      return directory;
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
-    }
-  }
-  throw new Error(`Could not find an available folder for ${slug}`);
-}
 
 export class DesktopProjectStore {
   readonly derivedMedia = new DerivedMediaStore();
@@ -106,12 +53,7 @@ export class DesktopProjectStore {
   ): Promise<DesktopProjectSession> {
     return this.#serialize(async () => {
       const name = typeof input === "string" ? input : input.name;
-      const slug =
-        name
-          .trim()
-          .toLowerCase()
-          .replace(/[^a-z0-9]+/g, "-")
-          .replace(/^-|-$/g, "") || "untitled-project";
+      const slug = projectDirectorySlug(name);
       const directory = await createAvailableProjectDirectory(parentDirectory, slug);
       const project = createProject({
         ...(typeof input === "string"
@@ -123,7 +65,7 @@ export class DesktopProjectStore {
         name,
       });
       const repository = await CanonicalProjectRepository.open(directory);
-      await this.#ensureLayout(repository);
+      await ensureProjectLayout(repository);
       const generation = await repository.commit({
         project,
         settings: DEFAULT_SETTINGS,
@@ -152,7 +94,7 @@ export class DesktopProjectStore {
       try {
         const readsStartedAt = performance.now();
         const repository = await CanonicalProjectRepository.open(directory);
-        await this.#ensureLayout(repository);
+        await ensureProjectLayout(repository);
         const [snapshot, preparedDerived] = await Promise.all([
           repository.load(),
           this.derivedMedia.prepareProject(repository.paths.root),
@@ -166,17 +108,14 @@ export class DesktopProjectStore {
         this.#revision += 1;
         const layoutDurationMs = 0;
         const derivedStartedAt = performance.now();
-        await this.derivedMedia.setProject(
-          repository.paths.root,
-          this.#history.project,
-          preparedDerived,
-          this.#settings,
-        );
-        await this.transcripts.setProject(
+        await publishDependentProject({
+          derivedMedia: this.derivedMedia,
+          transcripts: this.transcripts,
           directory,
-          this.#history.project,
-          this.derivedMedia.scope(),
-        );
+          project: this.#history.project,
+          settings: this.#settings,
+          preparedDerived,
+        });
         const derivedDurationMs = performance.now() - derivedStartedAt;
         const session = this.session();
         log.info(
@@ -208,18 +147,6 @@ export class DesktopProjectStore {
         throw error;
       }
     });
-  }
-
-  async #ensureLayout(repository: CanonicalProjectRepository): Promise<void> {
-    await repository.paths.ensureLayout(DERIVED_FOLDERS);
-    await Promise.all([
-      repository.paths
-        .assertSafeFile("AGENTS.md")
-        .then((path) => writeIfMissing(path, PROJECT_AGENTS)),
-      repository.paths
-        .assertSafeFile(".gitignore")
-        .then((path) => writeIfMissing(path, PROJECT_GITIGNORE)),
-    ]);
   }
 
   async save(): Promise<DesktopProjectSession> {
@@ -362,25 +289,12 @@ export class DesktopProjectStore {
     );
     let managedPath: string | null = null;
     if (options.managedCopy) {
-      const originalsDirectory = await this.#managedOriginalsDirectory();
-      managedPath = join(originalsDirectory, asset.id);
-      const temporaryPath = `${managedPath}.${randomUUID()}.tmp`;
-      if (await lstat(managedPath).catch(() => null))
-        throw new Error("The managed original already exists");
-      let published = false;
-      try {
-        await copyFile(filePath, temporaryPath, constants.COPYFILE_EXCL);
-        const [sourceInfo, copyInfo] = await Promise.all([stat(filePath), stat(temporaryPath)]);
-        if (!sourceInfo.isFile() || !copyInfo.isFile() || sourceInfo.size !== copyInfo.size)
-          throw new Error("The managed original copy could not be verified");
-        await link(temporaryPath, managedPath);
-        published = true;
-        await rm(temporaryPath);
-      } catch (error) {
-        await rm(temporaryPath, { force: true }).catch(() => undefined);
-        if (published) await rm(managedPath, { force: true }).catch(() => undefined);
-        throw error;
-      }
+      managedPath = await stageManagedOriginal({
+        repository: this.#requireRepository(),
+        projectDirectory: this.#requireDirectory(),
+        sourcePath: filePath,
+        assetId: asset.id,
+      });
       asset = { ...asset, source: { kind: "local", path: managedPath } };
     }
     try {
@@ -433,11 +347,6 @@ export class DesktopProjectStore {
     return project;
   }
 
-  async #managedOriginalsDirectory(): Promise<string> {
-    await this.#requireRepository().paths.ensureDirectory(".video/originals");
-    return join(this.#requireDirectory(), ".video", "originals");
-  }
-
   async #commit(project: Project, settings: ProjectSettings): Promise<string> {
     return this.#requireRepository().commit({
       project,
@@ -449,8 +358,13 @@ export class DesktopProjectStore {
   async #publishDependentProject(): Promise<void> {
     const directory = this.#requireDirectory();
     const project = this.#requireProject();
-    await this.derivedMedia.setProject(directory, project, undefined, this.#settings);
-    await this.transcripts.setProject(directory, project, this.derivedMedia.scope());
+    await publishDependentProject({
+      derivedMedia: this.derivedMedia,
+      transcripts: this.transcripts,
+      directory,
+      project,
+      settings: this.#settings,
+    });
   }
 
   #requireRepository(): CanonicalProjectRepository {
