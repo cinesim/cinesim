@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vite-plus/test";
-import { applyCommand, createProject, findClip } from "@cinesim/core";
+import { timeUs, applyCommand, createProject, findClip } from "@cinesim/core";
 import type { Asset, Project } from "@cinesim/core";
 import {
   projectNarrativeUnits,
@@ -19,7 +19,7 @@ const video: Asset = {
   kind: "video",
   name: "Interview",
   source: { kind: "local", path: "/media/interview.mp4" },
-  durationUs: 12_000_000,
+  durationUs: timeUs(12_000_000),
   width: 1920,
   height: 1080,
   hasAudio: true,
@@ -30,7 +30,7 @@ const broll: Asset = {
   kind: "video",
   name: "B-roll",
   source: { kind: "local", path: "/media/broll.mp4" },
-  durationUs: 5_000_000,
+  durationUs: timeUs(5_000_000),
   width: 1920,
   height: 1080,
 };
@@ -40,7 +40,7 @@ const music: Asset = {
   kind: "audio",
   name: "Music",
   source: { kind: "local", path: "/media/music.wav" },
-  durationUs: 5_000_000,
+  durationUs: timeUs(5_000_000),
 };
 
 function artifact(assetId: Asset["id"], words: TranscriptArtifactWord[]): TranscriptArtifact {
@@ -69,7 +69,7 @@ function artifact(assetId: Asset["id"], words: TranscriptArtifactWord[]): Transc
       keyterms: [],
     },
     language: "en",
-    durationUs: 12_000_000,
+    durationUs: timeUs(12_000_000),
     words,
     utterances: [],
   };
@@ -86,8 +86,8 @@ function word(
   return {
     id,
     text,
-    sourceStartUs,
-    sourceEndUs,
+    sourceStartUs: timeUs(sourceStartUs),
+    sourceEndUs: timeUs(sourceEndUs),
     confidence: 0.98,
     speakerClusterId,
     utteranceId,
@@ -102,7 +102,7 @@ function projectWithVideo(): Project {
     trackId: "track_000001",
     audioTrackId: "track_000002",
     assetId: video.id,
-    timelineStartUs: 0,
+    timelineStartUs: timeUs(0),
   }).project;
   return project;
 }
@@ -126,12 +126,12 @@ describe("timeline transcript projection", () => {
     project = applyCommand(project, {
       type: "clip.trimStart",
       clipId: "clip_000001",
-      atUs: 2_000_000,
+      atUs: timeUs(2_000_000),
     }).project;
     project = applyCommand(project, {
       type: "clip.trimEnd",
       clipId: "clip_000001",
-      atUs: 8_000_000,
+      atUs: timeUs(8_000_000),
     }).project;
     const transcript = snapshot([
       word("word-0", "outside", 1_000_000, 1_500_000),
@@ -149,13 +149,13 @@ describe("timeline transcript projection", () => {
     expect(projection.words.map((item) => item.text)).toEqual(["clamped", "inside"]);
     expect(projection.words[0]).toMatchObject({
       artifactWordId: "word-1",
-      timelineStartUs: 2_000_000,
-      timelineEndUs: 2_400_000,
+      timelineStartUs: timeUs(2_000_000),
+      timelineEndUs: timeUs(2_400_000),
       cutBefore: true,
     });
     expect(projection.words[1]).toMatchObject({
-      timelineStartUs: 4_000_000,
-      timelineEndUs: 4_500_000,
+      timelineStartUs: timeUs(4_000_000),
+      timelineEndUs: timeUs(4_500_000),
     });
   });
 
@@ -219,7 +219,7 @@ describe("timeline transcript projection", () => {
     project = applyCommand(project, {
       type: "clip.split",
       clipId: "clip_000001",
-      atUs: 4_000_000,
+      atUs: timeUs(4_000_000),
     }).project;
     project = applyCommand(project, { type: "clip.remove", clipId: "clip_000003" }).project;
     project = applyCommand(project, {
@@ -227,9 +227,9 @@ describe("timeline transcript projection", () => {
       trackId: "track_000001",
       audioTrackId: "track_000002",
       assetId: video.id,
-      sourceStartUs: 4_000_000,
-      sourceEndUs: 8_000_000,
-      timelineStartUs: 6_000_000,
+      sourceStartUs: timeUs(4_000_000),
+      sourceEndUs: timeUs(8_000_000),
+      timelineStartUs: timeUs(6_000_000),
     }).project;
     const projection = projectTimelineTranscript({
       project,
@@ -246,14 +246,17 @@ describe("timeline transcript projection", () => {
     expect(utterance?.kind === "utterance" ? utterance.utterance.tokens : []).toContainEqual(
       expect.objectContaining({
         kind: "media-silence",
-        timelineStartUs: 900_000,
-        timelineEndUs: 2_000_000,
+        timelineStartUs: timeUs(900_000),
+        timelineEndUs: timeUs(2_000_000),
       }),
     );
     expect(projection.blocks).toContainEqual(
       expect.objectContaining({
         kind: "timeline-gap",
-        gap: expect.objectContaining({ timelineStartUs: 2_500_000, timelineEndUs: 6_500_000 }),
+        gap: expect.objectContaining({
+          timelineStartUs: timeUs(2_500_000),
+          timelineEndUs: timeUs(6_500_000),
+        }),
       }),
     );
     const paragraphs = transcriptDocumentSections(projection.blocks).filter(
@@ -270,7 +273,7 @@ describe("timeline transcript projection", () => {
     project = applyCommand(project, {
       type: "clip.split",
       clipId: "clip_000001",
-      atUs: 4_000_000,
+      atUs: timeUs(4_000_000),
     }).project;
     const projection = projectTimelineTranscript({
       project,
@@ -315,7 +318,7 @@ describe("timeline transcript projection", () => {
     project = applyCommand(project, {
       type: "clip.split",
       clipId: "clip_000001",
-      atUs: 4_000_000,
+      atUs: timeUs(4_000_000),
     }).project;
     const projection = projectTimelineTranscript({
       project,
@@ -328,8 +331,8 @@ describe("timeline transcript projection", () => {
     });
     const selected = new Set(projection.words.map((item) => item.id));
     expect(timelineRangesForWordIds(projection.words, selected)).toEqual([
-      { startUs: 1_000_000, endUs: 2_400_000 },
-      { startUs: 5_000_000, endUs: 5_400_000 },
+      { startUs: timeUs(1_000_000), endUs: timeUs(2_400_000) },
+      { startUs: timeUs(5_000_000), endUs: timeUs(5_400_000) },
     ]);
   });
 });
@@ -349,7 +352,7 @@ describe("collapsed timeline narrative projection", () => {
       type: "clip.add",
       trackId: "track_000003",
       assetId: broll.id,
-      timelineStartUs: 2_000_000,
+      timelineStartUs: timeUs(2_000_000),
     }).project;
     project = applyCommand(project, {
       type: "track.add",
@@ -361,7 +364,7 @@ describe("collapsed timeline narrative projection", () => {
       type: "clip.add",
       trackId: "track_000004",
       assetId: music.id,
-      timelineStartUs: 5_000_000,
+      timelineStartUs: timeUs(5_000_000),
     }).project;
 
     const units = projectNarrativeUnits({
@@ -392,8 +395,8 @@ describe("collapsed timeline narrative projection", () => {
       type: "clip.add",
       trackId: "track_000003",
       assetId: video.id,
-      sourceEndUs: 5_000_000,
-      timelineStartUs: 2_000_000,
+      sourceEndUs: timeUs(5_000_000),
+      timelineStartUs: timeUs(2_000_000),
     }).project;
     const units = projectNarrativeUnits({
       project,
@@ -404,8 +407,8 @@ describe("collapsed timeline narrative projection", () => {
     expect(units[0]).toMatchObject({
       label: "Overlapping dialogue",
       hasOverlappingDialogue: true,
-      timelineStartUs: 0,
-      timelineEndUs: 12_000_000,
+      timelineStartUs: timeUs(0),
+      timelineEndUs: timeUs(12_000_000),
     });
   });
 
@@ -422,7 +425,7 @@ describe("collapsed timeline narrative projection", () => {
     project = applyCommand(project, {
       type: "sequence.deleteRanges",
       sequenceId: project.activeSequenceId,
-      ranges: [{ startUs: 2_000_000, endUs: 3_000_000 }],
+      ranges: [{ startUs: timeUs(2_000_000), endUs: timeUs(3_000_000) }],
       mode: "ripple",
     }).project;
     expect(findClip(project, "clip_000003").clip.timelineStartUs).toBe(2_000_000);

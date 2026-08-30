@@ -1,8 +1,8 @@
-import { timeUsToSeconds } from "@cinesim/core";
+import { timeUs as createTimeUs, timeUsToSeconds } from "@cinesim/core";
 import type { TimeUs } from "@cinesim/core";
 
 export function formatTimecode(timeUs: TimeUs, frameRate = 30): string {
-  const totalSeconds = timeUsToSeconds(Math.max(0, timeUs));
+  const totalSeconds = timeUsToSeconds(createTimeUs(Math.max(0, timeUs)));
   const hours = Math.floor(totalSeconds / 3600);
   const minutes = Math.floor((totalSeconds % 3600) / 60);
   const seconds = Math.floor(totalSeconds % 60);

@@ -4,7 +4,7 @@ declare const TIME_US: unique symbol;
 declare const TIME_SECONDS: unique symbol;
 declare const TIME_MILLISECONDS: unique symbol;
 
-export type TimeUs = number & { readonly [TIME_US]?: "TimeUs" };
+export type TimeUs = number & { readonly [TIME_US]: "TimeUs" };
 export type TimeSeconds = number & { readonly [TIME_SECONDS]: "TimeSeconds" };
 export type TimeMilliseconds = number & { readonly [TIME_MILLISECONDS]: "TimeMilliseconds" };
 

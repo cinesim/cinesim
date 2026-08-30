@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
-import { applyCommand, createProject } from "@cinesim/core";
+import { timeUs, applyCommand, createProject } from "@cinesim/core";
 import type { Project } from "@cinesim/core";
 import type { DerivedMediaSnapshot, DesktopApi, FinalizeDerivedWrite } from "../src/shared/api";
 import type { TranscriptSnapshot } from "../src/shared/transcript";
@@ -45,7 +45,7 @@ function project(hasAudio = false): Project {
       kind: "video",
       name: "fixture.mp4",
       source: { kind: "local", path: "/tmp/fixture.mp4" },
-      durationUs: 2_000_000,
+      durationUs: timeUs(2_000_000),
       width: 1280,
       height: 720,
       hasAudio,
@@ -69,7 +69,9 @@ function snapshot(
         assetId: "asset_fixture",
         fingerprintStatus: "current",
         thumbnail:
-          thumbnail === "ready" ? { ...state(thumbnail), sourceTimeUs: 500_000 } : state(thumbnail),
+          thumbnail === "ready"
+            ? { ...state(thumbnail), sourceTimeUs: timeUs(500_000) }
+            : state(thumbnail),
         filmstrip: state(filmstrip),
         waveform: waveform === "missing" ? { state: "missing" } : state(waveform),
         proxy: { state: "missing" },
@@ -354,8 +356,8 @@ describe("MediaJobCoordinator", () => {
       type: "transcript-chunk",
       jobId: "00000000-0000-4000-8000-000000000099",
       chunkIndex: 0,
-      sourceStartUs: 0,
-      sourceEndUs: 2_000_000,
+      sourceStartUs: timeUs(0),
+      sourceEndUs: timeUs(2_000_000),
       data: new Uint8Array([1, 2, 3]).buffer,
     });
     await vi.waitFor(() => expect(transcribedChunks).toHaveLength(1));
@@ -404,13 +406,13 @@ describe("MediaJobCoordinator", () => {
       type: "thumbnail-complete",
       jobId,
       thumbnail: new Uint8Array([1, 2, 3]).buffer,
-      sourceTimeUs: 500_000,
+      sourceTimeUs: timeUs(500_000),
     });
 
     await vi.waitFor(() => expect(finalized).toHaveLength(1));
     expect(finalized[0]).toEqual({
       writerId: "thumbnail-writer",
-      result: { bytes: 3, sourceTimeUs: 500_000 },
+      result: { bytes: 3, sourceTimeUs: timeUs(500_000) },
     });
     expect(finalized.some(({ writerId }) => writerId === "filmstrip-writer")).toBe(false);
     await coordinator.destroy();
@@ -428,7 +430,7 @@ describe("MediaJobCoordinator", () => {
       type: "thumbnail-complete",
       jobId,
       thumbnail: new Uint8Array([1]).buffer,
-      sourceTimeUs: 250_000,
+      sourceTimeUs: timeUs(250_000),
     });
     await vi.waitFor(() => expect(finalized).toHaveLength(1));
     FakeWorker.instance!.emit({

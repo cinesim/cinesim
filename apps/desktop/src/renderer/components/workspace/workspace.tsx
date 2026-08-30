@@ -1,7 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { cn } from "@cinesim/ui";
-import { canSplitClipAt, findClip } from "@cinesim/core";
-import type { Asset, EditorCommand, Project, SequenceId, TimelineRange } from "@cinesim/core";
+import { canSplitClipAt, findClip, timeUs } from "@cinesim/core";
+import type {
+  Asset,
+  EditorCommand,
+  Project,
+  SequenceId,
+  TimelineRange,
+  TimeUs,
+} from "@cinesim/core";
 import { EDITOR_LAYOUT_LIMITS } from "../../../shared/api";
 import type { CutLayoutState, DesktopProjectSession, EditorLayoutState } from "../../../shared/api";
 import { editShortcutAction } from "../../lib/edit-shortcuts";
@@ -260,7 +267,7 @@ function CutWorkspace({
     setLayout(origin.layout);
   }
 
-  function handleSeek(timeUs: number): void {
+  function handleSeek(timeUs: TimeUs): void {
     setPlayheadUs(timeUs);
     void viewerControllerRef.current?.seekTimeline(timeUs);
   }
@@ -353,7 +360,7 @@ function CutWorkspace({
           if (playbackPlaying) viewerControllerRef.current?.pauseTimeline();
           else viewerControllerRef.current?.playTimeline();
         }}
-        onGoToStart={() => handleSeek(0)}
+        onGoToStart={() => handleSeek(timeUs(0))}
         onStepFrames={(deltaFrames) => void viewerControllerRef.current?.stepFrames(deltaFrames)}
       />
     </div>
@@ -435,7 +442,7 @@ export function Workspace({
 
   useEffect(() => {
     selectClip(null);
-    setPlayheadUs(0);
+    setPlayheadUs(timeUs(0));
   }, [activeSequence?.id, selectClip, setPlayheadUs]);
 
   useEffect(() => {
@@ -686,7 +693,7 @@ export function Workspace({
                   if (playbackPlaying) viewerControllerRef.current?.pauseTimeline();
                   else viewerControllerRef.current?.playTimeline();
                 }}
-                onGoToStart={() => void viewerControllerRef.current?.seekTimeline(0)}
+                onGoToStart={() => void viewerControllerRef.current?.seekTimeline(timeUs(0))}
                 onStepFrames={(deltaFrames) =>
                   void viewerControllerRef.current?.stepFrames(deltaFrames)
                 }

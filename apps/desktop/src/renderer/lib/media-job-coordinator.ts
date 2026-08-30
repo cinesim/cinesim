@@ -1,5 +1,5 @@
 import type { Asset, Project, ProjectSettings } from "@cinesim/core";
-import { DEFAULT_SETTINGS } from "@cinesim/core";
+import { DEFAULT_SETTINGS, timeUs } from "@cinesim/core";
 import type {
   DerivedArtifactKind,
   DerivedMediaSnapshot,
@@ -336,7 +336,7 @@ export class MediaJobCoordinator {
         durationUs: asset.durationUs,
         kinds,
         ...(record.thumbnail.sourceTimeUs !== undefined
-          ? { thumbnailSourceTimeUs: record.thumbnail.sourceTimeUs }
+          ? { thumbnailSourceTimeUs: timeUs(record.thumbnail.sourceTimeUs) }
           : {}),
       } satisfies DerivedWorkerRequest);
       this.#armWorkerInactivityTimer(jobId);
@@ -413,7 +413,7 @@ export class MediaJobCoordinator {
         assetId: asset.id,
         projectScope: this.#projectScope,
         durationUs: asset.durationUs,
-        chunkDurationUs: 300_000_000,
+        chunkDurationUs: timeUs(300_000_000),
       } satisfies DerivedWorkerRequest);
       this.#armWorkerInactivityTimer(jobId);
       this.setForegroundPressure(this.#foregroundPressure);

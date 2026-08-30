@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useDroppable } from "@dnd-kit/core";
-import type { Asset, Clip, EditorCommand, Project, Track } from "@cinesim/core";
+import { timeUs } from "@cinesim/core";
+import type { Asset, Clip, EditorCommand, Project, TimeUs, Track } from "@cinesim/core";
 import {
   Button,
   ChevronDown,
@@ -49,7 +50,7 @@ export function TimelineTrackRow({
   project: Project;
   frameRate: number;
   snappingEnabled: boolean;
-  playheadUs: number;
+  playheadUs: TimeUs;
   paletteId: TimelinePaletteId;
 }) {
   const selectClip = useRendererStore((state) => state.selectClip);
@@ -119,7 +120,7 @@ export function TimelineTrackRow({
             derived?.assets[proposalAsset.id] && (
               <TimelineFilmstrip
                 asset={proposalAsset}
-                clip={{ sourceStartUs: 0, sourceEndUs: proposalAsset.durationUs }}
+                clip={{ sourceStartUs: timeUs(0), sourceEndUs: proposalAsset.durationUs }}
                 record={derived.assets[proposalAsset.id]!}
                 derived={derived}
                 width={proposalWidth}
@@ -131,7 +132,7 @@ export function TimelineTrackRow({
             derived?.assets[proposalAsset.id]?.waveform.state === "ready" && (
               <TimelineWaveform
                 asset={proposalAsset}
-                clip={{ sourceStartUs: 0, sourceEndUs: proposalAsset.durationUs }}
+                clip={{ sourceStartUs: timeUs(0), sourceEndUs: proposalAsset.durationUs }}
                 artifact={derived.assets[proposalAsset.id]!.waveform}
                 derived={derived}
               />

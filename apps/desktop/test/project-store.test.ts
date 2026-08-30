@@ -1,3 +1,4 @@
+import { timeUs } from "@cinesim/core";
 import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -123,7 +124,7 @@ describe("DesktopProjectStore", () => {
       kind: "audio",
       name: "tone.wav",
       source: { kind: "local", path: mediaPath },
-      durationUs: 1_000_000,
+      durationUs: timeUs(1_000_000),
       hasAudio: true,
     });
   });
@@ -195,7 +196,7 @@ describe("DesktopProjectStore", () => {
           kind: "audio",
           name: "First",
           source: { kind: "local", path: join(parentDirectory, "first.wav") },
-          durationUs: 1_000_000,
+          durationUs: timeUs(1_000_000),
           hasAudio: true,
         },
       }),
@@ -206,7 +207,7 @@ describe("DesktopProjectStore", () => {
           kind: "audio",
           name: "Second",
           source: { kind: "local", path: join(parentDirectory, "second.wav") },
-          durationUs: 1_000_000,
+          durationUs: timeUs(1_000_000),
           hasAudio: true,
         },
       }),
@@ -233,7 +234,7 @@ describe("DesktopProjectStore", () => {
       kind: "audio" as const,
       name: "First writer",
       source: { kind: "local" as const, path: join(parentDirectory, "first.wav") },
-      durationUs: 1_000_000,
+      durationUs: timeUs(1_000_000),
     };
     await first.execute({ type: "asset.import", asset });
 
@@ -277,7 +278,7 @@ describe("DesktopProjectStore", () => {
         kind: "audio",
         name: "Selected",
         source: { kind: "local", path: join(parentDirectory, "selected.wav") },
-        durationUs: 1_000_000,
+        durationUs: timeUs(1_000_000),
       },
     });
     await store.execute({

@@ -13,7 +13,7 @@ import {
   PreviewCard,
   SearchField,
 } from "@cinesim/ui";
-import type { Asset, Project } from "@cinesim/core";
+import type { Asset, Project, TimeUs } from "@cinesim/core";
 import type { TranscriptAssetSnapshot } from "../../../shared/transcript";
 import { formatDuration } from "../../lib/format";
 import { useRendererStore } from "../../store/renderer-store-context";
@@ -26,7 +26,7 @@ interface EditMediaPoolProps {
   project: Project;
   onAddAsset: (asset: Asset) => Promise<unknown>;
   onImport: () => Promise<unknown>;
-  onPreviewAsset: (asset: Asset, sourceTimeUs: number) => void;
+  onPreviewAsset: (asset: Asset, sourceTimeUs: TimeUs) => void;
   onPreviewEnd: () => void;
 }
 
@@ -122,7 +122,7 @@ function DraggableAssetCard({
   onRequestTranscript: () => void;
   onCancelTranscript: () => Promise<unknown>;
   onAddAsset: (asset: Asset) => Promise<unknown>;
-  onPreviewAsset: (asset: Asset, sourceTimeUs: number) => void;
+  onPreviewAsset: (asset: Asset, sourceTimeUs: TimeUs) => void;
   onPreviewEnd: () => void;
 }) {
   const editorDrag = useEditorDnd();

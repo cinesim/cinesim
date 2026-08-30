@@ -6,6 +6,7 @@ import {
   scoreThumbnailRgba,
   thumbnailCandidateTimes,
 } from "@cinesim/engine";
+import { timeUs } from "@cinesim/core";
 import {
   ALL_FORMATS,
   AudioSampleSink,
@@ -128,7 +129,7 @@ async function generate(request: Extract<DerivedWorkerRequest, { type: "generate
     if (audioTrack && !(await audioTrack.canDecode())) throw new Error("source-audio-undecodable");
     activity(request.jobId, "decoder-ready", started);
 
-    let sourceTimeUs = request.thumbnailSourceTimeUs ?? 0;
+    let sourceTimeUs = request.thumbnailSourceTimeUs ?? timeUs(0);
     if (request.kinds.includes("thumbnail")) {
       const candidateTimesUs = thumbnailCandidateTimes(request.durationUs);
       activity(request.jobId, "thumbnail-sampling", started, {
@@ -148,7 +149,7 @@ async function generate(request: Extract<DerivedWorkerRequest, { type: "generate
       const thumbnailContext = thumbnail.getContext("2d");
       if (!analysisContext || !thumbnailContext) throw new Error("canvas-unavailable");
       let bestScore = Number.NEGATIVE_INFINITY;
-      sourceTimeUs = candidateTimesUs[0] ?? 0;
+      sourceTimeUs = candidateTimesUs[0] ?? timeUs(0);
       let candidateIndex = 0;
       for await (const wrapped of candidateSink.canvasesAtTimestamps(
         candidateTimesUs.map((timeUs) => timeUs / 1_000_000),
@@ -156,7 +157,7 @@ async function generate(request: Extract<DerivedWorkerRequest, { type: "generate
       )) {
         await waitUntilPerceptionResumed(request.jobId);
         assertActive(request.jobId);
-        const requestedTimeUs = candidateTimesUs[candidateIndex] ?? 0;
+        const requestedTimeUs = candidateTimesUs[candidateIndex] ?? timeUs(0);
         candidateIndex += 1;
         if (!wrapped) continue;
         analysisContext.clearRect(0, 0, 64, 36);
@@ -503,13 +504,15 @@ async function generateTranscript(
     if (!(await audioTrack.canDecode())) throw new Error("source-audio-undecodable");
     let chunkIndex = 0;
     for (
-      let sourceStartUs = 0;
+      let sourceStartUs = timeUs(0);
       sourceStartUs < request.durationUs;
-      sourceStartUs += request.chunkDurationUs
+      sourceStartUs = timeUs(sourceStartUs + request.chunkDurationUs)
     ) {
       assertActive(request.jobId);
       await waitUntilTranscriptResumed(request.jobId);
-      const sourceEndUs = Math.min(request.durationUs, sourceStartUs + request.chunkDurationUs);
+      const sourceEndUs = timeUs(
+        Math.min(request.durationUs, sourceStartUs + request.chunkDurationUs),
+      );
       const target = new BufferTarget();
       const output = new Output({ format: new WavOutputFormat(), target });
       const conversion = await Conversion.init({

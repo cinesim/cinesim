@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useDraggable } from "@dnd-kit/core";
-import { canSplitClipAt, clipDurationUs } from "@cinesim/core";
-import type { Asset, Clip, EditorCommand, Track } from "@cinesim/core";
+import { canSplitClipAt, clipDurationUs, timeUs } from "@cinesim/core";
+import type { Asset, Clip, EditorCommand, TimeUs, Track } from "@cinesim/core";
 import { cn } from "@cinesim/ui";
 import type { DerivedAssetSnapshot, DerivedMediaSnapshot } from "../../../shared/api";
 import {
@@ -23,8 +23,8 @@ interface FadeGesture {
   pointerId: number;
   edge: "in" | "out";
   startClientX: number;
-  initialDurationUs: number;
-  previewDurationUs: number;
+  initialDurationUs: TimeUs;
+  previewDurationUs: TimeUs;
 }
 
 interface ClipBlockProps {
@@ -39,7 +39,7 @@ interface ClipBlockProps {
   trackHeight: number;
   frameRate: number;
   snappingEnabled: boolean;
-  snapCandidatesUs: readonly number[];
+  snapCandidatesUs: readonly TimeUs[];
   paletteId: TimelinePaletteId;
 }
 
@@ -109,8 +109,10 @@ export function TimelineClipBlock({
       pointerId: event.pointerId,
       edge,
       startClientX: event.clientX,
-      initialDurationUs: edge === "in" ? (clip.fadeInUs ?? 0) : (clip.fadeOutUs ?? 0),
-      previewDurationUs: edge === "in" ? (clip.fadeInUs ?? 0) : (clip.fadeOutUs ?? 0),
+      initialDurationUs:
+        edge === "in" ? (clip.fadeInUs ?? timeUs(0)) : (clip.fadeOutUs ?? timeUs(0)),
+      previewDurationUs:
+        edge === "in" ? (clip.fadeInUs ?? timeUs(0)) : (clip.fadeOutUs ?? timeUs(0)),
     };
     fadeGestureRef.current = gesture;
     setFadeGesture(gesture);
@@ -128,7 +130,7 @@ export function TimelineClipBlock({
         initialDurationUs: gesture.initialDurationUs,
         deltaX: event.clientX - gesture.startClientX,
         pixelsPerUs,
-        maximumDurationUs: Math.max(0, clipDurationUs(clip) - otherDurationUs),
+        maximumDurationUs: timeUs(Math.max(0, clipDurationUs(clip) - otherDurationUs)),
         frameRate,
       }),
     };
@@ -170,7 +172,7 @@ export function TimelineClipBlock({
       pixelsPerUs,
       frameRate,
       snapCandidatesUs: snappingEnabled ? snapCandidatesUs : [],
-      snapToleranceUs: snappingEnabled ? Math.round(8 / pixelsPerUs) : 0,
+      snapToleranceUs: timeUs(snappingEnabled ? Math.round(8 / pixelsPerUs) : 0),
       clip,
     });
     trimGestureRef.current = transition.state;
@@ -218,7 +220,7 @@ export function TimelineClipBlock({
     const bounds = event.currentTarget.getBoundingClientRect();
     const ratio = Math.min(1, Math.max(0, (event.clientX - bounds.left) / bounds.width));
     const atUs = quantizeToFrame(
-      clip.timelineStartUs + Math.round(clipDurationUs(clip) * ratio),
+      timeUs(clip.timelineStartUs + Math.round(clipDurationUs(clip) * ratio)),
       frameRate,
     );
     if (canSplitClipAt(clip, atUs)) void onCommand({ type: "clip.split", clipId: clip.id, atUs });

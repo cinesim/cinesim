@@ -1,3 +1,4 @@
+import { timeUs } from "@cinesim/core";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -29,7 +30,7 @@ describe("AgentMcpServer", () => {
         kind: "video",
         name: "Fixture",
         source: { kind: "local", path: join(parent, "fixture.mov") },
-        durationUs: 2_000_000,
+        durationUs: timeUs(2_000_000),
         width: 1920,
         height: 1080,
         frameRate: 30,
@@ -67,7 +68,7 @@ describe("AgentMcpServer", () => {
       arguments: {
         trackId: project.project.sequences[0]!.tracks[0]!.id,
         assetId: "asset_fixture",
-        timelineStartUs: 0,
+        timelineStartUs: timeUs(0),
       },
     });
     expect(denied.isError).toBe(true);
@@ -100,7 +101,7 @@ describe("AgentMcpServer", () => {
       arguments: {
         trackId: project.project.sequences[0]!.tracks[0]!.id,
         assetId: "asset_fixture",
-        timelineStartUs: 0,
+        timelineStartUs: timeUs(0),
       },
     });
     expect(edited.isError).not.toBe(true);

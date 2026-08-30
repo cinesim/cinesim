@@ -1,3 +1,4 @@
+import { timeUs } from "@cinesim/core";
 import type { TimeUs } from "@cinesim/core";
 
 export interface ThumbnailScore {
@@ -15,9 +16,9 @@ export function thumbnailCandidateTimes(durationUs: TimeUs): TimeUs[] {
   const edge = Math.min(2_000_000, Math.floor(durationUs * 0.08));
   const start = Math.min(edge, Math.max(0, durationUs - 1));
   const end = Math.max(start, durationUs - 1 - edge);
-  if (start === end) return [start];
+  if (start === end) return [timeUs(start)];
   return Array.from({ length: count }, (_, index) =>
-    Math.round(start + (index / (count - 1)) * (end - start)),
+    timeUs(Math.round(start + (index / (count - 1)) * (end - start))),
   );
 }
 

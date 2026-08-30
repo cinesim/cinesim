@@ -1,7 +1,8 @@
 import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { Trash2, User, Play, LoaderCircle, RotateCcw, MoveHorizontal, X } from "@cinesim/ui";
 import { Button, cn, Menu, MenuContent, MenuItem, MenuTrigger, SearchField } from "@cinesim/ui";
-import type { AssetId, EditorCommand, Project, TimelineRange } from "@cinesim/core";
+import { timeUs } from "@cinesim/core";
+import type { AssetId, EditorCommand, Project, TimelineRange, TimeUs } from "@cinesim/core";
 import type { TranscriptSnapshot } from "../../../shared/transcript";
 import {
   projectTimelineTranscript,
@@ -18,20 +19,20 @@ interface TimelineTranscriptProps {
   sequenceId: string;
   transcripts: TranscriptSnapshot | null;
   account: RendererState["account"];
-  playheadUs: number;
-  onSeek: (timeUs: number) => void;
+  playheadUs: TimeUs;
+  onSeek: (timeUs: TimeUs) => void;
   onCommand: (command: EditorCommand) => Promise<ActionResult<unknown>>;
   onRequestTranscripts: (assetIds: AssetId[]) => Promise<ActionResult<TranscriptSnapshot>>;
   onCancelTranscripts: (assetIds: AssetId[]) => Promise<ActionResult<TranscriptSnapshot>>;
   onSelectionChange: (ranges: TimelineRange[]) => void;
-  onPlaySelection: (startUs: number, endUs: number) => void;
+  onPlaySelection: (startUs: TimeUs, endUs: TimeUs) => void;
 }
 
 interface SelectableToken {
   id: string;
   kind: "word" | "media-silence" | "timeline-gap";
-  startUs: number;
-  endUs: number;
+  startUs: TimeUs;
+  endUs: TimeUs;
   label: string;
 }
 
@@ -62,7 +63,7 @@ function mergeRanges(items: readonly SelectableToken[]): TimelineRange[] {
   for (const range of sorted) {
     const previous = result.at(-1);
     if (previous && range.startUs <= previous.endUs)
-      previous.endUs = Math.max(previous.endUs, range.endUs);
+      previous.endUs = timeUs(Math.max(previous.endUs, range.endUs));
     else result.push({ ...range });
   }
   return result;

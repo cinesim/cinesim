@@ -1,7 +1,8 @@
 import { useState } from "react";
 import { AlertTriangle, Film, Image as ImageIcon, LoaderCircle, Music2 } from "@cinesim/ui";
 import { nearestSampleIndex, pointerSourceTimeUs } from "@cinesim/engine";
-import type { Asset } from "@cinesim/core";
+import { timeUs } from "@cinesim/core";
+import type { Asset, TimeUs } from "@cinesim/core";
 import type { DerivedAssetSnapshot } from "../../../shared/api";
 import { derivedArtifactUrl } from "../../lib/media-url";
 import { useDelayedBusy } from "../../hooks/use-delayed-busy";
@@ -10,7 +11,7 @@ import { useRendererStore } from "../../store/renderer-store-context";
 interface MediaSkimSurfaceProps {
   asset: Asset;
   className?: string;
-  onPreviewTime?: (sourceTimeUs: number) => void;
+  onPreviewTime?: (sourceTimeUs: TimeUs) => void;
   onPreviewEnd?: () => void;
   disabled?: boolean;
 }
@@ -61,7 +62,7 @@ export function MediaSkimSurface({
   onPreviewEnd,
   disabled = false,
 }: MediaSkimSurfaceProps) {
-  const [skimTimeUs, setSkimTimeUs] = useState<number | null>(null);
+  const [skimTimeUs, setSkimTimeUs] = useState<TimeUs | null>(null);
   const derived = useRendererStore((state) => state.derivedMedia);
   const record = derived?.assets[asset.id];
   const thumbnailState = thumbnailPresentation(record);
@@ -70,7 +71,9 @@ export function MediaSkimSurface({
   const filmstripReady = filmstripPresentationReady(record);
   const tileTimesUs = filmstripReady ? (filmstrip?.tileTimesUs ?? []) : [];
   const tileIndex =
-    skimTimeUs !== null && filmstripReady ? nearestSampleIndex(tileTimesUs, skimTimeUs) : null;
+    skimTimeUs !== null && filmstripReady
+      ? nearestSampleIndex(tileTimesUs.map(timeUs), skimTimeUs)
+      : null;
   const columns = Math.max(1, filmstrip?.columns ?? 1);
   const rows = Math.max(1, filmstrip?.rows ?? 1);
   const column = tileIndex === null ? 0 : tileIndex % columns;

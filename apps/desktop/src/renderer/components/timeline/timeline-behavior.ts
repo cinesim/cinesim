@@ -1,4 +1,5 @@
-import type { Asset, Track } from "@cinesim/core";
+import { timeUs } from "@cinesim/core";
+import type { Asset, TimeUs, Track } from "@cinesim/core";
 
 export type TimelinePaletteId = "northern-lights" | "desert-bloom" | "coastal";
 
@@ -51,14 +52,14 @@ export function fadeDurationFromDrag({
   frameRate,
 }: {
   edge: "in" | "out";
-  initialDurationUs: number;
+  initialDurationUs: TimeUs;
   deltaX: number;
   pixelsPerUs: number;
-  maximumDurationUs: number;
+  maximumDurationUs: TimeUs;
   frameRate: number;
-}): number {
+}): TimeUs {
   const rawDurationUs = initialDurationUs + (edge === "in" ? deltaX : -deltaX) / pixelsPerUs;
   const frameDurationUs = 1_000_000 / Math.max(1, frameRate);
   const quantized = Math.round(rawDurationUs / frameDurationUs) * frameDurationUs;
-  return Math.round(Math.min(maximumDurationUs, Math.max(0, quantized)));
+  return timeUs(Math.round(Math.min(maximumDurationUs, Math.max(0, quantized))));
 }

@@ -15,14 +15,14 @@ import {
   timeUsToMilliseconds,
   timeUsToSeconds,
 } from "../src";
-import type { Asset, Project } from "../src";
+import type { Asset, Project, TimeUs } from "../src";
 
 const asset: Asset = {
   id: "asset_000001",
   kind: "video",
   name: "shot.mp4",
   source: { kind: "local", path: "/media/shot.mp4" },
-  durationUs: 10_000_000,
+  durationUs: timeUs(10_000_000),
   width: 1920,
   height: 1080,
   hasAudio: false,
@@ -35,7 +35,7 @@ const audioAsset: Asset = {
   kind: "audio",
   name: "dialogue.wav",
   source: { kind: "local", path: "/media/dialogue.wav" },
-  durationUs: 5_000_000,
+  durationUs: timeUs(5_000_000),
 };
 
 function seededProject(): Project {
@@ -49,12 +49,16 @@ function withClip(): Project {
     type: "clip.add",
     trackId: project.sequences[0]!.tracks[0]!.id,
     assetId: asset.id,
-    timelineStartUs: 0,
+    timelineStartUs: timeUs(0),
   }).project;
 }
 
 describe("editing commands", () => {
   it("converts external clocks through explicit microsecond unit boundaries", () => {
+    const acceptsTimeUs = (value: TimeUs): TimeUs => value;
+    // @ts-expect-error A raw number must cross the validated microsecond boundary first.
+    acceptsTimeUs(1);
+    expect(acceptsTimeUs(timeUs(1))).toBe(1);
     expect(secondsToTimeUs(timeSeconds(1.25))).toBe(1_250_000);
     expect(millisecondsToTimeUs(timeMilliseconds(1.25))).toBe(1_250);
     expect(timeUsToSeconds(timeUs(2_500_000))).toBe(2.5);
@@ -217,33 +221,33 @@ describe("editing commands", () => {
       type: "clip.setFade",
       clipId: "clip_000001",
       edge: "in",
-      durationUs: 2_000_000,
+      durationUs: timeUs(2_000_000),
     }).project;
     project = applyCommand(project, {
       type: "clip.setFade",
       clipId: "clip_000001",
       edge: "out",
-      durationUs: 3_000_000,
+      durationUs: timeUs(3_000_000),
     }).project;
     expect(findClip(project, "clip_000001").clip).toMatchObject({
-      fadeInUs: 2_000_000,
-      fadeOutUs: 3_000_000,
+      fadeInUs: timeUs(2_000_000),
+      fadeOutUs: timeUs(3_000_000),
     });
-    expect(clipFadeGainAt(findClip(project, "clip_000001").clip, 1_000_000)).toBe(0.5);
-    expect(clipFadeGainAt(findClip(project, "clip_000001").clip, 8_500_000)).toBe(0.5);
+    expect(clipFadeGainAt(findClip(project, "clip_000001").clip, timeUs(1_000_000))).toBe(0.5);
+    expect(clipFadeGainAt(findClip(project, "clip_000001").clip, timeUs(8_500_000))).toBe(0.5);
     expect(() =>
       applyCommand(project, {
         type: "clip.setFade",
         clipId: "clip_000001",
         edge: "in",
-        durationUs: 8_000_000,
+        durationUs: timeUs(8_000_000),
       }),
     ).toThrow(/cannot overlap/);
     project = applyCommand(project, {
       type: "clip.setFade",
       clipId: "clip_000001",
       edge: "out",
-      durationUs: 0,
+      durationUs: timeUs(0),
     }).project;
     expect(findClip(project, "clip_000001").clip.fadeOutUs).toBeUndefined();
   });
@@ -257,7 +261,7 @@ describe("editing commands", () => {
       type: "clip.add",
       trackId: "track_000001",
       assetId: avAsset.id,
-      timelineStartUs: 0,
+      timelineStartUs: timeUs(0),
     });
     project = add.project;
     expect(add.createdIds).toEqual(["clip_000001", "clip_000002"]);
@@ -273,7 +277,7 @@ describe("editing commands", () => {
     project = applyCommand(project, {
       type: "clip.move",
       clipId: "clip_000002",
-      timelineStartUs: 1_000_000,
+      timelineStartUs: timeUs(1_000_000),
     }).project;
     expect(findClip(project, "clip_000001").clip.timelineStartUs).toBe(1_000_000);
     expect(findClip(project, "clip_000002").clip.timelineStartUs).toBe(1_000_000);
@@ -281,7 +285,7 @@ describe("editing commands", () => {
     project = applyCommand(project, {
       type: "clip.trimStart",
       clipId: "clip_000001",
-      atUs: 2_000_000,
+      atUs: timeUs(2_000_000),
     }).project;
     expect(findClip(project, "clip_000001").clip.sourceStartUs).toBe(1_000_000);
     expect(findClip(project, "clip_000002").clip.sourceStartUs).toBe(1_000_000);
@@ -289,7 +293,7 @@ describe("editing commands", () => {
     project = applyCommand(project, {
       type: "clip.split",
       clipId: "clip_000001",
-      atUs: 5_000_000,
+      atUs: timeUs(5_000_000),
     }).project;
     expect(findClip(project, "clip_000003").clip.linkedClipId).toBe("clip_000004");
     expect(findClip(project, "clip_000004").clip.linkedClipId).toBe("clip_000003");
@@ -310,7 +314,7 @@ describe("editing commands", () => {
       trackId: "track_000001",
       audioTrackId: "track_000002",
       assetId: avAsset.id,
-      timelineStartUs: 0,
+      timelineStartUs: timeUs(0),
     });
     expect(history.project.sequences[0]!.tracks.flatMap((track) => track.clips)).toHaveLength(2);
     expect(history.undo().sequences[0]!.tracks.flatMap((track) => track.clips)).toHaveLength(0);
@@ -331,7 +335,7 @@ describe("editing commands", () => {
       type: "clip.add",
       trackId: "track_000001",
       assetId: avAsset.id,
-      timelineStartUs: 0,
+      timelineStartUs: timeUs(0),
     });
     expect(added.createdIds).toEqual(["track_000003", "clip_000001", "clip_000002"]);
     expect(added.project.sequences[0]!.tracks[2]).toMatchObject({
@@ -346,17 +350,17 @@ describe("editing commands", () => {
     project = applyCommand(project, {
       type: "clip.move",
       clipId: "clip_000001",
-      timelineStartUs: 2_000_000,
+      timelineStartUs: timeUs(2_000_000),
     }).project;
     project = applyCommand(project, {
       type: "clip.trimStart",
       clipId: "clip_000001",
-      atUs: 3_000_000,
+      atUs: timeUs(3_000_000),
     }).project;
     project = applyCommand(project, {
       type: "clip.trimEnd",
       clipId: "clip_000001",
-      atUs: 8_000_000,
+      atUs: timeUs(8_000_000),
     }).project;
     const clip = findClip(project, "clip_000001").clip;
     expect(clip.timelineStartUs).toBe(3_000_000);
@@ -368,7 +372,7 @@ describe("editing commands", () => {
     const project = applyCommand(withClip(), {
       type: "clip.split",
       clipId: "clip_000001",
-      atUs: 4_250_000,
+      atUs: timeUs(4_250_000),
     }).project;
     const left = findClip(project, "clip_000001").clip;
     const right = findClip(project, "clip_000002").clip;
@@ -385,11 +389,11 @@ describe("editing commands", () => {
         type: "clip.add",
         trackId,
         assetId: asset.id,
-        timelineStartUs: 5_000_000,
+        timelineStartUs: timeUs(5_000_000),
       }),
     ).toThrow(/overlaps/);
     expect(() =>
-      applyCommand(project, { type: "clip.split", clipId: "clip_000001", atUs: 0 }),
+      applyCommand(project, { type: "clip.split", clipId: "clip_000001", atUs: timeUs(0) }),
     ).toThrow(/strictly inside/);
   });
 
@@ -399,19 +403,19 @@ describe("editing commands", () => {
       type: "clip.setFade",
       clipId: "clip_000001",
       edge: "in",
-      durationUs: 1_000_000,
+      durationUs: timeUs(1_000_000),
     }).project;
     project = applyCommand(project, {
       type: "clip.setFade",
       clipId: "clip_000001",
       edge: "out",
-      durationUs: 2_000_000,
+      durationUs: timeUs(2_000_000),
     }).project;
 
     const result = applyCommand(project, {
       type: "sequence.deleteRanges",
       sequenceId: project.activeSequenceId,
-      ranges: [{ startUs: 3_000_000, endUs: 5_000_000 }],
+      ranges: [{ startUs: timeUs(3_000_000), endUs: timeUs(5_000_000) }],
       mode: "ripple",
     });
 
@@ -419,17 +423,17 @@ describe("editing commands", () => {
     expect(result.project.sequences[0]!.tracks[0]!.clips).toMatchObject([
       {
         id: "clip_000001",
-        timelineStartUs: 0,
-        sourceStartUs: 0,
-        sourceEndUs: 3_000_000,
-        fadeInUs: 1_000_000,
+        timelineStartUs: timeUs(0),
+        sourceStartUs: timeUs(0),
+        sourceEndUs: timeUs(3_000_000),
+        fadeInUs: timeUs(1_000_000),
       },
       {
         id: "clip_000002",
-        timelineStartUs: 3_000_000,
-        sourceStartUs: 5_000_000,
-        sourceEndUs: 10_000_000,
-        fadeOutUs: 2_000_000,
+        timelineStartUs: timeUs(3_000_000),
+        sourceStartUs: timeUs(5_000_000),
+        sourceEndUs: timeUs(10_000_000),
+        fadeOutUs: timeUs(2_000_000),
       },
     ]);
     expect(findClip(result.project, "clip_000001").clip.fadeOutUs).toBeUndefined();
@@ -446,13 +450,13 @@ describe("editing commands", () => {
       trackId: "track_000001",
       audioTrackId: "track_000002",
       assetId: avAsset.id,
-      timelineStartUs: 0,
+      timelineStartUs: timeUs(0),
     }).project;
 
     const result = applyCommand(project, {
       type: "sequence.deleteRanges",
       sequenceId: project.activeSequenceId,
-      ranges: [{ startUs: 4_000_000, endUs: 6_000_000 }],
+      ranges: [{ startUs: timeUs(4_000_000), endUs: timeUs(6_000_000) }],
       mode: "ripple",
     });
 
@@ -461,8 +465,8 @@ describe("editing commands", () => {
     expect(findClip(result.project, "clip_000002").clip.linkedClipId).toBe("clip_000001");
     expect(findClip(result.project, "clip_000003").clip).toMatchObject({
       linkedClipId: "clip_000004",
-      timelineStartUs: 4_000_000,
-      sourceStartUs: 6_000_000,
+      timelineStartUs: timeUs(4_000_000),
+      sourceStartUs: timeUs(6_000_000),
     });
     expect(findClip(result.project, "clip_000004").clip.linkedClipId).toBe("clip_000003");
   });
@@ -471,19 +475,19 @@ describe("editing commands", () => {
     const startTrimmed = applyCommand(withClip(), {
       type: "sequence.deleteRanges",
       sequenceId: "sequence_000001",
-      ranges: [{ startUs: 0, endUs: 2_000_000 }],
+      ranges: [{ startUs: timeUs(0), endUs: timeUs(2_000_000) }],
       mode: "ripple",
     }).project;
     expect(findClip(startTrimmed, "clip_000001").clip).toMatchObject({
-      timelineStartUs: 0,
-      sourceStartUs: 2_000_000,
-      sourceEndUs: 10_000_000,
+      timelineStartUs: timeUs(0),
+      sourceStartUs: timeUs(2_000_000),
+      sourceEndUs: timeUs(10_000_000),
     });
 
     const endTrimmed = applyCommand(withClip(), {
       type: "sequence.deleteRanges",
       sequenceId: "sequence_000001",
-      ranges: [{ startUs: 8_000_000, endUs: 10_000_000 }],
+      ranges: [{ startUs: timeUs(8_000_000), endUs: timeUs(10_000_000) }],
       mode: "ripple",
     }).project;
     expect(findClip(endTrimmed, "clip_000001").clip.sourceEndUs).toBe(8_000_000);
@@ -491,7 +495,7 @@ describe("editing commands", () => {
     const removed = applyCommand(withClip(), {
       type: "sequence.deleteRanges",
       sequenceId: "sequence_000001",
-      ranges: [{ startUs: 0, endUs: 10_000_000 }],
+      ranges: [{ startUs: timeUs(0), endUs: timeUs(10_000_000) }],
       mode: "ripple",
     }).project;
     expect(removed.sequences[0]!.tracks[0]!.clips).toEqual([]);
@@ -501,33 +505,41 @@ describe("editing commands", () => {
       type: "clip.add",
       trackId: "track_000001",
       assetId: asset.id,
-      timelineStartUs: 10_000_000,
+      timelineStartUs: timeUs(10_000_000),
     }).project;
     adjacent = applyCommand(adjacent, {
       type: "sequence.deleteRanges",
       sequenceId: adjacent.activeSequenceId,
-      ranges: [{ startUs: 8_000_000, endUs: 12_000_000 }],
+      ranges: [{ startUs: timeUs(8_000_000), endUs: timeUs(12_000_000) }],
       mode: "ripple",
     }).project;
     expect(adjacent.sequences[0]!.tracks[0]!.clips).toMatchObject([
-      { id: "clip_000001", timelineStartUs: 0, sourceEndUs: 8_000_000 },
-      { id: "clip_000002", timelineStartUs: 8_000_000, sourceStartUs: 2_000_000 },
+      { id: "clip_000001", timelineStartUs: timeUs(0), sourceEndUs: timeUs(8_000_000) },
+      { id: "clip_000002", timelineStartUs: timeUs(8_000_000), sourceStartUs: timeUs(2_000_000) },
     ]);
 
     const disjoint = applyCommand(withClip(), {
       type: "sequence.deleteRanges",
       sequenceId: "sequence_000001",
       ranges: [
-        { startUs: 5_000_000, endUs: 7_000_000 },
-        { startUs: 2_000_000, endUs: 3_000_000 },
+        { startUs: timeUs(5_000_000), endUs: timeUs(7_000_000) },
+        { startUs: timeUs(2_000_000), endUs: timeUs(3_000_000) },
       ],
       mode: "ripple",
     });
     expect(disjoint.createdIds).toEqual(["clip_000002", "clip_000003"]);
     expect(disjoint.project.sequences[0]!.tracks[0]!.clips).toMatchObject([
-      { timelineStartUs: 0, sourceStartUs: 0, sourceEndUs: 2_000_000 },
-      { timelineStartUs: 2_000_000, sourceStartUs: 3_000_000, sourceEndUs: 5_000_000 },
-      { timelineStartUs: 4_000_000, sourceStartUs: 7_000_000, sourceEndUs: 10_000_000 },
+      { timelineStartUs: timeUs(0), sourceStartUs: timeUs(0), sourceEndUs: timeUs(2_000_000) },
+      {
+        timelineStartUs: timeUs(2_000_000),
+        sourceStartUs: timeUs(3_000_000),
+        sourceEndUs: timeUs(5_000_000),
+      },
+      {
+        timelineStartUs: timeUs(4_000_000),
+        sourceStartUs: timeUs(7_000_000),
+        sourceEndUs: timeUs(10_000_000),
+      },
     ]);
   });
 
@@ -535,7 +547,7 @@ describe("editing commands", () => {
     const lifted = applyCommand(withClip(), {
       type: "sequence.deleteRanges",
       sequenceId: "sequence_000001",
-      ranges: [{ startUs: 3_000_000, endUs: 5_000_000 }],
+      ranges: [{ startUs: timeUs(3_000_000), endUs: timeUs(5_000_000) }],
       mode: "lift",
     }).project;
     expect(lifted.sequences[0]!.tracks[0]!.clips.map((clip) => clip.timelineStartUs)).toEqual([
@@ -553,13 +565,13 @@ describe("editing commands", () => {
       type: "clip.add",
       trackId: "track_000003",
       assetId: asset.id,
-      sourceEndUs: 2_000_000,
-      timelineStartUs: 6_000_000,
+      sourceEndUs: timeUs(2_000_000),
+      timelineStartUs: timeUs(6_000_000),
     }).project;
     project = applyCommand(project, {
       type: "sequence.deleteRanges",
       sequenceId: project.activeSequenceId,
-      ranges: [{ startUs: 2_000_000, endUs: 4_000_000 }],
+      ranges: [{ startUs: timeUs(2_000_000), endUs: timeUs(4_000_000) }],
       mode: "ripple",
     }).project;
     expect(findClip(project, "clip_000002").clip.timelineStartUs).toBe(4_000_000);
@@ -577,8 +589,8 @@ describe("editing commands", () => {
       type: "clip.add",
       trackId: "track_000003",
       assetId: asset.id,
-      sourceEndUs: 2_000_000,
-      timelineStartUs: 6_000_000,
+      sourceEndUs: timeUs(2_000_000),
+      timelineStartUs: timeUs(6_000_000),
     }).project;
     project = applyCommand(project, {
       type: "track.update",
@@ -591,7 +603,7 @@ describe("editing commands", () => {
       applyCommand(project, {
         type: "sequence.deleteRanges",
         sequenceId: project.activeSequenceId,
-        ranges: [{ startUs: 2_000_000, endUs: 4_000_000 }],
+        ranges: [{ startUs: timeUs(2_000_000), endUs: timeUs(4_000_000) }],
         mode: "ripple",
       }),
     ).toThrow(/Unlock Locked overlay/);
@@ -606,8 +618,8 @@ describe("editing commands", () => {
       type: "sequence.deleteRanges",
       sequenceId: initial.activeSequenceId,
       ranges: [
-        { startUs: 2_000_000, endUs: 3_000_000 },
-        { startUs: 6_000_000, endUs: 7_000_000 },
+        { startUs: timeUs(2_000_000), endUs: timeUs(3_000_000) },
+        { startUs: timeUs(6_000_000), endUs: timeUs(7_000_000) },
       ],
       mode: "ripple",
     });
@@ -626,7 +638,7 @@ describe("editing commands", () => {
         type: "clip.add",
         trackId: "track_000001",
         assetId: audioAsset.id,
-        timelineStartUs: 0,
+        timelineStartUs: timeUs(0),
       }),
     ).toThrow(/audio tracks/);
     expect(() =>
@@ -634,7 +646,7 @@ describe("editing commands", () => {
         type: "clip.add",
         trackId: "track_000002",
         assetId: asset.id,
-        timelineStartUs: 0,
+        timelineStartUs: timeUs(0),
       }),
     ).toThrow(/video or overlay tracks/);
 
@@ -642,14 +654,14 @@ describe("editing commands", () => {
       type: "clip.add",
       trackId: "track_000002",
       assetId: audioAsset.id,
-      timelineStartUs: 0,
+      timelineStartUs: timeUs(0),
     }).project;
     expect(() =>
       applyCommand(project, {
         type: "clip.move",
         clipId: "clip_000001",
         trackId: "track_000001",
-        timelineStartUs: 0,
+        timelineStartUs: timeUs(0),
       }),
     ).toThrow(/audio tracks/);
 
@@ -662,13 +674,13 @@ describe("editing commands", () => {
       type: "clip.add",
       trackId: "track_000001",
       assetId: asset.id,
-      timelineStartUs: 0,
+      timelineStartUs: timeUs(0),
     }).project;
     project = applyCommand(project, {
       type: "clip.move",
       clipId: "clip_000002",
       trackId: "track_000003",
-      timelineStartUs: 1_000_000,
+      timelineStartUs: timeUs(1_000_000),
     }).project;
     expect(findClip(project, "clip_000002").track.kind).toBe("overlay");
   });
@@ -680,7 +692,7 @@ describe("editing commands", () => {
       type: "clip.add",
       trackId: project.sequences[0]!.tracks[0]!.id,
       assetId: asset.id,
-      timelineStartUs: 0,
+      timelineStartUs: timeUs(0),
     });
     expect(history.canUndo).toBe(true);
     expect(history.undo().sequences[0]!.tracks[0]!.clips).toHaveLength(0);
@@ -693,7 +705,7 @@ describe("editing commands", () => {
       maxEntries: 2,
       maxEstimatedBytes: 10 * 1024 * 1024,
     });
-    for (const timelineStartUs of [1_000_000, 2_000_000, 3_000_000]) {
+    for (const timelineStartUs of [timeUs(1_000_000), timeUs(2_000_000), timeUs(3_000_000)]) {
       history.commit({ type: "clip.move", clipId: "clip_000001", timelineStartUs });
     }
 
@@ -711,12 +723,12 @@ describe("editing commands", () => {
     history.commit({
       type: "clip.move",
       clipId: "clip_000001",
-      timelineStartUs: 1_000_000,
+      timelineStartUs: timeUs(1_000_000),
     });
     history.commit({
       type: "clip.move",
       clipId: "clip_000001",
-      timelineStartUs: 2_000_000,
+      timelineStartUs: timeUs(2_000_000),
     });
 
     expect(history.stats.undoEntries).toBe(1);
@@ -755,16 +767,16 @@ describe("editing commands", () => {
       {
         id: "clip_000002",
         assetId: avAsset.id,
-        timelineStartUs: audioAsset.durationUs,
+        timelineStartUs: timeUs(audioAsset.durationUs),
         linkedClipId: "clip_000003",
       },
     ]);
     expect(sequence.tracks[1]!.clips).toMatchObject([
-      { id: "clip_000001", assetId: audioAsset.id, timelineStartUs: 0 },
+      { id: "clip_000001", assetId: audioAsset.id, timelineStartUs: timeUs(0) },
       {
         id: "clip_000003",
         assetId: avAsset.id,
-        timelineStartUs: audioAsset.durationUs,
+        timelineStartUs: timeUs(audioAsset.durationUs),
         linkedClipId: "clip_000002",
       },
     ]);

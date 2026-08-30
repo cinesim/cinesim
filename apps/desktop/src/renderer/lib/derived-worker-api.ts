@@ -3,9 +3,9 @@ export interface GenerateDerivedRequest {
   jobId: string;
   assetId: string;
   projectScope: DerivedProjectScope;
-  durationUs: number;
+  durationUs: TimeUs;
   kinds: ("thumbnail" | "filmstrip" | "waveform")[];
-  thumbnailSourceTimeUs?: number;
+  thumbnailSourceTimeUs?: TimeUs;
 }
 
 export interface CancelDerivedRequest {
@@ -49,8 +49,8 @@ export interface GenerateTranscriptRequest {
   jobId: string;
   assetId: string;
   projectScope: DerivedProjectScope;
-  durationUs: number;
-  chunkDurationUs: number;
+  durationUs: TimeUs;
+  chunkDurationUs: TimeUs;
 }
 
 export interface TranscriptChunkAck {
@@ -95,13 +95,13 @@ export type DerivedWorkerResponse =
       type: "thumbnail-complete";
       jobId: string;
       thumbnail: ArrayBuffer;
-      sourceTimeUs: number;
+      sourceTimeUs: TimeUs;
     }
   | {
       type: "filmstrip-complete";
       jobId: string;
       filmstrip: ArrayBuffer;
-      tileTimesUs: number[];
+      tileTimesUs: TimeUs[];
       columns: number;
       rows: number;
       tileWidth: number;
@@ -134,9 +134,10 @@ export type DerivedWorkerResponse =
       type: "transcript-chunk";
       jobId: string;
       chunkIndex: number;
-      sourceStartUs: number;
-      sourceEndUs: number;
+      sourceStartUs: TimeUs;
+      sourceEndUs: TimeUs;
       data: ArrayBuffer;
     }
   | { type: "transcript-complete"; jobId: string };
+import type { TimeUs } from "@cinesim/core";
 import type { DerivedProjectScope, DerivedWorkerStage } from "../../shared/api";

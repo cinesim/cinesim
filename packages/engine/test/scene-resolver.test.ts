@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vite-plus/test";
-import { applyCommand, createProject } from "@cinesim/core";
+import { timeUs, applyCommand, createProject } from "@cinesim/core";
 import type { Asset } from "@cinesim/core";
 import { resolveScene } from "../src/playback/scene-resolver";
 
@@ -8,7 +8,7 @@ const asset: Asset = {
   kind: "video",
   name: "Layer.mov",
   source: { kind: "local", path: "/media/layer.mov" },
-  durationUs: 1_000_000,
+  durationUs: timeUs(1_000_000),
 };
 
 describe("timeline visual layer order", () => {
@@ -26,16 +26,16 @@ describe("timeline visual layer order", () => {
       type: "clip.add",
       trackId: "track_000001",
       assetId: asset.id,
-      timelineStartUs: 0,
+      timelineStartUs: timeUs(0),
     }).project;
     project = applyCommand(project, {
       type: "clip.add",
       trackId: "track_000003",
       assetId: asset.id,
-      timelineStartUs: 0,
+      timelineStartUs: timeUs(0),
     }).project;
 
-    expect(resolveScene(project, 500_000).map((layer) => layer.track.id)).toEqual([
+    expect(resolveScene(project, timeUs(500_000)).map((layer) => layer.track.id)).toEqual([
       "track_000001",
       "track_000003",
     ]);

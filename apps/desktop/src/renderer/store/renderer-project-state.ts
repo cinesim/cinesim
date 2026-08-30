@@ -1,3 +1,4 @@
+import { timeUs } from "@cinesim/core";
 import type { ClipId, Sequence } from "@cinesim/core";
 import {
   DEFAULT_CUT_LAYOUT,
@@ -95,7 +96,7 @@ export function hydratedProjectState(
     operationError: null,
     selectedClipId: null,
     timelineDragging: false,
-    playheadUs: 0,
+    playheadUs: timeUs(0),
     playbackRuntime: null,
     derivedMedia: null,
     transcripts: null,

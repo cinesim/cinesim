@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vite-plus/test";
+import { timeUs } from "@cinesim/core";
 import { fadeDurationFromDrag } from "../src/renderer/components/timeline/timeline-behavior";
 import { meterPercent } from "../src/renderer/components/timeline/master-level-meter";
 
@@ -7,20 +8,20 @@ describe("timeline fade handles", () => {
     expect(
       fadeDurationFromDrag({
         edge: "in",
-        initialDurationUs: 0,
+        initialDurationUs: timeUs(0),
         deltaX: 60,
         pixelsPerUs: 0.000_06,
-        maximumDurationUs: 5_000_000,
+        maximumDurationUs: timeUs(5_000_000),
         frameRate: 30,
       }),
     ).toBe(1_000_000);
     expect(
       fadeDurationFromDrag({
         edge: "out",
-        initialDurationUs: 0,
+        initialDurationUs: timeUs(0),
         deltaX: -60,
         pixelsPerUs: 0.000_06,
-        maximumDurationUs: 5_000_000,
+        maximumDurationUs: timeUs(5_000_000),
         frameRate: 30,
       }),
     ).toBe(1_000_000);

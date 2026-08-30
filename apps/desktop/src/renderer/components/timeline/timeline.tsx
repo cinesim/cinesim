@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Pause, Play } from "lucide-react";
-import { canSplitClipAt, getSequence, sequenceDurationUs } from "@cinesim/core";
-import type { EditorCommand, Project, TimelineRange } from "@cinesim/core";
+import { canSplitClipAt, getSequence, sequenceDurationUs, timeUs } from "@cinesim/core";
+import type { EditorCommand, Project, TimelineRange, TimeUs } from "@cinesim/core";
 import {
   AudioLines,
   Button,
@@ -52,7 +52,7 @@ export type { TimelinePaletteId } from "./timeline-behavior";
 interface TimelineProps {
   project: Project;
   onCommand: (command: EditorCommand) => Promise<ActionResult<unknown>>;
-  onSeek?: (timeUs: number) => void;
+  onSeek?: (timeUs: TimeUs) => void;
   onTogglePlayback?: () => void;
   onGoToStart?: () => void;
   onStepFrames?: (deltaFrames: number) => void;
@@ -149,17 +149,17 @@ export function Timeline({
     const bounds = event.currentTarget.getBoundingClientRect();
     const scrollParent = event.currentTarget.parentElement!;
     const x = event.clientX - bounds.left + scrollParent.scrollLeft;
-    const timeUs = Math.max(0, Math.round(x / pixelsPerUs));
-    setPlayheadUs(timeUs);
-    onSeek?.(timeUs);
+    const seekTimeUs = timeUs(Math.max(0, Math.round(x / pixelsPerUs)));
+    setPlayheadUs(seekTimeUs);
+    onSeek?.(seekTimeUs);
     if (event.type === "pointerdown") event.currentTarget.setPointerCapture(event.pointerId);
   }
 
   function trackSeek(event: React.PointerEvent<HTMLButtonElement>) {
     const bounds = event.currentTarget.getBoundingClientRect();
-    const timeUs = Math.max(0, Math.round((event.clientX - bounds.left) / pixelsPerUs));
-    setPlayheadUs(timeUs);
-    onSeek?.(timeUs);
+    const seekTimeUs = timeUs(Math.max(0, Math.round((event.clientX - bounds.left) / pixelsPerUs)));
+    setPlayheadUs(seekTimeUs);
+    onSeek?.(seekTimeUs);
   }
 
   const majorSecondStep = timelineMajorSecondStep(zoom);

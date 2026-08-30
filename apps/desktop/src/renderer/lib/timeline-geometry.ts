@@ -5,6 +5,7 @@ import {
   getSequence,
   isAssetCompatibleWithTrack,
   isAssetMediaCompatibleWithTrack,
+  timeUs as timeUsValue,
 } from "@cinesim/core";
 import type { Asset, ClipId, EditorCommand, Project, TimeUs, TrackId } from "@cinesim/core";
 
@@ -33,10 +34,10 @@ interface ProposalOptions {
 }
 
 export function quantizeToFrame(timeUs: TimeUs, frameRate: number): TimeUs {
-  if (!Number.isFinite(frameRate) || frameRate <= 0) return Math.max(0, Math.round(timeUs));
-  return Math.max(
-    0,
-    Math.round(Math.round((timeUs * frameRate) / 1_000_000) * (1_000_000 / frameRate)),
+  if (!Number.isFinite(frameRate) || frameRate <= 0)
+    return timeUsValue(Math.max(0, Math.round(timeUs)));
+  return timeUsValue(
+    Math.max(0, Math.round(Math.round((timeUs * frameRate) / 1_000_000) * (1_000_000 / frameRate))),
   );
 }
 
@@ -58,7 +59,7 @@ export function snapTimelineTime(
   }
   return nearest === null
     ? { timeUs: frameTimeUs, snapped: frameTimeUs !== Math.round(rawTimeUs) }
-    : { timeUs: Math.max(0, nearest), snapped: true };
+    : { timeUs: timeUsValue(Math.max(0, nearest)), snapped: true };
 }
 
 export function timelineSnapCandidates(project: Project, ignoredClipId?: ClipId): TimeUs[] {
@@ -68,7 +69,7 @@ export function timelineSnapCandidates(project: Project, ignoredClipId?: ClipId)
         ?.linkedClipId
     : undefined;
   return [
-    0,
+    timeUsValue(0),
     ...sequence.tracks.flatMap((track) =>
       track.clips
         .filter((clip) => clip.id !== ignoredClipId && clip.id !== linkedClipId)
@@ -156,9 +157,9 @@ export function proposeAssetDrop(
     rawTimelineStartUs,
     sequence.frameRate,
     options.snapCandidatesUs ?? timelineSnapCandidates(project),
-    options.snapToleranceUs ?? 0,
+    options.snapToleranceUs ?? timeUsValue(0),
   );
-  const timelineEndUs = snapped.timeUs + asset.durationUs;
+  const timelineEndUs = timeUsValue(snapped.timeUs + asset.durationUs);
   const primaryValidation = validation(project, trackId, asset, snapped.timeUs, timelineEndUs);
   const audioTrack =
     asset.kind === "video" && asset.hasAudio === true
@@ -203,9 +204,9 @@ export function proposeClipMove(
     rawTimelineStartUs,
     sequence.frameRate,
     options.snapCandidatesUs ?? timelineSnapCandidates(project, clipId),
-    options.snapToleranceUs ?? 0,
+    options.snapToleranceUs ?? timeUsValue(0),
   );
-  const timelineEndUs = snapped.timeUs + clipDurationUs(location.clip);
+  const timelineEndUs = timeUsValue(snapped.timeUs + clipDurationUs(location.clip));
   const primaryValidation = validation(
     project,
     trackId,
@@ -222,8 +223,8 @@ export function proposeClipMove(
         project,
         linked.track.id,
         asset,
-        linked.clip.timelineStartUs + deltaUs,
-        clipEndUs(linked.clip) + deltaUs,
+        timeUsValue(linked.clip.timelineStartUs + deltaUs),
+        timeUsValue(clipEndUs(linked.clip) + deltaUs),
         linked.clip.id,
         linked.clip.mediaKind,
       )

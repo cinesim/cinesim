@@ -1,5 +1,5 @@
 import { performance } from "node:perf_hooks";
-import { createProject, DEFAULT_TRANSFORM, ProjectHistory } from "@cinesim/core";
+import { timeUs, createProject, DEFAULT_TRANSFORM, ProjectHistory } from "@cinesim/core";
 import type { Asset, Project } from "@cinesim/core";
 
 const sizes = [100, 1_000, 5_000];
@@ -11,7 +11,7 @@ function projectWithClips(clipCount: number): Project {
     kind: "video",
     name: "benchmark.mp4",
     source: { kind: "local", path: "/benchmark.mp4" },
-    durationUs: 1_000_000,
+    durationUs: timeUs(1_000_000),
     width: 1920,
     height: 1080,
   };
@@ -21,9 +21,9 @@ function projectWithClips(clipCount: number): Project {
     id: `clip_benchmark_${String(index).padStart(6, "0")}`,
     assetId: asset.id,
     mediaKind: "video",
-    timelineStartUs: index * 1_000_000,
-    sourceStartUs: 0,
-    sourceEndUs: 1_000_000,
+    timelineStartUs: timeUs(index * 1_000_000),
+    sourceStartUs: timeUs(0),
+    sourceEndUs: timeUs(1_000_000),
     transform: DEFAULT_TRANSFORM,
   }));
   return project;
@@ -39,7 +39,7 @@ for (const clipCount of sizes) {
       type: "clip.setFade",
       clipId,
       edge: "in",
-      durationUs: index * 1_000,
+      durationUs: timeUs(index * 1_000),
     });
   }
   const elapsedMs = performance.now() - startedAt;

@@ -1,4 +1,4 @@
-import { isAssetCompatibleWithTrack, sequenceDurationUs } from "@cinesim/core";
+import { isAssetCompatibleWithTrack, sequenceDurationUs, timeUs } from "@cinesim/core";
 import type { DesktopAppState, DesktopProjectSession } from "../../shared/api";
 import {
   EMPTY_APP_STATE,
@@ -177,7 +177,7 @@ export function createProjectSlice(context: RendererStoreContext): ProjectSlice 
         projectSection: "edit",
         destination: "project",
         selectedClipId: null,
-        playheadUs: 0,
+        playheadUs: timeUs(0),
         playbackRuntime: null,
       });
     },

@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 import { CloudMediaManager } from "../src/main/cloud/manager";
-import { applyCommand, createProject } from "@cinesim/core";
+import { timeUs, applyCommand, createProject } from "@cinesim/core";
 
 const temporaryDirectories: string[] = [];
 
@@ -34,7 +34,7 @@ async function completeUpload(managedSource: boolean) {
       name: "source.mov",
       kind: "video",
       source: { kind: "local", path: sourcePath },
-      durationUs: 1_000_000,
+      durationUs: timeUs(1_000_000),
     },
   }).project;
   const preparationOrder: string[] = [];
@@ -197,7 +197,7 @@ describe("CloudMediaManager transfer journal", () => {
         name: "source.mov",
         kind: "video",
         source: { kind: "local", path: sourcePath },
-        durationUs: 1_000_000,
+        durationUs: timeUs(1_000_000),
       },
     }).project;
     const account = {
@@ -286,7 +286,7 @@ describe("CloudMediaManager transfer journal", () => {
         name: "source.mov",
         kind: "video",
         source: { kind: "cloud", cloudAssetId: "cloud_asset_fixture00000001" },
-        durationUs: 1_000_000,
+        durationUs: timeUs(1_000_000),
       },
     }).project;
     const account = {
@@ -334,7 +334,7 @@ describe("CloudMediaManager transfer journal", () => {
         name: "source.mov",
         kind: "video",
         source: { kind: "cloud", cloudAssetId: "cloud_asset_fixture00000001" },
-        durationUs: 1_000_000,
+        durationUs: timeUs(1_000_000),
       },
     }).project;
     const manager = new CloudMediaManager(

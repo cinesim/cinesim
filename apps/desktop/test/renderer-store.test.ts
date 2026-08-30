@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vite-plus/test";
 import {
+  timeUs,
   DEFAULT_SETTINGS,
   DEFAULT_TRANSFORM,
   createProject,
@@ -70,10 +71,10 @@ function deferred<T>() {
   return { promise, resolve };
 }
 
-function runtimeFixture(timeUs: number): RuntimeSnapshot {
+function runtimeFixture(value: number): RuntimeSnapshot {
   return {
-    mode: { kind: "timeline", timeUs },
-    timeUs,
+    mode: { kind: "timeline", timeUs: timeUs(value) },
+    timeUs: timeUs(value),
     playing: false,
     playbackRate: 0,
     activeAssetId: null,
@@ -400,15 +401,15 @@ describe("renderer project controller", () => {
       kind: "video",
       name: "Fixture.mov",
       source: { kind: "local", path: "/media/fixture.mov" },
-      durationUs: 4_000_000,
+      durationUs: timeUs(4_000_000),
     };
     const clip: Clip = {
       id: "clip_selected",
       assetId: asset.id,
       mediaKind: "video",
-      timelineStartUs: 0,
-      sourceStartUs: 0,
-      sourceEndUs: 4_000_000,
+      timelineStartUs: timeUs(0),
+      sourceStartUs: timeUs(0),
+      sourceEndUs: timeUs(4_000_000),
       transform: DEFAULT_TRANSFORM,
     };
     const secondSequence: Sequence = {
@@ -432,7 +433,7 @@ describe("renderer project controller", () => {
     await store.getState().initialize();
     store.getState().showTimeline(secondSequence.id);
     store.getState().selectClip(clip.id);
-    store.getState().setPlayheadUs(3_000_000);
+    store.getState().setPlayheadUs(timeUs(3_000_000));
 
     await store.getState().receiveExternalSession({
       ...session,
@@ -483,7 +484,7 @@ describe("renderer project controller", () => {
       kind: "video",
       name: "Fixture.mov",
       source: { kind: "local", path: "/media/fixture.mov" },
-      durationUs: 5_000_000,
+      durationUs: timeUs(5_000_000),
     };
     const secondSequence: Sequence = {
       ...session.project.sequences[0]!,
@@ -515,7 +516,7 @@ describe("renderer project controller", () => {
       type: "clip.add",
       trackId: "track_second_video",
       assetId: asset.id,
-      timelineStartUs: 0,
+      timelineStartUs: timeUs(0),
     });
   });
 
@@ -526,7 +527,7 @@ describe("renderer project controller", () => {
       kind: "video",
       name: "Fixture.mov",
       source: { kind: "local", path: "/media/fixture.mov" },
-      durationUs: 5_000_000,
+      durationUs: timeUs(5_000_000),
     };
     const sequence = session.project.sequences[0]!;
     sequence.tracks[0]!.locked = true;
@@ -555,7 +556,7 @@ describe("renderer project controller", () => {
       type: "clip.add",
       trackId: "track_overlay",
       assetId: asset.id,
-      timelineStartUs: 0,
+      timelineStartUs: timeUs(0),
     });
   });
 

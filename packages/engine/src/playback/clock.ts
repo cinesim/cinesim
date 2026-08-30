@@ -24,7 +24,7 @@ export function normalizePlaybackRate(rate: number): number {
 
 export class MonotonicPlaybackClock implements PlaybackClock {
   #playing = false;
-  #anchorTimelineUs: TimeUs = 0;
+  #anchorTimelineUs: TimeUs = timeUs(0);
   #anchorRuntimeMs = 0;
   #rate = 1;
   readonly #runtimeNow: () => number;

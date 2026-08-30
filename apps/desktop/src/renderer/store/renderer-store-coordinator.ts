@@ -1,5 +1,5 @@
 import type { StoreApi } from "zustand/vanilla";
-import { sequenceDurationUs } from "@cinesim/core";
+import { sequenceDurationUs, timeUs } from "@cinesim/core";
 import type { DesktopApi, DesktopProjectSession } from "../../shared/api";
 import {
   appStateWithRememberedProject,
@@ -53,8 +53,8 @@ export class RendererStoreContext {
         ? current.selectedClipId
         : null,
       playheadUs: activeSequence
-        ? Math.min(current.playheadUs, sequenceDurationUs(activeSequence))
-        : 0,
+        ? timeUs(Math.min(current.playheadUs, sequenceDurationUs(activeSequence)))
+        : timeUs(0),
       playbackRuntime: sequenceChanged ? null : current.playbackRuntime,
     });
   }

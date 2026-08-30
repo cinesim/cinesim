@@ -14,7 +14,7 @@ import type {
   DragOverEvent,
   DragStartEvent,
 } from "@dnd-kit/core";
-import { getSequence } from "@cinesim/core";
+import { getSequence, timeUs } from "@cinesim/core";
 import type { EditorCommand, Project, TrackId } from "@cinesim/core";
 import { cn } from "@cinesim/ui";
 import { formatDuration } from "../../lib/format";
@@ -89,8 +89,10 @@ export function EditorDndProvider({
     const pointerX = pointerClientX(event);
     if (!input || target?.kind !== "timeline-track" || pointerX === null || !event.over)
       return null;
-    const rawPointerTimeUs = Math.max(0, (pointerX - event.over.rect.left) / pixelsPerUs);
-    const snapToleranceUs = snapping ? Math.round(8 / pixelsPerUs) : 0;
+    const rawPointerTimeUs = timeUs(
+      Math.max(0, Math.round((pointerX - event.over.rect.left) / pixelsPerUs)),
+    );
+    const snapToleranceUs = timeUs(snapping ? Math.round(8 / pixelsPerUs) : 0);
     if (input.kind === "asset") {
       const snapCandidatesUs = [...timelineSnapCandidates(project), playheadUs];
       return proposeAssetDrop(project, input.assetId, target.trackId, rawPointerTimeUs, {
@@ -108,7 +110,7 @@ export function EditorDndProvider({
       project,
       input.clipId,
       target.trackId,
-      source.timelineStartUs + event.delta.x / pixelsPerUs,
+      timeUs(Math.max(0, Math.round(source.timelineStartUs + event.delta.x / pixelsPerUs))),
       { snapCandidatesUs, snapToleranceUs },
     );
   }

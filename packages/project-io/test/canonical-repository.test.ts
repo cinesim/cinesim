@@ -1,7 +1,7 @@
 import { mkdtemp, mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createProject, DEFAULT_SETTINGS, PROJECT_FILES } from "@cinesim/core";
+import { timeUs, createProject, DEFAULT_SETTINGS, PROJECT_FILES } from "@cinesim/core";
 import { afterEach, describe, expect, it } from "vite-plus/test";
 import {
   CanonicalProjectRepository,
@@ -177,7 +177,7 @@ describe("CanonicalProjectRepository", () => {
         kind: "audio",
         name: "Changed asset file",
         source: { kind: "local", path: join(directory, "source.wav") },
-        durationUs: 1_000_000,
+        durationUs: timeUs(1_000_000),
       });
       changedProject.sequences[0]!.name = "Changed timeline file";
       const repository = await CanonicalProjectRepository.open(directory, {

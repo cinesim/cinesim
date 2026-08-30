@@ -1,7 +1,7 @@
 import { useMemo, type RefObject } from "react";
 import { ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Pause, Play } from "lucide-react";
-import { sequenceDurationUs, getSequence } from "@cinesim/core";
-import type { Project, TimelineRange } from "@cinesim/core";
+import { sequenceDurationUs, getSequence, timeUs } from "@cinesim/core";
+import type { Project, TimelineRange, TimeUs } from "@cinesim/core";
 import { Button, cn, ZoomIn, ZoomOut } from "@cinesim/ui";
 import type { TranscriptSnapshot } from "../../../shared/transcript";
 import { projectNarrativeUnits } from "../../../shared/transcript";
@@ -40,7 +40,7 @@ export function ReducedTimeline({
   project: Project;
   transcripts: TranscriptSnapshot | null;
   selectedRanges: readonly TimelineRange[];
-  playheadUs: number;
+  playheadUs: TimeUs;
   playing: boolean;
   paletteId: TimelinePaletteId;
   zoom: number;
@@ -48,7 +48,7 @@ export function ReducedTimeline({
   pixelsPerUs: number;
   contentWidth: number;
   scrollRef: RefObject<HTMLDivElement | null>;
-  onSeek?: (timeUs: number) => void;
+  onSeek?: (timeUs: TimeUs) => void;
   onTogglePlayback?: () => void;
   onGoToStart?: () => void;
   onStepFrames?: (deltaFrames: number) => void;
@@ -73,7 +73,7 @@ export function ReducedTimeline({
     () => new Map(project.assets.map((asset) => [asset.id, asset])),
     [project.assets],
   );
-  const durationUs = Math.max(1, sequenceDurationUs(sequence));
+  const durationUs = timeUs(Math.max(1, sequenceDurationUs(sequence)));
   return (
     <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-panel-muted">
       <div className="grid h-12 min-w-0 shrink-0 grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center border-b border-border bg-panel px-2">

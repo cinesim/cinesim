@@ -1,5 +1,6 @@
 import { nearestSampleIndex } from "@cinesim/engine";
-import type { Asset, Clip } from "@cinesim/core";
+import { timeUs } from "@cinesim/core";
+import type { Asset, Clip, TimeUs } from "@cinesim/core";
 import type { DerivedAssetSnapshot, DerivedMediaSnapshot } from "../../../shared/api";
 import { derivedArtifactUrl } from "../../lib/media-url";
 import { filmstripPresentationReady, thumbnailPresentation } from "../media/media-skim-surface";
@@ -16,8 +17,8 @@ export function timelineFilmstripTileIndices({
   tileAspectRatio,
 }: {
   tileTimesUs: readonly number[];
-  sourceStartUs: number;
-  sourceEndUs: number;
+  sourceStartUs: TimeUs;
+  sourceEndUs: TimeUs;
   width: number;
   height: number;
   tileAspectRatio: number;
@@ -29,7 +30,7 @@ export function timelineFilmstripTileIndices({
   const sourceDurationUs = sourceEndUs - sourceStartUs;
   return Array.from({ length: cellCount }, (_, index) => {
     const sampleTimeUs = sourceStartUs + Math.round(((index + 0.5) / cellCount) * sourceDurationUs);
-    return nearestSampleIndex(tileTimesUs, sampleTimeUs);
+    return nearestSampleIndex(tileTimesUs.map(timeUs), timeUs(sampleTimeUs));
   });
 }
 

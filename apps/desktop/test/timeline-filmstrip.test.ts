@@ -1,3 +1,4 @@
+import { timeUs } from "@cinesim/core";
 import { describe, expect, it } from "vite-plus/test";
 import { timelineFilmstripTileIndices } from "../src/renderer/components/timeline/timeline-filmstrip";
 
@@ -8,8 +9,8 @@ describe("timeline filmstrip layout", () => {
     expect(
       timelineFilmstripTileIndices({
         tileTimesUs,
-        sourceStartUs: 0,
-        sourceEndUs: 32_000_000,
+        sourceStartUs: timeUs(0),
+        sourceEndUs: timeUs(32_000_000),
         width: 320,
         height: 45,
         tileAspectRatio: 16 / 9,
@@ -21,8 +22,8 @@ describe("timeline filmstrip layout", () => {
     expect(
       timelineFilmstripTileIndices({
         tileTimesUs,
-        sourceStartUs: 10_000_000,
-        sourceEndUs: 14_000_000,
+        sourceStartUs: timeUs(10_000_000),
+        sourceEndUs: timeUs(14_000_000),
         width: 160,
         height: 45,
         tileAspectRatio: 16 / 9,
@@ -34,8 +35,8 @@ describe("timeline filmstrip layout", () => {
     expect(
       timelineFilmstripTileIndices({
         tileTimesUs,
-        sourceStartUs: 0,
-        sourceEndUs: 32_000_000,
+        sourceStartUs: timeUs(0),
+        sourceEndUs: timeUs(32_000_000),
         width: 100_000,
         height: 40,
         tileAspectRatio: 16 / 9,

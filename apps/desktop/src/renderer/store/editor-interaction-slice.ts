@@ -1,4 +1,5 @@
 import { clampTimelineZoom } from "../lib/timeline-scale";
+import { timeUs } from "@cinesim/core";
 import type { EditorInteractionSlice } from "./renderer-state";
 import type { RendererStoreContext } from "./renderer-store-coordinator";
 
@@ -13,7 +14,7 @@ export function createEditorInteractionSlice(
     timelineDragging: false,
     snappingEnabled: true,
     tool: "select",
-    playheadUs: 0,
+    playheadUs: timeUs(0),
     selectClip: (selectedClipId) => set({ selectedClipId }),
     setTimelineZoom: (timelineZoom) => set({ timelineZoom: clampTimelineZoom(timelineZoom) }),
     setTimelineTrackHeight: (timelineTrackHeight) =>

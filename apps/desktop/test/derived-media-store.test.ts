@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vite-plus/test";
-import { applyCommand, createProject, DEFAULT_SETTINGS } from "@cinesim/core";
+import { timeUs, applyCommand, createProject, DEFAULT_SETTINGS } from "@cinesim/core";
 import type { Project } from "@cinesim/core";
 import { DerivedMediaStore } from "../src/main/derived-media/service";
 import { encodeWaveformEnvelope, WAVEFORM_FORMAT_VERSION } from "../src/shared/waveform-format";
@@ -21,7 +21,7 @@ async function fixture(name: string): Promise<{ directory: string; project: Proj
       kind: "video",
       name: "source.mp4",
       source: { kind: "local", path: sourcePath },
-      durationUs: 1_000_000,
+      durationUs: timeUs(1_000_000),
       width: 1280,
       height: 720,
       hasAudio: true,
@@ -108,13 +108,13 @@ describe("DerivedMediaStore", () => {
     });
     await store.writeChunk(writerId, 0, new Uint8Array([10, 20]));
     await store.writeChunk(writerId, 2, new Uint8Array([30, 40]));
-    await store.finalizeWrite(writerId, { bytes: 4, sourceTimeUs: 250_000 });
+    await store.finalizeWrite(writerId, { bytes: 4, sourceTimeUs: timeUs(250_000) });
 
     const snapshot = store.snapshot();
     expect(snapshot.assets.asset_fixture?.thumbnail).toMatchObject({
       state: "ready",
       bytes: 4,
-      sourceTimeUs: 250_000,
+      sourceTimeUs: timeUs(250_000),
     });
     expect(JSON.stringify(snapshot)).not.toContain(directory);
     expect(JSON.stringify(snapshot)).not.toContain("relativePath");
@@ -255,7 +255,7 @@ describe("DerivedMediaStore", () => {
         kind: "audio",
         name: "source.mp4",
         source: { kind: "local", path: sourcePath },
-        durationUs: 1_000_000,
+        durationUs: timeUs(1_000_000),
       },
     }).project;
     const store = new DerivedMediaStore();
