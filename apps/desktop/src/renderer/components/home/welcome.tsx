@@ -11,6 +11,10 @@ import {
 } from "@cinesim/ui";
 import {
   Button,
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuTrigger,
   Dialog,
   DialogContent,
   DialogDescription,
@@ -26,33 +30,11 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@cinesim/ui";
-import type {
-  AccountSnapshot,
-  DesktopAppState,
-  DesktopProjectSession,
-  RecentProject,
-} from "../../../shared/api";
+import type { RecentProject } from "../../../shared/api";
 import { formatByteCount } from "../../lib/format";
-import type { ActionResult } from "../../store/renderer-store";
+import { useRendererStore } from "../../store/renderer-store-context";
 import { LibraryGrid } from "../shared/library-card";
 import { GoogleMark } from "../account/account-ui";
-
-interface WelcomeProps {
-  appState: DesktopAppState;
-  error: string | null;
-  loading: boolean;
-  opening: boolean;
-  account: AccountSnapshot;
-  onCreate: (
-    name: string,
-    kind: "local" | "cloud",
-  ) => Promise<ActionResult<DesktopProjectSession | null>>;
-  onSignIn: (method: "email" | "google") => Promise<ActionResult<void>>;
-  onOpen: () => Promise<ActionResult<DesktopProjectSession | null>>;
-  onOpenRecent: (directory: string) => Promise<ActionResult<DesktopProjectSession>>;
-  onForgetProject: (directory: string) => Promise<ActionResult<DesktopAppState>>;
-  onTrashProject: (directory: string) => Promise<ActionResult<DesktopAppState>>;
-}
 
 function projectGradient(key: string): React.CSSProperties {
   let hash = 0;
@@ -126,19 +108,17 @@ function ProjectGroup({
   );
 }
 
-export function Welcome({
-  appState,
-  error,
-  loading,
-  opening,
-  account,
-  onCreate,
-  onSignIn,
-  onOpen,
-  onOpenRecent,
-  onForgetProject,
-  onTrashProject,
-}: WelcomeProps) {
+export function Welcome() {
+  const appState = useRendererStore((state) => state.appState);
+  const error = useRendererStore((state) => state.operationError);
+  const opening = useRendererStore((state) => state.project.status === "opening");
+  const account = useRendererStore((state) => state.account);
+  const onCreate = useRendererStore((state) => state.createProject);
+  const onSignIn = useRendererStore((state) => state.beginAccountSignIn);
+  const onOpen = useRendererStore((state) => state.openProject);
+  const onOpenRecent = useRendererStore((state) => state.openRecentProject);
+  const onForgetProject = useRendererStore((state) => state.forgetProject);
+  const onTrashProject = useRendererStore((state) => state.trashProject);
   const [names, setNames] = useState({ cloud: "", local: "" });
   const [cloudOpen, setCloudOpen] = useState(
     () => localStorage.getItem("cinesim.home.cloudOpen") !== "false",
@@ -150,11 +130,6 @@ export function Welcome({
   const [signInBusy, setSignInBusy] = useState<"email" | "google" | null>(null);
   const [signInError, setSignInError] = useState<string | null>(null);
   const [projectSizes, setProjectSizes] = useState<Record<string, number | null>>({});
-  const [contextMenu, setContextMenu] = useState<{
-    x: number;
-    y: number;
-    directory: string;
-  } | null>(null);
   const [trashTarget, setTrashTarget] = useState<string | null>(null);
   const modifier = window.cinesim.platform === "darwin" ? "⌘" : "Ctrl+";
 
@@ -234,18 +209,6 @@ export function Welcome({
     };
   }, [appState.recentProjects]);
 
-  useEffect(() => {
-    const dismiss = (event: PointerEvent) => {
-      if (
-        !(event.target instanceof Element) ||
-        !event.target.closest("[data-project-context-menu]")
-      )
-        setContextMenu(null);
-    };
-    window.addEventListener("pointerdown", dismiss);
-    return () => window.removeEventListener("pointerdown", dismiss);
-  }, []);
-
   const projectToTrash = displayedProjects.find((project) => project.directory === trashTarget);
 
   function newProjectCard(kind: "cloud" | "local") {
@@ -286,40 +249,41 @@ export function Welcome({
     return projects.map((project, index) => {
       const shortcutIndex = shortcutOffset + index;
       return (
-        <PreviewCard
-          key={project.directory}
-          ariaLabel={`Open ${project.name}`}
-          title={project.directory}
-          disabled={opening}
-          previewClassName="text-white"
-          previewStyle={projectGradient(`${project.name}:${project.directory}`)}
-          corner={
-            shortcutIndex < 9 ? (
-              <Shortcut dark>{`${modifier}${shortcutIndex + 1}`}</Shortcut>
-            ) : undefined
-          }
-          preview={null}
-          onClick={() => void openRecent(project.directory)}
-          onContextMenu={(event) => {
-            event.preventDefault();
-            setContextMenu({
-              x: event.clientX,
-              y: event.clientY,
-              directory: project.directory,
-            });
-          }}
-        >
-          <p className="truncate text-ui font-medium text-primary">{project.name}</p>
-          <p className="mt-1 truncate text-ui-xs text-muted">{project.directory}</p>
-          <p className="mt-0.5 text-ui-xs text-muted tabular-nums">
-            {projectSizeLabel(projectSizes[project.directory])}
-          </p>
-        </PreviewCard>
+        <ContextMenu key={project.directory} disabled={opening}>
+          <ContextMenuTrigger className="contents">
+            <PreviewCard
+              ariaLabel={`Open ${project.name}`}
+              title={project.directory}
+              disabled={opening}
+              previewClassName="text-white"
+              previewStyle={projectGradient(`${project.name}:${project.directory}`)}
+              corner={
+                shortcutIndex < 9 ? (
+                  <Shortcut dark>{`${modifier}${shortcutIndex + 1}`}</Shortcut>
+                ) : undefined
+              }
+              preview={null}
+              onClick={() => void openRecent(project.directory)}
+            >
+              <p className="truncate text-ui font-medium text-primary">{project.name}</p>
+              <p className="mt-1 truncate text-ui-xs text-muted">{project.directory}</p>
+              <p className="mt-0.5 text-ui-xs text-muted tabular-nums">
+                {projectSizeLabel(projectSizes[project.directory])}
+              </p>
+            </PreviewCard>
+          </ContextMenuTrigger>
+          <ContextMenuContent className="w-56" positionerClassName="z-[90]">
+            <ContextMenuItem onClick={() => void onForgetProject(project.directory)}>
+              <FolderX size={14} /> Forget Project
+            </ContextMenuItem>
+            <ContextMenuItem onClick={() => setTrashTarget(project.directory)}>
+              <Trash2 size={14} /> Move Project to Trash
+            </ContextMenuItem>
+          </ContextMenuContent>
+        </ContextMenu>
       );
     });
   }
-
-  if (loading) return <WelcomeLoadingState />;
 
   return (
     <section className="h-full overflow-y-auto bg-canvas px-5 py-6">
@@ -361,39 +325,6 @@ export function Welcome({
           </Notice>
         )}
       </div>
-
-      {contextMenu && (
-        <div
-          data-project-context-menu
-          role="menu"
-          className="fixed z-[90] w-56 rounded-xl border border-border-strong bg-panel p-1.5 shadow-2xl shadow-black/30"
-          style={{
-            left: Math.min(contextMenu.x, window.innerWidth - 240),
-            top: Math.min(contextMenu.y, window.innerHeight - 112),
-          }}
-        >
-          <button
-            role="menuitem"
-            className="flex min-h-10 w-full items-center gap-2 rounded-lg px-2.5 text-left text-ui hover:bg-surface"
-            onClick={() => {
-              void onForgetProject(contextMenu.directory);
-              setContextMenu(null);
-            }}
-          >
-            <FolderX size={14} /> Forget Project
-          </button>
-          <button
-            role="menuitem"
-            className="flex min-h-10 w-full items-center gap-2 rounded-lg px-2.5 text-left text-ui hover:bg-surface"
-            onClick={() => {
-              setTrashTarget(contextMenu.directory);
-              setContextMenu(null);
-            }}
-          >
-            <Trash2 size={14} /> Move Project to Trash
-          </button>
-        </div>
-      )}
 
       <Dialog
         open={cloudSignInOpen}

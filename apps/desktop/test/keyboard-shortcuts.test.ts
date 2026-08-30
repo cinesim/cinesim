@@ -3,7 +3,7 @@ import {
   isAgentsSidebarShortcut,
   projectSectionForShortcut,
   toggleAuxiliaryMode,
-} from "../src/renderer/components/shell/app-shell";
+} from "../src/renderer/hooks/use-shell-shortcuts";
 
 describe("keyboard shortcuts", () => {
   it("keeps the auxiliary sidebars mutually exclusive", () => {

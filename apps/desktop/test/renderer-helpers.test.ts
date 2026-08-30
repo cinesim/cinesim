@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vite-plus/test";
 import { buildAgentTurnContext } from "../src/renderer/hooks/use-agent-project-controller";
+import { activeAppRoute } from "../src/renderer/hooks/use-app-route-controller";
 import {
   clampSidebarWidth,
   readPersistentSidebarWidth,
@@ -7,6 +8,12 @@ import {
 import { formatByteCount, formatDiagnosticDurationMs } from "../src/renderer/lib/format";
 
 describe("renderer helpers", () => {
+  it("falls back home when the project route has no available project", () => {
+    expect(activeAppRoute("project", false)).toBe("home");
+    expect(activeAppRoute("project", true)).toBe("project");
+    expect(activeAppRoute("settings", false)).toBe("settings");
+  });
+
   it("clamps restored sidebar widths and falls back for invalid values", () => {
     expect(clampSidebarWidth(500, 220, 420)).toBe(420);
     expect(clampSidebarWidth(100, 220, 420)).toBe(220);

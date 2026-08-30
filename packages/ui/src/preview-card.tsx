@@ -17,7 +17,6 @@ export interface PreviewCardProps {
   selected?: boolean;
   onClick?: MouseEventHandler<HTMLButtonElement>;
   onDoubleClick?: MouseEventHandler<HTMLButtonElement>;
-  onContextMenu?: MouseEventHandler<HTMLButtonElement>;
 }
 
 export function PreviewCard({
@@ -36,9 +35,8 @@ export function PreviewCard({
   selected,
   onClick,
   onDoubleClick,
-  onContextMenu,
 }: PreviewCardProps) {
-  const interactive = Boolean(onClick || onDoubleClick || onContextMenu);
+  const interactive = Boolean(onClick || onDoubleClick);
   const contents = (
     <>
       <div
@@ -92,7 +90,6 @@ export function PreviewCard({
           aria-pressed={selected || undefined}
           onClick={onClick}
           onDoubleClick={onDoubleClick}
-          onContextMenu={onContextMenu}
         >
           {contents}
         </button>

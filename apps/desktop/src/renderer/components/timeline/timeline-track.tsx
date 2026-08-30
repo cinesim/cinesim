@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useDroppable } from "@dnd-kit/core";
 import { timeUs } from "@cinesim/core";
-import type { Asset, Clip, EditorCommand, Project, TimeUs, Track } from "@cinesim/core";
+import type { Asset, Clip, Project, TimeUs, Track } from "@cinesim/core";
 import {
   Button,
   ChevronDown,
@@ -15,7 +15,6 @@ import {
 } from "@cinesim/ui";
 import type { DerivedMediaSnapshot } from "../../../shared/api";
 import { timelineSnapCandidates } from "../../lib/timeline-geometry";
-import type { ActionResult } from "../../store/renderer-store";
 import { useRendererStore } from "../../store/renderer-store-context";
 import { useEditorDnd } from "../workspace/editor-dnd-context";
 import { timelinePaletteColor } from "./timeline-behavior";
@@ -31,7 +30,6 @@ export function TimelineTrackRow({
   pixelsPerUs,
   trackHeight,
   selectedClipId,
-  onCommand,
   onBackgroundPointerDown,
   project,
   frameRate,
@@ -45,7 +43,6 @@ export function TimelineTrackRow({
   pixelsPerUs: number;
   trackHeight: number;
   selectedClipId: Clip["id"] | null;
-  onCommand: (command: EditorCommand) => Promise<ActionResult<unknown>>;
   onBackgroundPointerDown: (event: React.PointerEvent<HTMLButtonElement>) => void;
   project: Project;
   frameRate: number;
@@ -92,7 +89,6 @@ export function TimelineTrackRow({
           derivedAsset={derived?.assets[clip.assetId]}
           pixelsPerUs={pixelsPerUs}
           selected={selectedClipId === clip.id || selectedClipId === clip.linkedClipId}
-          onCommand={onCommand}
           trackHeight={trackHeight}
           frameRate={frameRate}
           snappingEnabled={snappingEnabled}
@@ -154,16 +150,15 @@ export function TimelineTrackHeader({
   index,
   total,
   height,
-  onCommand,
   paletteId,
 }: {
   track: Track;
   index: number;
   total: number;
   height: number;
-  onCommand: (command: EditorCommand) => Promise<ActionResult<unknown>>;
   paletteId: TimelinePaletteId;
 }) {
+  const execute = useRendererStore((state) => state.execute);
   const [draftName, setDraftName] = useState<string | null>(null);
   const renameInputRef = useRef<HTMLInputElement>(null);
   const renaming = draftName !== null;
@@ -181,7 +176,7 @@ export function TimelineTrackHeader({
     if (!trimmed || trimmed === track.name) {
       return;
     }
-    void onCommand({ type: "track.update", trackId: track.id, name: trimmed });
+    void execute({ type: "track.update", trackId: track.id, name: trimmed });
   }
 
   const kindLabel = track.kind === "audio" ? "A" : track.kind === "overlay" ? "O" : "V";
@@ -229,7 +224,7 @@ export function TimelineTrackHeader({
           aria-label={track.muted ? `Unmute ${track.name}` : `Mute ${track.name}`}
           title={track.muted ? "Unmute track" : "Mute track"}
           onClick={() =>
-            void onCommand({ type: "track.update", trackId: track.id, muted: !track.muted })
+            void execute({ type: "track.update", trackId: track.id, muted: !track.muted })
           }
         >
           {track.muted ? <VolumeX size={11} /> : <Volume2 size={11} />}
@@ -241,7 +236,7 @@ export function TimelineTrackHeader({
           aria-label={track.locked ? `Unlock ${track.name}` : `Lock ${track.name}`}
           title={track.locked ? "Unlock track" : "Lock track"}
           onClick={() =>
-            void onCommand({ type: "track.update", trackId: track.id, locked: !track.locked })
+            void execute({ type: "track.update", trackId: track.id, locked: !track.locked })
           }
         >
           {track.locked ? <Lock size={11} /> : <LockOpen size={11} />}
@@ -254,7 +249,7 @@ export function TimelineTrackHeader({
           title="Move track up"
           disabled={track.locked || index === 0}
           onClick={() =>
-            void onCommand({ type: "track.reorder", trackId: track.id, index: index - 1 })
+            void execute({ type: "track.reorder", trackId: track.id, index: index - 1 })
           }
         >
           <ChevronUp size={11} />
@@ -267,7 +262,7 @@ export function TimelineTrackHeader({
           title="Move track down"
           disabled={track.locked || index === total - 1}
           onClick={() =>
-            void onCommand({ type: "track.reorder", trackId: track.id, index: index + 1 })
+            void execute({ type: "track.reorder", trackId: track.id, index: index + 1 })
           }
         >
           <ChevronDown size={11} />
@@ -279,7 +274,7 @@ export function TimelineTrackHeader({
           aria-label={`Remove ${track.name}`}
           title={track.clips.length ? "Empty the track before removing it" : "Remove track"}
           disabled={track.locked || track.clips.length > 0}
-          onClick={() => void onCommand({ type: "track.remove", trackId: track.id })}
+          onClick={() => void execute({ type: "track.remove", trackId: track.id })}
         >
           <Trash2 size={11} />
         </Button>

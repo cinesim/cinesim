@@ -15,7 +15,7 @@ import type {
   DragStartEvent,
 } from "@dnd-kit/core";
 import { getSequence, timeUs } from "@cinesim/core";
-import type { EditorCommand, Project, TrackId } from "@cinesim/core";
+import type { Project, TrackId } from "@cinesim/core";
 import { cn } from "@cinesim/ui";
 import { formatDuration } from "../../lib/format";
 import {
@@ -27,9 +27,9 @@ import {
   type TimelineDragInput,
 } from "../../lib/timeline-geometry";
 import { BASE_TIMELINE_PIXELS_PER_SECOND } from "../../lib/timeline-scale";
-import type { ActionResult } from "../../store/renderer-store";
 import { useRendererStore } from "../../store/renderer-store-context";
 import { MediaSkimSurface } from "../media/media-skim-surface";
+import { useEditorTransport } from "./editor-transport-context";
 
 export type EditorDragData = TimelineDragInput;
 
@@ -61,21 +61,17 @@ function pointerClientX(event: DragMoveEvent | DragOverEvent | DragEndEvent): nu
 
 export function EditorDndProvider({
   project,
-  onCommand,
-  onAssetDragStart,
-  onAssetDragEnd,
   children,
 }: {
   project: Project;
-  onCommand: (command: EditorCommand) => Promise<ActionResult<unknown>>;
-  onAssetDragStart?: () => void;
-  onAssetDragEnd?: () => void;
   children: React.ReactNode;
 }) {
+  const execute = useRendererStore((state) => state.execute);
   const zoom = useRendererStore((state) => state.timelineZoom);
   const snapping = useRendererStore((state) => state.snappingEnabled);
   const playheadUs = useRendererStore((state) => state.playheadUs);
   const setTimelineDragging = useRendererStore((state) => state.setTimelineDragging);
+  const transport = useEditorTransport();
   const [active, setActive] = useState<EditorDragData | null>(null);
   const [proposal, setProposal] = useState<TimelineDropProposal | null>(null);
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
@@ -121,15 +117,14 @@ export function EditorDndProvider({
     setActive(input);
     setProposal(null);
     setTimelineDragging(true);
-    if (input.kind === "asset") onAssetDragStart?.();
+    if (input.kind === "asset") void transport.exitAssetPreview();
   }
 
   function update(event: DragMoveEvent | DragOverEvent): void {
     setProposal(proposalFor(event));
   }
 
-  function reset(input = active): void {
-    if (input?.kind === "asset") onAssetDragEnd?.();
+  function reset(): void {
     setActive(null);
     setProposal(null);
     setTimelineDragging(false);
@@ -145,8 +140,8 @@ export function EditorDndProvider({
     // fall back to a proposal retained from an earlier hover position.
     const finalProposal = proposalFor(event);
     const command = commandForTimelineDrop(project, input, finalProposal);
-    reset(input);
-    if (command) await onCommand(command);
+    reset();
+    if (command) await execute(command);
   }
 
   const value = useMemo(

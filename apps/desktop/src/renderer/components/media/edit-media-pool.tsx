@@ -13,30 +13,24 @@ import {
   PreviewCard,
   SearchField,
 } from "@cinesim/ui";
-import type { Asset, Project, TimeUs } from "@cinesim/core";
+import type { Asset, Project } from "@cinesim/core";
 import type { TranscriptAssetSnapshot } from "../../../shared/transcript";
 import { formatDuration } from "../../lib/format";
 import { useRendererStore } from "../../store/renderer-store-context";
 import { useEditorDnd } from "../workspace/editor-dnd-context";
+import { useEditorTransport } from "../workspace/editor-transport-context";
 import { AssetSourceMetadata } from "./asset-source-metadata";
 import { MediaSkimSurface } from "./media-skim-surface";
 
 interface EditMediaPoolProps {
   project: Project;
-  onAddAsset: (asset: Asset) => Promise<unknown>;
-  onImport: () => Promise<unknown>;
-  onPreviewAsset: (asset: Asset, sourceTimeUs: TimeUs) => void;
-  onPreviewEnd: () => void;
+  sequenceId: string;
 }
 
-export function EditMediaPool({
-  project,
-  onAddAsset,
-  onImport,
-  onPreviewAsset,
-  onPreviewEnd,
-}: EditMediaPoolProps) {
+export function EditMediaPool({ project, sequenceId }: EditMediaPoolProps) {
   const [query, setQuery] = useState("");
+  const appendAsset = useRendererStore((state) => state.appendAsset);
+  const importMedia = useRendererStore((state) => state.importMedia);
   const transcripts = useRendererStore((state) => state.transcripts);
   const account = useRendererStore((state) => state.account);
   const requestTranscripts = useRendererStore((state) => state.requestTranscripts);
@@ -70,9 +64,7 @@ export function EditMediaPool({
                 transcriptionAvailable={account.status === "signed-in" && account.transcription}
                 onRequestTranscript={() => void requestTranscripts([asset.id])}
                 onCancelTranscript={() => cancelTranscripts([asset.id])}
-                onAddAsset={onAddAsset}
-                onPreviewAsset={onPreviewAsset}
-                onPreviewEnd={onPreviewEnd}
+                onAddAsset={(asset) => appendAsset(asset.id, sequenceId)}
               />
             ))}
           </div>
@@ -92,7 +84,7 @@ export function EditMediaPool({
       </div>
 
       <div className="border-t border-border p-2">
-        <Button className="w-full" variant="secondary" onClick={() => void onImport()}>
+        <Button className="w-full" variant="secondary" onClick={() => void importMedia()}>
           Import media
         </Button>
       </div>
@@ -107,8 +99,6 @@ function DraggableAssetCard({
   onRequestTranscript,
   onCancelTranscript,
   onAddAsset,
-  onPreviewAsset,
-  onPreviewEnd,
 }: {
   asset: Asset;
   transcript: TranscriptAssetSnapshot | undefined;
@@ -116,10 +106,9 @@ function DraggableAssetCard({
   onRequestTranscript: () => void;
   onCancelTranscript: () => Promise<unknown>;
   onAddAsset: (asset: Asset) => Promise<unknown>;
-  onPreviewAsset: (asset: Asset, sourceTimeUs: TimeUs) => void;
-  onPreviewEnd: () => void;
 }) {
   const editorDrag = useEditorDnd();
+  const transport = useEditorTransport();
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
     id: `asset:${asset.id}`,
     data: { kind: "asset", assetId: asset.id },
@@ -151,8 +140,8 @@ function DraggableAssetCard({
           <MediaSkimSurface
             asset={asset}
             disabled={editorDrag.dragging}
-            onPreviewTime={(sourceTimeUs) => onPreviewAsset(asset, sourceTimeUs)}
-            onPreviewEnd={onPreviewEnd}
+            onPreviewTime={(sourceTimeUs) => transport.previewAsset(asset.id, sourceTimeUs)}
+            onPreviewEnd={() => void transport.exitAssetPreview()}
           />
         }
         bottomCorner={
