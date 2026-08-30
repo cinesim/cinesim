@@ -1,7 +1,5 @@
-import { Check, ChevronRight, Clapperboard, Film, FolderOpen } from "@cinesim/ui";
+import { Check, ChevronRight } from "@cinesim/ui";
 import { cn, Menu, MenuContent, MenuItem, MenuSeparator, MenuTrigger } from "@cinesim/ui";
-import { sequenceDurationUs } from "@cinesim/core";
-import { formatDuration } from "../../lib/format";
 import { sessionFromLifecycle } from "../../store/renderer-store";
 import { useRendererStore } from "../../store/renderer-store-context";
 
@@ -20,19 +18,16 @@ export function ProjectBreadcrumb() {
   const activeSequence =
     session.project.sequences.find((sequence) => sequence.id === activeSequenceId) ??
     session.project.sequences.find((sequence) => sequence.id === session.project.activeSequenceId);
+  const timelineVisible = projectSection === "cut" || projectSection === "edit";
 
   return (
     <nav className="no-drag flex min-w-0 items-center" aria-label="Project location">
       <Menu>
         <MenuTrigger className={triggerClassName} aria-label="Choose project">
-          <Clapperboard size={13} className="shrink-0 text-muted" />
           <span className="max-w-44 truncate">{session.project.name}</span>
         </MenuTrigger>
         <MenuContent className="w-72" sideOffset={7}>
           <MenuItem>
-            <span className="grid size-7 shrink-0 place-items-center rounded-md bg-accent text-on-accent">
-              <Clapperboard size={13} />
-            </span>
             <span className="min-w-0 flex-1">
               <span className="block truncate text-ui font-medium">{session.project.name}</span>
               <span className="block truncate text-ui-xs text-muted">Current project</span>
@@ -47,18 +42,11 @@ export function ProjectBreadcrumb() {
                 key={project.directory}
                 onClick={() => void openRecentProject(project.directory)}
               >
-                <span className="grid size-7 shrink-0 place-items-center rounded-md bg-panel-muted text-muted">
-                  <Clapperboard size={13} />
-                </span>
-                <span className="min-w-0 flex-1">
-                  <span className="block truncate text-ui font-medium">{project.name}</span>
-                  <span className="block truncate text-ui-xs text-muted">{project.directory}</span>
-                </span>
+                <span className="min-w-0 flex-1 truncate text-ui font-medium">{project.name}</span>
               </MenuItem>
             ))}
           <MenuSeparator />
           <MenuItem onClick={() => void openProject()}>
-            <FolderOpen size={14} className="ml-1 shrink-0 text-muted" />
             <span className="text-ui text-secondary group-data-[highlighted]:text-primary">
               Open another project…
             </span>
@@ -66,40 +54,47 @@ export function ProjectBreadcrumb() {
         </MenuContent>
       </Menu>
 
-      {(projectSection === "cut" || projectSection === "edit") && activeSequence && (
-        <>
-          <ChevronRight size={13} className="mx-0.5 shrink-0 text-disabled" />
-          <Menu>
-            <MenuTrigger className={triggerClassName} aria-label="Choose timeline">
-              <Film size={13} className="shrink-0 text-muted" />
-              <span className="max-w-52 truncate">{activeSequence.name}</span>
-            </MenuTrigger>
-            <MenuContent className="w-72" sideOffset={7}>
-              {session.project.sequences.map((sequence) => {
-                const active = sequence.id === activeSequence.id;
-                return (
-                  <MenuItem key={sequence.id} onClick={() => showTimeline(sequence.id)}>
-                    <span
-                      className={cn(
-                        "grid size-7 shrink-0 place-items-center rounded-md",
-                        active ? "bg-accent text-on-accent" : "bg-panel-muted text-muted",
-                      )}
-                    >
-                      <Film size={13} />
-                    </span>
-                    <span className="min-w-0 flex-1">
-                      <span className="block truncate text-ui font-medium">{sequence.name}</span>
-                      <span className="block text-ui-xs text-muted tabular-nums">
-                        {formatDuration(sequenceDurationUs(sequence))} · {sequence.frameRate} fps
-                      </span>
-                    </span>
-                    {active && <Check size={14} className="shrink-0 text-accent" />}
-                  </MenuItem>
-                );
-              })}
-            </MenuContent>
-          </Menu>
-        </>
+      {activeSequence && (
+        <div
+          className={cn(
+            "grid transition-[grid-template-columns,opacity] duration-150 ease-in-out motion-reduce:transition-none",
+            timelineVisible ? "grid-cols-[1fr] opacity-100" : "grid-cols-[0fr] opacity-0",
+          )}
+          aria-hidden={!timelineVisible}
+          inert={!timelineVisible || undefined}
+        >
+          <div className="min-w-0 overflow-hidden">
+            <div className="flex min-w-max items-center">
+              <ChevronRight size={13} className="mx-0.5 shrink-0 text-disabled" />
+              <Menu>
+                <MenuTrigger className={triggerClassName} aria-label="Choose timeline">
+                  <span key={activeSequence.id} className="header-timeline-label max-w-52 truncate">
+                    {activeSequence.name}
+                  </span>
+                </MenuTrigger>
+                <MenuContent className="w-80" sideOffset={7}>
+                  {session.project.sequences.map((sequence) => {
+                    const active = sequence.id === activeSequence.id;
+                    return (
+                      <MenuItem key={sequence.id} onClick={() => showTimeline(sequence.id)}>
+                        <span className="min-w-0 flex-1 truncate text-ui font-medium">
+                          {sequence.name}
+                        </span>
+                        <span className="shrink-0 text-right text-ui-xs text-muted tabular-nums">
+                          {sequence.width} × {sequence.height} ·{" "}
+                          {Number(sequence.frameRate.toFixed(2))} fps
+                        </span>
+                        <span className="grid size-4 shrink-0 place-items-center">
+                          {active && <Check size={14} className="text-accent" />}
+                        </span>
+                      </MenuItem>
+                    );
+                  })}
+                </MenuContent>
+              </Menu>
+            </div>
+          </div>
+        </div>
       )}
     </nav>
   );

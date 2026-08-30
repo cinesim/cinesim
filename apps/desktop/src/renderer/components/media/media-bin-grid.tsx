@@ -2,7 +2,6 @@ import type { MouseEvent, PointerEventHandler, RefObject } from "react";
 import {
   Check,
   CircleAlert,
-  Clock3,
   Cloud,
   Film,
   HardDriveDownload,
@@ -89,6 +88,7 @@ export function MediaBinGrid({
           <PreviewCard
             ariaLabel={`Open ${sequence.name}`}
             title="Double-click to open timeline"
+            variant="frameless"
             previewClassName="timeline-thumbnail"
             preview={null}
             bottomCorner={
@@ -99,8 +99,8 @@ export function MediaBinGrid({
             onDoubleClick={() => onOpenTimeline(sequence.id)}
           >
             <p className="truncate text-ui font-medium text-primary">{sequence.name}</p>
-            <p className="mt-1 flex items-center gap-1 text-ui-xs text-muted">
-              <Clock3 size={11} /> {sequence.frameRate} fps · {sequence.width} × {sequence.height}
+            <p className="mt-0.5 text-ui-xs text-muted tabular-nums">
+              {sequence.width} × {sequence.height} · {sequence.frameRate} fps
             </p>
           </PreviewCard>
         </div>
@@ -120,6 +120,7 @@ export function MediaBinGrid({
               ariaLabel={`Select ${asset.name}`}
               title="Select, double-click to add, or right-click for actions"
               selected={selected}
+              variant="frameless"
               previewClassName="media-thumbnail"
               preview={<MediaSkimSurface asset={asset} />}
               corner={
@@ -149,7 +150,6 @@ export function MediaBinGrid({
               <p className="truncate text-ui font-medium text-primary" title={asset.name}>
                 {asset.name}
               </p>
-              <p className="mt-1 truncate text-ui-xs text-muted tabular-nums">{asset.id}</p>
               <AssetSourceMetadata
                 asset={asset}
                 className="mt-0.5 truncate text-ui-xs text-muted tabular-nums"

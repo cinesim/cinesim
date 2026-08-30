@@ -69,6 +69,105 @@ button {
   -webkit-app-region: no-drag;
 }
 
+@keyframes header-location-enter-deeper {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+
+@keyframes header-location-exit-deeper {
+  to {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+}
+
+@keyframes header-location-enter-shallower {
+  from {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+}
+
+@keyframes header-location-exit-shallower {
+  to {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+
+@keyframes header-location-enter-replace {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes header-location-exit-replace {
+  to {
+    opacity: 0;
+  }
+}
+
+@keyframes header-timeline-label-enter {
+  from {
+    opacity: 0;
+    transform: translateX(5px);
+  }
+}
+
+.header-location-enter-deeper,
+.header-location-enter-shallower,
+.header-location-enter-replace,
+.header-location-exit-deeper,
+.header-location-exit-shallower,
+.header-location-exit-replace,
+.header-timeline-label {
+  animation-duration: 160ms;
+  animation-timing-function: ease-in-out;
+  animation-fill-mode: both;
+}
+
+.header-location-enter-deeper {
+  animation-name: header-location-enter-deeper;
+}
+
+.header-location-exit-deeper {
+  animation-name: header-location-exit-deeper;
+}
+
+.header-location-enter-shallower {
+  animation-name: header-location-enter-shallower;
+}
+
+.header-location-exit-shallower {
+  animation-name: header-location-exit-shallower;
+}
+
+.header-location-enter-replace {
+  animation-name: header-location-enter-replace;
+}
+
+.header-location-exit-replace {
+  animation-name: header-location-exit-replace;
+}
+
+.header-timeline-label {
+  animation-name: header-timeline-label-enter;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .header-location-enter-deeper,
+  .header-location-enter-shallower,
+  .header-location-enter-replace,
+  .header-location-exit-deeper,
+  .header-location-exit-shallower,
+  .header-location-exit-replace,
+  .header-timeline-label {
+    animation: none;
+  }
+}
+
 .panel-title {
   color: var(--ui-text-muted);
   font-size: var(--ui-font-size-compact);

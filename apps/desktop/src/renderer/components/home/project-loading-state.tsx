@@ -19,12 +19,12 @@ export function ProjectLoadingState() {
           {Array.from({ length: 5 }, (_, index) => (
             <PreviewCard
               key={`project-item-loading-${index}`}
+              variant="frameless"
               previewClassName="media-thumbnail"
               preview={<Skeleton className="absolute inset-0 rounded-none" />}
             >
-              <div className="space-y-2" aria-hidden="true">
+              <div aria-hidden="true">
                 <Skeleton className="block h-3.5 w-3/5" tone="active" />
-                <Skeleton className="block h-3 w-2/5" />
               </div>
             </PreviewCard>
           ))}

@@ -19,10 +19,8 @@ import {
   FolderOpen,
   FolderSearch,
   FolderX,
-  Grid3X3,
   Input,
   Kbd,
-  ListTree,
   Notice,
   PreviewCard,
   Skeleton,
@@ -37,10 +35,15 @@ import type {
 import { formatByteCount } from "../../lib/format";
 import { useRendererStore } from "../../store/renderer-store-context";
 import { GoogleMark } from "../account/account-ui";
-import { LibraryGrid } from "../shared/library-card";
-import { sortHomeProjects, type ProjectSort } from "./home-projects";
-
-type ProjectView = "grid" | "list";
+import {
+  LibraryGrid,
+  LibraryList,
+  LibraryListRow,
+  LibraryToolbar,
+  LibraryViewToggle,
+  useLibraryView,
+} from "../shared/library-card";
+import { projectModifiedLabel, sortHomeProjects, type ProjectSort } from "./home-projects";
 
 const PROJECT_SORT_OPTIONS = [
   { value: "name", label: "Name" },
@@ -51,10 +54,6 @@ const PROJECT_SORT_OPTIONS = [
 
 const PROJECT_LIST_COLUMNS =
   "grid-cols-[minmax(220px,1.25fr)_110px_130px_130px_100px_minmax(220px,1fr)_64px]";
-
-function storedView(): ProjectView {
-  return localStorage.getItem("cinesim.home.view") === "list" ? "list" : "grid";
-}
 
 function storedSort(): ProjectSort {
   const value = localStorage.getItem("cinesim.home.sort");
@@ -126,9 +125,10 @@ export function Welcome() {
   const onForgetProject = useRendererStore((state) => state.forgetProject);
   const onTrashProject = useRendererStore((state) => state.trashProject);
   const reportError = useRendererStore((state) => state.reportError);
-  const [view, setView] = useState<ProjectView>(storedView);
+  const [view, setView] = useLibraryView("cinesim.home.view");
   const [sort, setSort] = useState<ProjectSort>(storedSort);
   const [projectDetails, setProjectDetails] = useState<Record<string, RecentProjectDetails>>({});
+  const [relativeTimeNow, setRelativeTimeNow] = useState(() => Date.now());
   const [newProjectOpen, setNewProjectOpen] = useState(false);
   const newProjectNameRef = useRef<HTMLInputElement>(null);
   const [newProjectName, setNewProjectName] = useState("");
@@ -200,8 +200,12 @@ export function Welcome() {
     trashTarget,
   ]);
 
-  useEffect(() => localStorage.setItem("cinesim.home.view", view), [view]);
   useEffect(() => localStorage.setItem("cinesim.home.sort", sort), [sort]);
+
+  useEffect(() => {
+    const interval = window.setInterval(() => setRelativeTimeNow(Date.now()), 1_000);
+    return () => window.clearInterval(interval);
+  }, []);
 
   useEffect(() => {
     if (!newProjectOpen) return;
@@ -260,10 +264,6 @@ export function Welcome() {
     }
   }
 
-  function setProjectView(nextView: ProjectView): void {
-    setView(nextView);
-  }
-
   function projectGrid() {
     return (
       <LibraryGrid>
@@ -279,8 +279,8 @@ export function Welcome() {
             >
               <PreviewCard
                 ariaLabel={`Open ${project.name}`}
-                title={project.directory}
                 disabled={opening}
+                variant="frameless"
                 previewClassName="text-white"
                 previewStyle={projectGradient(`${project.name}:${project.directory}`)}
                 corner={
@@ -288,22 +288,20 @@ export function Welcome() {
                 }
                 preview={
                   project.kind === "cloud" ? (
-                    <span
-                      className="absolute left-2 top-2 grid size-7 place-items-center rounded-md bg-black/30 text-white backdrop-blur-sm"
+                    <Cloud
+                      size={22}
+                      strokeWidth={2.25}
+                      className="absolute left-3 top-3 text-white drop-shadow-[0_1px_2px_rgb(0_0_0/0.45)]"
                       aria-label="Cloud project"
                       title="Cloud project"
-                    >
-                      <Cloud size={15} aria-hidden="true" />
-                    </span>
+                    />
                   ) : null
                 }
                 onClick={() => void openRecent(project.directory)}
               >
                 <p className="truncate text-ui font-medium text-primary">{project.name}</p>
-                <p className="mt-1 truncate text-ui-xs text-muted">{project.directory}</p>
                 <p className="mt-0.5 text-ui-xs text-muted tabular-nums">
-                  {projectSizeLabel(details?.sizeBytes)} · Modified{" "}
-                  {projectDateLabel(details?.modifiedAt)}
+                  {projectModifiedLabel(details?.modifiedAt, relativeTimeNow)}
                 </p>
               </PreviewCard>
             </ProjectContextMenu>
@@ -315,73 +313,55 @@ export function Welcome() {
 
   function projectList() {
     return (
-      <div className="overflow-x-auto rounded-lg border border-border bg-panel">
-        <div
-          className={cn(
-            "grid min-w-[1120px] border-b border-border bg-panel-muted",
-            PROJECT_LIST_COLUMNS,
-          )}
-        >
-          {["Name", "Storage", "Modified", "Created", "Size", "Location", "Open"].map((label) => (
-            <div
-              key={label}
-              className="px-3 py-2 text-ui-xs font-semibold uppercase tracking-[0.08em] text-muted"
+      <LibraryList
+        columnsClassName={PROJECT_LIST_COLUMNS}
+        minWidthClassName="min-w-[1120px]"
+        headers={["Name", "Storage", "Modified", "Created", "Size", "Location", "Open"]}
+      >
+        {displayedProjects.map((project, index) => {
+          const details = projectDetails[project.directory];
+          return (
+            <ProjectContextMenu
+              key={project.directory}
+              project={project}
+              opening={opening}
+              onForget={(directory) => void onForgetProject(directory)}
+              onTrash={setTrashTarget}
             >
-              {label}
-            </div>
-          ))}
-        </div>
-        <div className="min-w-[1120px] divide-y divide-border">
-          {displayedProjects.map((project, index) => {
-            const details = projectDetails[project.directory];
-            return (
-              <ProjectContextMenu
-                key={project.directory}
-                project={project}
-                opening={opening}
-                onForget={(directory) => void onForgetProject(directory)}
-                onTrash={setTrashTarget}
+              <LibraryListRow
+                columnsClassName={PROJECT_LIST_COLUMNS}
+                disabled={opening}
+                onClick={() => void openRecent(project.directory)}
               >
-                <button
-                  type="button"
-                  className={cn(
-                    "grid w-full items-center text-left text-ui text-secondary outline-none transition-colors hover:bg-surface focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-focus disabled:opacity-50",
-                    PROJECT_LIST_COLUMNS,
-                  )}
-                  title={project.directory}
-                  disabled={opening}
-                  onClick={() => void openRecent(project.directory)}
-                >
-                  <span className="flex min-w-0 items-center gap-3 px-3 py-2.5">
-                    <span
-                      className="block aspect-video w-14 shrink-0 rounded border border-white/10"
-                      style={projectGradient(`${project.name}:${project.directory}`)}
-                    />
-                    <span className="truncate font-medium text-primary">{project.name}</span>
-                  </span>
-                  <span className="flex items-center gap-1.5 px-3 py-2.5">
-                    {project.kind === "cloud" ? <Cloud size={14} /> : <FolderOpen size={14} />}
-                    {project.kind === "cloud" ? "Cloud" : "Local"}
-                  </span>
-                  <span className="px-3 py-2.5 tabular-nums">
-                    {projectDateLabel(details?.modifiedAt)}
-                  </span>
-                  <span className="px-3 py-2.5 tabular-nums">
-                    {projectDateLabel(details?.createdAt)}
-                  </span>
-                  <span className="px-3 py-2.5 tabular-nums">
-                    {projectSizeLabel(details?.sizeBytes)}
-                  </span>
-                  <span className="truncate px-3 py-2.5 text-muted">{project.directory}</span>
-                  <span className="px-3 py-2.5">
-                    {index < 9 ? <Shortcut>{`${modifier}${index + 1}`}</Shortcut> : "—"}
-                  </span>
-                </button>
-              </ProjectContextMenu>
-            );
-          })}
-        </div>
-      </div>
+                <span className="flex min-w-0 items-center gap-3 px-3 py-2.5">
+                  <span
+                    className="block aspect-video w-14 shrink-0 rounded border border-white/10"
+                    style={projectGradient(`${project.name}:${project.directory}`)}
+                  />
+                  <span className="truncate font-medium text-primary">{project.name}</span>
+                </span>
+                <span className="flex items-center gap-1.5 px-3 py-2.5">
+                  {project.kind === "cloud" ? <Cloud size={14} /> : <FolderOpen size={14} />}
+                  {project.kind === "cloud" ? "Cloud" : "Local"}
+                </span>
+                <span className="px-3 py-2.5 tabular-nums">
+                  {projectDateLabel(details?.modifiedAt)}
+                </span>
+                <span className="px-3 py-2.5 tabular-nums">
+                  {projectDateLabel(details?.createdAt)}
+                </span>
+                <span className="px-3 py-2.5 tabular-nums">
+                  {projectSizeLabel(details?.sizeBytes)}
+                </span>
+                <span className="truncate px-3 py-2.5 text-muted">{project.directory}</span>
+                <span className="px-3 py-2.5">
+                  {index < 9 ? <Shortcut>{`${modifier}${index + 1}`}</Shortcut> : "—"}
+                </span>
+              </LibraryListRow>
+            </ProjectContextMenu>
+          );
+        })}
+      </LibraryList>
     );
   }
 
@@ -392,80 +372,48 @@ export function Welcome() {
     Boolean(newProjectName.trim() && createLocation) && !opening && !signedInCloudUnavailable;
 
   return (
-    <section className="h-full overflow-y-auto bg-canvas px-5 py-6">
-      <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-baseline gap-2">
-          <h1 className="text-ui font-semibold text-primary">Projects</h1>
-          <span className="text-ui-xs tabular-nums text-muted">{displayedProjects.length}</span>
+    <section className="flex h-full min-h-0 flex-col bg-canvas">
+      <LibraryToolbar title="Projects" count={displayedProjects.length}>
+        <div className="flex items-center gap-2 text-ui-xs text-muted">
+          <span>Sort by</span>
+          <DropdownSelect
+            className="w-36"
+            aria-label="Sort projects"
+            options={PROJECT_SORT_OPTIONS}
+            value={sort}
+            onValueChange={setSort}
+          />
         </div>
-        <div className="flex flex-wrap items-center justify-end gap-2">
-          <div className="flex items-center gap-2 text-ui-xs text-muted">
-            <span>Sort by</span>
-            <DropdownSelect
-              className="w-36"
-              aria-label="Sort projects"
-              options={PROJECT_SORT_OPTIONS}
-              value={sort}
-              onValueChange={setSort}
-            />
-          </div>
-          <fieldset className="flex overflow-hidden rounded-md border border-border bg-panel">
-            <legend className="sr-only">Project view</legend>
-            <button
-              type="button"
-              className={cn(
-                "grid size-8 place-items-center border-r border-border text-muted outline-none hover:bg-surface hover:text-primary focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-focus",
-                view === "grid" && "bg-surface text-primary",
-              )}
-              aria-label="Grid view"
-              aria-pressed={view === "grid"}
-              title="Grid view"
-              onClick={() => setProjectView("grid")}
-            >
-              <Grid3X3 size={15} />
-            </button>
-            <button
-              type="button"
-              className={cn(
-                "grid size-8 place-items-center text-muted outline-none hover:bg-surface hover:text-primary focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-focus",
-                view === "list" && "bg-surface text-primary",
-              )}
-              aria-label="List view"
-              aria-pressed={view === "list"}
-              title="List view"
-              onClick={() => setProjectView("list")}
-            >
-              <ListTree size={15} />
-            </button>
-          </fieldset>
-          <Button data-open-project disabled={opening} onClick={() => void open()}>
-            Open project
-            <Kbd className="ml-1">{modifier}O</Kbd>
-          </Button>
-          <Button variant="primary" disabled={opening} onClick={beginNewProject}>
-            New project
-            <Kbd className="ml-1">{modifier}N</Kbd>
-          </Button>
-        </div>
-      </div>
+        <LibraryViewToggle label="Project view" view={view} onViewChange={setView} />
+        <Button data-open-project disabled={opening} onClick={() => void open()}>
+          Open project
+          <Kbd className="ml-1">{modifier}O</Kbd>
+        </Button>
+        <Button variant="primary" disabled={opening} onClick={beginNewProject}>
+          New project
+          <Kbd className="ml-1">{modifier}N</Kbd>
+        </Button>
+      </LibraryToolbar>
 
-      {displayedProjects.length > 0 ? (
-        view === "grid" ? (
-          projectGrid()
+      <div className="min-h-0 flex-1 overflow-y-auto px-5 py-6">
+        {displayedProjects.length > 0 ? (
+          view === "grid" ? (
+            projectGrid()
+          ) : (
+            projectList()
+          )
         ) : (
-          projectList()
-        )
-      ) : (
-        <div className="grid min-h-64 place-items-center rounded-lg border border-dashed border-border-strong bg-panel-muted px-6 text-center">
-          <div>
-            <FolderOpen className="mx-auto mb-3 text-muted" size={24} />
-            <p className="text-ui font-medium text-primary">No projects yet</p>
-            <p className="mt-1 text-ui-xs text-muted">
-              Create a project or open one from this Mac.
-            </p>
+          <div className="grid min-h-64 place-items-center rounded-lg border border-dashed border-border-strong bg-panel-muted px-6 text-center">
+            <div>
+              <FolderOpen className="mx-auto mb-3 text-muted" size={24} />
+              <p className="text-ui font-medium text-primary">No projects yet</p>
+              <p className="mt-1 text-ui-xs text-muted">
+                Create a project or open one from this Mac.
+              </p>
+            </div>
           </div>
-        </div>
-      )}
+        )}
+      </div>
 
       <Dialog
         open={newProjectOpen}
@@ -679,34 +627,35 @@ export function Welcome() {
 export function WelcomeLoadingState() {
   return (
     <section
-      className="h-full overflow-y-auto bg-canvas px-5 py-6"
+      className="flex h-full min-h-0 flex-col bg-canvas"
       aria-busy="true"
       aria-label="Loading projects"
     >
-      <div className="mb-5 flex items-center justify-between">
-        <Skeleton className="h-4 w-20" tone="active" />
+      <LibraryToolbar title={<Skeleton className="h-4 w-20" tone="active" />}>
         <div className="flex items-center gap-2" aria-hidden="true">
           <Skeleton className="h-8 w-36 rounded-md" />
           <Skeleton className="h-8 w-16 rounded-md" />
           <Skeleton className="h-8 w-32 rounded-md" />
           <Skeleton className="h-8 w-32 rounded-md" tone="active" />
         </div>
+      </LibraryToolbar>
+      <div className="min-h-0 flex-1 overflow-y-auto px-5 py-6">
+        <LibraryGrid>
+          {Array.from({ length: 4 }, (_, index) => (
+            <PreviewCard
+              key={`project-loading-${index}`}
+              variant="frameless"
+              previewClassName="media-thumbnail"
+              preview={<Skeleton className="absolute inset-0 rounded-none" />}
+            >
+              <div className="space-y-1.5" aria-hidden="true">
+                <Skeleton className="block h-3.5 w-3/5" tone="active" />
+                <Skeleton className="block h-3 w-2/5" />
+              </div>
+            </PreviewCard>
+          ))}
+        </LibraryGrid>
       </div>
-      <LibraryGrid>
-        {Array.from({ length: 4 }, (_, index) => (
-          <PreviewCard
-            key={`project-loading-${index}`}
-            previewClassName="media-thumbnail"
-            preview={<Skeleton className="absolute inset-0 rounded-none" />}
-          >
-            <div className="space-y-2" aria-hidden="true">
-              <Skeleton className="block h-3.5 w-3/5" tone="active" />
-              <Skeleton className="block h-3 w-4/5" />
-              <Skeleton className="block h-3 w-2/5" />
-            </div>
-          </PreviewCard>
-        ))}
-      </LibraryGrid>
     </section>
   );
 }

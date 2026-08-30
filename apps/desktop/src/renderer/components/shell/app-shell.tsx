@@ -7,6 +7,7 @@ import { useShellShortcuts } from "../../hooks/use-shell-shortcuts";
 import { AgentsSidebar } from "../agents/agents-sidebar";
 import { MetricsSidebar } from "../metrics/metrics-sidebar";
 import { AccountMenu } from "./account-menu";
+import { AnimatedHeaderLocation } from "./animated-header-location";
 import { AppSidebarNavigation } from "./app-sidebar";
 import { EditorPanelToggles } from "./editor-panel-toggles";
 import { ProjectBreadcrumb } from "./project-breadcrumb";
@@ -190,16 +191,34 @@ export function AppShell({ children }: AppShellProps) {
               <EditorPanelToggles />
             </div>
           )}
-          {projectVisible ? (
-            <ProjectBreadcrumb />
-          ) : (
-            <span className="max-w-[360px] truncate text-ui font-medium text-secondary">
-              {title}
-            </span>
-          )}
+          <AnimatedHeaderLocation
+            transitionKey={projectVisible ? "project" : destination}
+            depth={projectVisible ? 1 : 0}
+          >
+            {projectVisible ? (
+              <ProjectBreadcrumb />
+            ) : (
+              <span className="block max-w-[360px] truncate text-ui font-medium text-secondary">
+                {title}
+              </span>
+            )}
+          </AnimatedHeaderLocation>
           <div className="no-drag absolute right-3 flex items-center gap-0.5">
             <HeaderStatus />
-            {projectVisible && <TopBar />}
+            <div
+              className={cn(
+                "grid transition-[grid-template-columns,opacity] duration-150 ease-in-out motion-reduce:transition-none",
+                projectVisible ? "grid-cols-[1fr] opacity-100" : "grid-cols-[0fr] opacity-0",
+              )}
+              aria-hidden={!projectVisible}
+              inert={!projectVisible || undefined}
+            >
+              <div className="min-w-0 overflow-hidden">
+                <div className="min-w-max">
+                  <TopBar />
+                </div>
+              </div>
+            </div>
           </div>
         </header>
         <div
