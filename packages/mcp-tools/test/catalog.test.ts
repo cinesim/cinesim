@@ -123,11 +123,11 @@ describe("canonical Cinesim MCP catalog", () => {
   });
 
   it("makes every canonical command either supported or explicitly unsupported", () => {
-    expect(Object.keys(CINESIM_MCP_COMMAND_SUPPORT)).toHaveLength(22);
+    expect(Object.keys(CINESIM_MCP_COMMAND_SUPPORT)).toHaveLength(23);
     expect(
       Object.entries(CINESIM_MCP_COMMAND_SUPPORT)
         .filter(([, support]) => support.kind === "unsupported")
         .map(([type]) => type),
-    ).toEqual(["asset.import", "asset.setSource"]);
+    ).toEqual(["asset.import", "asset.setSource", "property.setMany"]);
   });
 });

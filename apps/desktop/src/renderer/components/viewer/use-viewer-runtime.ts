@@ -58,8 +58,16 @@ export function useViewerRuntime({
       program: { ...program, activeCompositionId: sequenceId },
       assets: project.assets,
     };
-    playbackRef.current?.setProject(projectRef.current);
-  }, [cacheKey, epoch, program, project.assets, projectDirectory, sequenceId]);
+    const playback = playbackRef.current;
+    playback?.setProject(projectRef.current);
+    void playback
+      ?.refresh()
+      .catch((caught: unknown) =>
+        reportError(
+          caught instanceof Error ? caught.message : "The preview could not be refreshed",
+        ),
+      );
+  }, [cacheKey, epoch, program, project.assets, projectDirectory, reportError, sequenceId]);
 
   useEffect(() => {
     const canvas = canvasRef.current;

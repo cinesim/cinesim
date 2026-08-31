@@ -1,16 +1,20 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "@cinesim/ui";
 import { getSequence, sequenceDurationUs } from "@cinesim/core";
 import type { Project } from "@cinesim/core";
-import type { IrProgram } from "@cinesim/ir";
+import type { IrProgram, IrTransform } from "@cinesim/ir";
 import type { DerivedProjectScope } from "../../../shared/contracts";
 import { useEditorTransport } from "../workspace/editor-transport-context";
+import { useRendererStore } from "../../store/renderer-store-context";
 import { usePlaybackShortcuts } from "./use-playback-shortcuts";
 import { useViewerRuntime } from "./use-viewer-runtime";
 import { DEFAULT_VIEWER_GUIDES, ViewerGuideOverlay } from "./viewer-guides";
 import { ViewerHeader } from "./viewer-header";
 import { shouldShowTimelineEmptyState, viewerDisplaySize } from "./viewer-helpers";
 import type { ViewerScale } from "./viewer-helpers";
+import { transformGestureUpdates, type TransformGestureKind } from "./viewer-transform-geometry";
+import { ViewerTransformOverlay } from "./viewer-transform-overlay";
+import { programWithClipTransform, selectedVisualClip } from "./viewer-transform-program";
 
 interface ViewerProps {
   derivedScope: DerivedProjectScope;
@@ -18,6 +22,12 @@ interface ViewerProps {
   program: IrProgram;
   projectDirectory: string;
   sequenceId: string;
+}
+
+interface OptimisticClipTransform {
+  clipId: string;
+  program: IrProgram;
+  transform: IrTransform;
 }
 
 export function Viewer({
@@ -29,17 +39,36 @@ export function Viewer({
 }: ViewerProps) {
   const sectionRef = useRef<HTMLElement>(null);
   const stageRef = useRef<HTMLDivElement>(null);
+  const frameRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const refreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [stageSize, setStageSize] = useState({ width: 0, height: 0 });
   const [viewerScale, setViewerScale] = useState<ViewerScale>("fit");
   const [guides, setGuides] = useState(DEFAULT_VIEWER_GUIDES);
+  const [optimistic, setOptimistic] = useState<OptimisticClipTransform | null>(null);
+  const [transformCommitPending, setTransformCommitPending] = useState(false);
+  const selectedClipId = useRendererStore((state) => state.selectedClipId);
+  const playheadUs = useRendererStore((state) => state.playheadUs);
+  const execute = useRendererStore((state) => state.execute);
   const transport = useEditorTransport();
+  const selection = selectedVisualClip(program, sequenceId, selectedClipId, playheadUs);
+  const optimisticTransform =
+    optimistic?.program === program && optimistic.clipId === selection?.clip.id
+      ? optimistic.transform
+      : null;
+  const displayedTransform = optimisticTransform ?? selection?.clip.transform ?? null;
+  const displayedProgram = useMemo(
+    () =>
+      selection && optimisticTransform
+        ? programWithClipTransform(program, selection.clip.id, optimisticTransform)
+        : program,
+    [optimisticTransform, program, selection],
+  );
   const { playbackRef, runtime } = useViewerRuntime({
     canvasRef,
     derivedScope,
     project,
-    program,
+    program: displayedProgram,
     projectDirectory,
     sequenceId,
     onController: transport.registerController,
@@ -48,6 +77,9 @@ export function Viewer({
   const sequence = getSequence(project);
   const durationUs = sequenceDurationUs(sequence);
   const displaySize = viewerDisplaySize(sequence, stageSize, viewerScale);
+  const selectedAsset = selection?.clip.assetId
+    ? (project.assets.find((asset) => asset.id === selection.clip.assetId) ?? null)
+    : null;
 
   useEffect(() => {
     const stage = stageRef.current;
@@ -77,6 +109,19 @@ export function Viewer({
     else await sectionRef.current?.requestFullscreen();
   }
 
+  async function commitTransform(kind: TransformGestureKind, transform: IrTransform) {
+    if (!selection || transformCommitPending) return;
+    setTransformCommitPending(true);
+    await execute({
+      type: "property.setMany",
+      nodeId: selection.clip.id,
+      updates: transformGestureUpdates(kind, transform),
+      scope: "instance",
+    });
+    setOptimistic(null);
+    setTransformCommitPending(false);
+  }
+
   return (
     <section
       ref={sectionRef}
@@ -104,11 +149,32 @@ export function Viewer({
           }}
         >
           <div
-            className="relative shrink-0 overflow-hidden bg-black shadow-xl shadow-black/15"
+            ref={frameRef}
+            className="relative shrink-0"
             style={{ width: displaySize.width, height: displaySize.height }}
           >
-            <canvas ref={canvasRef} className="block h-full w-full bg-black" />
-            <ViewerGuideOverlay guides={guides} />
+            <div className="absolute inset-0 overflow-hidden bg-black shadow-xl shadow-black/15">
+              <canvas ref={canvasRef} className="block h-full w-full bg-black" />
+              <ViewerGuideOverlay guides={guides} />
+            </div>
+            {selection && displayedTransform && (
+              <ViewerTransformOverlay
+                asset={selectedAsset}
+                composition={selection.composition}
+                disabled={transformCommitPending}
+                displaySize={displaySize}
+                frameRef={frameRef}
+                transform={displayedTransform}
+                onCancel={() => setOptimistic(null)}
+                onPreview={(transform) =>
+                  setOptimistic({ clipId: selection.clip.id, program, transform })
+                }
+                onCommit={(kind, transform) => {
+                  setOptimistic({ clipId: selection.clip.id, program, transform });
+                  void commitTransform(kind, transform);
+                }}
+              />
+            )}
           </div>
         </div>
         {shouldShowTimelineEmptyState(durationUs, runtime?.mode ?? null) && (
