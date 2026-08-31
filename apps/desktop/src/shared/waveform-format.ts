@@ -1,5 +1,5 @@
 export const WAVEFORM_FORMAT_VERSION = 1;
-export const WAVEFORM_MAX_PEAKS = 4_096;
+export const WAVEFORM_MAX_PEAKS = 16_384;
 export const WAVEFORM_HEADER_BYTES = 16;
 export const WAVEFORM_BYTES_PER_PEAK = 4;
 
@@ -17,9 +17,9 @@ export interface WaveformEnvelope {
 export function waveformPeakCount(durationUs: number): number {
   if (!Number.isSafeInteger(durationUs) || durationUs < 0)
     throw new Error("Invalid waveform duration");
-  // Roughly one peak per 50 ms remains useful for short clips while the hard cap
-  // keeps multi-hour source artifacts small and predictable.
-  return Math.max(1, Math.min(WAVEFORM_MAX_PEAKS, Math.ceil(durationUs / 50_000)));
+  // Five-millisecond peaks stay detailed at maximum timeline zoom while the hard
+  // cap keeps long source artifacts small and predictable.
+  return Math.max(1, Math.min(WAVEFORM_MAX_PEAKS, Math.ceil(durationUs / 5_000)));
 }
 
 export function waveformByteLength(peakCount: number): number {

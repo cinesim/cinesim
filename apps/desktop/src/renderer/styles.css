@@ -252,14 +252,6 @@ button {
   display: none;
 }
 
-.timeline-track {
-  background-image: linear-gradient(
-    90deg,
-    color-mix(in srgb, var(--ui-text) 4%, transparent) 1px,
-    transparent 1px
-  );
-}
-
 .meter-segments {
   background: repeating-linear-gradient(
     to top,

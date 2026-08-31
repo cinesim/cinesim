@@ -5,7 +5,12 @@ import { afterEach, describe, expect, it } from "vite-plus/test";
 import { timeUs, applyCommand, createProject, DEFAULT_SETTINGS } from "@cinesim/core";
 import type { Project } from "@cinesim/core";
 import { DerivedMediaStore } from "../src/main/derived-media/service";
-import { encodeWaveformEnvelope, WAVEFORM_FORMAT_VERSION } from "../src/shared/waveform-format";
+import {
+  encodeWaveformEnvelope,
+  WAVEFORM_FORMAT_VERSION,
+  waveformByteLength,
+  waveformPeakCount,
+} from "../src/shared/waveform-format";
 
 const temporaryDirectories: string[] = [];
 
@@ -273,12 +278,13 @@ describe("DerivedMediaStore", () => {
       }),
     ).rejects.toThrow("exact bounded artifact size");
 
-    const minima = new Float32Array(20);
-    const maxima = new Float32Array(20);
+    const peakCount = waveformPeakCount(project.assets[1]!.durationUs);
+    const minima = new Float32Array(peakCount);
+    const maxima = new Float32Array(peakCount);
     minima[0] = -0.5;
-    minima[19] = -1;
+    minima[peakCount - 1] = -1;
     maxima[0] = 0.25;
-    maxima[19] = 1;
+    maxima[peakCount - 1] = 1;
     const waveform = encodeWaveformEnvelope(minima, maxima);
     const { writerId } = await store.beginWrite(scope, {
       assetId: "asset_audio",
@@ -288,7 +294,7 @@ describe("DerivedMediaStore", () => {
     await store.writeChunk(writerId, 0, new Uint8Array(waveform));
     await store.finalizeWrite(writerId, {
       bytes: waveform.byteLength,
-      peakCount: 20,
+      peakCount,
       waveformFormatVersion: WAVEFORM_FORMAT_VERSION,
     });
 
@@ -296,7 +302,7 @@ describe("DerivedMediaStore", () => {
     expect(ready).toMatchObject({
       state: "ready",
       bytes: waveform.byteLength,
-      peakCount: 20,
+      peakCount,
       waveformFormatVersion: WAVEFORM_FORMAT_VERSION,
     });
     const artifact = await store.artifactFile(
@@ -317,8 +323,8 @@ describe("DerivedMediaStore", () => {
     const store = new DerivedMediaStore();
     await store.setProject(directory, project);
     const scope = store.scope();
-    const peakCount = 20;
-    const expectedBytes = 16 + peakCount * 4;
+    const peakCount = waveformPeakCount(project.assets[0]!.durationUs);
+    const expectedBytes = waveformByteLength(peakCount);
     const { writerId } = await store.beginWrite(scope, {
       assetId: "asset_fixture",
       kind: "waveform",

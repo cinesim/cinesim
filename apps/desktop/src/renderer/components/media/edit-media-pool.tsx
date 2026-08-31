@@ -43,7 +43,7 @@ export function EditMediaPool({ project, sequenceId }: EditMediaPoolProps) {
 
   return (
     <aside className="flex min-h-0 min-w-0 flex-col overflow-hidden bg-panel">
-      <PaneHeader size="sm">
+      <PaneHeader size="sm" className="border-b-0">
         <SearchField
           size="sm"
           surface="muted"
@@ -83,7 +83,7 @@ export function EditMediaPool({ project, sequenceId }: EditMediaPoolProps) {
         )}
       </div>
 
-      <div className="border-t border-border p-2">
+      <div className="p-2">
         <Button className="w-full" variant="secondary" onClick={() => void importMedia()}>
           Import media
         </Button>

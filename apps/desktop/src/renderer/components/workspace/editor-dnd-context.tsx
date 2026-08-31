@@ -90,7 +90,7 @@ export function EditorDndProvider({
     );
     const snapToleranceUs = timeUs(snapping ? Math.round(8 / pixelsPerUs) : 0);
     if (input.kind === "asset") {
-      const snapCandidatesUs = [...timelineSnapCandidates(project), playheadUs];
+      const snapCandidatesUs = snapping ? [...timelineSnapCandidates(project), playheadUs] : [];
       return proposeAssetDrop(project, input.assetId, target.trackId, rawPointerTimeUs, {
         snapCandidatesUs,
         snapToleranceUs,
@@ -101,7 +101,9 @@ export function EditorDndProvider({
       .flatMap((track) => track.clips)
       .find((clip) => clip.id === input.clipId);
     if (!source) return null;
-    const snapCandidatesUs = [...timelineSnapCandidates(project, input.clipId), playheadUs];
+    const snapCandidatesUs = snapping
+      ? [...timelineSnapCandidates(project, input.clipId), playheadUs]
+      : [];
     return proposeClipMove(
       project,
       input.clipId,

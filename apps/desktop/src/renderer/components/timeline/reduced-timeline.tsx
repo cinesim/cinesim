@@ -122,16 +122,16 @@ export function ReducedTimeline({
                   key={unit.id}
                   type="button"
                   className={cn(
-                    "absolute top-0 h-full min-w-2 overflow-hidden rounded-sm border shadow-sm transition-[filter,box-shadow]",
+                    "absolute top-0 h-full min-w-2 overflow-hidden rounded-md border shadow-sm transition-[filter,box-shadow]",
                     selected && "z-10 ring-2 ring-primary",
                     active && "brightness-110",
                     !selected && "hover:brightness-110",
                   )}
                   style={{
-                    left: unit.timelineStartUs * pixelsPerUs,
+                    left: unit.timelineStartUs * pixelsPerUs + 1,
                     width: Math.max(
                       8,
-                      (unit.timelineEndUs - unit.timelineStartUs) * pixelsPerUs - 1,
+                      (unit.timelineEndUs - unit.timelineStartUs) * pixelsPerUs - 2,
                     ),
                     backgroundColor: color,
                     borderColor: `color-mix(in srgb, ${color} 72%, black)`,

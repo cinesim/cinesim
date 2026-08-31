@@ -11,7 +11,7 @@ import type {
   SourcePerformanceSnapshot,
 } from "../../shared/contracts";
 
-export const DERIVED_GENERATOR_VERSION = "5";
+export const DERIVED_GENERATOR_VERSION = "6";
 export const INDEX_FILE = join(".video", "cache", "media-intelligence.json");
 export const MAX_WRITERS = 4;
 export const MAX_CHUNK_BYTES = 4 * 1024 * 1024;
