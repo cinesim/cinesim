@@ -69,7 +69,8 @@ const api: DesktopApi = {
     open: () => invoke(invokeChannels.project.open),
     openRecent: (directory) => invoke(invokeChannels.project.openRecent, { directory }),
     importMedia: () => invoke(invokeChannels.project.importMedia),
-    execute: (command) => invoke(invokeChannels.project.execute, { command }),
+    execute: (command, expectedGeneration) =>
+      invoke(invokeChannels.project.execute, { command, expectedGeneration }),
     undo: () => invoke(invokeChannels.project.undo),
     redo: () => invoke(invokeChannels.project.redo),
     save: () => invoke(invokeChannels.project.save),

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vite-plus/test";
 import { createProject } from "@cinesim/core";
 import { dispatchCommand } from "../src";
+import { editorCommandSchema } from "../src";
 
 describe("protocol command dispatch", () => {
   it("validates and dispatches track commands", () => {
@@ -89,5 +90,32 @@ describe("protocol command dispatch", () => {
     });
     expect(inverted.ok).toBe(false);
     if (!inverted.ok) expect(inverted.error.code).toBe("INVALID_RANGE");
+  });
+
+  it("validates typed semantic inspector and extended clip commands", () => {
+    expect(
+      editorCommandSchema.parse({
+        type: "property.set",
+        nodeId: "title:root",
+        property: "opacity",
+        value: { kind: "number", value: 0.5 },
+        scope: "instance",
+      }),
+    ).toMatchObject({ type: "property.set", property: "opacity" });
+    expect(
+      editorCommandSchema.parse({
+        type: "clip.slip",
+        clipId: "clip_000001",
+        sourceStartUs: 500_000,
+      }),
+    ).toMatchObject({ type: "clip.slip" });
+    expect(() =>
+      editorCommandSchema.parse({
+        type: "property.set",
+        nodeId: "title:root",
+        property: "opacity",
+        value: { kind: "number", value: Number.NaN },
+      }),
+    ).toThrow();
   });
 });

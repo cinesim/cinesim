@@ -126,6 +126,7 @@ export function EditWorkspace({
           <Viewer
             key={sequenceId}
             project={project}
+            program={session.program}
             projectDirectory={session.directory}
             derivedScope={session.derivedScope}
             sequenceId={sequenceId}
@@ -137,7 +138,7 @@ export function EditWorkspace({
                 label="Resize Inspector"
                 {...resize.handleProps("inspector")}
               />
-              <Inspector project={project} />
+              <Inspector session={session} />
             </>
           )}
           {notesOpen && (
@@ -156,7 +157,7 @@ export function EditWorkspace({
           label="Resize Timeline"
           {...resize.handleProps("timeline")}
         />
-        <Timeline project={project} />
+        <Timeline project={project} timeline={session.timelines[sequenceId] ?? session.timeline} />
       </div>
     </EditorDndProvider>
   );

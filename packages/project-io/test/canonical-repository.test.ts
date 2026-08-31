@@ -3,13 +3,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { timeUs, createProject, DEFAULT_SETTINGS, PROJECT_FILES } from "@cinesim/core";
 import { afterEach, describe, expect, it } from "vite-plus/test";
+import { nodeProjectFileSystem, ProjectPaths, UnsafeProjectPathError } from "../src";
 import {
   CanonicalProjectRepository,
   CanonicalWriteConflictError,
-  nodeProjectFileSystem,
-  ProjectPaths,
-  UnsafeProjectPathError,
-} from "../src";
+} from "../src/canonical-repository";
 import type { ProjectFileSystem, ProjectFileHandle } from "../src";
 
 const temporaryDirectories: string[] = [];

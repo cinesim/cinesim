@@ -47,14 +47,6 @@ Compile JSX-shaped video source into deterministic, renderer-independent ir. `pa
 directory containing `cinesim.toml` or the configuration file itself. The compiler parses a small,
 typed JavaScript/JSX subset and never executes the source as JavaScript.
 
-```toml
-version = 1
-entry = "main.jsx"
-output = "../../.context/compiler/grid"
-source_maps = true
-strict = true
-```
-
 ```bash
 vp run cli compile examples/grid
 ```
@@ -67,8 +59,24 @@ vp run cli compile examples/grid
 | `--explain`       | Show the source and component expansion path for every emitted node |
 | `--check`         | Validate and print a summary without writing generated files        |
 
-The default command writes `scene.ir.json`, `scene.ir.map.json`, and `diagnostics.json` under the
-configured output directory. These are derived inspection artifacts, not canonical project files.
+The default command writes `scene.ir.json`, `scene.ir.map.json`, and `diagnostics.json` under
+`.video/compiler/`. These are derived inspection artifacts, not canonical project files.
+
+## migrate
+
+### `migrate [path]`
+
+Upgrade a format-v1 JSON project to source-driven format v2. Migration creates a recoverable sibling
+backup, generates TOML and explicit JSX, recompiles, and verifies semantic equivalence before
+removing legacy active files.
+
+```bash
+vp run cli migrate --check /path/to/project
+vp run cli migrate /path/to/project
+```
+
+`--check` reports detected format, planned files, semantic counts, and representability issues
+without writing.
 
 ## project
 
@@ -192,6 +200,14 @@ cinesim track delete track_titles
 
 ## clip
 
+### `clip add <track-id> <asset-id>`
+
+Add a media clip, optionally creating reciprocal linked audio.
+
+```bash
+cinesim clip add track_video_1 asset_interview --at 0s --source-in 12.4s --source-out 20.4s --audio-track track_audio_1
+```
+
 ### `clip move <clip-id>`
 
 Move a clip along the timeline, optionally to another compatible track.
@@ -229,6 +245,28 @@ Move a clip's in or out point. Existing fades are clamped to the new duration.
 ```bash
 cinesim clip trim-end clip_intro --at 18s
 ```
+
+### `clip fade <clip-id>`
+
+```bash
+cinesim clip fade clip_intro --edge in --duration 400ms
+```
+
+### `clip slip <clip-id>`
+
+Change the source in-point without moving or resizing the timeline range.
+
+```bash
+cinesim clip slip clip_intro --source-in 14s
+```
+
+### `clip duplicate <clip-id>`
+
+Duplicate a clip, optionally choosing `--at` and `--track`.
+
+### `clip link <clip-id> <linked-clip-id>` / `clip unlink <clip-id>`
+
+Create or remove reciprocal range-equivalent links.
 
 ### `clip delete <clip-id>`
 

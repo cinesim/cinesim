@@ -46,8 +46,15 @@ export function projectTimeline(
           startUs: clip.timelineStartUs,
           endUs: irTimeUs(clip.timelineStartUs + clip.durationUs),
           sourceStartUs: clip.sourceStartUs,
+          sourceEndUs: irTimeUs(
+            clip.sourceStartUs + Math.round(clip.durationUs * clip.playbackRate),
+          ),
+          ...(clip.mediaKind === undefined ? {} : { mediaKind: clip.mediaKind }),
           ...(clip.linkedClipId === undefined ? {} : { linkedClipId: clip.linkedClipId }),
           enabled: clip.enabled,
+          fadeInUs: clip.fades.inUs,
+          fadeOutUs: clip.fades.outUs,
+          transform: clip.transform,
           editable: structural?.safeToMove ?? false,
           generated: structural?.kind === "generated",
         };
@@ -61,6 +68,7 @@ export function projectTimeline(
   );
   return {
     compositionId: composition.id,
+    name: composition.name,
     width: composition.width,
     height: composition.height,
     frameRate: composition.frameRate,
@@ -100,7 +108,9 @@ export function createRenderPlan(
   compositionId = program.activeCompositionId,
 ): RenderPlan {
   const composition = findIrComposition(program, compositionId);
-  const layers = composition.timeline.tracks.flatMap((track) =>
+  // Track index zero is the uppermost editor track. Render plans are painter
+  // ordered, so lower tracks are emitted first.
+  const layers = composition.timeline.tracks.toReversed().flatMap((track) =>
     track.kind === "audio" || track.muted
       ? []
       : track.clips
@@ -117,10 +127,7 @@ export function createRenderPlan(
               ...(clip.content === undefined
                 ? {}
                 : {
-                    content: {
-                      ...clip.content,
-                      props: evaluateIrFrame(clip.content, localTime).props,
-                    },
+                    content: evaluateIrFrame(clip.content, localTime),
                   }),
               effects: [...track.effects, ...clip.effects],
             };

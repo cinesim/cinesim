@@ -1,9 +1,13 @@
 import type { Transform } from "@cinesim/core";
+import type { ColorAdjustment } from "../playback/scene-resolver";
 
-const SHADER = /* wgsl */ `
+const VIDEO_SHADER = /* wgsl */ `
 struct LayerUniforms {
   offsetAndScale: vec4f,
-  opacityAndPadding: vec4f,
+  opacityAndRadius: vec4f,
+  uvScaleAndOffset: vec4f,
+  colorAdjustOne: vec4f,
+  colorAdjustTwo: vec4f,
 }
 
 @group(0) @binding(0) var videoTexture: texture_external;
@@ -35,22 +39,135 @@ fn vertexMain(@builtin(vertex_index) index: u32) -> VertexOutput {
   return output;
 }
 
+fn roundedAlpha(uv: vec2f, radius: f32) -> f32 {
+  if (radius <= 0.0) { return 1.0; }
+  let point = abs(uv - vec2f(0.5)) - vec2f(0.5 - radius);
+  let distance = length(max(point, vec2f(0.0))) - radius;
+  return 1.0 - smoothstep(-0.002, 0.002, distance);
+}
+
 @fragment
 fn fragmentMain(input: VertexOutput) -> @location(0) vec4f {
-  let color = textureSampleBaseClampToEdge(videoTexture, videoSampler, input.uv);
-  return vec4f(color.rgb, color.a * layer.opacityAndPadding.x);
+  let uv = input.uv * layer.uvScaleAndOffset.xy + layer.uvScaleAndOffset.zw;
+  let sampled = textureSampleBaseClampToEdge(videoTexture, videoSampler, uv);
+  let exposure = layer.colorAdjustOne.x;
+  let contrast = layer.colorAdjustOne.y;
+  let saturation = layer.colorAdjustOne.z;
+  let temperature = layer.colorAdjustOne.w;
+  let tint = layer.colorAdjustTwo.x;
+  var rgb = sampled.rgb * exp2(exposure);
+  rgb = (rgb - vec3f(0.5)) * contrast + vec3f(0.5);
+  let luma = dot(rgb, vec3f(0.2126, 0.7152, 0.0722));
+  rgb = mix(vec3f(luma), rgb, saturation);
+  rgb += vec3f(temperature * 0.08, tint * 0.06, -temperature * 0.08);
+  let alpha = sampled.a * layer.opacityAndRadius.x * roundedAlpha(input.uv, layer.opacityAndRadius.y);
+  return vec4f(rgb, alpha);
 }
 `;
 
-export const LAYER_UNIFORM_BYTE_SIZE = 32;
+const GRAPHIC_SHADER = /* wgsl */ `
+struct GraphicUniforms {
+  offsetAndScale: vec4f,
+  color: vec4f,
+  params: vec4f,
+  glyph: vec4u,
+}
 
-export function packLayerUniform(transform: Transform, fitX: number, fitY: number): Float32Array {
+@group(0) @binding(0) var<uniform> graphic: GraphicUniforms;
+
+struct VertexOutput {
+  @builtin(position) position: vec4f,
+  @location(0) uv: vec2f,
+}
+
+@vertex
+fn vertexMain(@builtin(vertex_index) index: u32) -> VertexOutput {
+  var positions = array<vec2f, 6>(
+    vec2f(-1.0, -1.0), vec2f(1.0, -1.0), vec2f(-1.0, 1.0),
+    vec2f(-1.0, 1.0), vec2f(1.0, -1.0), vec2f(1.0, 1.0)
+  );
+  var uvs = array<vec2f, 6>(
+    vec2f(0.0, 1.0), vec2f(1.0, 1.0), vec2f(0.0, 0.0),
+    vec2f(0.0, 0.0), vec2f(1.0, 1.0), vec2f(1.0, 0.0)
+  );
+  var output: VertexOutput;
+  output.position = vec4f(
+    positions[index] * graphic.offsetAndScale.zw + graphic.offsetAndScale.xy,
+    0.0,
+    1.0
+  );
+  output.uv = uvs[index];
+  return output;
+}
+
+fn roundedAlpha(uv: vec2f, radius: f32) -> f32 {
+  if (radius <= 0.0) { return 1.0; }
+  let point = abs(uv - vec2f(0.5)) - vec2f(0.5 - radius);
+  let distance = length(max(point, vec2f(0.0))) - radius;
+  return 1.0 - smoothstep(-0.002, 0.002, distance);
+}
+
+fn glyphVisible(uv: vec2f) -> bool {
+  let column = min(4u, u32(floor(uv.x * 5.0)));
+  let row = min(6u, u32(floor(uv.y * 7.0)));
+  let bit = row * 5u + column;
+  if (bit < 32u) { return (graphic.glyph.x & (1u << bit)) != 0u; }
+  return (graphic.glyph.y & (1u << (bit - 32u))) != 0u;
+}
+
+@fragment
+fn fragmentMain(input: VertexOutput) -> @location(0) vec4f {
+  if (graphic.params.y > 0.5 && !glyphVisible(input.uv)) { discard; }
+  let alpha = graphic.color.a * graphic.params.z * roundedAlpha(input.uv, graphic.params.x);
+  return vec4f(graphic.color.rgb, alpha);
+}
+`;
+
+export const LAYER_UNIFORM_BYTE_SIZE = 80;
+export const GRAPHIC_UNIFORM_BYTE_SIZE = 64;
+
+const DEFAULT_ADJUSTMENT: ColorAdjustment = {
+  exposure: 0,
+  contrast: 1,
+  saturation: 1,
+  temperature: 0,
+  tint: 0,
+};
+
+export interface LayerUniformOptions {
+  uvScaleX?: number;
+  uvScaleY?: number;
+  uvOffsetX?: number;
+  uvOffsetY?: number;
+  cornerRadiusFraction?: number;
+  colorAdjustment?: ColorAdjustment;
+}
+
+export function packLayerUniform(
+  transform: Transform,
+  fitX: number,
+  fitY: number,
+  options: LayerUniformOptions = {},
+): Float32Array {
+  const adjustment = options.colorAdjustment ?? DEFAULT_ADJUSTMENT;
   return new Float32Array([
     transform.x,
     -transform.y,
     transform.scaleX * fitX,
     transform.scaleY * fitY,
     transform.opacity,
+    options.cornerRadiusFraction ?? 0,
+    0,
+    0,
+    options.uvScaleX ?? 1,
+    options.uvScaleY ?? 1,
+    options.uvOffsetX ?? 0,
+    options.uvOffsetY ?? 0,
+    adjustment.exposure,
+    adjustment.contrast,
+    adjustment.saturation,
+    adjustment.temperature,
+    adjustment.tint,
     0,
     0,
     0,
@@ -60,7 +177,19 @@ export function packLayerUniform(transform: Transform, fitX: number, fitY: numbe
 export interface CompositorLayer {
   frame: VideoFrame;
   transform: Transform;
+  cornerRadiusPx?: number;
+  colorAdjustment?: ColorAdjustment;
 }
+
+export interface CompositorGraphicLayer {
+  kind: "solid" | "glyph";
+  transform: Transform;
+  color: readonly [number, number, number, number];
+  cornerRadiusPx?: number;
+  glyph?: readonly [number, number];
+}
+
+export type CompositorColor = readonly [number, number, number, number];
 
 export interface CompositorMetrics {
   gpuSubmitCpuMs: number;
@@ -73,7 +202,12 @@ export interface CompositorMetrics {
 
 export interface PreviewCompositor {
   initialize(): Promise<void>;
-  render(layers: CompositorLayer[], output?: { width: number; height: number }): void;
+  render(
+    layers: CompositorLayer[],
+    output?: { width: number; height: number },
+    graphics?: readonly CompositorGraphicLayer[],
+    background?: CompositorColor,
+  ): void;
   readonly metrics: CompositorMetrics;
   destroy(): void;
 }
@@ -82,12 +216,36 @@ export interface WebGpuCompositorOptions {
   onError?: (error: Error) => void;
 }
 
+function packGraphicUniform(graphic: CompositorGraphicLayer, radiusFraction: number): ArrayBuffer {
+  const buffer = new ArrayBuffer(GRAPHIC_UNIFORM_BYTE_SIZE);
+  const floats = new Float32Array(buffer);
+  floats.set(
+    [
+      graphic.transform.x,
+      -graphic.transform.y,
+      graphic.transform.scaleX,
+      graphic.transform.scaleY,
+      ...graphic.color,
+      radiusFraction,
+      graphic.kind === "glyph" ? 1 : 0,
+      graphic.transform.opacity,
+      0,
+    ],
+    0,
+  );
+  const integers = new Uint32Array(buffer);
+  integers[12] = graphic.glyph?.[0] ?? 0;
+  integers[13] = graphic.glyph?.[1] ?? 0;
+  return buffer;
+}
+
 export class WebGpuCompositor implements PreviewCompositor {
   readonly #canvas: HTMLCanvasElement;
   readonly #onError: (error: Error) => void;
   #context: GPUCanvasContext | null = null;
   #device: GPUDevice | null = null;
   #pipeline: GPURenderPipeline | null = null;
+  #graphicPipeline: GPURenderPipeline | null = null;
   #sampler: GPUSampler | null = null;
   #format: GPUTextureFormat | null = null;
   #deviceErrorListener: ((event: GPUUncapturedErrorEvent) => void) | null = null;
@@ -118,59 +276,63 @@ export class WebGpuCompositor implements PreviewCompositor {
     this.#context = context;
     this.#format = format;
     const deviceErrorListener = (event: GPUUncapturedErrorEvent) => {
-      if (this.#device === device) this.#pipeline = null;
+      if (this.#device === device) {
+        this.#pipeline = null;
+        this.#graphicPipeline = null;
+      }
       this.#reportError(new Error(`WebGPU validation failed: ${event.error.message}`));
     };
     device.addEventListener("uncapturederror", deviceErrorListener);
     this.#deviceErrorListener = deviceErrorListener;
     this.#sampler = device.createSampler({ magFilter: "linear", minFilter: "linear" });
-    const module = device.createShaderModule({ code: SHADER });
-    const bindGroupLayout = device.createBindGroupLayout({
-      label: "cinesim-preview-layer-layout",
-      entries: [
-        {
-          binding: 0,
-          visibility: GPUShaderStage.FRAGMENT,
-          externalTexture: {},
-        },
-        {
-          binding: 1,
-          visibility: GPUShaderStage.FRAGMENT,
-          sampler: { type: "filtering" },
-        },
-        {
-          binding: 2,
-          visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT,
-          buffer: { type: "uniform", minBindingSize: LAYER_UNIFORM_BYTE_SIZE },
-        },
-      ],
-    });
-    const pipelineLayout = device.createPipelineLayout({
-      label: "cinesim-preview-pipeline-layout",
-      bindGroupLayouts: [bindGroupLayout],
-    });
-    let pipeline: GPURenderPipeline;
+    const blend: GPUBlendState = {
+      color: { srcFactor: "src-alpha", dstFactor: "one-minus-src-alpha", operation: "add" },
+      alpha: { srcFactor: "one", dstFactor: "one-minus-src-alpha", operation: "add" },
+    };
     try {
-      pipeline = await device.createRenderPipelineAsync({
+      const videoModule = device.createShaderModule({ code: VIDEO_SHADER });
+      const videoLayout = device.createBindGroupLayout({
+        label: "cinesim-preview-layer-layout",
+        entries: [
+          { binding: 0, visibility: GPUShaderStage.FRAGMENT, externalTexture: {} },
+          {
+            binding: 1,
+            visibility: GPUShaderStage.FRAGMENT,
+            sampler: { type: "filtering" },
+          },
+          {
+            binding: 2,
+            visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT,
+            buffer: { type: "uniform", minBindingSize: LAYER_UNIFORM_BYTE_SIZE },
+          },
+        ],
+      });
+      const graphicModule = device.createShaderModule({ code: GRAPHIC_SHADER });
+      const graphicLayout = device.createBindGroupLayout({
+        label: "cinesim-preview-graphic-layout",
+        entries: [
+          {
+            binding: 0,
+            visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT,
+            buffer: { type: "uniform", minBindingSize: GRAPHIC_UNIFORM_BYTE_SIZE },
+          },
+        ],
+      });
+      this.#pipeline = await device.createRenderPipelineAsync({
         label: "cinesim-preview-pipeline",
-        layout: pipelineLayout,
-        vertex: { module, entryPoint: "vertexMain" },
+        layout: device.createPipelineLayout({ bindGroupLayouts: [videoLayout] }),
+        vertex: { module: videoModule, entryPoint: "vertexMain" },
+        fragment: { module: videoModule, entryPoint: "fragmentMain", targets: [{ format, blend }] },
+        primitive: { topology: "triangle-list" },
+      });
+      this.#graphicPipeline = await device.createRenderPipelineAsync({
+        label: "cinesim-preview-graphic-pipeline",
+        layout: device.createPipelineLayout({ bindGroupLayouts: [graphicLayout] }),
+        vertex: { module: graphicModule, entryPoint: "vertexMain" },
         fragment: {
-          module,
+          module: graphicModule,
           entryPoint: "fragmentMain",
-          targets: [
-            {
-              format,
-              blend: {
-                color: {
-                  srcFactor: "src-alpha",
-                  dstFactor: "one-minus-src-alpha",
-                  operation: "add",
-                },
-                alpha: { srcFactor: "one", dstFactor: "one-minus-src-alpha", operation: "add" },
-              },
-            },
-          ],
+          targets: [{ format, blend }],
         },
         primitive: { topology: "triangle-list" },
       });
@@ -183,6 +345,8 @@ export class WebGpuCompositor implements PreviewCompositor {
         this.#sampler = null;
         this.#format = null;
         this.#deviceErrorListener = null;
+        this.#pipeline = null;
+        this.#graphicPipeline = null;
       }
       device.destroy();
       throw error;
@@ -192,7 +356,6 @@ export class WebGpuCompositor implements PreviewCompositor {
       device.destroy();
       return;
     }
-    this.#pipeline = pipeline;
     void device.lost.then((info) => {
       if (this.#device !== device) return;
       device.removeEventListener("uncapturederror", deviceErrorListener);
@@ -200,6 +363,7 @@ export class WebGpuCompositor implements PreviewCompositor {
       this.#deviceLostCount += 1;
       this.#device = null;
       this.#pipeline = null;
+      this.#graphicPipeline = null;
       if (!this.#destroyed && info.reason !== "destroyed")
         void this.initialize().catch((error: unknown) => this.#reportError(error));
     });
@@ -217,9 +381,17 @@ export class WebGpuCompositor implements PreviewCompositor {
   render(
     layers: CompositorLayer[],
     output = { width: this.#canvas.width, height: this.#canvas.height },
-    background: GPUColor = { r: 0.035, g: 0.035, b: 0.043, a: 1 },
+    graphics: readonly CompositorGraphicLayer[] = [],
+    background: CompositorColor = [0.035, 0.035, 0.043, 1],
   ): void {
-    if (!this.#device || !this.#context || !this.#pipeline || !this.#sampler || !this.#format) {
+    if (
+      !this.#device ||
+      !this.#context ||
+      !this.#pipeline ||
+      !this.#graphicPipeline ||
+      !this.#sampler ||
+      !this.#format
+    ) {
       for (const layer of layers) layer.frame.close();
       return;
     }
@@ -234,7 +406,7 @@ export class WebGpuCompositor implements PreviewCompositor {
         colorAttachments: [
           {
             view: this.#context.getCurrentTexture().createView(),
-            clearValue: background,
+            clearValue: { r: background[0], g: background[1], b: background[2], a: background[3] },
             loadOp: "clear",
             storeOp: "store",
           },
@@ -245,23 +417,47 @@ export class WebGpuCompositor implements PreviewCompositor {
         const frameWidth = Math.max(1, layer.frame.displayWidth);
         const frameHeight = Math.max(1, layer.frame.displayHeight);
         const sourceAspect = frameWidth / frameHeight;
-        const outputAspect = Math.max(1, output.width) / Math.max(1, output.height);
+        const targetAspect =
+          (Math.max(0.000_1, Math.abs(layer.transform.scaleX)) * Math.max(1, output.width)) /
+          (Math.max(0.000_1, Math.abs(layer.transform.scaleY)) * Math.max(1, output.height));
         let fitX = 1;
         let fitY = 1;
+        let uvScaleX = 1;
+        let uvScaleY = 1;
         if (layer.transform.fit === "contain") {
-          if (sourceAspect > outputAspect) fitY = outputAspect / sourceAspect;
-          else fitX = sourceAspect / outputAspect;
+          if (sourceAspect > targetAspect) fitY = targetAspect / sourceAspect;
+          else fitX = sourceAspect / targetAspect;
         } else if (layer.transform.fit === "cover") {
-          if (sourceAspect > outputAspect) fitX = sourceAspect / outputAspect;
-          else fitY = outputAspect / sourceAspect;
+          if (sourceAspect > targetAspect) uvScaleX = targetAspect / sourceAspect;
+          else uvScaleY = sourceAspect / targetAspect;
         }
+        const targetWidthPx = Math.abs(layer.transform.scaleX) * Math.max(1, output.width);
+        const targetHeightPx = Math.abs(layer.transform.scaleY) * Math.max(1, output.height);
+        const radiusFraction = Math.min(
+          0.5,
+          Math.max(0, layer.cornerRadiusPx ?? 0) /
+            Math.max(1, Math.min(targetWidthPx, targetHeightPx)),
+        );
         const uniform = this.#device.createBuffer({
           label: "cinesim-preview-layer-uniform",
           size: LAYER_UNIFORM_BYTE_SIZE,
           usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
         });
         transientBuffers.push(uniform);
-        this.#device.queue.writeBuffer(uniform, 0, packLayerUniform(layer.transform, fitX, fitY));
+        this.#device.queue.writeBuffer(
+          uniform,
+          0,
+          packLayerUniform(layer.transform, fitX, fitY, {
+            uvScaleX,
+            uvScaleY,
+            uvOffsetX: (1 - uvScaleX) / 2,
+            uvOffsetY: (1 - uvScaleY) / 2,
+            cornerRadiusFraction: radiusFraction,
+            ...(layer.colorAdjustment === undefined
+              ? {}
+              : { colorAdjustment: layer.colorAdjustment }),
+          }),
+        );
         const bindGroup = this.#device.createBindGroup({
           label: "cinesim-preview-layer-bind-group",
           layout: this.#pipeline.getBindGroupLayout(0),
@@ -274,11 +470,36 @@ export class WebGpuCompositor implements PreviewCompositor {
         pass.setBindGroup(0, bindGroup);
         pass.draw(6);
       }
+      pass.setPipeline(this.#graphicPipeline);
+      for (const graphic of graphics) {
+        const targetWidthPx = Math.abs(graphic.transform.scaleX) * Math.max(1, output.width);
+        const targetHeightPx = Math.abs(graphic.transform.scaleY) * Math.max(1, output.height);
+        const radiusFraction = Math.min(
+          0.5,
+          Math.max(0, graphic.cornerRadiusPx ?? 0) /
+            Math.max(1, Math.min(targetWidthPx, targetHeightPx)),
+        );
+        const uniform = this.#device.createBuffer({
+          label: "cinesim-preview-graphic-uniform",
+          size: GRAPHIC_UNIFORM_BYTE_SIZE,
+          usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+        });
+        transientBuffers.push(uniform);
+        this.#device.queue.writeBuffer(uniform, 0, packGraphicUniform(graphic, radiusFraction));
+        pass.setBindGroup(
+          0,
+          this.#device.createBindGroup({
+            label: "cinesim-preview-graphic-bind-group",
+            layout: this.#graphicPipeline.getBindGroupLayout(0),
+            entries: [{ binding: 0, resource: { buffer: uniform } }],
+          }),
+        );
+        pass.draw(6);
+      }
       pass.end();
       this.#device.queue.submit([encoder.finish()]);
       submitted = true;
-      const completion = this.#device.queue.onSubmittedWorkDone();
-      void completion.then(
+      void this.#device.queue.onSubmittedWorkDone().then(
         () => transientBuffers.forEach((buffer) => buffer.destroy()),
         (error: unknown) => {
           transientBuffers.forEach((buffer) => buffer.destroy());
@@ -316,6 +537,7 @@ export class WebGpuCompositor implements PreviewCompositor {
     this.#context = null;
     this.#device = null;
     this.#pipeline = null;
+    this.#graphicPipeline = null;
     this.#sampler = null;
     this.#format = null;
     this.#deviceErrorListener = null;

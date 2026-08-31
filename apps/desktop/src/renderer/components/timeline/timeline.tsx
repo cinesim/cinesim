@@ -1,6 +1,8 @@
 import { useMemo, useState } from "react";
 import { canSplitClipAt, getSequence, sequenceDurationUs, timeUs } from "@cinesim/core";
 import type { Project, TimelineRange } from "@cinesim/core";
+import type { Clip, Sequence, Track } from "@cinesim/core";
+import type { TimelineProjection } from "@cinesim/ir";
 import { timelineMajorSecondStep } from "../../lib/timeline-scale";
 import { useRendererStore } from "../../store/renderer-store-context";
 import { useEditorDnd } from "../workspace/editor-dnd-context";
@@ -19,10 +21,11 @@ export type { TimelinePaletteId } from "./timeline-behavior";
 
 interface TimelineProps {
   project: Project;
+  timeline: TimelineProjection;
   selectedRanges?: TimelineRange[];
 }
 
-export function Timeline({ project, selectedRanges = [] }: TimelineProps) {
+export function Timeline({ project, timeline, selectedRanges = [] }: TimelineProps) {
   const execute = useRendererStore((state) => state.execute);
   const zoom = useRendererStore((state) => state.timelineZoom);
   const setZoom = useRendererStore((state) => state.setTimelineZoom);
@@ -44,7 +47,11 @@ export function Timeline({ project, selectedRanges = [] }: TimelineProps) {
     const stored = localStorage.getItem("cinesim.timelinePalette");
     return isTimelinePaletteId(stored) ? stored : "northern-lights";
   });
-  const sequence = getSequence(project);
+  const timelineProject = useMemo(
+    () => projectFromTimelineProjection(project, timeline),
+    [project, timeline],
+  );
+  const sequence = getSequence(timelineProject);
   const sequenceDuration = sequenceDurationUs(sequence);
   const {
     changeZoom,
@@ -68,6 +75,18 @@ export function Timeline({ project, selectedRanges = [] }: TimelineProps) {
   const assets = useMemo(
     () => new Map(project.assets.map((asset) => [asset.id, asset])),
     [project.assets],
+  );
+  const clipEditability = useMemo(
+    () =>
+      new Map(
+        timeline.tracks.flatMap((track) =>
+          track.clips.map((clip) => [
+            clip.id,
+            { editable: clip.editable, generated: clip.generated },
+          ]),
+        ),
+      ),
+    [timeline.tracks],
   );
   const selectedClip = selectedClipId
     ? sequence.tracks.flatMap((track) => track.clips).find((clip) => clip.id === selectedClipId)
@@ -111,7 +130,7 @@ export function Timeline({ project, selectedRanges = [] }: TimelineProps) {
         className="flex min-h-0 min-w-0 flex-col overflow-hidden bg-panel-muted"
       >
         <ReducedTimeline
-          project={project}
+          project={timelineProject}
           transcripts={transcripts}
           selectedRanges={selectedRanges}
           playheadUs={playheadUs}
@@ -221,12 +240,13 @@ export function Timeline({ project, selectedRanges = [] }: TimelineProps) {
                 key={track.id}
                 track={track}
                 assets={assets}
+                clipEditability={clipEditability}
                 derived={derived}
                 pixelsPerUs={pixelsPerUs}
                 trackHeight={trackHeight}
                 selectedClipId={selectedClipId}
                 onBackgroundPointerDown={trackSeek}
-                project={project}
+                project={timelineProject}
                 frameRate={sequence.frameRate}
                 snappingEnabled={snappingEnabled}
                 playheadUs={playheadUs}
@@ -266,4 +286,47 @@ export function Timeline({ project, selectedRanges = [] }: TimelineProps) {
       </div>
     </section>
   );
+}
+
+function projectFromTimelineProjection(project: Project, timeline: TimelineProjection): Project {
+  const sequence: Sequence = {
+    id: timeline.compositionId as Sequence["id"],
+    name: timeline.name,
+    width: timeline.width,
+    height: timeline.height,
+    frameRate: timeline.frameRate,
+    tracks: timeline.tracks.map((track): Track => ({
+      id: track.id as Track["id"],
+      kind: track.kind,
+      name: track.name,
+      muted: track.muted,
+      locked: track.locked,
+      clips: track.clips.map((clip): Clip => ({
+        id: clip.id as Clip["id"],
+        assetId: (clip.assetId ?? `asset_generated_${clip.id}`) as Clip["assetId"],
+        mediaKind: clip.mediaKind ?? "video",
+        ...(clip.linkedClipId === undefined
+          ? {}
+          : { linkedClipId: clip.linkedClipId as Clip["id"] }),
+        timelineStartUs: timeUs(clip.startUs),
+        sourceStartUs: timeUs(clip.sourceStartUs),
+        sourceEndUs: timeUs(clip.sourceEndUs),
+        ...(clip.fadeInUs === 0 ? {} : { fadeInUs: timeUs(clip.fadeInUs) }),
+        ...(clip.fadeOutUs === 0 ? {} : { fadeOutUs: timeUs(clip.fadeOutUs) }),
+        transform: {
+          x: clip.transform.x,
+          y: clip.transform.y,
+          scaleX: clip.transform.scaleX,
+          scaleY: clip.transform.scaleY,
+          opacity: clip.transform.opacity,
+          fit: clip.transform.fit,
+        },
+      })),
+    })),
+  };
+  return {
+    ...project,
+    activeSequenceId: sequence.id,
+    sequences: [sequence],
+  };
 }

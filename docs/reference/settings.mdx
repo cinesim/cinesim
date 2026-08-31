@@ -1,87 +1,39 @@
 ---
 title: Project settings
-description: Every key in .cinesim/settings.toml, with types and defaults.
+description: Every format-v2 project setting in cinesim.toml, with types and defaults.
 ---
 
-`.cinesim/settings.toml` holds per-project editing preferences. It is canonical — validated on load
-and versioned like the rest of the project — but written to be comfortable to edit by hand.
-
-## Default file
+Project editing preferences live in the `[settings]` table of `cinesim.toml`. Cinesim validates the
+whole manifest on load and rewrites only the changed key, preserving unrelated comments and tables.
 
 ```toml
-version = 1
+[settings]
 autosave = true
-
-[preview]
-quality = "half"
+preview_quality = "half"
 background_color = "#09090b"
-
-[perception]
 filmstrip_interval_seconds = 5
-
-[proxy]
-generation = "automatic"
-profile = "balanced"
-max_long_edge = 1280
-frame_rate_cap = 60
-quality = "medium"
+proxy_generation = "automatic"
+proxy_profile = "balanced"
+proxy_max_long_edge = 1280
+proxy_frame_rate_cap = 60
+proxy_quality = "medium"
 ```
 
-## Top level
+| Key                          | Values or type                                      | Default     |
+| ---------------------------- | --------------------------------------------------- | ----------- |
+| `autosave`                   | boolean                                             | `true`      |
+| `preview_quality`            | `full`, `half`, `quarter`                           | `half`      |
+| `background_color`           | `#rrggbb`                                           | `#09090b`   |
+| `filmstrip_interval_seconds` | positive number                                     | `5`         |
+| `proxy_generation`           | `automatic`, `manual`                               | `automatic` |
+| `proxy_profile`              | `space-saver`, `balanced`, `high-quality`, `custom` | `balanced`  |
+| `proxy_max_long_edge`        | integer 320–7680                                    | `1280`      |
+| `proxy_frame_rate_cap`       | `30` or `60`                                        | `60`        |
+| `proxy_quality`              | `low`, `medium`, `high`                             | `medium`    |
 
-| Key        | Type    | Default | Description                                              |
-| ---------- | ------- | ------- | -------------------------------------------------------- |
-| `version`  | `1`     | `1`     | Schema version. A future value is rejected.              |
-| `autosave` | boolean | `true`  | Persist canonical state automatically after each command |
+Lower preview quality trades image detail for decode headroom and does not alter rendered output.
+Named proxy profiles set the final three proxy keys; choose `custom` to control them independently.
+Cloud originals always receive an edit proxy.
 
-## `[preview]`
-
-| Key                | Values                    | Default   | Description                        |
-| ------------------ | ------------------------- | --------- | ---------------------------------- |
-| `quality`          | `full`, `half`, `quarter` | `half`    | Viewer decode resolution           |
-| `background_color` | `#rrggbb`                 | `#09090b` | Viewer background behind the frame |
-
-Lower preview quality costs image detail and buys decode headroom. It does not affect canonical
-state.
-
-## `[perception]`
-
-| Key                          | Type            | Default | Description                       |
-| ---------------------------- | --------------- | ------- | --------------------------------- |
-| `filmstrip_interval_seconds` | positive number | `5`     | Seconds between filmstrip samples |
-
-A shorter interval gives finer scrubbing at the cost of a larger contact sheet.
-
-## `[proxy]`
-
-| Key              | Values                                              | Default     | Description                                   |
-| ---------------- | --------------------------------------------------- | ----------- | --------------------------------------------- |
-| `generation`     | `automatic`, `manual`                               | `automatic` | Whether proxies are built without being asked |
-| `profile`        | `space-saver`, `balanced`, `high-quality`, `custom` | `balanced`  | Named preset                                  |
-| `max_long_edge`  | integer 320–7680                                    | `1280`      | Long-edge pixel target                        |
-| `frame_rate_cap` | `30` or `60`                                        | `60`        | Frame-rate ceiling                            |
-| `quality`        | `low`, `medium`, `high`                             | `medium`    | Encoder quality                               |
-
-The named profiles set the three keys below them. Choose `custom` to control them individually. See
-[Tune proxies](../guides/tune-proxies.mdx) for how to pick.
-
-An asset backed by a cloud original always gets a proxy, even under `manual`.
-
-## Account transcription settings
-
-The desktop **Settings → Transcription** page stores account-scoped UI preferences separately from
-canonical project settings:
-
-| Setting                  | Values                | Default           | Description                                               |
-| ------------------------ | --------------------- | ----------------- | --------------------------------------------------------- |
-| Transcription generation | `manual`, `automatic` | `manual`          | Whether missing speech transcripts queue in open projects |
-| Speech model             | `deepgram/nova-3`     | `deepgram/nova-3` | Model called through the authenticated Deepgram gateway   |
-
-Automatic generation remains an account-scoped preference. These preferences do not enter project
-history or canonical files, and another account on the same device receives its own defaults.
-
-## Validation
-
-Settings are validated on load. An out-of-range value or unknown enum member fails the load with a
-structured error rather than being silently clamped, so a typo surfaces immediately instead of
-quietly changing how your project behaves.
+Account-scoped transcription preferences remain in desktop application state, not in the project
+manifest, and therefore do not enter project history.

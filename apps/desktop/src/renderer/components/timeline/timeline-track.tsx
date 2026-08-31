@@ -26,6 +26,7 @@ import { TimelineWaveform } from "./timeline-waveform";
 export function TimelineTrackRow({
   track,
   assets,
+  clipEditability,
   derived,
   pixelsPerUs,
   trackHeight,
@@ -39,6 +40,7 @@ export function TimelineTrackRow({
 }: {
   track: Track;
   assets: Map<string, Asset>;
+  clipEditability: Map<string, { editable: boolean; generated: boolean }>;
   derived: DerivedMediaSnapshot | null;
   pixelsPerUs: number;
   trackHeight: number;
@@ -102,6 +104,8 @@ export function TimelineTrackRow({
           clip={clip}
           track={track}
           asset={assets.get(clip.assetId)}
+          editable={clipEditability.get(clip.id)?.editable ?? false}
+          generated={clipEditability.get(clip.id)?.generated ?? false}
           derived={derived}
           derivedAsset={derived?.assets[clip.assetId]}
           pixelsPerUs={pixelsPerUs}

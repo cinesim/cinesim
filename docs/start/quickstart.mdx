@@ -15,10 +15,11 @@ Cinesim creates an ordinary directory:
 
 ```text
 documentary-cut/
-├── cinesim.json          project identity and file locations
+├── cinesim.toml          identity, settings, and asset catalog
+├── main.jsx              compositions, tracks, clips, and graphics
+├── components/           optional reusable video source
 ├── AGENTS.md             creative direction for agents; yours to edit
 ├── .gitignore            excludes .video/
-├── .cinesim/             canonical state: assets, timeline, settings
 └── .video/               generated media; safe to delete
 ```
 
@@ -76,7 +77,9 @@ normal and expected while editing.
 ## What you have now
 
 A project directory you can move, back up, or commit. Nothing about it depends on Cinesim being
-installed — the canonical files are plain JSON and TOML you can read.
+installed — the canonical files are plain TOML and restricted JavaScript/JSX-shaped source you can
+read. You can edit source in another text editor; valid saves update the live timeline and preview,
+while invalid saves show diagnostics without replacing the last playable result.
 
 ## Next
 

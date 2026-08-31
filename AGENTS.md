@@ -9,7 +9,7 @@ Cinesim is a local-first, agent-native nonlinear video editor. Keep the system s
 5. React does not drive playback or store decoded frames.
 6. Mediabunny is the container/media abstraction and WebCodecs is the primary decode path.
 7. WebGPU is the primary compositor. Canvas2D is allowed only for derived perception artifacts, never normal preview composition.
-8. Canonical project state is `cinesim.json` plus `.cinesim/`. Generated media is under `.video/` and must remain disposable.
+8. Canonical project state is `cinesim.toml` plus its reachable `.js`/`.jsx` video source modules. Generated media is under `.video/` and must remain disposable.
 9. Canonical serialization must be deterministic, pretty printed, versioned, and free from timestamps that churn Git diffs.
 10. Do not casually add dependencies. Verify the license first and update `docs/internals/dependencies.mdx` for runtime dependencies.
 11. Preserve third-party notices. Mediabunny remains MPL-2.0; Cinesim's own source remains MIT.

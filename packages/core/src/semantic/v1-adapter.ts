@@ -161,6 +161,42 @@ export function irToV1Project(program: IrProgram, context: V1ComparisonContext):
   };
 }
 
+/**
+ * Derived compatibility view for media subsystems that still accept the v1 object shape. Generated
+ * scene clips are omitted because v1 cannot represent them. This value is never persisted or used
+ * as edit authority.
+ */
+export function irProgramToProjectProjection(
+  program: IrProgram,
+  context: V1ComparisonContext,
+): Project {
+  return {
+    version: 1,
+    id: program.projectId as Project["id"],
+    ...(context.cloudProjectId === undefined ? {} : { cloudProjectId: context.cloudProjectId }),
+    name: context.name,
+    activeSequenceId: program.activeCompositionId as Project["activeSequenceId"],
+    assets: structuredClone(context.assets),
+    sequences: program.compositions.map((composition): Sequence => ({
+      id: composition.id as Sequence["id"],
+      name: composition.name,
+      width: composition.width,
+      height: composition.height,
+      frameRate: composition.frameRate,
+      tracks: composition.timeline.tracks.map((track): Track => ({
+        id: track.id as Track["id"],
+        kind: track.kind,
+        name: track.name,
+        muted: track.muted,
+        locked: track.locked,
+        clips: track.clips.flatMap((clip) =>
+          clip.assetId !== undefined && clip.mediaKind !== undefined ? [clipFromIr(clip)] : [],
+        ),
+      })),
+    })),
+  };
+}
+
 export function assertV1IrEquivalent(
   project: Project,
   settings: ProjectSettings,

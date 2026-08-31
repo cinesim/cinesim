@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "@cinesim/core": "workspace:*",
+    "@cinesim/ir": "workspace:*",
     "mediabunny": "1.55.2"
   }
 }

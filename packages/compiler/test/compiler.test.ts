@@ -134,4 +134,31 @@ describe("compiler", () => {
       compileVideo("main.jsx", tiny, host({ "main.jsx": wrapper("") })),
     ).rejects.toMatchObject({ diagnostic: expect.objectContaining({ code: "SOURCE_BUDGET" }) });
   });
+
+  it("loads the complete static import graph and rejects cycles even when imports are unused", async () => {
+    const entry = `import { Extra } from "./Extra.jsx"; ${wrapper("")}`;
+    const result = await compileVideo(
+      "main.jsx",
+      config,
+      host({
+        "main.jsx": entry,
+        "Extra.jsx": 'export function Extra() { return <rect id="extra" />; }',
+      }),
+    );
+    expect(result.modules.map((module) => module.uri)).toEqual(["Extra.jsx", "main.jsx"]);
+
+    await expect(
+      compileVideo(
+        "main.jsx",
+        config,
+        host({
+          "main.jsx": entry,
+          "Extra.jsx":
+            'import { Cycle } from "./Cycle.jsx"; export function Extra() { return <rect id="extra" />; }',
+          "Cycle.jsx":
+            'import { Extra } from "./Extra.jsx"; export function Cycle() { return <rect id="cycle" />; }',
+        }),
+      ),
+    ).rejects.toMatchObject({ diagnostic: expect.objectContaining({ code: "IMPORT_CYCLE" }) });
+  });
 });

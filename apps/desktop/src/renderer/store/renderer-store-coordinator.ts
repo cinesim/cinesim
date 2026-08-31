@@ -1,5 +1,5 @@
 import type { StoreApi } from "zustand/vanilla";
-import { sequenceDurationUs, timeUs } from "@cinesim/core";
+import { timeUs } from "@cinesim/core";
 import type { DesktopApi, DesktopProjectSession } from "../../shared/contracts";
 import {
   appStateWithRememberedProject,
@@ -36,25 +36,18 @@ export class RendererStoreContext {
     const current = this.get();
     const previous = sessionFromLifecycle(current.project);
     if (previous && previous.directory !== session.directory) return;
-    const requestedSequenceId = current.activeSequenceId ?? session.project.activeSequenceId;
-    const activeSequence =
-      session.project.sequences.find((sequence) => sequence.id === requestedSequenceId) ??
-      session.project.sequences.find(
-        (sequence) => sequence.id === session.project.activeSequenceId,
-      ) ??
-      null;
-    const activeSequenceId = activeSequence?.id ?? null;
+    const requestedSequenceId = current.activeSequenceId ?? session.timeline.compositionId;
+    const activeTimeline = session.timelines[requestedSequenceId] ?? session.timeline;
+    const activeSequenceId = activeTimeline.compositionId;
     const sequenceChanged = activeSequenceId !== current.activeSequenceId;
     this.set({
       project: { status: "ready", session },
       operationError: null,
       activeSequenceId,
-      selectedClipId: clipExists(activeSequence, current.selectedClipId)
+      selectedClipId: clipExists(activeTimeline, current.selectedClipId)
         ? current.selectedClipId
         : null,
-      playheadUs: activeSequence
-        ? timeUs(Math.min(current.playheadUs, sequenceDurationUs(activeSequence)))
-        : timeUs(0),
+      playheadUs: timeUs(Math.min(current.playheadUs, activeTimeline.durationUs)),
       playbackRuntime: sequenceChanged ? null : current.playbackRuntime,
     });
   }

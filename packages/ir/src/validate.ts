@@ -1,4 +1,4 @@
-import type { IrProgram } from "./types";
+import type { IrEffect, IrProgram, IrSceneNode, IrValue } from "./types";
 
 function assertTime(value: number, name: string): void {
   if (!Number.isSafeInteger(value) || value < 0)
@@ -19,6 +19,29 @@ export function validateIrProgram(program: IrProgram, assetIds?: ReadonlySet<str
     throw new Error(`Active composition not found: ${program.activeCompositionId}`);
   }
   const referenced = new Set<string>();
+  const referenceValue = (value: IrValue): void => {
+    if (value.kind !== "resource") return;
+    referenced.add(value.assetId);
+    if (assetIds !== undefined && !assetIds.has(value.assetId))
+      throw new Error(`Unknown asset id: ${value.assetId}`);
+  };
+  const visitEffect = (effect: IrEffect): void => {
+    claim(effect.id, "effect");
+    Object.values(effect.props).forEach(referenceValue);
+    effect.children.forEach(visitScene);
+  };
+  function visitScene(node: IrSceneNode): void {
+    claim(node.id, node.kind);
+    Object.values(node.props).forEach(referenceValue);
+    for (const animation of node.animations) {
+      for (const keyframe of animation.keyframes) {
+        assertTime(keyframe.at, `${node.id}.${animation.property}.keyframe`);
+        referenceValue(keyframe.value);
+      }
+    }
+    node.effects.forEach(visitEffect);
+    node.children.forEach(visitScene);
+  }
   for (const composition of program.compositions) {
     claim(composition.id, "composition");
     claim(composition.timeline.id, "timeline");
@@ -53,10 +76,10 @@ export function validateIrProgram(program: IrProgram, assetIds?: ReadonlySet<str
         if (clip.fades.inUs + clip.fades.outUs > clip.durationUs)
           throw new Error(`Clip ${clip.id} fades exceed its duration.`);
         if (clip.assetId !== undefined) {
-          referenced.add(clip.assetId);
-          if (assetIds !== undefined && !assetIds.has(clip.assetId))
-            throw new Error(`Unknown asset id: ${clip.assetId}`);
+          referenceValue({ kind: "resource", assetId: clip.assetId });
         }
+        if (clip.content) visitScene(clip.content);
+        clip.effects.forEach(visitEffect);
         clips.set(clip.id, {
           trackId: track.id,
           ...(clip.assetId === undefined ? {} : { assetId: clip.assetId }),
@@ -66,6 +89,7 @@ export function validateIrProgram(program: IrProgram, assetIds?: ReadonlySet<str
           source: clip.sourceStartUs,
         });
       }
+      track.effects.forEach(visitEffect);
     }
     for (const [id, clip] of clips) {
       if (!clip.linkedClipId) continue;
@@ -94,6 +118,8 @@ export function validateIrProgram(program: IrProgram, assetIds?: ReadonlySet<str
   }
   const expected = [...referenced].sort((left, right) => left.localeCompare(right));
   if (JSON.stringify(program.referencedAssetIds) !== JSON.stringify(expected)) {
-    throw new Error("referencedAssetIds must be sorted and exactly match clip asset references.");
+    throw new Error(
+      "referencedAssetIds must be sorted and exactly match semantic asset references.",
+    );
   }
 }

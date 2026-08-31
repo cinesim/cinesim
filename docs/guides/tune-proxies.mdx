@@ -6,8 +6,8 @@ description: Choose how Cinesim generates edit proxies, trading quality against 
 A proxy is a smaller, easier-to-decode version of an asset that Cinesim edits against so scrubbing
 and playback stay responsive. Proxies live in `.video/` and are disposable.
 
-Every project picks its own policy, stored in
-[`.cinesim/settings.toml`](../reference/settings.mdx#proxy).
+Every project picks its own policy in the
+[`[settings]` table of `cinesim.toml`](../reference/settings.mdx).
 
 ## Generation mode
 
@@ -37,12 +37,12 @@ the proxy.
 
 ## Edit the settings directly
 
-`.cinesim/settings.toml` is canonical but meant to be edited by hand:
+The `[settings]` table in `cinesim.toml` is canonical but meant to be readable by hand:
 
 ```toml
-[proxy]
-generation = "automatic"
-profile = "space-saver"
+[settings]
+proxy_generation = "automatic"
+proxy_profile = "space-saver"
 ```
 
 Changing the profile does not invalidate proxies you already have. Delete the relevant files under
@@ -68,5 +68,5 @@ original.
 
 ## Next
 
-- [Settings reference](../reference/settings.mdx) — every key in `settings.toml`.
+- [Settings reference](../reference/settings.mdx) — every project setting in `cinesim.toml`.
 - [Import media](./import-media.mdx) — what else gets generated on import.

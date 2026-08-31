@@ -71,6 +71,28 @@ function ProjectWorkspace({ session }: WorkspaceProps) {
 
   return (
     <div className="relative h-full min-h-0 min-w-0 overflow-hidden bg-canvas">
+      {session.diagnostics.length > 0 && (
+        <div
+          className="absolute inset-x-3 top-3 z-50 max-h-32 overflow-y-auto rounded border border-red-500/40 bg-red-950/95 px-3 py-2 shadow-lg"
+          role="alert"
+        >
+          <p className="text-ui-xs font-medium text-red-100">
+            Source has {session.diagnostics.length} compiler diagnostic
+            {session.diagnostics.length === 1 ? "" : "s"}; the last valid preview remains active.
+          </p>
+          {session.diagnostics.slice(0, 3).map((diagnostic, index) => (
+            <p
+              key={`${diagnostic.code}-${diagnostic.source?.uri ?? "project"}-${index}`}
+              className="mt-1 text-[11px] text-red-200"
+            >
+              {diagnostic.code}: {diagnostic.message}
+              {diagnostic.source
+                ? ` · ${diagnostic.source.uri}:${diagnostic.source.start.line}:${diagnostic.source.start.column}`
+                : ""}
+            </p>
+          ))}
+        </div>
+      )}
       {section === "media" ? (
         <MediaBin project={session.project} onOpenTimeline={onOpenTimeline} />
       ) : activeSequence ? (

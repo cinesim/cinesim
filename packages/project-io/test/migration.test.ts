@@ -10,12 +10,12 @@ import {
 } from "@cinesim/core";
 import { afterEach, describe, expect, it } from "vite-plus/test";
 import {
-  CanonicalProjectRepository,
   checkV1Migration,
   detectProjectFormat,
   migrateV1Project,
   SourceProjectRepository,
 } from "../src";
+import { CanonicalProjectRepository } from "../src/canonical-repository";
 
 const parents: string[] = [];
 

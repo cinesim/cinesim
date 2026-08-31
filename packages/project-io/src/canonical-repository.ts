@@ -154,6 +154,7 @@ function generationOf(contents: CanonicalContents): string | null {
   return hash.digest("hex");
 }
 
+/** @internal Format-v1 reader/writer retained only for migration and migration fixtures. */
 export class CanonicalProjectRepository {
   readonly paths: ProjectPaths;
   readonly #fileSystem: ProjectFileSystem;

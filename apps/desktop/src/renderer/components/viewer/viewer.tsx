@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "@cinesim/ui";
 import { getSequence, sequenceDurationUs } from "@cinesim/core";
 import type { Project } from "@cinesim/core";
+import type { IrProgram } from "@cinesim/ir";
 import type { DerivedProjectScope } from "../../../shared/contracts";
 import { useEditorTransport } from "../workspace/editor-transport-context";
 import { usePlaybackShortcuts } from "./use-playback-shortcuts";
@@ -14,11 +15,18 @@ import type { ViewerScale } from "./viewer-helpers";
 interface ViewerProps {
   derivedScope: DerivedProjectScope;
   project: Project;
+  program: IrProgram;
   projectDirectory: string;
   sequenceId: string;
 }
 
-export function Viewer({ project, projectDirectory, derivedScope, sequenceId }: ViewerProps) {
+export function Viewer({
+  project,
+  program,
+  projectDirectory,
+  derivedScope,
+  sequenceId,
+}: ViewerProps) {
   const sectionRef = useRef<HTMLElement>(null);
   const stageRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -31,6 +39,7 @@ export function Viewer({ project, projectDirectory, derivedScope, sequenceId }: 
     canvasRef,
     derivedScope,
     project,
+    program,
     projectDirectory,
     sequenceId,
     onController: transport.registerController,

@@ -54,31 +54,33 @@ scores identify where to read first, while top-to-bottom clarity remains the acc
 
 ## Project state
 
-`cinesim.json` is the stable entry point. Complex canonical collections live in deterministic JSON
-under `.cinesim/`; hand-edited preferences live in `.cinesim/settings.toml`. The generated `.video/`
-tree holds only disposable state and is ignored as a unit.
+`cinesim.toml` is the stable entry point. It contains format/language versions, project identity,
+settings, compiler policy, and the stable asset catalog. Compositions, timelines, tracks, clips,
+graphics, effects, and animation live in reachable `.js`/`.jsx` source modules. The compiler parses
+a bounded deterministic subset and never executes it. The generated `.video/` tree holds only
+disposable or recoverable runtime state and is ignored as a unit.
 
 Core uses validated integer microseconds throughout. `TimeUs` carries a lightweight unit marker, and
 strict `TimeSeconds` and `TimeMilliseconds` values must pass through centralized conversion helpers
 at media, provider, clock, and serialization boundaries. IDs are stable prefixed strings. Unordered
-collections are sorted before serialization while sequence track arrays preserve authored layer
+collections are sorted before serialization while timeline track arrays preserve authored layer
 order. Unknown schema versions are rejected rather than opened optimistically. Disk adapters share
-one journaled four-file transaction. A project-scoped lock serializes processes, content-derived
-generations reject stale writers, and opening a project deterministically recovers an interrupted
-publication.
+one source-backed command service and journaled transaction boundary. A project-scoped lock
+serializes processes, content-derived generations reject stale writers, every proposed source patch
+is recompiled and compared with the validated expected IR before publication, and opening a project
+deterministically recovers an interrupted publication.
 
-Undo and redo store immutable project snapshots per committed command, bounded by both 200 commands
-and 64 MiB of estimated canonical snapshot data. The newest entry is always retained, so one
-completed drag remains one undo step even when a very large project exceeds the byte budget.
-`vp run history:benchmark` measures 250 edits at 100, 1,000, and 5,000 clips. The August 2026
-baseline was 0.9, 7.8, and 38.4 ms per command respectively; review is required if the 1,000-clip
-case exceeds 10 ms or the 5,000-clip case exceeds 50 ms on comparable development hardware.
+Undo and redo store bounded source transactions per committed command. A gesture keeps an ephemeral
+projection override while the pointer moves and publishes one source transaction on release. An
+accepted external source save clears local command history so undo can never overwrite a newer
+text-editor revision.
 
 ## Command pathway
 
-React, the CLI, and MCP submit the same Zod-validated protocol commands. Protocol dispatch delegates
-to the single deterministic implementation in `@cinesim/core`. Only Electron main or a Node adapter
-persists the returned canonical state.
+React, the CLI, and MCP submit the same Zod-validated semantic commands. Pure core logic validates
+the current IR and produces generic semantic patches. The compiler maps those patches through
+revision-bound edit lenses to minimal source replacements. Only Electron main or a Node adapter
+recompiles, verifies, and atomically persists the result.
 
 There is deliberately no second write path. An agent, a script, and a mouse drag are the same
 command by the time they reach core.
@@ -127,17 +129,17 @@ objects are closed before composition.
 Temporary asset preview is kept separate from timeline transport, and React receives throttled
 snapshots and intents rather than frame objects.
 
-Audio uses Mediabunny's `AudioBufferSink` with Web Audio scheduling. V1 treats
-`AudioContext.currentTime` as the scheduling reference when audio is active, though transport time
-still comes from the replaceable clock abstraction. An AudioWorklet is deferred until profiling
-shows buffered main-thread scheduling is insufficient.
+Audio uses Mediabunny's `AudioBufferSink` with Web Audio scheduling. The runtime consumes semantic
+IR audio tracks, source times, fades, mute state, and decibel gain. `AudioContext.currentTime` is the
+scheduling reference while transport time still comes from the replaceable clock abstraction. An
+AudioWorklet is deferred until profiling shows buffered main-thread scheduling is insufficient.
 
 ## Composition
 
 The preview compositor is WebGPU-first.
 `GPUDevice.importExternalTexture({ source: videoFrame })` feeds a WGSL pipeline with no CPU pixel
-readback. Transform and opacity are uniforms. The pipeline accepts multiple layers even though V1
-usually resolves one visible video clip per track. Frames close after submission, canvas resize is
+readback. Transform and opacity are uniforms. The pipeline accepts multiple IR-resolved layers.
+Frames close after submission, canvas resize is
 explicit, and device loss triggers reinitialization.
 
 Canvas2D is limited to filmstrip and thumbnail generation, where a CPU-readable image is the point.
@@ -199,9 +201,10 @@ submits every mutation to `DesktopProjectStore`, preserving the same validation,
 renderer notification, and single-writer boundary as a manual edit.
 
 Agent checkpoints borrow T3 Code's Git-object approach without creating worktrees. A temporary index
-snapshots only `cinesim.json` and `.cinesim/` into hidden refs in an ignored bare repository under
-`.video/runtime/`. Media is referenced in place and never copied. Turn diffs and restoration stay
-cheap, local, inspectable, and independent of the user's branch or working tree.
+snapshots `cinesim.toml` and the compiler's reachable source-module graph into hidden refs in an
+ignored bare repository under `.video/runtime/`. Media is referenced in place and never copied.
+Turn diffs and restoration stay cheap, local, inspectable, and independent of the user's branch or
+working tree.
 
 ## Research basis
 

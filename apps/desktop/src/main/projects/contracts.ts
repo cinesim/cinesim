@@ -1,10 +1,11 @@
 import { z } from "zod";
-import type { CommandResult, EditorCommand, ProjectSettings } from "@cinesim/core";
+import type { ProjectSettings, SemanticEditorCommand } from "@cinesim/core";
 import { settingsSchema } from "@cinesim/core";
 import { editorCommandSchema } from "@cinesim/protocol";
 import type {
   CreateProjectLocation,
   DesktopAppState,
+  DesktopCommandResult,
   DesktopProjectSession,
   RecentProjectDetails,
 } from "../../shared/contracts";
@@ -90,11 +91,15 @@ export const projectContracts = {
     privilege: "canonical-command",
   }),
   execute: defineInvokeContract<
-    [{ command: EditorCommand }],
-    { session: DesktopProjectSession; result: Omit<CommandResult, "project"> }
+    [{ command: SemanticEditorCommand; expectedGeneration?: string | undefined }],
+    { session: DesktopProjectSession; result: DesktopCommandResult }
   >({
     channel: invokeChannels.project.execute,
-    request: z.tuple([z.object({ command: editorCommandSchema }).strict()]),
+    request: z.tuple([
+      z
+        .object({ command: editorCommandSchema, expectedGeneration: z.string().min(1).optional() })
+        .strict(),
+    ]),
     privilege: "canonical-command",
   }),
 } as const;

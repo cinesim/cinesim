@@ -1,7 +1,7 @@
 import { applyCommand, CommandError } from "@cinesim/core";
 import type { CommandResult, Project } from "@cinesim/core";
 import { ZodError } from "zod";
-import { editorCommandSchema } from "./schema";
+import { legacyEditorCommandSchema } from "./schema";
 import type { ProtocolError } from "../errors/types";
 
 export type DispatchResult =
@@ -10,7 +10,7 @@ export type DispatchResult =
 
 export function dispatchCommand(project: Project, input: unknown): DispatchResult {
   try {
-    const command = editorCommandSchema.parse(input);
+    const command = legacyEditorCommandSchema.parse(input);
     return { ok: true, value: applyCommand(project, command) };
   } catch (error) {
     if (error instanceof ZodError) {

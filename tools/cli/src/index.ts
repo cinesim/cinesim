@@ -216,6 +216,28 @@ track
 
 const clip = program.command("clip").description("Deterministic clip edits");
 clip
+  .command("add")
+  .argument("<track-id>")
+  .argument("<asset-id>")
+  .requiredOption("--at <time>", "Timeline start")
+  .option("--source-in <time>", "Source in-point")
+  .option("--source-out <time>", "Source out-point")
+  .option("--audio-track <track-id>", "Create reciprocal linked audio")
+  .option("--json")
+  .action(async (trackId, assetId, options) => {
+    const loaded = await store();
+    const result = await loaded.execute({
+      type: "clip.add",
+      trackId,
+      assetId,
+      timelineStartUs: parseTime(options.at),
+      ...(options.sourceIn === undefined ? {} : { sourceStartUs: parseTime(options.sourceIn) }),
+      ...(options.sourceOut === undefined ? {} : { sourceEndUs: parseTime(options.sourceOut) }),
+      ...(options.audioTrack === undefined ? {} : { audioTrackId: options.audioTrack }),
+    });
+    output({ summary: result.summary, createdIds: result.createdIds }, options.json);
+  });
+clip
   .command("split")
   .argument("<clip-id>")
   .requiredOption("--at <time>")
@@ -271,6 +293,73 @@ clip
       clipId,
       atUs: parseTime(options.at),
     });
+    output({ summary: result.summary }, options.json);
+  });
+clip
+  .command("fade")
+  .argument("<clip-id>")
+  .requiredOption("--edge <edge>", "in or out")
+  .requiredOption("--duration <time>")
+  .option("--json")
+  .action(async (clipId, options) => {
+    if (options.edge !== "in" && options.edge !== "out")
+      throw new Error("Fade edge must be in or out");
+    const loaded = await store();
+    const result = await loaded.execute({
+      type: "clip.setFade",
+      clipId,
+      edge: options.edge,
+      durationUs: parseTime(options.duration),
+    });
+    output({ summary: result.summary }, options.json);
+  });
+clip
+  .command("slip")
+  .argument("<clip-id>")
+  .requiredOption("--source-in <time>")
+  .option("--json")
+  .action(async (clipId, options) => {
+    const loaded = await store();
+    const result = await loaded.execute({
+      type: "clip.slip",
+      clipId,
+      sourceStartUs: parseTime(options.sourceIn),
+    });
+    output({ summary: result.summary }, options.json);
+  });
+clip
+  .command("duplicate")
+  .argument("<clip-id>")
+  .option("--at <time>")
+  .option("--track <track-id>")
+  .option("--json")
+  .action(async (clipId, options) => {
+    const loaded = await store();
+    const result = await loaded.execute({
+      type: "clip.duplicate",
+      clipId,
+      ...(options.at === undefined ? {} : { timelineStartUs: parseTime(options.at) }),
+      ...(options.track === undefined ? {} : { trackId: options.track }),
+    });
+    output({ summary: result.summary, createdIds: result.createdIds }, options.json);
+  });
+clip
+  .command("link")
+  .argument("<clip-id>")
+  .argument("<linked-clip-id>")
+  .option("--json")
+  .action(async (clipId, linkedClipId, options) => {
+    const loaded = await store();
+    const result = await loaded.execute({ type: "clip.link", clipId, linkedClipId });
+    output({ summary: result.summary }, options.json);
+  });
+clip
+  .command("unlink")
+  .argument("<clip-id>")
+  .option("--json")
+  .action(async (clipId, options) => {
+    const loaded = await store();
+    const result = await loaded.execute({ type: "clip.unlink", clipId });
     output({ summary: result.summary }, options.json);
   });
 clip

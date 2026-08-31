@@ -196,15 +196,29 @@ function newClip(
 }
 
 function referencedAssets(program: IrProgram): string[] {
-  return [
-    ...new Set(
-      program.compositions.flatMap((composition) =>
-        composition.timeline.tracks.flatMap((track) =>
-          track.clips.flatMap((clip) => (clip.assetId === undefined ? [] : [clip.assetId])),
-        ),
-      ),
-    ),
-  ].sort((left, right) => left.localeCompare(right));
+  const referenced = new Set<string>();
+  const collectScene = (node: IrSceneNode): void => {
+    for (const value of Object.values(node.props))
+      if (value.kind === "resource") referenced.add(value.assetId);
+    for (const animation of node.animations)
+      for (const keyframe of animation.keyframes)
+        if (keyframe.value.kind === "resource") referenced.add(keyframe.value.assetId);
+    for (const effect of node.effects) {
+      for (const value of Object.values(effect.props))
+        if (value.kind === "resource") referenced.add(value.assetId);
+      effect.children.forEach(collectScene);
+    }
+    node.children.forEach(collectScene);
+  };
+  for (const composition of program.compositions) {
+    for (const track of composition.timeline.tracks) {
+      for (const clip of track.clips) {
+        if (clip.assetId !== undefined) referenced.add(clip.assetId);
+        if (clip.content) collectScene(clip.content);
+      }
+    }
+  }
+  return [...referenced].sort((left, right) => left.localeCompare(right));
 }
 
 function finalize(

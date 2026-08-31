@@ -69,7 +69,10 @@ export function createProjectSlice(context: RendererStoreContext): ProjectSlice 
       if (blocked) return blocked;
       set({ operationError: null });
       try {
-        const response = await api.project.execute(command);
+        const response = await api.project.execute(
+          command,
+          sessionFromLifecycle(get().project)?.generation,
+        );
         context.acceptMutationSession(response.session);
         return { ok: true, value: response.session };
       } catch (error) {

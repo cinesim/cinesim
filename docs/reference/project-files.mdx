@@ -1,23 +1,22 @@
 ---
 title: Project files
-description: Every file in a Cinesim project directory, what it holds, and whether it is canonical.
+description: The format-v2 source project, its canonical files, and disposable runtime state.
 ---
 
-For why the split exists, see [Projects](../concepts/projects.mdx).
+For the model behind this layout, see [Projects](../concepts/projects.mdx).
 
 ## Directory layout
 
 ```text
 documentary-cut/
-├── cinesim.json
+├── cinesim.toml
+├── main.jsx
+├── components/             optional relative source modules
 ├── AGENTS.md
 ├── .gitignore
-├── .cinesim/
-│   ├── assets.json
-│   ├── timeline.json
-│   └── settings.toml
 └── .video/
     ├── cache/
+    ├── compiler/
     ├── filmstrips/
     ├── frames/
     ├── originals/
@@ -28,78 +27,102 @@ documentary-cut/
     └── waveforms/
 ```
 
-| Path                     | Contents                                      | Canonical |
-| ------------------------ | --------------------------------------------- | --------- |
-| `cinesim.json`           | Project identity and canonical file locations | Yes       |
-| `AGENTS.md`              | Creative direction for agents                 | Yes       |
-| `.gitignore`             | Excludes `.video/`                            | Yes       |
-| `.cinesim/assets.json`   | Asset references and metadata                 | Yes       |
-| `.cinesim/timeline.json` | Sequences, tracks, clips, transforms          | Yes       |
-| `.cinesim/settings.toml` | Project editing settings                      | Yes       |
-| `.video/`                | Generated media and runtime state             | No        |
+| Path                                          | Contents                                                                                             | Canonical |
+| --------------------------------------------- | ---------------------------------------------------------------------------------------------------- | --------- |
+| `cinesim.toml`                                | Format/language versions, identity, active composition, settings, compiler policy, and asset catalog | Yes       |
+| `main.jsx` and reachable `.js`/`.jsx` modules | Compositions, timelines, tracks, clips, graphics, effects, and animation                             | Yes       |
+| `AGENTS.md`                                   | Project guidance for connected agents                                                                | Yes       |
+| `.gitignore`                                  | Excludes `.video/`                                                                                   | Yes       |
+| `.video/`                                     | Generated media, compiler artifacts, and runtime state                                               | No        |
 
-## `cinesim.json`
+There is no separate asset file or JSON timeline in format v2. Timeline structure exists once in
+source and compiles to deterministic semantic IR in memory. Source imports must be relative, stay
+inside the real project root, and may not resolve packages or symlink escapes.
 
-The root manifest. It identifies the project and points at the canonical files:
+## `cinesim.toml`
 
-```json
-{
-  "version": 1,
-  "id": "project_example",
-  "name": "Example",
-  "activeSequenceId": "sequence_main",
-  "files": {
-    "assets": ".cinesim/assets.json",
-    "timeline": ".cinesim/timeline.json",
-    "settings": ".cinesim/settings.toml"
-  }
-}
+The manifest is the non-video-source authority:
+
+```toml
+format_version = 2
+language_version = 1
+
+[project]
+id = "project_example"
+name = "Example"
+entry = "main.jsx"
+active_composition = "sequence_main"
+
+[settings]
+autosave = true
+preview_quality = "half"
+background_color = "#09090b"
+filmstrip_interval_seconds = 5
+proxy_generation = "automatic"
+proxy_profile = "balanced"
+proxy_max_long_edge = 1280
+proxy_frame_rate_cap = 60
+proxy_quality = "medium"
+
+[compiler]
+strict = true
+
+[assets.asset_interview]
+kind = "video"
+name = "Interview"
+duration_us = 12000000
+width = 1920
+height = 1080
+frame_rate = 30
+has_audio = true
+
+[assets.asset_interview.source]
+kind = "local"
+path = "/Volumes/Footage/interview.mov"
 ```
 
-## `.cinesim/`
+Asset table keys are stable IDs used by source expressions such as
+`asset("asset_interview")`. Cinesim patches owned keys and asset blocks with expected revisions, so
+comments and unknown tables survive unrelated edits.
 
-`assets.json` and `timeline.json` are machine-written and serialized deterministically — unordered
-collections sorted, track order preserved, integer microseconds, no timestamps. Two identical
-projects produce identical bytes.
+## Video source
 
-`settings.toml` is equally canonical but written to be edited by hand. See the
-[settings reference](./settings.mdx).
+The source language uses JavaScript module syntax and lowercase JSX-shaped primitives, but it is
+not React and is never executed as JavaScript:
 
-All three carry `version = 1`. A file with a future version is rejected rather than opened
-optimistically.
+```jsx
+export const main = (
+  <composition id="sequence_main" name="Main" width={1920} height={1080} fps={30}>
+    <timeline id="timeline_main">
+      <track id="track_video_1" kind="video" name="Video 1">
+        <clip
+          id="clip_interview"
+          asset={asset("asset_interview")}
+          media="video"
+          start={seconds(0)}
+          in={seconds(2)}
+          duration={seconds(5)}
+        />
+      </track>
+    </timeline>
+  </composition>
+);
 
-## `AGENTS.md`
+export default main;
+```
 
-Created with the project, and yours after that. It tells connected agents how to behave in this
-project — Cinesim writes a starter block covering the canonical/derived split and leaves everything
-below its final line to you.
+Capitalized imports are reusable user components. Components may generate visual content inside an
+explicit clip; editable composition, timeline, track, and clip structure remains explicit.
 
 ## `.video/`
 
-Disposable local state. Delete any of it and Cinesim rebuilds what it needs.
+`.video/` contains caches, proxies, perception artifacts, compiler transactions, and runtime
+checkpoints. It is ignored as a unit and must not become creative source of truth. Source media is
+referenced in place by the manifest; no project-level `media/` or `exports/` directory is required.
 
-| Directory      | Contents                                                        |
-| -------------- | --------------------------------------------------------------- |
-| `cache/`       | Transient working data                                          |
-| `filmstrips/`  | Contact sheets for scrubbing                                    |
-| `frames/`      | Exact extracted frames                                          |
-| `originals/`   | Managed copies: Photos exports, cloud downloads, upload staging |
-| `proxies/`     | Edit proxies                                                    |
-| `runtime/`     | Runtime scratch, including `agent-checkpoints.git`              |
-| `thumbnails/`  | Media Pool card images                                          |
-| `transcripts/` | Versioned, fingerprint-bound speech artifacts and job state     |
-| `waveforms/`   | Audio peak envelopes                                            |
+## Version control and migration
 
-`originals/` is the only place Cinesim keeps media it owns, and it only ever holds copies it made
-itself. Media you imported from your own filesystem is referenced in place and never appears here.
-
-<Callout type="warn">
-  Do not hand-edit `assets.json` or `timeline.json` while the project is open in the app, the CLI,
-  or an agent session. Those writers assume they own the file, and there is no cross-process lock
-  yet.
-</Callout>
-
-## Version control
-
-Commit everything except `.video/`, which the generated `.gitignore` already excludes. Canonical
-files are small and diff cleanly, so project history stays readable.
+Commit `cinesim.toml`, video source, and ordinary project documents. Do not commit `.video/`.
+Opening a format-v1 project offers a one-time migration that creates a recoverable sibling backup,
+generates format-v2 source, recompiles it, verifies semantic equivalence, and only then removes the
+legacy active files.

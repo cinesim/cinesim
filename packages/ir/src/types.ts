@@ -225,6 +225,8 @@ export interface SourceTextStyle {
 export interface IrPropertyBinding {
   nodeId: string;
   property: string;
+  /** JSX attribute to insert when the semantic property is supplied by a component prop. */
+  writeProperty?: string;
   value: IrValue;
   kind: BindingKind;
   readSpan: SourceSpan;
@@ -307,8 +309,13 @@ export interface TimelineClipProjection {
   startUs: IrTimeUs;
   endUs: IrTimeUs;
   sourceStartUs: IrTimeUs;
+  sourceEndUs: IrTimeUs;
+  mediaKind?: IrMediaKind;
   linkedClipId?: string;
   enabled: boolean;
+  fadeInUs: IrTimeUs;
+  fadeOutUs: IrTimeUs;
+  transform: IrTransform;
   editable: boolean;
   generated: boolean;
 }
@@ -324,6 +331,7 @@ export interface TimelineTrackProjection {
 
 export interface TimelineProjection {
   compositionId: string;
+  name: string;
   width: number;
   height: number;
   frameRate: number;
@@ -340,7 +348,7 @@ export interface RenderLayer {
   sourceTimeUs: IrTimeUs;
   opacity: number;
   transform: IrTransform;
-  content?: IrSceneNode;
+  content?: EvaluatedIrNode;
   effects: IrEffect[];
 }
 

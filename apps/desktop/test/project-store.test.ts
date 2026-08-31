@@ -243,7 +243,7 @@ describe("DesktopProjectStore", () => {
         type: "asset.import",
         asset: { ...asset, id: "asset_stale_writer", name: "Stale writer" },
       }),
-    ).rejects.toMatchObject({ code: "CANONICAL_WRITE_CONFLICT" });
+    ).rejects.toMatchObject({ code: "SOURCE_PROJECT_CONFLICT" });
     expect(stale.project?.assets).toEqual([]);
     const reopened = new DesktopProjectStore();
     await expect(reopened.open(created.directory)).resolves.toMatchObject({

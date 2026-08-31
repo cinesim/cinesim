@@ -1,8 +1,7 @@
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createProject, DEFAULT_SETTINGS } from "@cinesim/core";
-import { CanonicalProjectRepository } from "@cinesim/project-io";
+import { SourceProjectRepository } from "@cinesim/project-io";
 import { afterEach, describe, expect, it } from "vite-plus/test";
 import { DiskProjectStore } from "../src/project-store";
 
@@ -18,11 +17,9 @@ describe("DiskProjectStore", () => {
   it("parses untrusted commands before invoking core or persistence", async () => {
     const directory = await mkdtemp(join(tmpdir(), "cinesim-cli-store-test-"));
     temporaryDirectories.push(directory);
-    const repository = await CanonicalProjectRepository.open(directory);
-    await repository.commit({
-      project: createProject({ name: "CLI fixture" }),
-      settings: DEFAULT_SETTINGS,
-      expectedGeneration: null,
+    await SourceProjectRepository.create(directory, {
+      id: "project_cli_fixture",
+      name: "CLI fixture",
     });
     const store = await new DiskProjectStore(directory).load();
 
@@ -38,11 +35,9 @@ describe("DiskProjectStore", () => {
   it("does not publish its in-memory command result after a stale write", async () => {
     const directory = await mkdtemp(join(tmpdir(), "cinesim-cli-store-test-"));
     temporaryDirectories.push(directory);
-    const repository = await CanonicalProjectRepository.open(directory);
-    await repository.commit({
-      project: createProject({ name: "CLI fixture" }),
-      settings: DEFAULT_SETTINGS,
-      expectedGeneration: null,
+    await SourceProjectRepository.create(directory, {
+      id: "project_cli_fixture",
+      name: "CLI fixture",
     });
     const first = await new DiskProjectStore(directory).load();
     const stale = await new DiskProjectStore(directory).load();
@@ -68,7 +63,7 @@ describe("DiskProjectStore", () => {
           durationUs: 1_000_000,
         },
       }),
-    ).rejects.toMatchObject({ code: "CANONICAL_WRITE_CONFLICT" });
+    ).rejects.toMatchObject({ code: "SOURCE_PROJECT_CONFLICT" });
     expect(stale.project.assets).toEqual([]);
     await expect(new DiskProjectStore(directory).load()).resolves.toMatchObject({
       project: { assets: [expect.objectContaining({ id: "asset_cli_first" })] },

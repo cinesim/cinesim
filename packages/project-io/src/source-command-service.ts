@@ -99,6 +99,14 @@ export class SourceCommandService {
     return this.#snapshot;
   }
 
+  /** Accepts a watcher-validated external snapshot and invalidates local source history. */
+  acceptExternal(snapshot: SourceProjectSnapshot): void {
+    if (snapshot.generation === this.#snapshot.generation) return;
+    this.#snapshot = snapshot;
+    this.#undo.length = 0;
+    this.#redo.length = 0;
+  }
+
   async execute(
     command: SemanticEditorCommand,
     expectedGeneration = this.#snapshot.generation,

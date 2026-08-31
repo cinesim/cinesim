@@ -1,14 +1,12 @@
-import {
-  DEFAULT_TRANSFORM,
-  clipCarriesAudio,
-  clipEndUs,
-  clipFadeGainAt,
-  getSequence,
-  sequenceDurationUs,
-  timeUs,
-} from "@cinesim/core";
-import type { AssetId, Project, TimeUs } from "@cinesim/core";
-import type { CompositorLayer, PreviewCompositor } from "../compositor/webgpu-compositor";
+import { timeUs } from "@cinesim/core";
+import type { Asset, AssetId, TimeUs, Transform } from "@cinesim/core";
+import { findIrComposition } from "@cinesim/ir";
+import type {
+  CompositorColor,
+  CompositorGraphicLayer,
+  CompositorLayer,
+  PreviewCompositor,
+} from "../compositor/webgpu-compositor";
 import { MediabunnyWebCodecsSource } from "../media/mediabunny-source";
 import type {
   AudioSource,
@@ -25,7 +23,12 @@ import {
   MonotonicPlaybackClock,
   normalizePlaybackRate,
 } from "../playback/clock";
-import { findUpcomingLayers, resolveScene } from "../playback/scene-resolver";
+import {
+  compositionDurationUs,
+  findUpcomingLayers,
+  resolveSceneFrame,
+  type PlaybackProject,
+} from "../playback/scene-resolver";
 import { LatestOnlyExecutor } from "./latest-only-executor";
 
 export type PreviewMode =
@@ -84,6 +87,12 @@ interface RenderRequest {
     | "restore"
     | "refresh"
     | "frame-step";
+}
+
+interface DecodedSceneFrame {
+  layers: CompositorLayer[];
+  graphics: readonly CompositorGraphicLayer[];
+  background?: CompositorColor;
 }
 
 export type ShuttleDirection = -1 | 0 | 1;
@@ -216,8 +225,31 @@ const defaultResolver: MediaSourceResolver = {
 const defaultSourceFactory: VideoSourceFactory = (descriptor) =>
   new MediabunnyWebCodecsSource(descriptor.url);
 
+const DEFAULT_PREVIEW_TRANSFORM: Transform = {
+  x: 0,
+  y: 0,
+  scaleX: 1,
+  scaleY: 1,
+  opacity: 1,
+  fit: "contain",
+};
+
+function irClipCarriesAudio(
+  asset: Asset,
+  clip: { enabled: boolean; mediaKind?: string; audio: { muted: boolean } },
+  trackKind: string,
+): boolean {
+  return (
+    clip.enabled &&
+    !clip.audio.muted &&
+    trackKind === "audio" &&
+    clip.mediaKind === "audio" &&
+    (asset.kind === "audio" || asset.hasAudio === true)
+  );
+}
+
 export class PlaybackRuntime {
-  #project: Project;
+  #project: PlaybackProject;
   readonly #compositor: PreviewCompositor;
   readonly #clock: MonotonicPlaybackClock;
   readonly #now: () => number;
@@ -260,7 +292,7 @@ export class PlaybackRuntime {
   #audioSchedulingGeneration: number | null = null;
 
   constructor(
-    project: Project,
+    project: PlaybackProject,
     compositor: PreviewCompositor,
     options: PlaybackRuntimeOptions = {},
   ) {
@@ -276,13 +308,18 @@ export class PlaybackRuntime {
     this.#audioSchedulerFactory = options.audioSchedulerFactory ?? (() => new WebAudioScheduler());
     this.#executor = new LatestOnlyExecutor(async (request, context) => {
       const started = this.#now();
-      const frames = await this.#decodeRandom(request.mode);
+      const decoded = await this.#decodeRandom(request.mode);
       if (!context.isCurrent() || this.#destroyed) {
-        for (const layer of frames) layer.frame.close();
+        for (const layer of decoded.layers) layer.frame.close();
         return;
       }
-      const sequence = getSequence(this.#project);
-      this.#compositor.render(frames, { width: sequence.width, height: sequence.height });
+      const composition = findIrComposition(this.#project.program);
+      this.#compositor.render(
+        decoded.layers,
+        { width: composition.width, height: composition.height },
+        decoded.graphics,
+        decoded.background,
+      );
       this.#renderedSinceSnapshot += 1;
       this.#mode = request.mode;
       if (request.reason === "timeline-seek" || request.reason === "asset-preview")
@@ -301,12 +338,12 @@ export class PlaybackRuntime {
     this.#emit();
   }
 
-  setProject(project: Project): void {
+  setProject(project: PlaybackProject): void {
     this.#project = project;
     const shouldResume = this.#clock.playing || this.#resumeAfterSeek;
     this.#seekGeneration += 1;
     this.#resumeAfterSeek = false;
-    const durationUs = sequenceDurationUs(getSequence(project));
+    const durationUs = compositionDurationUs(project);
     const safeTimeUs = timeUs(Math.max(0, Math.min(this.#clock.now(), durationUs)));
     this.#clock.seek(safeTimeUs);
     if (this.#mode.kind === "timeline") this.#mode = { kind: "timeline", timeUs: safeTimeUs };
@@ -393,7 +430,7 @@ export class PlaybackRuntime {
   }
 
   async seekTimeline(requestedTimeUs: TimeUs): Promise<void> {
-    const durationUs = sequenceDurationUs(getSequence(this.#project));
+    const durationUs = compositionDurationUs(this.#project);
     const safeTimeUs = timeUs(Math.max(0, Math.min(Math.round(requestedTimeUs), durationUs)));
     const shouldResume = this.#clock.playing || this.#resumeAfterSeek;
     const seekGeneration = ++this.#seekGeneration;
@@ -423,12 +460,12 @@ export class PlaybackRuntime {
     if (!Number.isSafeInteger(deltaFrames)) throw new Error("Frame delta must be an integer");
     if (deltaFrames === 0) return this.refresh();
     this.pause();
-    const sequence = getSequence(this.#project);
-    const durationUs = sequenceDurationUs(sequence);
-    const frameCount = Math.max(1, Math.ceil((durationUs * sequence.frameRate) / 1_000_000));
-    const currentFrame = frameIndexAt(this.#clock.now(), sequence.frameRate);
+    const composition = findIrComposition(this.#project.program);
+    const durationUs = compositionDurationUs(this.#project);
+    const frameCount = Math.max(1, Math.ceil((durationUs * composition.frameRate) / 1_000_000));
+    const currentFrame = frameIndexAt(this.#clock.now(), composition.frameRate);
     const targetFrame = Math.max(0, Math.min(currentFrame + deltaFrames, frameCount - 1));
-    const targetUs = timeUs(Math.min(durationUs, frameTimeUs(targetFrame, sequence.frameRate)));
+    const targetUs = timeUs(Math.min(durationUs, frameTimeUs(targetFrame, composition.frameRate)));
     this.#clock.seek(targetUs);
     this.#mode = { kind: "timeline", timeUs: targetUs };
     await this.#request(this.#mode, "frame-step");
@@ -526,8 +563,8 @@ export class PlaybackRuntime {
 
   async #tick(generation: number): Promise<void> {
     if (!this.#isCurrentTransport(generation)) return;
-    const sequence = getSequence(this.#project);
-    const durationUs = sequenceDurationUs(sequence);
+    const composition = findIrComposition(this.#project.program);
+    const durationUs = compositionDurationUs(this.#project);
     const rawTimeUs = this.#clock.now();
     if (
       (this.#clock.rate > 0 && rawTimeUs >= durationUs) ||
@@ -539,7 +576,7 @@ export class PlaybackRuntime {
     }
 
     const safeTimeUs = timeUs(Math.max(0, Math.min(rawTimeUs, durationUs)));
-    const frameIndex = frameIndexAt(safeTimeUs, sequence.frameRate);
+    const frameIndex = frameIndexAt(safeTimeUs, composition.frameRate);
     if (frameIndex !== this.#lastPlaybackFrameIndex) {
       if (this.#lastPlaybackFrameIndex !== null)
         this.#droppedFrames += Math.max(0, Math.abs(frameIndex - this.#lastPlaybackFrameIndex) - 1);
@@ -547,12 +584,12 @@ export class PlaybackRuntime {
       this.#playbackRequests += 1;
       const mode: PreviewMode = {
         kind: "timeline",
-        timeUs: frameTimeUs(frameIndex, sequence.frameRate),
+        timeUs: frameTimeUs(frameIndex, composition.frameRate),
       };
       this.#playbackFrameInFlight = true;
-      let frames;
+      let decoded: DecodedSceneFrame;
       try {
-        frames =
+        decoded =
           this.#clock.rate > 0
             ? await this.#decodeSequential(mode.timeUs)
             : await this.#decodeRandom(mode);
@@ -564,11 +601,16 @@ export class PlaybackRuntime {
         this.#playbackFrameInFlight = false;
       }
       if (!this.#isCurrentTransport(generation)) {
-        for (const layer of frames) layer.frame.close();
+        for (const layer of decoded.layers) layer.frame.close();
         this.#playbackFramesObsolete += 1;
         return;
       }
-      this.#compositor.render(frames, { width: sequence.width, height: sequence.height });
+      this.#compositor.render(
+        decoded.layers,
+        { width: composition.width, height: composition.height },
+        decoded.graphics,
+        decoded.background,
+      );
       this.#renderedSinceSnapshot += 1;
       this.#playbackFramesPresented += 1;
       this.#mode = mode;
@@ -610,17 +652,21 @@ export class PlaybackRuntime {
     await this.#executor.run({ mode, reason });
   }
 
-  async #decodeRandom(mode: PreviewMode) {
+  async #decodeRandom(mode: PreviewMode): Promise<DecodedSceneFrame> {
     if (mode.kind === "asset") {
       const asset = this.#project.assets.find((candidate) => candidate.id === mode.assetId);
-      if (!asset || asset.kind !== "video") return [];
+      if (!asset || asset.kind !== "video") return { layers: [], graphics: [] };
       const descriptor = this.#sourceResolver.resolve(asset.id);
       this.#lastActiveAssetId = asset.id;
       this.#lastActiveSourceKind = descriptor.kind;
       const frame = await this.#source(descriptor).getFrame(mode.sourceTimeUs);
-      return frame ? [{ frame, transform: DEFAULT_TRANSFORM }] : [];
+      return {
+        layers: frame ? [{ frame, transform: DEFAULT_PREVIEW_TRANSFORM }] : [],
+        graphics: [],
+      };
     }
-    const layers = resolveScene(this.#project, mode.timeUs);
+    const scene = resolveSceneFrame(this.#project, mode.timeUs);
+    const layers = scene.media;
     const frames = await collectDecodedLayers(
       layers.map(async (layer) => {
         const descriptor = this.#sourceResolver.resolve(layer.asset.id);
@@ -628,10 +674,9 @@ export class PlaybackRuntime {
         return frame
           ? {
               frame,
-              transform: {
-                ...layer.clip.transform,
-                opacity: layer.clip.transform.opacity * clipFadeGainAt(layer.clip, mode.timeUs),
-              },
+              transform: layer.transform,
+              cornerRadiusPx: layer.cornerRadiusPx,
+              colorAdjustment: layer.colorAdjustment,
             }
           : null;
       }),
@@ -639,11 +684,12 @@ export class PlaybackRuntime {
     const active = layers.at(-1);
     this.#lastActiveAssetId = active?.asset.id ?? null;
     this.#lastActiveSourceKind = active ? this.#sourceResolver.resolve(active.asset.id).kind : null;
-    return frames;
+    return { layers: frames, graphics: scene.graphics, background: scene.background };
   }
 
-  async #decodeSequential(timeUs: TimeUs) {
-    const layers = resolveScene(this.#project, timeUs);
+  async #decodeSequential(timeUs: TimeUs): Promise<DecodedSceneFrame> {
+    const scene = resolveSceneFrame(this.#project, timeUs);
+    const layers = scene.media;
     const activeCursorKeys = new Set<string>();
     let frames: CompositorLayer[];
     try {
@@ -651,7 +697,7 @@ export class PlaybackRuntime {
         layers.map(async (layer) => {
           const descriptor = this.#sourceResolver.resolve(layer.asset.id);
           const source = this.#source(descriptor);
-          const key = `${layer.clip.id}:${descriptor.assetId}:${descriptor.kind}:${descriptor.url}`;
+          const key = `${layer.clip.id}:${layer.nodeId}:${descriptor.assetId}:${descriptor.kind}:${descriptor.url}`;
           activeCursorKeys.add(key);
           let cursor = this.#sequentialCursors.get(key);
           if (!cursor) {
@@ -662,10 +708,9 @@ export class PlaybackRuntime {
           return frame
             ? {
                 frame,
-                transform: {
-                  ...layer.clip.transform,
-                  opacity: layer.clip.transform.opacity * clipFadeGainAt(layer.clip, timeUs),
-                },
+                transform: layer.transform,
+                cornerRadiusPx: layer.cornerRadiusPx,
+                colorAdjustment: layer.colorAdjustment,
               }
             : null;
         }),
@@ -680,7 +725,7 @@ export class PlaybackRuntime {
     const active = layers.at(-1);
     this.#lastActiveAssetId = active?.asset.id ?? null;
     this.#lastActiveSourceKind = active ? this.#sourceResolver.resolve(active.asset.id).kind : null;
-    return frames;
+    return { layers: frames, graphics: scene.graphics, background: scene.background };
   }
 
   #source(descriptor: MediaSourceDescriptor): VideoSource & Partial<AudioSource> {
@@ -718,10 +763,10 @@ export class PlaybackRuntime {
 
   #hasAudibleContent(): boolean {
     const assets = new Map(this.#project.assets.map((asset) => [asset.id, asset]));
-    return getSequence(this.#project).tracks.some((track) =>
+    return findIrComposition(this.#project.program).timeline.tracks.some((track) =>
       track.clips.some((clip) => {
-        const asset = assets.get(clip.assetId);
-        return asset ? clipCarriesAudio(asset, clip, track) : false;
+        const asset = clip.assetId ? assets.get(clip.assetId as AssetId) : undefined;
+        return asset ? irClipCarriesAudio(asset, clip, track.kind) : false;
       }),
     );
   }
@@ -769,23 +814,27 @@ export class PlaybackRuntime {
     this.#audioSchedulingGeneration = generation;
     this.#audioScheduledUntilUs = toUs;
     try {
-      const sequence = getSequence(this.#project);
+      const composition = findIrComposition(this.#project.program);
       const assets = new Map(this.#project.assets.map((asset) => [asset.id, asset]));
       const work: Promise<void>[] = [];
-      for (const track of sequence.tracks) {
+      for (const track of composition.timeline.tracks) {
         if (track.muted) continue;
         for (const clip of track.clips) {
-          const asset = assets.get(clip.assetId);
+          const asset = clip.assetId ? assets.get(clip.assetId as AssetId) : undefined;
+          const clipEndUs = clip.timelineStartUs + clip.durationUs;
           if (
             !asset ||
-            !clipCarriesAudio(asset, clip, track) ||
-            clipEndUs(clip) <= fromUs ||
+            !irClipCarriesAudio(asset, clip, track.kind) ||
+            clipEndUs <= fromUs ||
             clip.timelineStartUs >= toUs
           )
             continue;
           const timelineFromUs = timeUs(Math.max(fromUs, clip.timelineStartUs));
-          const timelineToUs = timeUs(Math.min(toUs, clipEndUs(clip)));
-          const sourceFromUs = timeUs(clip.sourceStartUs + timelineFromUs - clip.timelineStartUs);
+          const timelineToUs = timeUs(Math.min(toUs, clipEndUs));
+          const sourceFromUs = timeUs(
+            clip.sourceStartUs +
+              Math.round((timelineFromUs - clip.timelineStartUs) * clip.playbackRate),
+          );
           const source = this.#source(this.#sourceResolver.resolve(asset.id));
           if (!source.buffers) continue;
           work.push(
@@ -795,10 +844,11 @@ export class PlaybackRuntime {
               timelineFromUs,
               timeUs(timelineToUs - timelineFromUs),
               {
-                timelineStartUs: clip.timelineStartUs,
-                timelineEndUs: clipEndUs(clip),
-                fadeInUs: clip.fadeInUs ?? timeUs(0),
-                fadeOutUs: clip.fadeOutUs ?? timeUs(0),
+                timelineStartUs: timeUs(clip.timelineStartUs),
+                timelineEndUs: timeUs(clipEndUs),
+                fadeInUs: timeUs(clip.fades.inUs),
+                fadeOutUs: timeUs(clip.fades.outUs),
+                gain: 10 ** (clip.audio.gainDb / 20),
               },
             ),
           );
@@ -830,7 +880,7 @@ export class PlaybackRuntime {
   #snapshot(): RuntimeSnapshot {
     const now = this.#now();
     const elapsedSeconds = Math.max((now - this.#lastSnapshotAt) / 1_000, 0.001);
-    const sequence = getSequence(this.#project);
+    const composition = findIrComposition(this.#project.program);
     const executor = this.#executor.metrics;
     const compositor = this.#compositor.metrics;
     const timelineTimeUs = this.#clock.now();
@@ -849,7 +899,7 @@ export class PlaybackRuntime {
             ? "seeking"
             : "idle",
       renderFps: Math.round(this.#renderedSinceSnapshot / elapsedSeconds),
-      targetFps: sequence.frameRate,
+      targetFps: composition.frameRate,
       droppedFrames: this.#droppedFrames,
       frameOperationsInFlight: executor.inFlight + (this.#playbackFrameInFlight ? 1 : 0),
       newestRequestPending: executor.pending > 0,
@@ -859,13 +909,13 @@ export class PlaybackRuntime {
       framesObsolete: executor.obsolete + this.#playbackFramesObsolete,
       failedRequests: executor.failed + this.#playbackFailedRequests,
       activeSources: this.#sources.size,
-      activeClips: resolveScene(this.#project, timelineTimeUs).length,
+      activeClips: resolveSceneFrame(this.#project, timelineTimeUs).media.length,
       seekLatencyMs: this.#seekLatencyMs,
       gpuSubmitCpuMs: compositor.gpuSubmitCpuMs,
       gpuSubmittedFrames: compositor.submittedFrames,
       gpuDeviceLostCount: compositor.deviceLostCount,
-      previewWidth: sequence.width,
-      previewHeight: sequence.height,
+      previewWidth: composition.width,
+      previewHeight: composition.height,
       sourcePreviewSuppressions: this.#sourcePreviewSuppressions,
       masterPeakDb: this.#audioScheduler?.samplePeakDb?.() ?? [-60, -60],
     };

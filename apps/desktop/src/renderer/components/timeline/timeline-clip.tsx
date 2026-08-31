@@ -30,6 +30,8 @@ interface ClipBlockProps {
   clip: Clip;
   track: Track;
   asset: Asset | undefined;
+  editable: boolean;
+  generated: boolean;
   derived: DerivedMediaSnapshot | null;
   derivedAsset: DerivedAssetSnapshot | undefined;
   pixelsPerUs: number;
@@ -48,6 +50,8 @@ export function TimelineClipBlock({
   clip,
   track,
   asset,
+  editable,
+  generated,
   derived,
   derivedAsset,
   pixelsPerUs,
@@ -64,7 +68,7 @@ export function TimelineClipBlock({
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
     id: clip.id,
     data: { kind: "clip", clipId: clip.id, trackId: track.id },
-    disabled: track.locked || tool !== "select",
+    disabled: track.locked || !editable || tool !== "select",
   });
   const [trimGesture, setTrimGesture] = useState<TrimGestureState>(IDLE_TRIM_GESTURE);
   const trimGestureRef = useRef<TrimGestureState>(IDLE_TRIM_GESTURE);
@@ -220,7 +224,7 @@ export function TimelineClipBlock({
 
   function activate(event: React.MouseEvent<HTMLButtonElement>) {
     selectClip(clip.id);
-    if (tool !== "blade" || track.locked) return;
+    if (tool !== "blade" || track.locked || !editable) return;
     const bounds = event.currentTarget.getBoundingClientRect();
     const ratio = Math.min(1, Math.max(0, (event.clientX - bounds.left) / bounds.width));
     const atUs = quantizeToFrame(
@@ -303,6 +307,11 @@ export function TimelineClipBlock({
             {preparationLabel}
           </span>
         )}
+        {generated && (
+          <span className="absolute left-1.5 top-1 rounded bg-black/45 px-1 py-0.5 text-[9px] font-medium text-white/85">
+            Generated · read-only
+          </span>
+        )}
       </button>
       <svg
         aria-hidden="true"
@@ -343,7 +352,7 @@ export function TimelineClipBlock({
           </>
         )}
       </svg>
-      {!track.locked && (
+      {!track.locked && editable && (
         <>
           <button
             type="button"

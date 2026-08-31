@@ -1,12 +1,31 @@
-import { stat } from "node:fs/promises";
+import { lstat, readdir, stat } from "node:fs/promises";
 import { join } from "node:path";
-import { PROJECT_FILES } from "@cinesim/core";
 
-/** Returns the on-disk size of canonical project files, excluding disposable .video output. */
+/** Returns source-format canonical bytes while excluding all disposable .video output. */
 export async function canonicalProjectSizeBytes(directory: string): Promise<number> {
-  const fileStats = await Promise.all(
-    Object.values(PROJECT_FILES).map((relativePath) => stat(join(directory, relativePath))),
-  );
-
-  return fileStats.reduce((total, file) => total + file.size, 0);
+  let total = 0;
+  const visit = async (current: string, relative = ""): Promise<void> => {
+    for (const entry of await readdir(current, { withFileTypes: true })) {
+      if (entry.name === ".video" || entry.name === ".git" || entry.name === "node_modules") {
+        continue;
+      }
+      const nextRelative = relative ? `${relative}/${entry.name}` : entry.name;
+      const path = join(current, entry.name);
+      if ((await lstat(path)).isSymbolicLink()) continue;
+      if (entry.isDirectory()) {
+        await visit(path, nextRelative);
+        continue;
+      }
+      if (
+        nextRelative === "cinesim.toml" ||
+        nextRelative === "AGENTS.md" ||
+        nextRelative === ".gitignore" ||
+        /\.(?:js|jsx)$/u.test(nextRelative)
+      ) {
+        total += (await stat(path)).size;
+      }
+    }
+  };
+  await visit(directory);
+  return total;
 }

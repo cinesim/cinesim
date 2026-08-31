@@ -2,7 +2,8 @@ import { useEffect, useRef } from "react";
 import type { RefObject } from "react";
 import type { Project, TimeUs } from "@cinesim/core";
 import { PlaybackRuntime, WebGpuCompositor } from "@cinesim/engine";
-import type { ShuttleDirection } from "@cinesim/engine";
+import type { PlaybackProject, ShuttleDirection } from "@cinesim/engine";
+import type { IrProgram } from "@cinesim/ir";
 import type { DerivedProjectScope } from "../../../shared/contracts";
 import { ProxySourceResolver } from "../../lib/proxy-source-resolver";
 import { useRendererStore, useRendererStoreApi } from "../../store/renderer-store-context";
@@ -22,6 +23,7 @@ interface UseViewerRuntimeOptions {
   derivedScope: DerivedProjectScope;
   onController?: (controller: ViewerController | null) => void;
   project: Project;
+  program: IrProgram;
   projectDirectory: string;
   sequenceId: string;
 }
@@ -31,12 +33,16 @@ export function useViewerRuntime({
   derivedScope,
   onController,
   project,
+  program,
   projectDirectory,
   sequenceId,
 }: UseViewerRuntimeOptions) {
   const { cacheKey, epoch } = derivedScope;
   const playbackRef = useRef<PlaybackRuntime | null>(null);
-  const projectRef = useRef(project);
+  const projectRef = useRef<PlaybackProject>({
+    program: { ...program, activeCompositionId: sequenceId },
+    assets: project.assets,
+  });
   const store = useRendererStoreApi();
   const reportError = useRendererStore((state) => state.reportError);
   const runtime = useRendererStore((state) =>
@@ -48,9 +54,12 @@ export function useViewerRuntime({
   const setRuntime = useRendererStore((state) => state.setPlaybackRuntime);
 
   useEffect(() => {
-    projectRef.current = project;
-    playbackRef.current?.setProject(project);
-  }, [cacheKey, epoch, project, projectDirectory, sequenceId]);
+    projectRef.current = {
+      program: { ...program, activeCompositionId: sequenceId },
+      assets: project.assets,
+    };
+    playbackRef.current?.setProject(projectRef.current);
+  }, [cacheKey, epoch, program, project.assets, projectDirectory, sequenceId]);
 
   useEffect(() => {
     const canvas = canvasRef.current;

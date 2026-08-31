@@ -96,6 +96,7 @@ export function CutWorkspace({ session, project, sequenceId, initialLayout }: Cu
             <Viewer
               key={sequenceId}
               project={project}
+              program={session.program}
               projectDirectory={session.directory}
               derivedScope={session.derivedScope}
               sequenceId={sequenceId}
@@ -113,7 +114,11 @@ export function CutWorkspace({ session, project, sequenceId, initialLayout }: Cu
           label="Resize Timeline"
           {...resize.handleProps("timeline")}
         />
-        <Timeline project={project} selectedRanges={selectedRanges} />
+        <Timeline
+          project={project}
+          timeline={session.timelines[sequenceId] ?? session.timeline}
+          selectedRanges={selectedRanges}
+        />
       </div>
     </EditorDndProvider>
   );

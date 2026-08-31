@@ -3,8 +3,9 @@ title: The timeline
 description: How sequences, tracks, clips, and linked audio are modeled, and what determines layer order.
 ---
 
-A sequence is one flat timeline: an ordered stack of tracks, each holding clips that reference your
-assets. V1 supports one active sequence at a time and rejects overlapping clips on a track.
+A composition owns one timeline: an ordered stack of tracks holding media or generated clips.
+Projects may define multiple compositions; `cinesim.toml` selects the active one. Ordinary clips on
+a track reject overlaps.
 
 ## Tracks
 
@@ -21,7 +22,7 @@ overlay tracks. Placements that break these rules are rejected rather than silen
 
 ### Layer order is authored state
 
-Track order is part of your project, not an accident of how the JSON was written. Index `0` is the
+Track order is authored source state. Index `0` is the
 uppermost track, and upper visual tracks composite over lower ones. That order survives save and
 load, and it matches what you see in the UI.
 
@@ -46,8 +47,8 @@ Adding a video asset that has sound creates two clips at once — a video clip a
 reference each other. Cinesim picks an available audio track or creates one.
 
 Linked clips behave as a unit. Moving, trimming, splitting, or deleting either one applies to both,
-as a single edit and a single undo step. There is no separate "unlink" model in V1: audio embedded
-in a video clip follows that clip.
+as a single edit and a single undo step. Explicit link and unlink commands are available through
+the semantic command pathway.
 
 ### Fades
 
@@ -59,9 +60,9 @@ splitting keeps the outer fades while clearing the two new interior edges.
 
 ## Timing
 
-All canonical timing is integer microseconds. There is no floating-point drift and no frame-rate
-assumption baked into the stored project, which is why the same edit produces the same result in the
-desktop app, the CLI, and MCP tools.
+All semantic timing is integer microseconds. Source helpers such as `seconds()` and `milliseconds()`
+lower deterministically, which is why the same edit produces the same result in the desktop app,
+the CLI, and MCP tools.
 
 When you type times into the CLI you can use friendlier forms — `4.2s`, `250ms`, `3m`, `01:23.500` —
 and they are converted to microseconds at the boundary.

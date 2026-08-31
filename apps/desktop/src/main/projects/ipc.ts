@@ -38,5 +38,7 @@ export function registerProjectIpc(
   registerIpcHandler(projectContracts.forget, ({ directory }) => controller.forget(directory));
   registerIpcHandler(projectContracts.trash, ({ directory }) => controller.trash(directory));
   registerIpcHandler(projectContracts.importMedia, () => controller.importMedia());
-  registerIpcHandler(projectContracts.execute, ({ command }) => store.execute(command));
+  registerIpcHandler(projectContracts.execute, ({ command, expectedGeneration }) =>
+    store.execute(command, expectedGeneration),
+  );
 }

@@ -53,6 +53,7 @@ interface AttributeValue {
   value: IrValue;
   bindingKind: BindingKind;
   readSpan: SourceSpan;
+  writeProperty?: string;
   edit?: IrEditTarget;
   insertion?: { source: SourceSpan; beforeOffset: number };
 }
@@ -562,6 +563,7 @@ class Compilation {
   readonly usedIds = new Set<string>();
   readonly bindings: EditMapBuilderNode[] = [];
   readonly #loading = new Set<string>();
+  readonly #loadedGraphs = new Set<string>();
   readonly #assets: ReadonlySet<string>;
   #sourceBytes = 0;
   #expandedNodes = 0;
@@ -591,6 +593,26 @@ class Compilation {
     } finally {
       this.#loading.delete(uri);
     }
+  }
+
+  async loadModuleGraph(uri: string, ancestry: readonly string[] = []): Promise<ModuleRecord> {
+    if (ancestry.includes(uri))
+      fail("IMPORT_CYCLE", `Import cycle detected: ${[...ancestry, uri].join(" -> ")}.`);
+    const module = await this.loadModule(uri);
+    if (this.#loadedGraphs.has(uri)) return module;
+    const nextAncestry = [...ancestry, uri];
+    for (const binding of module.imports.values()) {
+      if (!binding.source.startsWith("."))
+        fail("BARE_IMPORT", `Only relative imports are supported: ${binding.source}.`);
+      const imported = await this.loadModuleGraph(
+        await this.host.resolve(binding.source, module.uri),
+        nextAncestry,
+      );
+      if (!imported.components.has(binding.imported))
+        fail("MISSING_EXPORT", `${binding.source} does not export ${binding.imported}.`);
+    }
+    this.#loadedGraphs.add(uri);
+    return module;
   }
 
   reportUnknownProperty(name: string, kind: string, origin: SourceSpan): void {
@@ -698,6 +720,7 @@ class Compilation {
           value: propertySchema.defaultValue,
           bindingKind: "default",
           readSpan: nodeLocation(context.module, element),
+          writeProperty: propertySchema.name,
           insertion: {
             source: nodeLocation(context.module, openingElement(element)),
             beforeOffset:
@@ -740,6 +763,9 @@ class Compilation {
       .map(([name, attribute]) => ({
         nodeId: id,
         property: name,
+        ...(attribute.writeProperty === undefined
+          ? {}
+          : { writeProperty: attribute.writeProperty }),
         value: attribute.value,
         kind: attribute.bindingKind,
         readSpan: attribute.readSpan,
@@ -899,7 +925,12 @@ class Compilation {
           nodeLocation(caller.module, attribute),
         );
       const evaluated = evaluateAttribute(attribute, caller, this.#assets);
-      provided.set(jsxAttributeName(attribute), { ...evaluated, bindingKind: "instance" });
+      const name = jsxAttributeName(attribute);
+      provided.set(name, {
+        ...evaluated,
+        bindingKind: "instance",
+        writeProperty: evaluated.writeProperty ?? name,
+      });
     }
     const parameters = nodes(declaration.params, "component parameters");
     if (parameters.length === 0) return new Map();
@@ -935,7 +966,12 @@ class Compilation {
           { module: componentModule, environment, prefix: "", componentStack: [] },
           this.#assets,
         );
-        environment.set(name, { ...evaluated, bindingKind: "default", insertion });
+        environment.set(name, {
+          ...evaluated,
+          bindingKind: "default",
+          writeProperty: name,
+          insertion,
+        });
         continue;
       }
       fail(
@@ -1264,7 +1300,7 @@ export async function compileVideo(
   host: CompilerHost,
 ): Promise<CompileResult> {
   const compilation = new Compilation(host, config);
-  const entry = await compilation.loadModule(entryUri);
+  const entry = await compilation.loadModuleGraph(entryUri);
   const roots: BoundNode[] = [];
   for (const element of compositionElements(entry)) {
     const root = await compilation.compileElement(element, {
@@ -1282,15 +1318,29 @@ export async function compileVideo(
     roots.push(root);
   }
   const compositions = roots.map(lowerComposition);
-  const referencedAssetIds = [
-    ...new Set(
-      compositions.flatMap((composition) =>
-        composition.timeline.tracks.flatMap((track) =>
-          track.clips.flatMap((clip) => (clip.assetId === undefined ? [] : [clip.assetId])),
-        ),
-      ),
-    ),
-  ].sort((left, right) => left.localeCompare(right));
+  const referenced = new Set<string>();
+  const collectSceneAssets = (node: IrSceneNode): void => {
+    for (const value of Object.values(node.props))
+      if (value.kind === "resource") referenced.add(value.assetId);
+    for (const animation of node.animations)
+      for (const keyframe of animation.keyframes)
+        if (keyframe.value.kind === "resource") referenced.add(keyframe.value.assetId);
+    for (const effect of node.effects) {
+      for (const value of Object.values(effect.props))
+        if (value.kind === "resource") referenced.add(value.assetId);
+      effect.children.forEach(collectSceneAssets);
+    }
+    node.children.forEach(collectSceneAssets);
+  };
+  for (const composition of compositions) {
+    for (const track of composition.timeline.tracks) {
+      for (const clip of track.clips) {
+        if (clip.assetId !== undefined) referenced.add(clip.assetId);
+        if (clip.content) collectSceneAssets(clip.content);
+      }
+    }
+  }
+  const referencedAssetIds = [...referenced].sort((left, right) => left.localeCompare(right));
   const ir: IrProgram = {
     version: 2,
     languageVersion: config.languageVersion,

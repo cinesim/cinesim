@@ -1,14 +1,31 @@
 import { rm } from "node:fs/promises";
-import { createProject, DEFAULT_SETTINGS, ProjectHistory, settingsSchema } from "@cinesim/core";
-import type { EditorCommand, Project, ProjectSettings } from "@cinesim/core";
-import type { CloudProjectId, ProjectId } from "@cinesim/core";
+import { BUILTIN_REGISTRY } from "@cinesim/compiler";
+import { irProgramToProjectProjection, settingsSchema } from "@cinesim/core";
+import type {
+  CloudProjectId,
+  Project,
+  ProjectId,
+  ProjectSettings,
+  SemanticEditorCommand,
+} from "@cinesim/core";
+import type { IrDiagnostic } from "@cinesim/ir";
+import { projectTimeline } from "@cinesim/ir";
 import { createCinesimLogger } from "@cinesim/logging";
-import { CanonicalProjectRepository } from "@cinesim/project-io";
-import { dispatchCommand } from "@cinesim/protocol";
+import {
+  detectProjectFormat,
+  patchManifestSetting,
+  sourceRevision,
+  SourceCommandService,
+  SourceProjectRepository,
+  SourceProjectWatcher,
+  type SourceProjectSnapshot,
+} from "@cinesim/project-io";
+import { editorCommandSchema } from "@cinesim/protocol";
 import type { DesktopProjectSession } from "../../shared/contracts";
-import { DerivedMediaStore } from "../derived-media/service";
 import type { DesktopAccountService } from "../account/service";
+import { DerivedMediaStore } from "../derived-media/service";
 import { TranscriptStore } from "../transcripts/service";
+import { publishDependentProject } from "./dependent-project";
 import { inspectMedia } from "./media-import";
 import {
   createAvailableProjectDirectory,
@@ -16,19 +33,31 @@ import {
   projectDirectorySlug,
 } from "./project-layout";
 import { stageManagedOriginal } from "./managed-originals";
-import { publishDependentProject } from "./dependent-project";
 
 const log = createCinesimLogger({ service: "desktop-commands" });
+
+const SETTINGS_KEYS: Record<keyof Omit<ProjectSettings, "version">, string> = {
+  autosave: "autosave",
+  previewQuality: "preview_quality",
+  backgroundColor: "background_color",
+  defaultFilmstripIntervalSeconds: "filmstrip_interval_seconds",
+  proxyGeneration: "proxy_generation",
+  proxyProfile: "proxy_profile",
+  proxyMaxLongEdge: "proxy_max_long_edge",
+  proxyFrameRateCap: "proxy_frame_rate_cap",
+  proxyQuality: "proxy_quality",
+};
 
 export class DesktopProjectStore {
   readonly derivedMedia = new DerivedMediaStore();
   readonly transcripts: TranscriptStore;
   #directory: string | null = null;
-  #history: ProjectHistory | null = null;
-  #settings: ProjectSettings = DEFAULT_SETTINGS;
+  #commands: SourceCommandService | null = null;
+  #snapshot: SourceProjectSnapshot | null = null;
+  #watcher: SourceProjectWatcher | null = null;
+  #diagnostics: IrDiagnostic[] = [];
+  readonly #listeners = new Set<(session: DesktopProjectSession) => void>();
   #revision = 0;
-  #repository: CanonicalProjectRepository | null = null;
-  #generation: string | null = null;
   #operationQueue: Promise<unknown> = Promise.resolve();
 
   constructor(accountService: DesktopAccountService | null = null) {
@@ -42,41 +71,59 @@ export class DesktopProjectStore {
   }
 
   get project(): Project | null {
-    return this.#history?.project ?? null;
+    const snapshot = this.#snapshot;
+    if (!snapshot) return null;
+    return irProgramToProjectProjection(snapshot.compilation.ir, {
+      name: snapshot.manifest.project.name,
+      assets: snapshot.manifest.assets,
+      ...(snapshot.manifest.project.cloudProjectId === undefined
+        ? {}
+        : {
+            cloudProjectId: snapshot.manifest.project.cloudProjectId as Project["cloudProjectId"],
+          }),
+    });
+  }
+
+  subscribe(listener: (session: DesktopProjectSession) => void): () => void {
+    this.#listeners.add(listener);
+    return () => this.#listeners.delete(listener);
   }
 
   async create(
     parentDirectory: string,
     input:
       | string
-      | { name: string; projectId: ProjectId; cloudProjectId?: CloudProjectId | undefined },
+      | {
+          name: string;
+          projectId: ProjectId;
+          cloudProjectId?: CloudProjectId | undefined;
+        },
   ): Promise<DesktopProjectSession> {
     return this.#serialize(async () => {
       const name = typeof input === "string" ? input : input.name;
-      const slug = projectDirectorySlug(name);
-      const directory = await createAvailableProjectDirectory(parentDirectory, slug);
-      const project = createProject({
-        ...(typeof input === "string"
-          ? {}
-          : {
-              id: input.projectId,
-              ...(input.cloudProjectId ? { cloudProjectId: input.cloudProjectId } : {}),
-            }),
+      const directory = await createAvailableProjectDirectory(
+        parentDirectory,
+        projectDirectorySlug(name),
+      );
+      const projectId =
+        typeof input === "string"
+          ? (`project_${crypto.randomUUID().replaceAll("-", "")}` as ProjectId)
+          : input.projectId;
+      const snapshot = await SourceProjectRepository.create(directory, {
+        id: projectId,
         name,
+        ...(typeof input === "string" || input.cloudProjectId === undefined
+          ? {}
+          : { cloudProjectId: input.cloudProjectId }),
       });
-      const repository = await CanonicalProjectRepository.open(directory);
-      await ensureProjectLayout(repository);
-      const generation = await repository.commit({
-        project,
-        settings: DEFAULT_SETTINGS,
-        expectedGeneration: null,
-      });
+      const commands = await SourceCommandService.open(directory);
+      await ensureProjectLayout(commands.repository);
       this.#directory = directory;
-      this.#repository = repository;
-      this.#history = new ProjectHistory(project);
-      this.#settings = DEFAULT_SETTINGS;
-      this.#generation = generation;
+      this.#commands = commands;
+      this.#snapshot = snapshot;
+      this.#diagnostics = [];
       this.#revision = 1;
+      this.#attachWatcher();
       await this.#publishDependentProject();
       return this.session();
     });
@@ -88,35 +135,46 @@ export class DesktopProjectStore {
       const startedAt = performance.now();
       const operationId = crypto.randomUUID();
       log.info(
-        { operationId, operation: "project-open", queueWaitMs: startedAt - requestedAt },
+        {
+          operationId,
+          operation: "project-open",
+          queueWaitMs: startedAt - requestedAt,
+        },
         "project open started",
       );
       try {
-        const readsStartedAt = performance.now();
-        const repository = await CanonicalProjectRepository.open(directory);
-        await ensureProjectLayout(repository);
+        const format = await detectProjectFormat(directory);
+        if (format !== "v2") {
+          const error = new Error(
+            format === "v1"
+              ? "This format-v1 project must be upgraded before it can be edited."
+              : `Unsupported Cinesim project format: ${format}`,
+          );
+          (error as Error & { code: string }).code =
+            format === "v1" ? "PROJECT_MIGRATION_REQUIRED" : "INVALID_PROJECT_FORMAT";
+          throw error;
+        }
+        const commands = await SourceCommandService.open(directory);
+        await ensureProjectLayout(commands.repository);
         const [snapshot, preparedDerived] = await Promise.all([
-          repository.load(),
-          this.derivedMedia.prepareProject(repository.paths.root),
+          Promise.resolve(commands.snapshot),
+          this.derivedMedia.prepareProject(commands.repository.paths.root),
         ]);
-        const readDurationMs = performance.now() - readsStartedAt;
         this.#directory = directory;
-        this.#repository = repository;
-        this.#history = new ProjectHistory(snapshot.project);
-        this.#settings = snapshot.settings;
-        this.#generation = snapshot.generation;
+        this.#commands = commands;
+        this.#snapshot = snapshot;
+        this.#diagnostics = [];
         this.#revision += 1;
-        const layoutDurationMs = 0;
+        this.#attachWatcher();
         const derivedStartedAt = performance.now();
         await publishDependentProject({
           derivedMedia: this.derivedMedia,
           transcripts: this.transcripts,
           directory,
-          project: this.#history.project,
-          settings: this.#settings,
+          project: this.#requireProject(),
+          settings: snapshot.manifest.settings,
           preparedDerived,
         });
-        const derivedDurationMs = performance.now() - derivedStartedAt;
         const session = this.session();
         log.info(
           {
@@ -125,9 +183,7 @@ export class DesktopProjectStore {
             projectId: session.project.id,
             projectRevision: session.revision,
             queueWaitMs: startedAt - requestedAt,
-            readDurationMs,
-            layoutDurationMs,
-            derivedDurationMs,
+            derivedDurationMs: performance.now() - derivedStartedAt,
             durationMs: performance.now() - startedAt,
           },
           "project open completed",
@@ -150,18 +206,43 @@ export class DesktopProjectStore {
   }
 
   async save(): Promise<DesktopProjectSession> {
-    return this.#serialize(() => this.#persist());
+    return this.#serialize(async () => {
+      this.#snapshot = await this.#requireCommands().refresh();
+      this.#watcher?.acceptPublished(this.#snapshot);
+      this.#revision += 1;
+      return this.session();
+    });
   }
 
   async updateSettings(update: Partial<ProjectSettings>): Promise<DesktopProjectSession> {
     return this.#serialize(async () => {
-      const settings = settingsSchema.parse({ ...this.#settings, ...update });
-      const generation = await this.#commit(this.#requireProject(), settings);
-      this.#settings = settings;
-      this.#generation = generation;
+      const current = this.#requireSnapshot();
+      const settings = settingsSchema.parse({
+        ...current.manifest.settings,
+        ...update,
+      });
+      let manifestSource = current.manifestSource;
+      for (const [key, tomlKey] of Object.entries(SETTINGS_KEYS) as Array<
+        [keyof typeof SETTINGS_KEYS, string]
+      >) {
+        if (settings[key] === current.manifest.settings[key]) continue;
+        manifestSource = patchManifestSetting(
+          manifestSource,
+          tomlKey,
+          settings[key],
+          sourceRevision(manifestSource),
+        );
+      }
+      await this.#requireCommands().repository.commit({
+        expectedGeneration: current.generation,
+        manifestSource,
+        expectedProgram: current.compilation.ir,
+      });
+      this.#snapshot = await this.#requireCommands().refresh();
+      this.#watcher?.acceptPublished(this.#snapshot);
       this.#revision += 1;
       await this.derivedMedia
-        .updateSettings(this.#settings)
+        .updateSettings(settings)
         .catch((error: unknown) =>
           log.warn({ err: error, operation: "settings-update" }, "derived settings refresh failed"),
         );
@@ -169,31 +250,22 @@ export class DesktopProjectStore {
     });
   }
 
-  async #persist(): Promise<DesktopProjectSession> {
-    this.#generation = await this.#commit(this.#requireProject(), this.#settings);
-    return this.session();
-  }
-
-  async execute(command: EditorCommand) {
+  async execute(input: SemanticEditorCommand, expectedGeneration?: string) {
     return this.#serialize(async () => {
+      const command = editorCommandSchema.parse(input);
       const operationId = crypto.randomUUID();
       const startedAt = Date.now();
       log.info({ operationId, operation: command.type }, "command started");
       try {
+        const result = await this.#requireCommands().execute(command, expectedGeneration);
+        this.#snapshot = result.snapshot;
+        this.#watcher?.acceptPublished(result.snapshot);
+        this.#diagnostics = [];
         const project = this.#requireProject();
-        const dispatched = dispatchCommand(project, command);
-        if (!dispatched.ok) {
-          const error = new Error(`${dispatched.error.code}: ${dispatched.error.message}`);
-          (error as Error & { code: string }).code = dispatched.error.code;
-          throw error;
-        }
-        const generation = await this.#commit(dispatched.value.project, this.#settings);
-        this.#history!.commitApplied(dispatched.value);
-        this.#generation = generation;
-        this.derivedMedia.updateProject(this.#history!.project);
+        this.derivedMedia.updateProject(project);
         this.#revision += 1;
         await this.transcripts
-          .updateProject(this.#history!.project)
+          .updateProject(project)
           .catch((error: unknown) =>
             log.warn({ err: error, operation: command.type }, "transcript refresh failed"),
           );
@@ -205,22 +277,34 @@ export class DesktopProjectStore {
               "canonical edit completed but derived cleanup failed",
             ),
           );
-        const { project: _project, ...result } = dispatched.value;
+        const {
+          snapshot: _snapshot,
+          program: _program,
+          patches: _patches,
+          manifest: _manifest,
+          command: _command,
+          ...response
+        } = result;
         log.info(
           {
             operationId,
             operation: command.type,
             projectRevision: this.#revision,
             durationMs: Date.now() - startedAt,
-            changedIds: result.changedIds,
-            createdIds: result.createdIds,
+            changedIds: response.changedIds,
+            createdIds: response.createdIds,
           },
           "command completed",
         );
-        return { session: this.session(), result };
+        return { session: this.session(), result: response };
       } catch (error) {
         log.error(
-          { err: error, operationId, operation: command.type, durationMs: Date.now() - startedAt },
+          {
+            err: error,
+            operationId,
+            operation: command.type,
+            durationMs: Date.now() - startedAt,
+          },
           "command failed",
         );
         throw error;
@@ -237,29 +321,25 @@ export class DesktopProjectStore {
   }
 
   async #moveHistory(direction: "undo" | "redo"): Promise<DesktopProjectSession> {
-    const history = this.#requireHistory();
-    const project = direction === "undo" ? history.peekUndo() : history.peekRedo();
-    if (!project) return this.session();
-
-    const generation = await this.#commit(project, this.#settings);
-    if (direction === "undo") history.undo();
-    else history.redo();
-    this.#generation = generation;
-    this.derivedMedia.updateProject(history.project);
+    const commands = this.#requireCommands();
+    if (direction === "undo" ? !commands.canUndo : !commands.canRedo) return this.session();
+    this.#snapshot = direction === "undo" ? await commands.undo() : await commands.redo();
+    this.#watcher?.acceptPublished(this.#snapshot);
+    this.#diagnostics = [];
+    const project = this.#requireProject();
+    this.derivedMedia.updateProject(project);
     this.#revision += 1;
-
     await this.transcripts
-      .updateProject(history.project)
+      .updateProject(project)
       .catch((error: unknown) =>
         log.warn({ err: error, operation: direction }, "transcript refresh failed"),
       );
-    const session = this.session();
     await this.derivedMedia
       .pruneRemovedAssets()
       .catch((error: unknown) =>
         log.warn({ err: error, operation: direction }, `derived cleanup after ${direction} failed`),
       );
-    return session;
+    return this.session();
   }
 
   async inspectAndImportMedia(
@@ -274,7 +354,7 @@ export class DesktopProjectStore {
     let managedPath: string | null = null;
     if (options.managedCopy) {
       managedPath = await stageManagedOriginal({
-        repository: this.#requireRepository(),
+        repository: this.#requireCommands().repository,
         projectDirectory: this.#requireDirectory(),
         sourcePath: filePath,
         assetId: asset.id,
@@ -300,23 +380,40 @@ export class DesktopProjectStore {
       await this.derivedMedia.clearProject();
       await this.transcripts.clearProject();
       this.#directory = null;
-      this.#history = null;
-      this.#settings = DEFAULT_SETTINGS;
-      this.#repository = null;
-      this.#generation = null;
+      this.#watcher?.close();
+      this.#watcher = null;
+      this.#commands = null;
+      this.#snapshot = null;
+      this.#diagnostics = [];
       this.#revision += 1;
     });
   }
 
   session(): DesktopProjectSession {
+    const snapshot = this.#requireSnapshot();
+    const commands = this.#requireCommands();
     return {
       directory: this.#requireDirectory(),
       derivedScope: this.derivedMedia.scope(),
       project: this.#requireProject(),
-      settings: structuredClone(this.#settings),
+      program: structuredClone(snapshot.compilation.ir),
+      timeline: projectTimeline(snapshot.compilation.ir, snapshot.compilation.sourceMap),
+      timelines: Object.fromEntries(
+        snapshot.compilation.ir.compositions.map((composition) => [
+          composition.id,
+          projectTimeline(snapshot.compilation.ir, snapshot.compilation.sourceMap, composition.id),
+        ]),
+      ),
+      editMap: structuredClone(snapshot.compilation.sourceMap),
+      propertySchemas: structuredClone(BUILTIN_REGISTRY),
+      diagnostics: structuredClone(
+        this.#diagnostics.length > 0 ? this.#diagnostics : snapshot.compilation.diagnostics,
+      ),
+      settings: structuredClone(snapshot.manifest.settings),
+      generation: snapshot.generation,
       revision: this.#revision,
-      canUndo: this.#history!.canUndo,
-      canRedo: this.#history!.canRedo,
+      canUndo: commands.canUndo,
+      canRedo: commands.canRedo,
     };
   }
 
@@ -331,34 +428,55 @@ export class DesktopProjectStore {
     return project;
   }
 
-  #requireHistory(): ProjectHistory {
-    if (!this.#history) throw new Error("No project is open");
-    return this.#history;
+  #requireCommands(): SourceCommandService {
+    if (!this.#commands) throw new Error("No project is open");
+    return this.#commands;
   }
 
-  async #commit(project: Project, settings: ProjectSettings): Promise<string> {
-    return this.#requireRepository().commit({
-      project,
-      settings,
-      expectedGeneration: this.#generation,
-    });
+  #requireSnapshot(): SourceProjectSnapshot {
+    if (!this.#snapshot) throw new Error("No project is open");
+    return this.#snapshot;
   }
 
   async #publishDependentProject(): Promise<void> {
-    const directory = this.#requireDirectory();
-    const project = this.#requireProject();
     await publishDependentProject({
       derivedMedia: this.derivedMedia,
       transcripts: this.transcripts,
-      directory,
-      project,
-      settings: this.#settings,
+      directory: this.#requireDirectory(),
+      project: this.#requireProject(),
+      settings: this.#requireSnapshot().manifest.settings,
     });
   }
 
-  #requireRepository(): CanonicalProjectRepository {
-    if (!this.#repository) throw new Error("No project is open");
-    return this.#repository;
+  #attachWatcher(): void {
+    this.#watcher?.close();
+    const commands = this.#requireCommands();
+    this.#watcher = new SourceProjectWatcher(commands.repository, this.#requireSnapshot(), {
+      accepted: (snapshot) => {
+        void this.#serialize(async () => {
+          commands.acceptExternal(snapshot);
+          this.#snapshot = snapshot;
+          this.#diagnostics = [];
+          this.#revision += 1;
+          const project = this.#requireProject();
+          this.derivedMedia.updateProject(project);
+          await this.transcripts.updateProject(project).catch(() => undefined);
+          this.#notify();
+        });
+      },
+      diagnostics: (diagnostics) => {
+        this.#diagnostics = diagnostics;
+        this.#revision += 1;
+        this.#notify();
+      },
+    });
+    this.#watcher.start();
+  }
+
+  #notify(): void {
+    if (!this.#snapshot || !this.#directory) return;
+    const session = this.session();
+    for (const listener of this.#listeners) listener(session);
   }
 
   #serialize<T>(operation: () => Promise<T>): Promise<T> {

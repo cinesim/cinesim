@@ -2,9 +2,9 @@ import { randomUUID } from "node:crypto";
 import { lstat, readFile, realpath, stat } from "node:fs/promises";
 import { parse, resolve } from "node:path";
 import { dialog, shell } from "electron";
-import { z } from "zod";
 import { cloudProjectIdSchema, projectIdSchema, settingsSchema } from "@cinesim/core";
 import type { ProjectId } from "@cinesim/core";
+import { detectProjectFormat, migrateV1Project, parseV2Manifest } from "@cinesim/project-io";
 import type { CreateProjectLocation, RecentProjectDetails } from "../../shared/contracts";
 import type { AgentManager } from "../agents/manager";
 import type { DesktopAccountService } from "../account/service";
@@ -14,13 +14,6 @@ import { requireUserIntent } from "../app/user-intent";
 import { canonicalProjectSizeBytes } from "./project-size";
 import { isTemporaryMediaSelection } from "./media-import";
 import type { DesktopProjectStore } from "./project-store";
-
-const projectManifestSchema = z.object({
-  version: z.literal(1),
-  id: projectIdSchema,
-  cloudProjectId: cloudProjectIdSchema.optional(),
-  name: z.string().min(1),
-});
 
 export class ProjectIpcController {
   #createLocation: CreateProjectLocation | null = null;
@@ -71,6 +64,7 @@ export class ProjectIpcController {
     });
     if (selection.canceled) return null;
     const directory = selection.filePaths[0]!;
+    await this.#upgradeIfNeeded(directory);
     const manifest = await this.#projectManifest(directory);
     await this.#authorizeOpen(directory, this.appState.hasRecent(directory, manifest.kind));
     return this.#openRememberedProject(directory, manifest.kind);
@@ -79,6 +73,7 @@ export class ProjectIpcController {
   async openRecent(directory: string) {
     if (!this.appState.hasRecent(directory))
       throw new Error("Project is not in the recent projects list");
+    await this.#upgradeIfNeeded(directory);
     const manifest = await this.#projectManifest(directory);
     if (!this.appState.hasRecent(directory, manifest.kind))
       throw new Error("Project kind does not match its recent project entry");
@@ -93,7 +88,7 @@ export class ProjectIpcController {
         const [size, directoryStats, manifestStats] = await Promise.all([
           canonicalProjectSizeBytes(project.directory).catch(() => null),
           stat(project.directory).catch(() => null),
-          stat(resolve(project.directory, "cinesim.json")).catch(() => null),
+          stat(resolve(project.directory, "cinesim.toml")).catch(() => null),
         ]);
         return [
           project.directory,
@@ -188,13 +183,36 @@ export class ProjectIpcController {
   }
 
   async #projectManifest(directory: string) {
-    const manifest = projectManifestSchema.parse(
-      JSON.parse(await readFile(resolve(directory, "cinesim.json"), "utf8")) as unknown,
-    );
-    const base = { id: manifest.id, name: manifest.name };
-    return typeof manifest.cloudProjectId === "string"
-      ? { ...base, kind: "cloud" as const, cloudProjectId: manifest.cloudProjectId }
+    const manifest = parseV2Manifest(await readFile(resolve(directory, "cinesim.toml"), "utf8"));
+    const base = { id: manifest.project.id, name: manifest.project.name };
+    return typeof manifest.project.cloudProjectId === "string"
+      ? {
+          ...base,
+          kind: "cloud" as const,
+          cloudProjectId: manifest.project.cloudProjectId,
+        }
       : { ...base, kind: "local" as const };
+  }
+
+  async #upgradeIfNeeded(directory: string): Promise<void> {
+    const format = await detectProjectFormat(directory);
+    if (format === "v2") return;
+    if (format !== "v1") {
+      throw new Error(`Unsupported Cinesim project format: ${format}`);
+    }
+    const decision = await dialog.showMessageBox({
+      type: "warning",
+      title: "Upgrade Cinesim project?",
+      message: "This project uses format v1 and must be upgraded before editing.",
+      detail:
+        "Cinesim will create a recoverable sibling backup, then convert the project to cinesim.toml and JSX source.",
+      buttons: ["Upgrade", "Cancel"],
+      defaultId: 0,
+      cancelId: 1,
+      noLink: true,
+    });
+    if (decision.response !== 0) throw new Error("Project upgrade was cancelled.");
+    await migrateV1Project(directory);
   }
 
   async #authorizeOpen(directory: string, allowOffline: boolean): Promise<void> {
@@ -248,9 +266,7 @@ export class ProjectIpcController {
     if ((await lstat(requested)).isSymbolicLink())
       throw new Error("Open the project at its real location before moving it to Trash");
     const canonical = await realpath(requested);
-    projectManifestSchema.parse(
-      JSON.parse(await readFile(resolve(canonical, "cinesim.json"), "utf8")) as unknown,
-    );
+    parseV2Manifest(await readFile(resolve(canonical, "cinesim.toml"), "utf8"));
     return canonical;
   }
 }

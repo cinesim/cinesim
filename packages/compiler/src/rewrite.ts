@@ -247,6 +247,41 @@ function lineRemoval(source: string, span: SourceSpan): { start: number; end: nu
   return { start: span.start.offset, end: span.end.offset };
 }
 
+function compositionDeclaration(
+  source: string,
+  target: IrEditMap["nodes"][string]["structural"],
+): { start: number; end: number; identifier: string } | null {
+  if (target.nodeKind !== "composition") return null;
+  const elementLineStart = source.lastIndexOf("\n", target.element.start.offset - 1) + 1;
+  const declarationLineStart = source.lastIndexOf("\n", elementLineStart - 2) + 1;
+  const declaration = source.slice(declarationLineStart, elementLineStart);
+  const match = /^\s*export\s+const\s+([A-Za-z_$][\w$]*)\s*=\s*\(\s*\r?\n$/u.exec(declaration);
+  if (!match) return null;
+  const suffix = source.slice(target.element.end.offset);
+  const closing = /^\s*\r?\n\s*\);\s*(?:\r?\n|$)/u.exec(suffix);
+  if (!closing) return null;
+  return {
+    start: declarationLineStart,
+    end: target.element.end.offset + closing[0].length,
+    identifier: match[1]!,
+  };
+}
+
+function applyNestedReplacements(
+  source: string,
+  start: number,
+  end: number,
+  replacements: readonly SourceReplacement[],
+): string {
+  let result = source.slice(start, end);
+  for (const item of [...replacements].sort((left, right) => right.start - left.start)) {
+    if (item.start < start || item.end > end)
+      throw new Error("A moved-node property edit escaped its source element.");
+    result = `${result.slice(0, item.start - start)}${item.text}${result.slice(item.end - start)}`;
+  }
+  return result;
+}
+
 function insertionReplacement(
   parentId: string,
   sourceMap: IrEditMap,
@@ -334,7 +369,7 @@ function propertyReplacement(
         binding.insertion.source,
         binding.insertion.beforeOffset,
         binding.insertion.beforeOffset,
-        ` ${jsxAttribute(patch.property, patch.value)}`,
+        ` ${jsxAttribute(binding.writeProperty ?? patch.property, patch.value)}`,
       );
     }
     if (!binding.writeSpan)
@@ -371,9 +406,19 @@ export function planSemanticSourceEdits(
   sources: Readonly<Record<string, string>>,
 ): SourceEditPlan {
   const replacements: SourceReplacement[] = [];
+  const movedNodeIds = new Set(
+    patches.flatMap((patch) => (patch.type === "node.move" ? [patch.nodeId] : [])),
+  );
+  const deferredMoveProperties = new Map<string, SourceReplacement[]>();
+  for (const patch of patches) {
+    if (patch.type !== "property.set" || !movedNodeIds.has(patch.nodeId)) continue;
+    const deferred = deferredMoveProperties.get(patch.nodeId) ?? [];
+    deferred.push(propertyReplacement(patch, sourceMap));
+    deferredMoveProperties.set(patch.nodeId, deferred);
+  }
   for (const patch of patches) {
     if (patch.type === "property.set") {
-      replacements.push(propertyReplacement(patch, sourceMap));
+      if (!movedNodeIds.has(patch.nodeId)) replacements.push(propertyReplacement(patch, sourceMap));
       continue;
     }
     if (patch.type === "property.remove") {
@@ -402,7 +447,42 @@ export function planSemanticSourceEdits(
     if (source === undefined) throw new Error(`Missing source snapshot ${target.element.uri}.`);
     const range = lineRemoval(source, target.element);
     if (patch.type === "node.remove") {
-      replacements.push(replacement(target.element, range.start, range.end, ""));
+      const declaration = compositionDeclaration(source, target);
+      replacements.push(
+        replacement(
+          target.element,
+          declaration?.start ?? range.start,
+          declaration?.end ?? range.end,
+          "",
+        ),
+      );
+      if (declaration) {
+        const defaultExport = new RegExp(
+          `export\\s+default\\s+${declaration.identifier}\\s*;`,
+          "u",
+        ).exec(source);
+        if (defaultExport) {
+          const replacementIdentifier = Object.entries(sourceMap.nodes)
+            .filter(
+              ([id, node]) => id !== patch.nodeId && node.structural.nodeKind === "composition",
+            )
+            .sort(([left], [right]) => left.localeCompare(right))
+            .map(([, node]) => compositionDeclaration(source, node.structural)?.identifier)
+            .find((identifier): identifier is string => identifier !== undefined);
+          if (!replacementIdentifier)
+            throw new Error("Cannot remove the default composition without a replacement.");
+          const identifierOffset =
+            defaultExport.index + defaultExport[0].indexOf(declaration.identifier);
+          replacements.push(
+            replacement(
+              target.element,
+              identifierOffset,
+              identifierOffset + declaration.identifier.length,
+              replacementIdentifier,
+            ),
+          );
+        }
+      }
       continue;
     }
     if (patch.type === "node.replace") {
@@ -421,7 +501,12 @@ export function planSemanticSourceEdits(
     }
     if (!target.safeToMove) throw new Error(`Node ${patch.nodeId} cannot be moved safely.`);
     replacements.push(replacement(target.element, range.start, range.end, ""));
-    const raw = source.slice(target.element.start.offset, target.element.end.offset).trim();
+    const raw = applyNestedReplacements(
+      source,
+      target.element.start.offset,
+      target.element.end.offset,
+      deferredMoveProperties.get(patch.nodeId) ?? [],
+    ).trim();
     replacements.push(insertionReplacement(patch.parentId, sourceMap, sources, raw, patch.anchor));
   }
   const ordered = [...replacements].sort(

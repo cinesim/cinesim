@@ -1,5 +1,6 @@
 import { timeUs } from "@cinesim/core";
 import type { ClipId, Sequence } from "@cinesim/core";
+import type { TimelineProjection } from "@cinesim/ir";
 import {
   DEFAULT_CUT_LAYOUT,
   DEFAULT_EDITOR_LAYOUT,
@@ -72,11 +73,9 @@ export function cutLayoutFromState(state: RendererState): CutLayoutState {
     : DEFAULT_CUT_LAYOUT;
 }
 
-export function clipExists(sequence: Sequence | null, clipId: ClipId | null): boolean {
+export function clipExists(timeline: TimelineProjection, clipId: ClipId | null): boolean {
   return Boolean(
-    sequence &&
-    clipId &&
-    sequence.tracks.some((track) => track.clips.some((clip) => clip.id === clipId)),
+    clipId && timeline.tracks.some((track) => track.clips.some((clip) => clip.id === clipId)),
   );
 }
 
@@ -89,7 +88,7 @@ export function hydratedProjectState(
     appState,
     destination: "project",
     projectSection: "media",
-    activeSequenceId: session.project.activeSequenceId,
+    activeSequenceId: session.timeline.compositionId,
     mediaPoolOpen: appState.mediaPoolOpenByProject[session.directory] ?? true,
     inspectorOpen: appState.inspectorOpenByProject[session.directory] ?? true,
     notesOpen: appState.notesOpenByProject[session.directory] ?? true,

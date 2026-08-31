@@ -22,6 +22,7 @@ export interface AudioFadeEnvelope {
   timelineEndUs: TimeUs;
   fadeInUs: TimeUs;
   fadeOutUs: TimeUs;
+  gain?: number;
 }
 
 interface ScheduledAudioNode {
@@ -37,7 +38,7 @@ export function audioFadeGainAt(envelope: AudioFadeEnvelope, timelineUs: TimeUs)
   const fadeOutUs = Math.min(durationUs, Math.max(0, envelope.fadeOutUs));
   const fadeInGain = fadeInUs > 0 ? Math.min(1, elapsedUs / fadeInUs) : 1;
   const fadeOutGain = fadeOutUs > 0 ? Math.min(1, (durationUs - elapsedUs) / fadeOutUs) : 1;
-  return Math.max(0, Math.min(fadeInGain, fadeOutGain));
+  return Math.max(0, Math.min(fadeInGain, fadeOutGain)) * (envelope.gain ?? 1);
 }
 
 export class WebAudioScheduler implements PlaybackAudioScheduler {
