@@ -38,6 +38,8 @@ const store = (): DiskProjectStore => {
 
 const runtime: CinesimMcpToolRuntime = {
   project: () => store().project,
+  program: () => store().program,
+  editMap: () => store().editMap,
   directory: () => projectDirectory,
   execute: async (command) => {
     const result = await store().execute(command);

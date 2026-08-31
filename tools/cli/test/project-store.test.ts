@@ -22,6 +22,8 @@ describe("DiskProjectStore", () => {
       name: "CLI fixture",
     });
     const store = await new DiskProjectStore(directory).load();
+    expect(store.program).toMatchObject({ version: 2, projectId: "project_cli_fixture" });
+    expect(store.editMap).toMatchObject({ version: 2, entry: "main.jsx" });
 
     await expect(
       store.execute({ type: "asset.remove", assetIds: ["asset_good/../../outside"] }),

@@ -168,6 +168,7 @@
       "version": "0.1.0",
       "dependencies": {
         "@cinesim/core": "workspace:*",
+        "@cinesim/ir": "workspace:*",
         "zod": "4.4.3",
       },
     },

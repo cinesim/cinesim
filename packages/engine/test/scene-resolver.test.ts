@@ -99,6 +99,19 @@ describe("timeline visual layer order", () => {
       ],
       children: [
         {
+          id: "background",
+          kind: "rect",
+          props: {
+            ...visualDefaults,
+            width: { kind: "length", unit: "px", value: 1920 },
+            height: { kind: "length", unit: "px", value: 1080 },
+            fill: { kind: "color", value: "#070914" },
+          },
+          animations: [],
+          effects: [],
+          children: [],
+        },
+        {
           id: "speakers",
           kind: "grid",
           props: {
@@ -197,6 +210,8 @@ describe("timeline visual layer order", () => {
       fit: "cover",
     });
     expect(resolved.media[0]!.cornerRadiusPx).toBe(24);
+    expect(resolved.graphics.find((graphic) => graphic.nodeId === "background")?.order).toBe(0);
+    expect(resolved.media[0]!.order).toBe(1);
     expect(resolved.media[0]!.colorAdjustment).toMatchObject({
       exposure: 0.1,
       saturation: 1.2,

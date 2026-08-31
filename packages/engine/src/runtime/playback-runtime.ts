@@ -677,6 +677,7 @@ export class PlaybackRuntime {
               transform: layer.transform,
               cornerRadiusPx: layer.cornerRadiusPx,
               colorAdjustment: layer.colorAdjustment,
+              order: layer.order,
             }
           : null;
       }),
@@ -711,6 +712,7 @@ export class PlaybackRuntime {
                 transform: layer.transform,
                 cornerRadiusPx: layer.cornerRadiusPx,
                 colorAdjustment: layer.colorAdjustment,
+                order: layer.order,
               }
             : null;
         }),

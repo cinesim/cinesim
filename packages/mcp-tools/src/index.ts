@@ -4,13 +4,14 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
 import type { Project, SemanticEditorCommand } from "@cinesim/core";
+import type { IrEditMap, IrProgram } from "@cinesim/ir";
 import {
   assetIdSchema,
   clipIdSchema,
   irValueSchema,
   inspectAsset,
-  inspectProject,
-  inspectTimeline,
+  inspectSemanticProject,
+  inspectSemanticTimeline,
   listAssets,
   sequenceIdSchema,
   timeUsSchema,
@@ -85,6 +86,8 @@ export interface CinesimMcpCommandResult {
 
 export interface CinesimMcpToolRuntime {
   project(): Project;
+  program(): IrProgram;
+  editMap(): IrEditMap;
   directory(): string;
   projectRevision?(): number | undefined;
   execute(command: SemanticEditorCommand): Promise<CinesimMcpCommandResult>;
@@ -119,7 +122,7 @@ export function registerCinesimMcpTools(server: McpServer, runtime: CinesimMcpTo
       perform("project_inspect", "Inspect project", false, () => {
         const projectRevision = runtime.projectRevision?.();
         return {
-          ...inspectProject(runtime.project()),
+          ...inspectSemanticProject(runtime.program(), runtime.project()),
           directory: runtime.directory(),
           ...(projectRevision === undefined ? {} : { projectRevision }),
         };
@@ -173,7 +176,7 @@ export function registerCinesimMcpTools(server: McpServer, runtime: CinesimMcpTo
     },
     () =>
       perform("timeline_inspect", "Inspect active timeline", false, () =>
-        inspectTimeline(runtime.project()),
+        inspectSemanticTimeline(runtime.program(), runtime.editMap()),
       ),
   );
   server.registerTool(

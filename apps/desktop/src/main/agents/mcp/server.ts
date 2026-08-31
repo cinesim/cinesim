@@ -155,6 +155,8 @@ export class AgentMcpServer {
     };
     const runtime: CinesimMcpToolRuntime = {
       project: requireProject,
+      program: () => this.projectStore.session().program,
+      editMap: () => this.projectStore.session().editMap,
       directory: () => session.projectDirectory,
       projectRevision: () => this.projectStore.session().revision,
       execute: async (command) => {

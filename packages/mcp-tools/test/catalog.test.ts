@@ -1,7 +1,7 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { createProject } from "@cinesim/core";
+import { createProject, DEFAULT_SETTINGS, v1ProjectToIr } from "@cinesim/core";
 import type { SemanticEditorCommand } from "@cinesim/core";
 import { describe, expect, it } from "vite-plus/test";
 import {
@@ -20,8 +20,11 @@ describe("canonical Cinesim MCP catalog", () => {
     const commands: SemanticEditorCommand[] = [];
     const project = createProject({ name: "Tool catalog" });
     const server = new McpServer({ name: "catalog-test", version: "0.1.0" });
+    const converted = v1ProjectToIr(project, DEFAULT_SETTINGS);
     registerCinesimMcpTools(server, {
       project: () => project,
+      program: () => converted,
+      editMap: () => ({ version: 2, entry: "main.jsx", sources: [], nodes: {} }),
       directory: () => "/project",
       execute: async (command) => {
         commands.push(command);
@@ -36,6 +39,11 @@ describe("canonical Cinesim MCP catalog", () => {
 
     const tools = await client.listTools();
     expect(tools.tools.map((tool) => tool.name).sort()).toEqual([...CINESIM_MCP_TOOL_NAMES].sort());
+    await expect(
+      client.callTool({ name: "project_inspect", arguments: {} }),
+    ).resolves.toMatchObject({
+      structuredContent: { version: 2, activeCompositionId: project.activeSequenceId },
+    });
     await client.callTool({
       name: "clip_fade",
       arguments: { clipId: "clip_fixture", edge: "out", durationUs: 250_000 },
@@ -86,6 +94,8 @@ describe("canonical Cinesim MCP catalog", () => {
     const server = new McpServer({ name: "validation-test", version: "0.1.0" });
     registerCinesimMcpTools(server, {
       project: () => project,
+      program: () => v1ProjectToIr(project, DEFAULT_SETTINGS),
+      editMap: () => ({ version: 2, entry: "main.jsx", sources: [], nodes: {} }),
       directory: () => "/project",
       execute: async () => ({ summary: "unexpected", changedIds: [], createdIds: [] }),
       perform: async (_tool, operation) => {

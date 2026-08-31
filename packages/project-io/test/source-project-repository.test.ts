@@ -9,6 +9,7 @@ import {
   patchManifestAssetSource,
   patchManifestRemoveAsset,
   patchManifestSetting,
+  nodeProjectFileSystem,
   serializeV2Manifest,
   sourceRevision,
   SourceProjectConflictError,
@@ -16,6 +17,7 @@ import {
   StaleSourceRevisionError,
   UnsafeProjectPathError,
   type V2ProjectManifest,
+  type ProjectFileSystem,
 } from "../src";
 
 const directories: string[] = [];
@@ -66,6 +68,22 @@ function emptyManifest(): V2ProjectManifest {
     },
     compiler: { strict: true },
     assets: [],
+  };
+}
+
+function withSourcePublishFailure(directory: string, failAt: number): ProjectFileSystem {
+  const canonicalTargets = new Set([join(directory, "cinesim.toml"), join(directory, "main.jsx")]);
+  let publishes = 0;
+  return {
+    ...nodeProjectFileSystem,
+    async rename(...arguments_: Parameters<ProjectFileSystem["rename"]>) {
+      const [source, destination] = arguments_.map(String);
+      if (canonicalTargets.has(destination!) && source!.includes(".cinesim-source-tx-")) {
+        publishes += 1;
+        if (publishes === failAt) throw new Error(`injected source publish failure ${failAt}`);
+      }
+      await nodeProjectFileSystem.rename(...arguments_);
+    },
   };
 }
 
@@ -168,5 +186,37 @@ export default main;
       SourceProjectRepository.create(directory, { id: "project_test", name: "Conflict" }),
     ).rejects.toThrow(/Refusing to overwrite/);
     await expect(readFile(join(directory, "main.jsx"), "utf8")).resolves.toBe("user file");
+  });
+
+  it("rolls back a partially published multi-file source transaction", async () => {
+    for (const failAt of [1, 2]) {
+      const directory = await temporaryDirectory();
+      const initial = await SourceProjectRepository.create(directory, {
+        id: `project_rollback_${failAt}`,
+        name: "Rollback",
+      });
+      const repository = await SourceProjectRepository.open(
+        directory,
+        withSourcePublishFailure(directory, failAt),
+      );
+      const manifestSource = patchManifestSetting(
+        initial.manifestSource,
+        "autosave",
+        false,
+        sourceRevision(initial.manifestSource),
+      );
+      await expect(
+        repository.commit({
+          expectedGeneration: initial.generation,
+          manifestSource,
+          sources: { "main.jsx": `${initial.sources["main.jsx"]!}\n` },
+        }),
+      ).rejects.toThrow(`injected source publish failure ${failAt}`);
+
+      const recovered = await (await SourceProjectRepository.open(directory)).load();
+      expect(recovered.generation).toBe(initial.generation);
+      expect(recovered.manifestSource).toBe(initial.manifestSource);
+      expect(recovered.sources["main.jsx"]).toBe(initial.sources["main.jsx"]);
+    }
   });
 });

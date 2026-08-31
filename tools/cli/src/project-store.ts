@@ -1,5 +1,6 @@
 import { irProgramToProjectProjection, type Project, type ProjectSettings } from "@cinesim/core";
 import { createCinesimLogger } from "@cinesim/logging";
+import type { IrEditMap, IrProgram } from "@cinesim/ir";
 import { SourceCommandService } from "@cinesim/project-io";
 import { editorCommandSchema } from "@cinesim/protocol";
 
@@ -9,6 +10,8 @@ const log = createCinesimLogger({ service: "commands" });
 export class DiskProjectStore {
   readonly directory: string;
   project!: Project;
+  program!: IrProgram;
+  editMap!: IrEditMap;
   settings!: ProjectSettings;
   #service: SourceCommandService | null = null;
 
@@ -63,6 +66,8 @@ export class DiskProjectStore {
   #projectFromSnapshot(): void {
     const snapshot = this.#requireService().snapshot;
     this.settings = snapshot.manifest.settings;
+    this.program = structuredClone(snapshot.compilation.ir);
+    this.editMap = structuredClone(snapshot.compilation.sourceMap);
     this.project = irProgramToProjectProjection(snapshot.compilation.ir, {
       name: snapshot.manifest.project.name,
       assets: snapshot.manifest.assets,

@@ -100,11 +100,11 @@ fn vertexMain(@builtin(vertex_index) index: u32) -> VertexOutput {
   return output;
 }
 
-fn roundedAlpha(uv: vec2f, radius: f32) -> f32 {
-  if (radius <= 0.0) { return 1.0; }
+fn graphicAlpha(uv: vec2f, radius: f32, feather: f32) -> f32 {
   let point = abs(uv - vec2f(0.5)) - vec2f(0.5 - radius);
-  let distance = length(max(point, vec2f(0.0))) - radius;
-  return 1.0 - smoothstep(-0.002, 0.002, distance);
+  let distance = length(max(point, vec2f(0.0))) + min(max(point.x, point.y), 0.0) - radius;
+  let edge = max(0.002, feather);
+  return 1.0 - smoothstep(-edge, edge, distance);
 }
 
 fn glyphVisible(uv: vec2f) -> bool {
@@ -118,7 +118,7 @@ fn glyphVisible(uv: vec2f) -> bool {
 @fragment
 fn fragmentMain(input: VertexOutput) -> @location(0) vec4f {
   if (graphic.params.y > 0.5 && !glyphVisible(input.uv)) { discard; }
-  let alpha = graphic.color.a * graphic.params.z * roundedAlpha(input.uv, graphic.params.x);
+  let alpha = graphic.color.a * graphic.params.z * graphicAlpha(input.uv, graphic.params.x, graphic.params.w);
   return vec4f(graphic.color.rgb, alpha);
 }
 `;
@@ -179,6 +179,7 @@ export interface CompositorLayer {
   transform: Transform;
   cornerRadiusPx?: number;
   colorAdjustment?: ColorAdjustment;
+  order?: number;
 }
 
 export interface CompositorGraphicLayer {
@@ -186,7 +187,9 @@ export interface CompositorGraphicLayer {
   transform: Transform;
   color: readonly [number, number, number, number];
   cornerRadiusPx?: number;
+  blurPx?: number;
   glyph?: readonly [number, number];
+  order?: number;
 }
 
 export type CompositorColor = readonly [number, number, number, number];
@@ -216,7 +219,11 @@ export interface WebGpuCompositorOptions {
   onError?: (error: Error) => void;
 }
 
-function packGraphicUniform(graphic: CompositorGraphicLayer, radiusFraction: number): ArrayBuffer {
+function packGraphicUniform(
+  graphic: CompositorGraphicLayer,
+  radiusFraction: number,
+  blurFraction: number,
+): ArrayBuffer {
   const buffer = new ArrayBuffer(GRAPHIC_UNIFORM_BYTE_SIZE);
   const floats = new Float32Array(buffer);
   floats.set(
@@ -229,7 +236,7 @@ function packGraphicUniform(graphic: CompositorGraphicLayer, radiusFraction: num
       radiusFraction,
       graphic.kind === "glyph" ? 1 : 0,
       graphic.transform.opacity,
-      0,
+      blurFraction,
     ],
     0,
   );
@@ -412,8 +419,57 @@ export class WebGpuCompositor implements PreviewCompositor {
           },
         ],
       });
-      pass.setPipeline(this.#pipeline);
-      for (const layer of layers) {
+      const drawItems = [
+        ...layers.map((layer, index) => ({
+          kind: "media" as const,
+          order: layer.order ?? index,
+          layer,
+        })),
+        ...graphics.map((graphic, index) => ({
+          kind: "graphic" as const,
+          order: graphic.order ?? layers.length + index,
+          graphic,
+        })),
+      ].sort((left, right) => left.order - right.order);
+      for (const item of drawItems) {
+        if (item.kind === "graphic") {
+          const { graphic } = item;
+          const targetWidthPx = Math.abs(graphic.transform.scaleX) * Math.max(1, output.width);
+          const targetHeightPx = Math.abs(graphic.transform.scaleY) * Math.max(1, output.height);
+          const radiusFraction = Math.min(
+            0.5,
+            Math.max(0, graphic.cornerRadiusPx ?? 0) /
+              Math.max(1, Math.min(targetWidthPx, targetHeightPx)),
+          );
+          const blurFraction = Math.min(
+            0.5,
+            Math.max(0, graphic.blurPx ?? 0) / Math.max(1, Math.min(targetWidthPx, targetHeightPx)),
+          );
+          const uniform = this.#device.createBuffer({
+            label: "cinesim-preview-graphic-uniform",
+            size: GRAPHIC_UNIFORM_BYTE_SIZE,
+            usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+          });
+          transientBuffers.push(uniform);
+          this.#device.queue.writeBuffer(
+            uniform,
+            0,
+            packGraphicUniform(graphic, radiusFraction, blurFraction),
+          );
+          pass.setPipeline(this.#graphicPipeline);
+          pass.setBindGroup(
+            0,
+            this.#device.createBindGroup({
+              label: "cinesim-preview-graphic-bind-group",
+              layout: this.#graphicPipeline.getBindGroupLayout(0),
+              entries: [{ binding: 0, resource: { buffer: uniform } }],
+            }),
+          );
+          pass.draw(6);
+          continue;
+        }
+
+        const { layer } = item;
         const frameWidth = Math.max(1, layer.frame.displayWidth);
         const frameHeight = Math.max(1, layer.frame.displayHeight);
         const sourceAspect = frameWidth / frameHeight;
@@ -458,40 +514,17 @@ export class WebGpuCompositor implements PreviewCompositor {
               : { colorAdjustment: layer.colorAdjustment }),
           }),
         );
-        const bindGroup = this.#device.createBindGroup({
-          label: "cinesim-preview-layer-bind-group",
-          layout: this.#pipeline.getBindGroupLayout(0),
-          entries: [
-            { binding: 0, resource: this.#device.importExternalTexture({ source: layer.frame }) },
-            { binding: 1, resource: this.#sampler },
-            { binding: 2, resource: { buffer: uniform } },
-          ],
-        });
-        pass.setBindGroup(0, bindGroup);
-        pass.draw(6);
-      }
-      pass.setPipeline(this.#graphicPipeline);
-      for (const graphic of graphics) {
-        const targetWidthPx = Math.abs(graphic.transform.scaleX) * Math.max(1, output.width);
-        const targetHeightPx = Math.abs(graphic.transform.scaleY) * Math.max(1, output.height);
-        const radiusFraction = Math.min(
-          0.5,
-          Math.max(0, graphic.cornerRadiusPx ?? 0) /
-            Math.max(1, Math.min(targetWidthPx, targetHeightPx)),
-        );
-        const uniform = this.#device.createBuffer({
-          label: "cinesim-preview-graphic-uniform",
-          size: GRAPHIC_UNIFORM_BYTE_SIZE,
-          usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
-        });
-        transientBuffers.push(uniform);
-        this.#device.queue.writeBuffer(uniform, 0, packGraphicUniform(graphic, radiusFraction));
+        pass.setPipeline(this.#pipeline);
         pass.setBindGroup(
           0,
           this.#device.createBindGroup({
-            label: "cinesim-preview-graphic-bind-group",
-            layout: this.#graphicPipeline.getBindGroupLayout(0),
-            entries: [{ binding: 0, resource: { buffer: uniform } }],
+            label: "cinesim-preview-layer-bind-group",
+            layout: this.#pipeline.getBindGroupLayout(0),
+            entries: [
+              { binding: 0, resource: this.#device.importExternalTexture({ source: layer.frame }) },
+              { binding: 1, resource: this.#sampler },
+              { binding: 2, resource: { buffer: uniform } },
+            ],
           }),
         );
         pass.draw(6);

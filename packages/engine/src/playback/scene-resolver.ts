@@ -34,6 +34,7 @@ export interface ResolvedLayer {
   transform: Transform;
   cornerRadiusPx: number;
   colorAdjustment: ColorAdjustment;
+  order: number;
 }
 
 export interface ResolvedGraphicLayer {
@@ -42,7 +43,9 @@ export interface ResolvedGraphicLayer {
   transform: Transform;
   color: readonly [number, number, number, number];
   cornerRadiusPx: number;
+  blurPx: number;
   glyph?: readonly [number, number];
+  order: number;
 }
 
 export interface ResolvedScene {
@@ -232,6 +235,7 @@ function resolveContent(
   assets: ReadonlyMap<string, Asset>,
   media: ResolvedLayer[],
   graphics: ResolvedGraphicLayer[],
+  drawOrder: { value: number },
 ): void {
   const nodeScale = numeric(node.props.scale, 1);
   const scaleX = context.scaleX * nodeScale * numeric(node.props.scaleX, 1);
@@ -285,6 +289,7 @@ function resolveContent(
           assets,
           media,
           graphics,
+          drawOrder,
         );
         cursor += (direction === "horizontal" ? box.width : box.height) + gap;
       }
@@ -302,6 +307,7 @@ function resolveContent(
         assets,
         media,
         graphics,
+        drawOrder,
       );
     return;
   }
@@ -351,6 +357,7 @@ function resolveContent(
         assets,
         media,
         graphics,
+        drawOrder,
       );
     }
     return;
@@ -390,6 +397,7 @@ function resolveContent(
       ),
       cornerRadiusPx: numeric(node.props.radius, numeric(node.props.cornerRadius, 0)),
       colorAdjustment: colorAdjustment(effects),
+      order: drawOrder.value++,
     });
     return;
   }
@@ -412,6 +420,8 @@ function resolveContent(
       ),
       color: parseColor(stringValue(node.props.fill, "#ffffff")),
       cornerRadiusPx: radius,
+      blurPx: numeric(node.props.blur, 0),
+      order: drawOrder.value++,
     });
     return;
   }
@@ -440,7 +450,9 @@ function resolveContent(
           ),
           color,
           cornerRadiusPx: 0,
+          blurPx: 0,
           glyph: glyphBits(character),
+          order: drawOrder.value++,
         });
       }
       cursorX += advance;
@@ -471,6 +483,7 @@ export function resolveSceneFrame(project: PlaybackProject, timelineTimeUs: Time
     for (const clip of track.clips) clips.set(clip.id, { clip, track });
   const media: ResolvedLayer[] = [];
   const graphics: ResolvedGraphicLayer[] = [];
+  const drawOrder = { value: 0 };
 
   for (const layer of plan.layers) {
     const resolved = clips.get(layer.clipId);
@@ -489,6 +502,7 @@ export function resolveSceneFrame(project: PlaybackProject, timelineTimeUs: Time
           transform: directTransform(clip.transform, layer.opacity),
           cornerRadiusPx: clip.transform.cornerRadius,
           colorAdjustment: colorAdjustment(layer.effects),
+          order: drawOrder.value++,
         });
       }
     }
@@ -512,6 +526,7 @@ export function resolveSceneFrame(project: PlaybackProject, timelineTimeUs: Time
         assets,
         media,
         graphics,
+        drawOrder,
       );
     }
   }
@@ -570,6 +585,7 @@ export function findUpcomingLayers(
                     ),
                     cornerRadiusPx: clip.transform.cornerRadius,
                     colorAdjustment: colorAdjustment([...track.effects, ...clip.effects]),
+                    order: 0,
                   },
                 ]
               : [];

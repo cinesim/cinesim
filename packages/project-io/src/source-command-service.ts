@@ -28,6 +28,15 @@ export interface SourceCommandResult extends SemanticCommandPlan {
   snapshot: SourceProjectSnapshot;
 }
 
+function changedSources(
+  current: SourceProjectSnapshot,
+  target: SourceProjectSnapshot,
+): Record<string, string> {
+  return Object.fromEntries(
+    Object.entries(target.sources).filter(([uri, source]) => current.sources[uri] !== source),
+  );
+}
+
 function patchManifestForCommand(
   snapshot: SourceProjectSnapshot,
   command: SemanticEditorCommand,
@@ -147,8 +156,10 @@ export class SourceCommandService {
     }
     const snapshot = await this.repository.commit({
       expectedGeneration: this.#snapshot.generation,
-      manifestSource: transaction.before.manifestSource,
-      sources: transaction.before.sources,
+      ...(this.#snapshot.manifestSource === transaction.before.manifestSource
+        ? {}
+        : { manifestSource: transaction.before.manifestSource }),
+      sources: changedSources(this.#snapshot, transaction.before),
       expectedProgram: transaction.before.compilation.ir,
     });
     this.#undo.pop();
@@ -162,8 +173,10 @@ export class SourceCommandService {
     if (!transaction) throw new Error("Nothing to redo.");
     const snapshot = await this.repository.commit({
       expectedGeneration: this.#snapshot.generation,
-      manifestSource: transaction.after.manifestSource,
-      sources: transaction.after.sources,
+      ...(this.#snapshot.manifestSource === transaction.after.manifestSource
+        ? {}
+        : { manifestSource: transaction.after.manifestSource }),
+      sources: changedSources(this.#snapshot, transaction.after),
       expectedProgram: transaction.after.compilation.ir,
     });
     this.#redo.pop();
