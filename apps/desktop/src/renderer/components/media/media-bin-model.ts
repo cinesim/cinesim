@@ -111,16 +111,16 @@ export function summarizeAssetUsage(
   let clipCount = 0;
   let lockedTrackName: string | null = null;
   const affectedTimelineIds = new Set<string>();
-
-  for (const sequence of project.sequences) {
-    for (const track of sequence.tracks) {
-      for (const clip of track.clips) {
-        if (!selectedIds.has(clip.assetId)) continue;
-        clipCount += 1;
-        affectedTimelineIds.add(sequence.id);
-        if (track.locked && !lockedTrackName) lockedTrackName = track.name;
-      }
-    }
+  const placements = project.sequences.flatMap((sequence) =>
+    sequence.tracks.flatMap((track) =>
+      track.clips.map((clip) => ({ clip, sequenceId: sequence.id, track })),
+    ),
+  );
+  for (const { clip, sequenceId, track } of placements) {
+    if (!selectedIds.has(clip.assetId)) continue;
+    clipCount += 1;
+    affectedTimelineIds.add(sequenceId);
+    if (track.locked && !lockedTrackName) lockedTrackName = track.name;
   }
 
   return {

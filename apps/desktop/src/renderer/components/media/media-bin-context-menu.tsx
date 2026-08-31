@@ -5,6 +5,9 @@ import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger } 
 import type { AssetId } from "@cinesim/core";
 
 type ContextMenuTarget = { kind: "assets" } | { kind: "sequence"; sequenceId: string };
+type LocatedContextMenuTarget =
+  | { kind: "assets"; assetId: AssetId }
+  | { kind: "sequence"; sequenceId: string };
 
 interface MediaBinContextMenuProps {
   children: ReactNode;
@@ -25,24 +28,87 @@ interface MediaBinContextMenuProps {
   selectedCount: number;
 }
 
-export function MediaBinContextMenu({
-  children,
-  cloudAssetId,
-  cloudOriginalDownloaded,
-  hasProxyAssets,
-  onClearSelection,
-  onCreateTimeline,
-  onGenerateProxies,
+function contextTarget(value: EventTarget): LocatedContextMenuTarget | null {
+  if (!(value instanceof Element)) return null;
+  const assetId = value.closest<HTMLElement>("[data-asset-id]")?.dataset.assetId as
+    | AssetId
+    | undefined;
+  if (assetId) return { kind: "assets", assetId };
+  const sequenceId = value.closest<HTMLElement>("[data-sequence-id]")?.dataset.sequenceId;
+  return sequenceId ? { kind: "sequence", sequenceId } : null;
+}
+
+function AssetMenuItems(props: MediaBinContextMenuProps) {
+  const assetLabel = props.selectedCount === 1 ? "Asset" : "Assets";
+  return (
+    <>
+      <ContextMenuItem onClick={props.onCreateTimeline}>
+        <ListPlus size={14} /> Create Timeline from {props.selectedCount} {assetLabel}
+      </ContextMenuItem>
+      {props.hasProxyAssets && (
+        <ContextMenuItem onClick={props.onGenerateProxies}>
+          <Film size={14} /> Generate edit {props.selectedCount === 1 ? "proxy" : "proxies"}
+        </ContextMenuItem>
+      )}
+      {props.retryAssetId && (
+        <ContextMenuItem onClick={() => props.onRetryCloudTransfer(props.retryAssetId!)}>
+          <RotateCcw size={14} /> Retry cloud upload
+        </ContextMenuItem>
+      )}
+      {props.cloudAssetId && (
+        <ContextMenuItem onClick={() => props.onToggleCloudOriginal(props.cloudAssetId!)}>
+          {props.cloudOriginalDownloaded ? (
+            <>
+              <X size={14} /> Remove download
+            </>
+          ) : (
+            <>
+              <HardDriveDownload size={14} /> Keep downloaded
+            </>
+          )}
+        </ContextMenuItem>
+      )}
+      <ContextMenuItem onClick={props.onRemoveAssets}>
+        <Trash2 size={14} /> Remove {props.selectedCount} {assetLabel} from Project
+      </ContextMenuItem>
+      <ContextMenuItem onClick={props.onClearSelection}>
+        <X size={14} /> Clear Selection
+      </ContextMenuItem>
+    </>
+  );
+}
+
+function SequenceMenuItems({
+  sequenceId,
   onOpenTimeline,
-  onRemoveAssets,
   onRemoveSequence,
-  onRetryCloudTransfer,
-  onSelectOnly,
-  onToggleCloudOriginal,
-  retryAssetId,
-  selectedAssetIds,
-  selectedCount,
-}: MediaBinContextMenuProps) {
+}: Pick<MediaBinContextMenuProps, "onOpenTimeline" | "onRemoveSequence"> & {
+  sequenceId: string;
+}) {
+  return (
+    <>
+      <ContextMenuItem onClick={() => onOpenTimeline(sequenceId)}>
+        <Film size={14} /> Open Timeline
+      </ContextMenuItem>
+      <ContextMenuItem onClick={() => onRemoveSequence(sequenceId)}>
+        <Trash2 size={14} /> Delete Timeline
+      </ContextMenuItem>
+    </>
+  );
+}
+
+function MenuItems({
+  target,
+  ...props
+}: MediaBinContextMenuProps & { target: ContextMenuTarget | null }) {
+  if (target?.kind === "assets") return <AssetMenuItems {...props} />;
+  return target?.kind === "sequence" ? (
+    <SequenceMenuItems {...props} sequenceId={target.sequenceId} />
+  ) : null;
+}
+
+export function MediaBinContextMenu(props: MediaBinContextMenuProps) {
+  const { children, onSelectOnly, selectedAssetIds } = props;
   const [target, setTarget] = useState<ContextMenuTarget | null>(null);
 
   return (
@@ -50,19 +116,14 @@ export function MediaBinContextMenu({
       <ContextMenuTrigger
         className="contents"
         onContextMenu={(event) => {
-          const element = event.target instanceof Element ? event.target : null;
-          const assetId = element?.closest<HTMLElement>("[data-asset-id]")?.dataset.assetId as
-            | AssetId
-            | undefined;
-          if (assetId) {
-            if (!selectedAssetIds.has(assetId)) onSelectOnly(assetId);
+          const located = contextTarget(event.target);
+          if (located?.kind === "assets") {
+            if (!selectedAssetIds.has(located.assetId)) onSelectOnly(located.assetId);
             setTarget({ kind: "assets" });
             return;
           }
-          const sequenceId =
-            element?.closest<HTMLElement>("[data-sequence-id]")?.dataset.sequenceId;
-          if (sequenceId) {
-            setTarget({ kind: "sequence", sequenceId });
+          if (located?.kind === "sequence") {
+            setTarget(located);
             return;
           }
           event.preventBaseUIHandler();
@@ -71,53 +132,7 @@ export function MediaBinContextMenu({
         {children}
       </ContextMenuTrigger>
       <ContextMenuContent className="w-64" positionerClassName="z-[90]">
-        {target?.kind === "assets" ? (
-          <>
-            <ContextMenuItem onClick={onCreateTimeline}>
-              <ListPlus size={14} /> Create Timeline from {selectedCount}{" "}
-              {selectedCount === 1 ? "Asset" : "Assets"}
-            </ContextMenuItem>
-            {hasProxyAssets && (
-              <ContextMenuItem onClick={onGenerateProxies}>
-                <Film size={14} /> Generate edit {selectedCount === 1 ? "proxy" : "proxies"}
-              </ContextMenuItem>
-            )}
-            {retryAssetId && (
-              <ContextMenuItem onClick={() => onRetryCloudTransfer(retryAssetId)}>
-                <RotateCcw size={14} /> Retry cloud upload
-              </ContextMenuItem>
-            )}
-            {cloudAssetId && (
-              <ContextMenuItem onClick={() => onToggleCloudOriginal(cloudAssetId)}>
-                {cloudOriginalDownloaded ? (
-                  <>
-                    <X size={14} /> Remove download
-                  </>
-                ) : (
-                  <>
-                    <HardDriveDownload size={14} /> Keep downloaded
-                  </>
-                )}
-              </ContextMenuItem>
-            )}
-            <ContextMenuItem onClick={onRemoveAssets}>
-              <Trash2 size={14} /> Remove {selectedCount} {selectedCount === 1 ? "Asset" : "Assets"}{" "}
-              from Project
-            </ContextMenuItem>
-            <ContextMenuItem onClick={onClearSelection}>
-              <X size={14} /> Clear Selection
-            </ContextMenuItem>
-          </>
-        ) : target?.kind === "sequence" ? (
-          <>
-            <ContextMenuItem onClick={() => onOpenTimeline(target.sequenceId)}>
-              <Film size={14} /> Open Timeline
-            </ContextMenuItem>
-            <ContextMenuItem onClick={() => onRemoveSequence(target.sequenceId)}>
-              <Trash2 size={14} /> Delete Timeline
-            </ContextMenuItem>
-          </>
-        ) : null}
+        <MenuItems {...props} target={target} />
       </ContextMenuContent>
     </ContextMenu>
   );
