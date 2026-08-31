@@ -2,7 +2,6 @@ import { isAbsolute, relative, resolve, sep } from "node:path";
 import type { ProjectFileSystem } from "./file-system";
 import { nodeProjectFileSystem } from "./file-system";
 
-const LEGACY_CANONICAL_DIRECTORY = ".cinesim";
 const DERIVED_DIRECTORY = ".video";
 
 function isMissing(error: unknown): boolean {
@@ -51,18 +50,6 @@ export class ProjectPaths {
       !/\.(?:js|jsx)$/u.test(relativePath)
     ) {
       throw new UnsafeProjectPathError(`Not a canonical project path: ${relativePath}`);
-    }
-    return this.#resolve(relativePath);
-  }
-
-  /** Format-v1 access is deliberately isolated to the migration reader. */
-  legacyCanonical(relativePath: string): string {
-    if (
-      relativePath !== "cinesim.json" &&
-      relativePath !== LEGACY_CANONICAL_DIRECTORY &&
-      !relativePath.startsWith(`${LEGACY_CANONICAL_DIRECTORY}/`)
-    ) {
-      throw new UnsafeProjectPathError(`Not a format-v1 project path: ${relativePath}`);
     }
     return this.#resolve(relativePath);
   }

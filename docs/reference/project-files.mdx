@@ -1,6 +1,6 @@
 ---
 title: Project files
-description: The format-v2 source project, its canonical files, and disposable runtime state.
+description: The source project, its canonical files, and disposable runtime state.
 ---
 
 For the model behind this layout, see [Projects](../concepts/projects.mdx).
@@ -35,7 +35,7 @@ documentary-cut/
 | `.gitignore`                                  | Excludes `.video/`                                                                                   | Yes       |
 | `.video/`                                     | Generated media, compiler artifacts, and runtime state                                               | No        |
 
-There is no separate asset file or JSON timeline in format v2. Timeline structure exists once in
+There is no separate asset file or JSON timeline. Timeline structure exists once in
 source and compiles to deterministic semantic IR in memory. Source imports must be relative, stay
 inside the real project root, and may not resolve packages or symlink escapes.
 
@@ -120,9 +120,6 @@ explicit clip; editable composition, timeline, track, and clip structure remains
 checkpoints. It is ignored as a unit and must not become creative source of truth. Source media is
 referenced in place by the manifest; no project-level `media/` or `exports/` directory is required.
 
-## Version control and migration
+## Version control
 
 Commit `cinesim.toml`, video source, and ordinary project documents. Do not commit `.video/`.
-Opening a format-v1 project offers a one-time migration that creates a recoverable sibling backup,
-generates format-v2 source, recompiles it, verifies semantic equivalence, and only then removes the
-legacy active files.

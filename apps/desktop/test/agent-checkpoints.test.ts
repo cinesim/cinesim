@@ -14,7 +14,7 @@ afterEach(async () => {
 });
 
 describe("AgentCheckpointStore", () => {
-  it("captures, diffs, and restores v2 manifest and reachable source without a worktree", async () => {
+  it("captures, diffs, and restores the manifest and reachable source without a worktree", async () => {
     const directory = await mkdtemp(join(tmpdir(), "cinesim-agent-checkpoint-"));
     temporaryDirectories.push(directory);
     await SourceProjectRepository.create(directory, {

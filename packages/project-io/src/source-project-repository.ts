@@ -14,15 +14,15 @@ import type { ProjectFileSystem } from "./file-system";
 import { nodeProjectFileSystem } from "./file-system";
 import { ProjectPaths } from "./project-paths";
 import {
-  parseV2Manifest,
+  parseProjectManifest,
   patchManifestAddAsset,
   patchManifestAssetSource,
   patchManifestRemoveAsset,
   patchManifestSetting,
-  serializeV2Manifest,
+  serializeProjectManifest,
   sourceRevision,
-  type V2ProjectManifest,
-} from "./v2-manifest";
+  type ProjectManifest,
+} from "./project-manifest";
 
 const MANIFEST = "cinesim.toml";
 const TRANSACTION_DIRECTORY = ".video/compiler";
@@ -38,7 +38,7 @@ interface SourceJournal {
 }
 
 export interface SourceProjectSnapshot {
-  manifest: V2ProjectManifest;
+  manifest: ProjectManifest;
   manifestSource: string;
   sources: Record<string, string>;
   revisions: Record<string, string>;
@@ -60,7 +60,7 @@ interface ProjectCompilation {
 
 interface PreparedSourceCommit {
   replacements: Record<string, string>;
-  manifest: V2ProjectManifest;
+  manifest: ProjectManifest;
   manifestSource: string;
   compiled: ProjectCompilation;
 }
@@ -89,7 +89,7 @@ function isMissing(error: unknown): boolean {
   return (error as NodeJS.ErrnoException).code === "ENOENT";
 }
 
-function compilerConfig(manifest: V2ProjectManifest): CompilerConfig {
+function compilerConfig(manifest: ProjectManifest): CompilerConfig {
   return {
     languageVersion: manifest.languageVersion,
     projectId: manifest.project.id,
@@ -221,7 +221,7 @@ export class SourceProjectRepository {
     const repository = await SourceProjectRepository.open(directory, fileSystem);
     const entry = options.entry ?? "main.jsx";
     const compositionId = options.compositionId ?? "sequence_main";
-    const manifest: V2ProjectManifest = {
+    const manifest: ProjectManifest = {
       formatVersion: 2,
       languageVersion: 1,
       project: {
@@ -236,7 +236,7 @@ export class SourceProjectRepository {
       assets: [],
     };
     const files: Record<string, string> = {
-      [MANIFEST]: serializeV2Manifest(manifest),
+      [MANIFEST]: serializeProjectManifest(manifest),
       [entry]: newProjectSource(
         compositionId,
         options.width ?? 1920,
@@ -294,7 +294,7 @@ export class SourceProjectRepository {
       else await this.paths.assertSafeSourceFile(relativePath);
     }
     const manifestSource = replacements[MANIFEST] ?? current.manifestSource;
-    const manifest = parseV2Manifest(manifestSource);
+    const manifest = parseProjectManifest(manifestSource);
     const sourceOverlay = Object.fromEntries(
       Object.entries(replacements).filter(([path]) => path !== MANIFEST),
     );
@@ -431,13 +431,13 @@ export class SourceProjectRepository {
     const manifestSource =
       overlay[MANIFEST] ??
       (await this.fileSystem.readFile(await this.paths.assertSafeFile(MANIFEST, false), "utf8"));
-    const manifest = parseV2Manifest(manifestSource);
+    const manifest = parseProjectManifest(manifestSource);
     const compilation = await this.#compile(manifest, overlay);
     return this.#snapshot(manifest, manifestSource, compilation);
   }
 
   async #compile(
-    manifest: V2ProjectManifest,
+    manifest: ProjectManifest,
     overlay: Readonly<Record<string, string>>,
   ): Promise<ProjectCompilation> {
     const host = new RepositoryCompilerHost(this.paths, this.fileSystem, overlay);
@@ -446,7 +446,7 @@ export class SourceProjectRepository {
   }
 
   #snapshot(
-    manifest: V2ProjectManifest,
+    manifest: ProjectManifest,
     manifestSource: string,
     compiled: ProjectCompilation,
   ): SourceProjectSnapshot {

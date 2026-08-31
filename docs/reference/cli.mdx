@@ -62,22 +62,6 @@ vp run cli compile examples/grid
 The default command writes `scene.ir.json`, `scene.ir.map.json`, and `diagnostics.json` under
 `.video/compiler/`. These are derived inspection artifacts, not canonical project files.
 
-## migrate
-
-### `migrate [path]`
-
-Upgrade a format-v1 JSON project to source-driven format v2. Migration creates a recoverable sibling
-backup, generates TOML and explicit JSX, recompiles, and verifies semantic equivalence before
-removing legacy active files.
-
-```bash
-vp run cli migrate --check /path/to/project
-vp run cli migrate /path/to/project
-```
-
-`--check` reports detected format, planned files, semantic counts, and representability issues
-without writing.
-
 ## project
 
 ### `project inspect`

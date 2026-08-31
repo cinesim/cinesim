@@ -100,7 +100,7 @@ describe("compiler", () => {
     ).rejects.toMatchObject({ diagnostic: expect.objectContaining({ code: "UNKNOWN_HELPER" }) });
   });
 
-  it("collects multiple compositions and parses the v2 manifest boundary", async () => {
+  it("collects multiple compositions and parses the project manifest boundary", async () => {
     const source = `export const main = <composition id="sequence_main" width={1920} height={1080} fps={30}><timeline id="timeline_main" /></composition>; export const selects = <composition id="sequence_selects" width={1280} height={720} fps={24}><timeline id="timeline_selects" /></composition>; export default main;`;
     const result = await compileVideo("main.jsx", config, host({ "main.jsx": source }));
     expect(result.ir.compositions.map((composition) => composition.id)).toEqual([

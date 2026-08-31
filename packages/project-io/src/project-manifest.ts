@@ -3,7 +3,7 @@ import { assetSchema, DEFAULT_SETTINGS, settingsSchema } from "@cinesim/core";
 import type { Asset, ProjectSettings } from "@cinesim/core";
 import { parse, stringify } from "smol-toml";
 
-export interface V2ProjectManifest {
+export interface ProjectManifest {
   formatVersion: 2;
   languageVersion: 1;
   project: {
@@ -109,7 +109,7 @@ function parseAsset(id: string, input: unknown): Asset {
   }) as unknown as Asset;
 }
 
-export function parseV2Manifest(source: string): V2ProjectManifest {
+export function parseProjectManifest(source: string): ProjectManifest {
   const input = record(parse(source) as unknown, "cinesim.toml");
   if (input.format_version !== 2) throw new Error("cinesim.toml format_version must be 2.");
   if (input.language_version !== 1) throw new Error("cinesim.toml language_version must be 1.");
@@ -149,7 +149,7 @@ export function parseV2Manifest(source: string): V2ProjectManifest {
   };
 }
 
-function manifestShape(manifest: V2ProjectManifest): Record<string, unknown> {
+function manifestShape(manifest: ProjectManifest): Record<string, unknown> {
   const assets = Object.fromEntries(
     [...manifest.assets]
       .sort((left, right) => left.id.localeCompare(right.id))
@@ -198,9 +198,9 @@ function manifestShape(manifest: V2ProjectManifest): Record<string, unknown> {
   };
 }
 
-export function serializeV2Manifest(manifest: V2ProjectManifest): string {
+export function serializeProjectManifest(manifest: ProjectManifest): string {
   const source = `${stringify(manifestShape(manifest))}\n`;
-  parseV2Manifest(source);
+  parseProjectManifest(source);
   return source;
 }
 
@@ -274,7 +274,7 @@ export function patchManifestSetting(
   ]);
   if (!allowed.has(key)) throw new Error(`Unsupported Cinesim setting key: ${key}`);
   const next = replaceTableKey(source, "settings", key, value);
-  parseV2Manifest(next);
+  parseProjectManifest(next);
   return next;
 }
 
@@ -286,7 +286,7 @@ export function patchManifestProjectKey(
 ): string {
   assertRevision(source, expectedRevision);
   const next = replaceTableKey(source, "project", key, value);
-  parseV2Manifest(next);
+  parseProjectManifest(next);
   return next;
 }
 
@@ -337,7 +337,7 @@ export function patchManifestAddAsset(
   const prefix =
     insertion > 0 && !source.slice(0, insertion).endsWith(`${newline}${newline}`) ? newline : "";
   const next = `${source.slice(0, insertion)}${prefix}${assetBlock(asset, newline)}${source.slice(insertion)}`;
-  parseV2Manifest(next);
+  parseProjectManifest(next);
   return next;
 }
 
@@ -350,7 +350,7 @@ export function patchManifestRemoveAsset(
   const range = assetRanges(source).find((candidate) => candidate.id === assetId);
   if (!range) throw new Error(`Asset not found: ${assetId}`);
   const next = `${source.slice(0, range.start)}${source.slice(range.end)}`;
-  parseV2Manifest(next);
+  parseProjectManifest(next);
   return next;
 }
 
@@ -373,6 +373,6 @@ export function patchManifestAssetSource(
     "",
   ].join(newline);
   const next = `${source.slice(0, range.start)}${replacement}${source.slice(range.end)}`;
-  parseV2Manifest(next);
+  parseProjectManifest(next);
   return next;
 }

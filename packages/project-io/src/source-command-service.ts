@@ -10,7 +10,7 @@ import {
   patchManifestProjectKey,
   patchManifestRemoveAsset,
   sourceRevision,
-} from "./v2-manifest";
+} from "./project-manifest";
 import {
   SourceProjectConflictError,
   SourceProjectRepository,

@@ -12,7 +12,6 @@ import type { IrDiagnostic } from "@cinesim/ir";
 import { projectTimeline } from "@cinesim/ir";
 import { createCinesimLogger } from "@cinesim/logging";
 import {
-  detectProjectFormat,
   patchManifestSetting,
   sourceRevision,
   SourceCommandService,
@@ -143,17 +142,6 @@ export class DesktopProjectStore {
         "project open started",
       );
       try {
-        const format = await detectProjectFormat(directory);
-        if (format !== "v2") {
-          const error = new Error(
-            format === "v1"
-              ? "This format-v1 project must be upgraded before it can be edited."
-              : `Unsupported Cinesim project format: ${format}`,
-          );
-          (error as Error & { code: string }).code =
-            format === "v1" ? "PROJECT_MIGRATION_REQUIRED" : "INVALID_PROJECT_FORMAT";
-          throw error;
-        }
         const commands = await SourceCommandService.open(directory);
         await ensureProjectLayout(commands.repository);
         const [snapshot, preparedDerived] = await Promise.all([

@@ -33,7 +33,7 @@ function assetIds(value: unknown): string[] {
   return Object.keys(assets).sort((left, right) => left.localeCompare(right));
 }
 
-/** Parses the compiler-facing portion of a complete format-v2 cinesim.toml value. */
+/** Parses the compiler-facing portion of a complete cinesim.toml value. */
 export function parseCompilerConfig(input: unknown): CompilerConfig {
   const value = record(input, "cinesim.toml");
   if (value.format_version !== 2) throw new Error("cinesim.toml format_version must be 2.");

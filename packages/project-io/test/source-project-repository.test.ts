@@ -4,26 +4,26 @@ import { join } from "node:path";
 import { timeUs } from "@cinesim/core";
 import { afterEach, describe, expect, it } from "vite-plus/test";
 import {
-  parseV2Manifest,
+  parseProjectManifest,
   patchManifestAddAsset,
   patchManifestAssetSource,
   patchManifestRemoveAsset,
   patchManifestSetting,
   nodeProjectFileSystem,
-  serializeV2Manifest,
+  serializeProjectManifest,
   sourceRevision,
   SourceProjectConflictError,
   SourceProjectRepository,
   StaleSourceRevisionError,
   UnsafeProjectPathError,
-  type V2ProjectManifest,
+  type ProjectManifest,
   type ProjectFileSystem,
 } from "../src";
 
 const directories: string[] = [];
 
 async function temporaryDirectory(): Promise<string> {
-  const directory = await mkdtemp(join(tmpdir(), "cinesim-v2-project-"));
+  const directory = await mkdtemp(join(tmpdir(), "cinesim-project-"));
   directories.push(directory);
   return directory;
 }
@@ -44,7 +44,7 @@ const asset = {
   hasAudio: true,
 };
 
-function emptyManifest(): V2ProjectManifest {
+function emptyManifest(): ProjectManifest {
   return {
     formatVersion: 2,
     languageVersion: 1,
@@ -87,9 +87,9 @@ function withSourcePublishFailure(directory: string, failAt: number): ProjectFil
   };
 }
 
-describe("format-v2 manifest", () => {
+describe("project manifest", () => {
   it("serializes deterministically and preserves comments/unknown tables during targeted edits", () => {
-    const initial = `${serializeV2Manifest(emptyManifest())}\n# user note\n[user.custom]\nkeep = "yes"\n`;
+    const initial = `${serializeProjectManifest(emptyManifest())}\n# user note\n[user.custom]\nkeep = "yes"\n`;
     const withSetting = patchManifestSetting(
       initial,
       "preview_quality",
@@ -99,7 +99,7 @@ describe("format-v2 manifest", () => {
     expect(withSetting).toContain("# user note");
     expect(withSetting).toContain('[user.custom]\nkeep = "yes"');
     const withAsset = patchManifestAddAsset(withSetting, asset, sourceRevision(withSetting));
-    expect(parseV2Manifest(withAsset).assets).toEqual([asset]);
+    expect(parseProjectManifest(withAsset).assets).toEqual([asset]);
     expect(withAsset).toContain("/Volumes/Footage with spaces/α.mov");
     const relinked = patchManifestAssetSource(
       withAsset,
@@ -107,12 +107,12 @@ describe("format-v2 manifest", () => {
       { kind: "cloud", cloudAssetId: "cloud_asset_abcdefgh" },
       sourceRevision(withAsset),
     );
-    expect(parseV2Manifest(relinked).assets[0]!.source).toEqual({
+    expect(parseProjectManifest(relinked).assets[0]!.source).toEqual({
       kind: "cloud",
       cloudAssetId: "cloud_asset_abcdefgh",
     });
     const removed = patchManifestRemoveAsset(relinked, asset.id, sourceRevision(relinked));
-    expect(parseV2Manifest(removed).assets).toEqual([]);
+    expect(parseProjectManifest(removed).assets).toEqual([]);
     expect(removed).toContain("# user note");
     expect(() => patchManifestSetting(initial, "autosave", false, "stale")).toThrow(
       StaleSourceRevisionError,
@@ -121,7 +121,7 @@ describe("format-v2 manifest", () => {
 });
 
 describe("SourceProjectRepository", () => {
-  it("creates only v2 canonical files, compiles, imports an asset, and reopens deterministically", async () => {
+  it("creates canonical source files, compiles, imports an asset, and reopens deterministically", async () => {
     const directory = await temporaryDirectory();
     const created = await SourceProjectRepository.create(directory, {
       id: "project_test",
