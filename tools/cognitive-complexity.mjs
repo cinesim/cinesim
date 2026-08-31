@@ -199,8 +199,8 @@ async function currentCommit() {
 
 async function changedSourceFiles() {
   const commands = [
-    ["diff", "--name-only", `${comparisonBase}...HEAD`, "--", ...sourceRoots],
-    ["diff", "--name-only", "--", ...sourceRoots],
+    ["diff", "--name-only", "--diff-filter=ACMR", `${comparisonBase}...HEAD`, "--", ...sourceRoots],
+    ["diff", "--name-only", "--diff-filter=ACMR", "--", ...sourceRoots],
     ["ls-files", "--others", "--exclude-standard", "--", ...sourceRoots],
   ];
   const outputs = await Promise.all(
