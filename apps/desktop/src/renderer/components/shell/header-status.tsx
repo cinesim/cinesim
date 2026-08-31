@@ -41,7 +41,9 @@ function StatusMessage({ status, onDismiss }: { status: AppStatus; onDismiss: ()
           <StatusIcon tone={status.tone} />
           <p className="text-ui font-semibold text-primary">{status.title}</p>
         </div>
-        <p className="mt-1.5 break-words text-ui-xs leading-5 text-muted">{status.detail}</p>
+        <p className="mt-1.5 whitespace-pre-wrap break-words text-ui-xs leading-5 text-muted">
+          {status.detail}
+        </p>
         {status.dismissible && (
           <div className="mt-2 flex justify-end border-t border-border pt-2">
             <button

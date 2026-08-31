@@ -89,6 +89,32 @@ function derivedMediaStatus(derived: DerivedMediaSnapshot | null): AppStatus | n
   };
 }
 
+function sourceDiagnosticStatus(project: ProjectLifecycle): AppStatus | null {
+  if (project.status !== "ready" || project.session.diagnostics.length === 0) return null;
+  const diagnostics = project.session.diagnostics;
+  const errorCount = diagnostics.filter((diagnostic) => diagnostic.severity === "error").length;
+  const tone = errorCount > 0 ? "error" : "warning";
+  const label = errorCount > 0 ? "source error" : "source warning";
+  const details = diagnostics.map((diagnostic) => {
+    const location = diagnostic.source
+      ? ` · ${diagnostic.source.uri}:${diagnostic.source.start.line}:${diagnostic.source.start.column}`
+      : "";
+    return `${diagnostic.code}: ${diagnostic.message}${location}`;
+  });
+  return {
+    tone,
+    summary: `${diagnostics.length} ${label}${diagnostics.length === 1 ? "" : "s"}`,
+    title: errorCount > 0 ? "Source needs attention" : "Source warning",
+    detail: [
+      errorCount > 0
+        ? "The last valid preview remains active while the project source is invalid."
+        : "The project source compiled with diagnostics.",
+      ...details,
+    ].join("\n\n"),
+    dismissible: false,
+  };
+}
+
 export function appStatus(input: AppStatusInput): AppStatus | null {
   if (input.operationError)
     return {
@@ -100,6 +126,7 @@ export function appStatus(input: AppStatusInput): AppStatus | null {
     };
 
   return (
+    sourceDiagnosticStatus(input.project) ??
     failedTransferStatus(input.cloudTransfers) ??
     projectOperationStatus(input.project) ??
     activeTransferStatus(input.cloudTransfers) ??
