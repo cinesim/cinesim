@@ -23,6 +23,55 @@ interface ActiveJob {
 const WORKER_INACTIVITY_TIMEOUT_MS = 120_000;
 const TRANSCRIPT_PROGRESS_STEPS = 20;
 
+type WorkerResponse<Type extends DerivedWorkerResponse["type"]> = Extract<
+  DerivedWorkerResponse,
+  { type: Type }
+>;
+
+function queuedPerceptionAsset(
+  project: Project,
+  snapshot: DerivedMediaSnapshot,
+): Asset | undefined {
+  return project.assets.find((asset) => {
+    const derived = snapshot.assets[asset.id];
+    if (!derived) return false;
+    if (asset.kind === "video") {
+      return (
+        derived.thumbnail.state === "queued" ||
+        derived.filmstrip.state === "queued" ||
+        derived.waveform.state === "queued"
+      );
+    }
+    return asset.kind === "audio" && derived.waveform.state === "queued";
+  });
+}
+
+function queuedProxyAsset(project: Project, snapshot: DerivedMediaSnapshot): Asset | undefined {
+  return project.assets.find(
+    (asset) =>
+      (asset.kind === "video" || asset.kind === "audio") &&
+      snapshot.assets[asset.id]?.proxy.state === "queued",
+  );
+}
+
+function queuedTranscriptAsset(
+  project: Project,
+  snapshot: TranscriptSnapshot | null,
+): Asset | undefined {
+  return project.assets.find((asset) => snapshot?.assets[asset.id]?.state === "queued");
+}
+
+function queuedPerceptionKinds(
+  asset: Asset,
+  record: NonNullable<DerivedMediaSnapshot["assets"][Asset["id"]]>,
+): Array<"thumbnail" | "filmstrip" | "waveform"> {
+  return (["thumbnail", "filmstrip", "waveform"] as const).filter((kind) => {
+    if (record[kind].state !== "queued") return false;
+    if (kind === "waveform") return asset.kind === "audio" || asset.hasAudio === true;
+    return asset.kind === "video";
+  });
+}
+
 export class MediaJobCoordinator {
   #project: Project;
   #settings: ProjectSettings;
@@ -268,39 +317,62 @@ export class MediaJobCoordinator {
       this.#foregroundPressure !== "idle"
     )
       return;
-    const asset = this.#project.assets.find((candidate) => {
-      const derived = this.#snapshot!.assets[candidate.id];
-      if (!derived) return false;
-      if (candidate.kind === "video")
-        return (
-          derived.thumbnail.state === "queued" ||
-          derived.filmstrip.state === "queued" ||
-          derived.waveform.state === "queued"
-        );
-      return candidate.kind === "audio" && derived.waveform.state === "queued";
-    });
+    const asset = queuedPerceptionAsset(this.#project, this.#snapshot);
     if (!asset) {
-      const proxyAsset = this.#project.assets.find(
-        (candidate) =>
-          (candidate.kind === "video" || candidate.kind === "audio") &&
-          this.#snapshot!.assets[candidate.id]?.proxy.state === "queued",
-      );
+      const proxyAsset = queuedProxyAsset(this.#project, this.#snapshot);
       if (proxyAsset) {
         await this.#startProxy(proxyAsset);
         return;
       }
-      const transcriptAsset = this.#project.assets.find(
-        (candidate) => this.#transcriptSnapshot?.assets[candidate.id]?.state === "queued",
-      );
+      const transcriptAsset = queuedTranscriptAsset(this.#project, this.#transcriptSnapshot);
       if (transcriptAsset) await this.#startTranscript(transcriptAsset);
       return;
     }
     const record = this.#snapshot.assets[asset.id]!;
-    const kinds = (["thumbnail", "filmstrip", "waveform"] as const).filter((kind) => {
-      if (record[kind].state !== "queued") return false;
-      if (kind === "waveform") return asset.kind === "audio" || asset.hasAudio === true;
-      return asset.kind === "video";
-    });
+    await this.#startPerception(asset, record);
+  }
+
+  async #beginPerceptionWriters(
+    active: ActiveJob,
+    asset: Asset,
+    kinds: ReadonlyArray<"thumbnail" | "filmstrip" | "waveform">,
+  ): Promise<void> {
+    for (const kind of kinds) {
+      const writer = await window.cinesim.derived.beginWrite(this.#projectScope, {
+        assetId: asset.id,
+        kind,
+        ...(kind === "waveform"
+          ? { expectedBytes: waveformByteLength(waveformPeakCount(asset.durationUs)) }
+          : {}),
+      });
+      active.writers[kind] = writer.writerId;
+    }
+  }
+
+  #dispatchPerception(
+    active: ActiveJob,
+    asset: Asset,
+    record: NonNullable<DerivedMediaSnapshot["assets"][Asset["id"]]>,
+    kinds: Array<"thumbnail" | "filmstrip" | "waveform">,
+  ): void {
+    this.#worker?.postMessage({
+      type: "generate",
+      jobId: active.jobId,
+      assetId: asset.id,
+      projectScope: this.#projectScope,
+      durationUs: asset.durationUs,
+      kinds,
+      ...(record.thumbnail.sourceTimeUs === undefined
+        ? {}
+        : { thumbnailSourceTimeUs: timeUs(record.thumbnail.sourceTimeUs) }),
+    } satisfies DerivedWorkerRequest);
+  }
+
+  async #startPerception(
+    asset: Asset,
+    record: NonNullable<DerivedMediaSnapshot["assets"][Asset["id"]]>,
+  ): Promise<void> {
+    const kinds = queuedPerceptionKinds(asset, record);
     const jobId = crypto.randomUUID();
     const active: ActiveJob = {
       jobId,
@@ -311,16 +383,7 @@ export class MediaJobCoordinator {
     };
     this.#active = active;
     try {
-      for (const kind of kinds) {
-        const writer = await window.cinesim.derived.beginWrite(this.#projectScope, {
-          assetId: asset.id,
-          kind,
-          ...(kind === "waveform"
-            ? { expectedBytes: waveformByteLength(waveformPeakCount(asset.durationUs)) }
-            : {}),
-        });
-        active.writers[kind] = writer.writerId;
-      }
+      await this.#beginPerceptionWriters(active, asset, kinds);
       await window.cinesim.derived.reportActivity(this.#projectScope, {
         jobId,
         assetId: asset.id,
@@ -328,17 +391,7 @@ export class MediaJobCoordinator {
         stage: "scheduled",
         elapsedMs: 0,
       });
-      this.#worker.postMessage({
-        type: "generate",
-        jobId,
-        assetId: asset.id,
-        projectScope: this.#projectScope,
-        durationUs: asset.durationUs,
-        kinds,
-        ...(record.thumbnail.sourceTimeUs !== undefined
-          ? { thumbnailSourceTimeUs: timeUs(record.thumbnail.sourceTimeUs) }
-          : {}),
-      } satisfies DerivedWorkerRequest);
+      this.#dispatchPerception(active, asset, record, kinds);
       this.#armWorkerInactivityTimer(jobId);
       if (this.#foregroundPressure !== "idle") this.setForegroundPressure(this.#foregroundPressure);
     } catch (error) {
@@ -425,182 +478,192 @@ export class MediaJobCoordinator {
     }
   }
 
-  async #handleWorkerMessage(message: DerivedWorkerResponse): Promise<void> {
-    const active = this.#active;
-    if (!active || message.jobId !== active.jobId || this.#destroyed) return;
-    if (this.#foregroundPressure === "idle") this.#armWorkerInactivityTimer(active.jobId);
-    if (message.type === "activity") {
-      if (active.kind === "transcript") return;
-      await window.cinesim.derived.reportActivity(this.#projectScope, {
+  async #reportWorkerActivity(
+    active: ActiveJob,
+    message: WorkerResponse<"activity">,
+  ): Promise<void> {
+    if (active.kind === "transcript") return;
+    await window.cinesim.derived.reportActivity(this.#projectScope, {
+      jobId: active.jobId,
+      assetId: active.assetId,
+      jobKind: active.kind,
+      stage: message.stage,
+      elapsedMs: message.elapsedMs,
+      ...(message.completedSamples === undefined
+        ? {}
+        : { completedSamples: message.completedSamples }),
+      ...(message.totalSamples === undefined ? {} : { totalSamples: message.totalSamples }),
+    });
+  }
+
+  async #updateArtifactProgress(
+    active: ActiveJob,
+    message: WorkerResponse<"progress">,
+  ): Promise<void> {
+    const writerId = active.writers[message.stage];
+    if (writerId) await window.cinesim.derived.updateProgress(writerId, message.progress);
+  }
+
+  #updateTranscriptProgress(
+    active: ActiveJob,
+    message: WorkerResponse<"transcript-progress">,
+  ): void {
+    const assetId = active.assetId as Asset["id"];
+    const current = this.#transcriptSnapshot?.assets[assetId];
+    const nextProgress = Math.max(
+      current?.progress ?? 0,
+      Math.min(1, Math.max(0, message.progress)),
+    );
+    if (!current || current.progress === nextProgress || !this.#transcriptSnapshot) return;
+    const previousStep = Math.floor((current.progress ?? 0) * TRANSCRIPT_PROGRESS_STEPS);
+    const nextStep = Math.floor(nextProgress * TRANSCRIPT_PROGRESS_STEPS);
+    const snapshot = structuredClone(this.#transcriptSnapshot);
+    const record = snapshot.assets[assetId];
+    if (!record) return;
+    record.progress = nextProgress;
+    this.#transcriptSnapshot = snapshot;
+    if (current.progress === undefined || previousStep !== nextStep || nextProgress === 1) {
+      this.#notifyTranscriptSnapshot(snapshot);
+    }
+  }
+
+  async #transcribeChunk(
+    active: ActiveJob,
+    message: WorkerResponse<"transcript-chunk">,
+  ): Promise<void> {
+    let error: string | undefined;
+    try {
+      await window.cinesim.transcripts.transcribeChunk(this.#projectScope, {
         jobId: active.jobId,
-        assetId: active.assetId,
-        jobKind: active.kind,
-        stage: message.stage,
-        elapsedMs: message.elapsedMs,
-        ...(message.completedSamples !== undefined
-          ? { completedSamples: message.completedSamples }
-          : {}),
-        ...(message.totalSamples !== undefined ? { totalSamples: message.totalSamples } : {}),
+        chunkIndex: message.chunkIndex,
+        sourceStartUs: message.sourceStartUs,
+        sourceEndUs: message.sourceEndUs,
+        data: new Uint8Array(message.data),
       });
-      return;
+    } catch (caught) {
+      error = caught instanceof Error ? caught.message : "Transcript request failed";
     }
-    if (message.type === "progress") {
-      const writerId = active.writers[message.stage];
-      if (writerId) await window.cinesim.derived.updateProgress(writerId, message.progress);
-      return;
-    }
-    if (message.type === "transcript-progress") {
-      const currentRecord = this.#transcriptSnapshot?.assets[active.assetId as Asset["id"]];
-      const nextProgress = Math.max(
-        currentRecord?.progress ?? 0,
-        Math.min(1, Math.max(0, message.progress)),
+    this.#worker?.postMessage({
+      type: "transcript-chunk-ack",
+      jobId: active.jobId,
+      chunkIndex: message.chunkIndex,
+      ...(error ? { error } : {}),
+    } satisfies DerivedWorkerRequest);
+  }
+
+  async #completeTranscript(active: ActiveJob): Promise<void> {
+    try {
+      const snapshot = await window.cinesim.transcripts.finalizeJob(
+        this.#projectScope,
+        active.jobId,
       );
-      if (!currentRecord || currentRecord.progress === nextProgress) return;
-      const previousStep = Math.floor((currentRecord.progress ?? 0) * TRANSCRIPT_PROGRESS_STEPS);
-      const nextStep = Math.floor(nextProgress * TRANSCRIPT_PROGRESS_STEPS);
-      const snapshot = structuredClone(this.#transcriptSnapshot!);
-      const record = snapshot.assets[active.assetId as Asset["id"]];
-      if (record) {
-        record.progress = nextProgress;
-        this.#transcriptSnapshot = snapshot;
-        if (currentRecord.progress === undefined || previousStep !== nextStep || nextProgress === 1)
-          this.#notifyTranscriptSnapshot(snapshot);
-      }
-      return;
+      this.#clearWorkerInactivityTimer();
+      this.#active = null;
+      this.#acceptTranscriptSnapshot(snapshot);
+      await this.#schedule();
+    } catch (error) {
+      await this.#failActive(
+        "transcript-finalize-failed",
+        error instanceof Error ? error.message : "Transcript could not be published",
+      );
     }
-    if (message.type === "transcript-chunk") {
-      try {
-        await window.cinesim.transcripts.transcribeChunk(this.#projectScope, {
-          jobId: active.jobId,
-          chunkIndex: message.chunkIndex,
-          sourceStartUs: message.sourceStartUs,
-          sourceEndUs: message.sourceEndUs,
-          data: new Uint8Array(message.data),
-        });
-        this.#worker?.postMessage({
-          type: "transcript-chunk-ack",
-          jobId: active.jobId,
-          chunkIndex: message.chunkIndex,
-        } satisfies DerivedWorkerRequest);
-      } catch (error) {
-        this.#worker?.postMessage({
-          type: "transcript-chunk-ack",
-          jobId: active.jobId,
-          chunkIndex: message.chunkIndex,
-          error: error instanceof Error ? error.message : "Transcript request failed",
-        } satisfies DerivedWorkerRequest);
-      }
-      return;
+  }
+
+  async #writeProxyChunk(active: ActiveJob, message: WorkerResponse<"proxy-chunk">): Promise<void> {
+    const writerId = active.writers.proxy;
+    if (!writerId) return;
+    let error: string | undefined;
+    try {
+      await window.cinesim.derived.writeChunk(
+        writerId,
+        message.offset,
+        new Uint8Array(message.data),
+      );
+    } catch (caught) {
+      error = caught instanceof Error ? caught.message : "Proxy write failed";
     }
-    if (message.type === "transcript-complete") {
-      try {
-        const snapshot = await window.cinesim.transcripts.finalizeJob(
-          this.#projectScope,
-          active.jobId,
-        );
-        this.#clearWorkerInactivityTimer();
-        this.#active = null;
-        this.#acceptTranscriptSnapshot(snapshot);
-        await this.#schedule();
-      } catch (error) {
-        await this.#failActive(
-          "transcript-finalize-failed",
-          error instanceof Error ? error.message : "Transcript could not be published",
-        );
-      }
-      return;
+    this.#worker?.postMessage({
+      type: "proxy-chunk-ack",
+      jobId: active.jobId,
+      chunkId: message.chunkId,
+      ...(error ? { error } : {}),
+    } satisfies DerivedWorkerRequest);
+  }
+
+  async #completeProxy(
+    active: ActiveJob,
+    message: WorkerResponse<"proxy-complete">,
+  ): Promise<void> {
+    const writerId = active.writers.proxy;
+    if (!writerId) return;
+    try {
+      await window.cinesim.derived.finalizeWrite(writerId, { bytes: message.bytes });
+      delete active.writers.proxy;
+      this.#clearWorkerInactivityTimer();
+      this.#active = null;
+      await this.#schedule();
+    } catch {
+      await this.#failActive("proxy-finalize-failed");
     }
-    if (message.type === "proxy-progress") {
-      const writerId = active.writers.proxy;
-      if (writerId) await window.cinesim.derived.updateProgress(writerId, message.progress);
-      return;
+  }
+
+  async #publishThumbnail(
+    active: ActiveJob,
+    message: WorkerResponse<"thumbnail-complete">,
+  ): Promise<void> {
+    try {
+      await this.#publish("thumbnail", message.thumbnail, active, {
+        sourceTimeUs: message.sourceTimeUs,
+      });
+    } catch (error) {
+      await this.#failActive(
+        "thumbnail-write-failed",
+        error instanceof Error ? error.message : "Thumbnail could not be published",
+      );
     }
-    if (message.type === "proxy-chunk") {
-      const writerId = active.writers.proxy;
-      if (!writerId) return;
-      try {
-        await window.cinesim.derived.writeChunk(
-          writerId,
-          message.offset,
-          new Uint8Array(message.data),
-        );
-        this.#worker?.postMessage({
-          type: "proxy-chunk-ack",
-          jobId: active.jobId,
-          chunkId: message.chunkId,
-        } satisfies DerivedWorkerRequest);
-      } catch (error) {
-        this.#worker?.postMessage({
-          type: "proxy-chunk-ack",
-          jobId: active.jobId,
-          chunkId: message.chunkId,
-          error: error instanceof Error ? error.message : "Proxy write failed",
-        } satisfies DerivedWorkerRequest);
-      }
-      return;
+  }
+
+  async #publishFilmstrip(
+    active: ActiveJob,
+    message: WorkerResponse<"filmstrip-complete">,
+  ): Promise<void> {
+    try {
+      await this.#publish("filmstrip", message.filmstrip, active, {
+        tileTimesUs: message.tileTimesUs,
+        columns: message.columns,
+        rows: message.rows,
+        tileWidth: message.tileWidth,
+        tileHeight: message.tileHeight,
+      });
+    } catch (error) {
+      await this.#failActive(
+        "filmstrip-write-failed",
+        error instanceof Error ? error.message : "Filmstrip could not be published",
+      );
     }
-    if (message.type === "proxy-complete") {
-      const writerId = active.writers.proxy;
-      if (!writerId) return;
-      try {
-        await window.cinesim.derived.finalizeWrite(writerId, { bytes: message.bytes });
-        delete active.writers.proxy;
-        this.#clearWorkerInactivityTimer();
-        this.#active = null;
-        await this.#schedule();
-      } catch {
-        await this.#failActive("proxy-finalize-failed");
-      }
-      return;
+  }
+
+  async #publishWaveform(
+    active: ActiveJob,
+    message: WorkerResponse<"waveform-complete">,
+  ): Promise<void> {
+    try {
+      await this.#publish("waveform", message.waveform, active, {
+        peakCount: message.peakCount,
+        waveformFormatVersion: message.waveformFormatVersion,
+      });
+    } catch (error) {
+      await this.#failActive(
+        "waveform-write-failed",
+        error instanceof Error ? error.message : "Waveform could not be published",
+      );
     }
-    if (message.type === "failed") {
-      await this.#failActive(message.failureCode, message.detail);
-      return;
-    }
-    if (message.type === "thumbnail-complete") {
-      try {
-        await this.#publish("thumbnail", message.thumbnail, active, {
-          sourceTimeUs: message.sourceTimeUs,
-        });
-      } catch (error) {
-        await this.#failActive(
-          "thumbnail-write-failed",
-          error instanceof Error ? error.message : "Thumbnail could not be published",
-        );
-      }
-      return;
-    }
-    if (message.type === "filmstrip-complete") {
-      try {
-        await this.#publish("filmstrip", message.filmstrip, active, {
-          tileTimesUs: message.tileTimesUs,
-          columns: message.columns,
-          rows: message.rows,
-          tileWidth: message.tileWidth,
-          tileHeight: message.tileHeight,
-        });
-      } catch (error) {
-        await this.#failActive(
-          "filmstrip-write-failed",
-          error instanceof Error ? error.message : "Filmstrip could not be published",
-        );
-      }
-      return;
-    }
-    if (message.type === "waveform-complete") {
-      try {
-        await this.#publish("waveform", message.waveform, active, {
-          peakCount: message.peakCount,
-          waveformFormatVersion: message.waveformFormatVersion,
-        });
-      } catch (error) {
-        await this.#failActive(
-          "waveform-write-failed",
-          error instanceof Error ? error.message : "Waveform could not be published",
-        );
-      }
-      return;
-    }
+  }
+
+  async #completePerception(
+    active: ActiveJob,
+    message: WorkerResponse<"perception-complete">,
+  ): Promise<void> {
     try {
       await window.cinesim.derived.reportPerformance(this.#projectScope, {
         assetId: active.assetId,
@@ -616,6 +679,43 @@ export class MediaJobCoordinator {
         "artifact-write-failed",
         error instanceof Error ? error.message : "Derived artifact could not be published",
       );
+    }
+  }
+
+  async #handleWorkerMessage(message: DerivedWorkerResponse): Promise<void> {
+    const active = this.#active;
+    if (!active || message.jobId !== active.jobId || this.#destroyed) return;
+    if (this.#foregroundPressure === "idle") this.#armWorkerInactivityTimer(active.jobId);
+    switch (message.type) {
+      case "activity":
+        return this.#reportWorkerActivity(active, message);
+      case "progress":
+        return this.#updateArtifactProgress(active, message);
+      case "transcript-progress":
+        return this.#updateTranscriptProgress(active, message);
+      case "transcript-chunk":
+        return this.#transcribeChunk(active, message);
+      case "transcript-complete":
+        return this.#completeTranscript(active);
+      case "proxy-progress": {
+        const writerId = active.writers.proxy;
+        if (writerId) await window.cinesim.derived.updateProgress(writerId, message.progress);
+        return;
+      }
+      case "proxy-chunk":
+        return this.#writeProxyChunk(active, message);
+      case "proxy-complete":
+        return this.#completeProxy(active, message);
+      case "failed":
+        return this.#failActive(message.failureCode, message.detail);
+      case "thumbnail-complete":
+        return this.#publishThumbnail(active, message);
+      case "filmstrip-complete":
+        return this.#publishFilmstrip(active, message);
+      case "waveform-complete":
+        return this.#publishWaveform(active, message);
+      case "perception-complete":
+        return this.#completePerception(active, message);
     }
   }
 
