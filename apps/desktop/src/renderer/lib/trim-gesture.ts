@@ -40,30 +40,30 @@ export interface TrimGestureTransition {
 
 export const IDLE_TRIM_GESTURE: TrimGestureState = { status: "idle" };
 
-export function transitionTrimGesture(
-  state: TrimGestureState,
-  event: TrimGestureEvent,
-): TrimGestureTransition {
-  if (event.type === "start") {
-    if (state.status !== "idle" || event.pixelsPerUs <= 0) return { state };
-    return {
-      state: {
-        status: "trimming",
-        pointerId: event.pointerId,
-        edge: event.edge,
-        originX: event.clientX,
-        pixelsPerUs: event.pixelsPerUs,
-        ...(event.frameRate === undefined ? {} : { frameRate: event.frameRate }),
-        snapCandidatesUs: event.snapCandidatesUs ?? [],
-        snapToleranceUs: event.snapToleranceUs ?? timeUs(0),
-        clip: event.clip,
-        previewAtUs: event.edge === "start" ? event.clip.timelineStartUs : clipEndUs(event.clip),
-      },
-    };
-  }
-  if (state.status !== "trimming" || state.pointerId !== event.pointerId) return { state };
-  if (event.type === "cancel") return { state: IDLE_TRIM_GESTURE };
-  const deltaUs = Math.round((event.clientX - state.originX) / state.pixelsPerUs);
+type TrimStartEvent = Extract<TrimGestureEvent, { type: "start" }>;
+type ActiveTrimEvent = Exclude<TrimGestureEvent, { type: "start" }>;
+type TrimmingState = Extract<TrimGestureState, { status: "trimming" }>;
+
+function startTransition(state: TrimGestureState, event: TrimStartEvent): TrimGestureTransition {
+  if (state.status !== "idle" || event.pixelsPerUs <= 0) return { state };
+  return {
+    state: {
+      status: "trimming",
+      pointerId: event.pointerId,
+      edge: event.edge,
+      originX: event.clientX,
+      pixelsPerUs: event.pixelsPerUs,
+      ...(event.frameRate === undefined ? {} : { frameRate: event.frameRate }),
+      snapCandidatesUs: event.snapCandidatesUs ?? [],
+      snapToleranceUs: event.snapToleranceUs ?? timeUs(0),
+      clip: event.clip,
+      previewAtUs: event.edge === "start" ? event.clip.timelineStartUs : clipEndUs(event.clip),
+    },
+  };
+}
+
+function trimTime(state: TrimmingState, clientX: number): TimeUs {
+  const deltaUs = Math.round((clientX - state.originX) / state.pixelsPerUs);
   const clipStartUs = state.clip.timelineStartUs;
   const clipEnd = clipEndUs(state.clip);
   const rawAtUs = timeUs(
@@ -73,12 +73,14 @@ export function transitionTrimGesture(
     ? snapTimelineTime(rawAtUs, state.frameRate, state.snapCandidatesUs, state.snapToleranceUs)
         .timeUs
     : rawAtUs;
-  const atUs =
-    state.edge === "start"
-      ? timeUs(Math.min(clipEnd - 1, Math.max(clipStartUs, proposedAtUs)))
-      : timeUs(Math.max(clipStartUs + 1, Math.min(clipEnd, proposedAtUs)));
-  if (event.type === "move") return { state: { ...state, previewAtUs: atUs } };
-  const unchanged = state.edge === "start" ? atUs === clipStartUs : atUs === clipEnd;
+  return state.edge === "start"
+    ? timeUs(Math.min(clipEnd - 1, Math.max(clipStartUs, proposedAtUs)))
+    : timeUs(Math.max(clipStartUs + 1, Math.min(clipEnd, proposedAtUs)));
+}
+
+function finishTransition(state: TrimmingState, atUs: TimeUs): TrimGestureTransition {
+  const unchanged =
+    state.edge === "start" ? atUs === state.clip.timelineStartUs : atUs === clipEndUs(state.clip);
   if (unchanged) return { state: IDLE_TRIM_GESTURE };
   return {
     state: IDLE_TRIM_GESTURE,
@@ -88,6 +90,23 @@ export function transitionTrimGesture(
       atUs,
     },
   };
+}
+
+function activeTransition(state: TrimmingState, event: ActiveTrimEvent): TrimGestureTransition {
+  if (state.pointerId !== event.pointerId) return { state };
+  if (event.type === "cancel") return { state: IDLE_TRIM_GESTURE };
+  const atUs = trimTime(state, event.clientX);
+  return event.type === "move"
+    ? { state: { ...state, previewAtUs: atUs } }
+    : finishTransition(state, atUs);
+}
+
+export function transitionTrimGesture(
+  state: TrimGestureState,
+  event: TrimGestureEvent,
+): TrimGestureTransition {
+  if (event.type === "start") return startTransition(state, event);
+  return state.status === "trimming" ? activeTransition(state, event) : { state };
 }
 
 export function trimPreviewRange(

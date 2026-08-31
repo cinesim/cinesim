@@ -39,6 +39,44 @@ interface ShellShortcutOptions {
   onCloseShortcuts: () => void;
 }
 
+type ShellShortcut =
+  | { type: "agents" }
+  | { type: "project-section"; section: ProjectSection }
+  | { type: "sidebar" }
+  | { type: "home" }
+  | { type: "shortcuts" }
+  | { type: "escape" };
+
+function plainCommand(event: KeyboardEvent, key: string): boolean {
+  return (
+    (event.metaKey || event.ctrlKey) &&
+    !event.altKey &&
+    !event.shiftKey &&
+    event.key.toLowerCase() === key
+  );
+}
+
+function identifyShortcut(event: KeyboardEvent, destination: Destination): ShellShortcut | null {
+  if (isAgentsSidebarShortcut(event)) return { type: "agents" };
+  const section =
+    destination === "project" && !isEditableKeyboardTarget(event.target)
+      ? projectSectionForShortcut(event)
+      : null;
+  if (section) return { type: "project-section", section };
+  if (plainCommand(event, "b")) return { type: "sidebar" };
+  if (plainCommand(event, "/")) return { type: "shortcuts" };
+  if ((event.metaKey || event.ctrlKey) && !event.altKey && event.shiftKey && event.key === "h") {
+    return { type: "home" };
+  }
+  return !event.metaKey &&
+    !event.ctrlKey &&
+    !event.altKey &&
+    !event.shiftKey &&
+    event.key === "Escape"
+    ? { type: "escape" }
+    : null;
+}
+
 export function useShellShortcuts(options: ShellShortcutOptions): void {
   const {
     destination,
@@ -54,32 +92,28 @@ export function useShellShortcuts(options: ShellShortcutOptions): void {
 
   useEffect(() => {
     function shortcut(event: KeyboardEvent) {
-      const command = event.metaKey || event.ctrlKey;
-      const key = event.key.toLowerCase();
-      const projectSection =
-        destination === "project" && !isEditableKeyboardTarget(event.target)
-          ? projectSectionForShortcut(event)
-          : null;
-      if (isAgentsSidebarShortcut(event)) {
-        if (agentsSidebarAvailable) {
-          event.preventDefault();
+      const action = identifyShortcut(event, destination);
+      if (!action || (action.type === "agents" && !agentsSidebarAvailable)) return;
+      if (action.type !== "escape") event.preventDefault();
+      switch (action.type) {
+        case "agents":
           onAuxiliaryMode(toggleAuxiliaryMode(auxiliaryMode, "agents"));
-        }
-      } else if (projectSection) {
-        event.preventDefault();
-        onProjectSection(projectSection);
-      } else if (command && !event.altKey && !event.shiftKey && key === "b") {
-        event.preventDefault();
-        onToggleSidebar();
-      } else if (command && !event.altKey && event.shiftKey && key === "h") {
-        event.preventDefault();
-        onCloseShortcuts();
-        onHome();
-      } else if (command && !event.altKey && !event.shiftKey && key === "/") {
-        event.preventDefault();
-        onToggleShortcuts();
-      } else if (!command && !event.altKey && !event.shiftKey && key === "escape") {
-        onCloseShortcuts();
+          break;
+        case "project-section":
+          onProjectSection(action.section);
+          break;
+        case "sidebar":
+          onToggleSidebar();
+          break;
+        case "home":
+          onCloseShortcuts();
+          onHome();
+          break;
+        case "shortcuts":
+          onToggleShortcuts();
+          break;
+        case "escape":
+          onCloseShortcuts();
       }
     }
     window.addEventListener("keydown", shortcut);

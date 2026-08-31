@@ -9,63 +9,88 @@ function clamp(value: number, minimum: number, maximum: number): number {
   return Math.min(Math.max(value, minimum), Math.max(minimum, maximum));
 }
 
+function enabledWidth(enabled: boolean, width: number): number {
+  return enabled ? width : 0;
+}
+
+function availablePanelWidth(
+  boundsWidth: number,
+  splitterCount: number,
+  occupiedWidths: readonly number[],
+  fallback: number,
+): number {
+  if (boundsWidth <= 0) return fallback;
+  return (
+    boundsWidth -
+    MIN_EDITOR_VIEWER_WIDTH -
+    EDITOR_SPLITTER_SIZE * splitterCount -
+    occupiedWidths.reduce((total, width) => total + width, 0)
+  );
+}
+
+function fitOptionalPanel(
+  enabled: boolean,
+  current: number,
+  limits: { min: number; max: number },
+  available: number,
+): number {
+  return enabled ? clamp(current, limits.min, Math.min(limits.max, available)) : current;
+}
+
 export function fitEditorLayout(
   layout: EditorLayoutState,
   bounds: { width: number; height: number },
   panels: { mediaPool: boolean; inspector: boolean; notes: boolean },
 ): EditorLayoutState {
   const splitterCount = Number(panels.mediaPool) + Number(panels.inspector) + Number(panels.notes);
-  const notesAvailable =
-    bounds.width > 0
-      ? bounds.width -
-        MIN_EDITOR_VIEWER_WIDTH -
-        EDITOR_SPLITTER_SIZE * splitterCount -
-        (panels.mediaPool ? EDITOR_LAYOUT_LIMITS.mediaPoolWidth.min : 0) -
-        (panels.inspector ? EDITOR_LAYOUT_LIMITS.inspectorWidth.min : 0)
-      : EDITOR_LAYOUT_LIMITS.notesWidth.max;
-  const notesWidth = panels.notes
-    ? clamp(
-        layout.notesWidth,
-        EDITOR_LAYOUT_LIMITS.notesWidth.min,
-        Math.min(EDITOR_LAYOUT_LIMITS.notesWidth.max, notesAvailable),
-      )
-    : layout.notesWidth;
-  const inspectorAvailable =
-    bounds.width > 0
-      ? bounds.width -
-        MIN_EDITOR_VIEWER_WIDTH -
-        EDITOR_SPLITTER_SIZE * splitterCount -
-        (panels.mediaPool ? EDITOR_LAYOUT_LIMITS.mediaPoolWidth.min : 0) -
-        (panels.notes ? notesWidth : 0)
-      : EDITOR_LAYOUT_LIMITS.inspectorWidth.max;
-  const inspectorWidth = panels.inspector
-    ? clamp(
-        layout.inspectorWidth,
-        EDITOR_LAYOUT_LIMITS.inspectorWidth.min,
-        Math.min(EDITOR_LAYOUT_LIMITS.inspectorWidth.max, inspectorAvailable),
-      )
-    : layout.inspectorWidth;
-  const mediaAvailable =
-    bounds.width > 0
-      ? bounds.width -
-        MIN_EDITOR_VIEWER_WIDTH -
-        EDITOR_SPLITTER_SIZE * splitterCount -
-        (panels.inspector ? inspectorWidth : 0) -
-        (panels.notes ? notesWidth : 0)
-      : EDITOR_LAYOUT_LIMITS.mediaPoolWidth.max;
+  const notesAvailable = availablePanelWidth(
+    bounds.width,
+    splitterCount,
+    [
+      enabledWidth(panels.mediaPool, EDITOR_LAYOUT_LIMITS.mediaPoolWidth.min),
+      enabledWidth(panels.inspector, EDITOR_LAYOUT_LIMITS.inspectorWidth.min),
+    ],
+    EDITOR_LAYOUT_LIMITS.notesWidth.max,
+  );
+  const notesWidth = fitOptionalPanel(
+    panels.notes,
+    layout.notesWidth,
+    EDITOR_LAYOUT_LIMITS.notesWidth,
+    notesAvailable,
+  );
+  const inspectorAvailable = availablePanelWidth(
+    bounds.width,
+    splitterCount,
+    [
+      enabledWidth(panels.mediaPool, EDITOR_LAYOUT_LIMITS.mediaPoolWidth.min),
+      enabledWidth(panels.notes, notesWidth),
+    ],
+    EDITOR_LAYOUT_LIMITS.inspectorWidth.max,
+  );
+  const inspectorWidth = fitOptionalPanel(
+    panels.inspector,
+    layout.inspectorWidth,
+    EDITOR_LAYOUT_LIMITS.inspectorWidth,
+    inspectorAvailable,
+  );
+  const mediaAvailable = availablePanelWidth(
+    bounds.width,
+    splitterCount,
+    [enabledWidth(panels.inspector, inspectorWidth), enabledWidth(panels.notes, notesWidth)],
+    EDITOR_LAYOUT_LIMITS.mediaPoolWidth.max,
+  );
   const timelineAvailable =
-    bounds.height > 0
-      ? bounds.height - MIN_EDITOR_VIEWER_HEIGHT - EDITOR_SPLITTER_SIZE
-      : EDITOR_LAYOUT_LIMITS.timelineHeight.max;
+    bounds.height <= 0
+      ? EDITOR_LAYOUT_LIMITS.timelineHeight.max
+      : bounds.height - MIN_EDITOR_VIEWER_HEIGHT - EDITOR_SPLITTER_SIZE;
 
   return {
-    mediaPoolWidth: panels.mediaPool
-      ? clamp(
-          layout.mediaPoolWidth,
-          EDITOR_LAYOUT_LIMITS.mediaPoolWidth.min,
-          Math.min(EDITOR_LAYOUT_LIMITS.mediaPoolWidth.max, mediaAvailable),
-        )
-      : layout.mediaPoolWidth,
+    mediaPoolWidth: fitOptionalPanel(
+      panels.mediaPool,
+      layout.mediaPoolWidth,
+      EDITOR_LAYOUT_LIMITS.mediaPoolWidth,
+      mediaAvailable,
+    ),
     inspectorWidth,
     notesWidth,
     timelineHeight: clamp(

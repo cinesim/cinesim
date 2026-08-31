@@ -1,4 +1,86 @@
-import type { AgentProjectDelta, AgentProjectSnapshot } from "../../shared/contracts";
+import type {
+  AgentProjectDelta,
+  AgentProjectDeltaOperation,
+  AgentProjectSnapshot,
+  AgentSessionSnapshot,
+} from "../../shared/contracts";
+
+function upsertSession(next: AgentProjectSnapshot, session: AgentSessionSnapshot): void {
+  const index = next.sessions.findIndex((candidate) => candidate.id === session.id);
+  if (index < 0) next.sessions.push(structuredClone(session));
+  else next.sessions[index] = structuredClone(session);
+}
+
+function upsertEvent(
+  session: AgentSessionSnapshot,
+  operation: Extract<AgentProjectDeltaOperation, { type: "event-appended" | "event-patched" }>,
+): void {
+  const index = session.events.findIndex((event) => event.id === operation.event.id);
+  if (index < 0) session.events.push(structuredClone(operation.event));
+  else session.events[index] = structuredClone(operation.event);
+}
+
+function applySessionOperation(
+  session: AgentSessionSnapshot,
+  operation: Exclude<
+    AgentProjectDeltaOperation,
+    | { type: "project-reset" }
+    | { type: "active-session-changed" }
+    | { type: "session-created" }
+    | { type: "session-removed" }
+  >,
+): boolean {
+  switch (operation.type) {
+    case "session-patched":
+      Object.assign(session, operation.patch);
+      return true;
+    case "token-usage-changed":
+      session.tokenUsage = operation.usage ?? undefined;
+      return true;
+    case "event-appended":
+    case "event-patched":
+      upsertEvent(session, operation);
+      return true;
+    case "event-text-appended": {
+      const event = session.events.find((candidate) => candidate.id === operation.eventId);
+      if (!event) return false;
+      event.text = `${event.text ?? ""}${operation.text}`;
+      event.createdAt = operation.createdAt;
+      return true;
+    }
+    case "events-pruned": {
+      const removed = new Set(operation.eventIds);
+      session.events = session.events.filter((event) => !removed.has(event.id));
+      return true;
+    }
+    case "checkpoints-replaced":
+      session.checkpoints = structuredClone(operation.checkpoints);
+      return true;
+  }
+}
+
+function applyOperation(
+  next: AgentProjectSnapshot,
+  operation: AgentProjectDeltaOperation,
+): boolean {
+  switch (operation.type) {
+    case "project-reset":
+      return true;
+    case "active-session-changed":
+      next.activeSessionId = operation.sessionId;
+      return true;
+    case "session-created":
+      upsertSession(next, operation.session);
+      return true;
+    case "session-removed":
+      next.sessions = next.sessions.filter((session) => session.id !== operation.sessionId);
+      return true;
+    default: {
+      const session = next.sessions.find((candidate) => candidate.id === operation.sessionId);
+      return session ? applySessionOperation(session, operation) : false;
+    }
+  }
+}
 
 export function applyAgentProjectDelta(
   current: AgentProjectSnapshot | null,
@@ -13,43 +95,7 @@ export function applyAgentProjectDelta(
   )
     return null;
   const next = structuredClone(current);
-  for (const operation of delta.operations) {
-    if (operation.type === "project-reset") continue;
-    if (operation.type === "active-session-changed") {
-      next.activeSessionId = operation.sessionId;
-      continue;
-    }
-    if (operation.type === "session-created") {
-      const index = next.sessions.findIndex((session) => session.id === operation.session.id);
-      if (index < 0) next.sessions.push(structuredClone(operation.session));
-      else next.sessions[index] = structuredClone(operation.session);
-      continue;
-    }
-    if (operation.type === "session-removed") {
-      next.sessions = next.sessions.filter((session) => session.id !== operation.sessionId);
-      continue;
-    }
-    const session = next.sessions.find((candidate) => candidate.id === operation.sessionId);
-    if (!session) return null;
-    if (operation.type === "session-patched") Object.assign(session, operation.patch);
-    else if (operation.type === "token-usage-changed")
-      session.tokenUsage = operation.usage ?? undefined;
-    else if (operation.type === "event-appended" || operation.type === "event-patched") {
-      const index = session.events.findIndex((event) => event.id === operation.event.id);
-      if (index < 0) session.events.push(structuredClone(operation.event));
-      else session.events[index] = structuredClone(operation.event);
-    } else if (operation.type === "event-text-appended") {
-      const event = session.events.find((candidate) => candidate.id === operation.eventId);
-      if (!event) return null;
-      event.text = `${event.text ?? ""}${operation.text}`;
-      event.createdAt = operation.createdAt;
-    } else if (operation.type === "events-pruned") {
-      const removed = new Set(operation.eventIds);
-      session.events = session.events.filter((event) => !removed.has(event.id));
-    } else if (operation.type === "checkpoints-replaced") {
-      session.checkpoints = structuredClone(operation.checkpoints);
-    }
-  }
+  for (const operation of delta.operations) if (!applyOperation(next, operation)) return null;
   next.revision = delta.revision;
   return next;
 }
