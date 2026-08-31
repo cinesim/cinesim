@@ -77,23 +77,17 @@ export function TimelineClipBlock({
   const previewRange = trimPreviewRange(trimGesture);
   const previewClip = trimPreviewClip(trimGesture) ?? clip;
   const name = asset?.name ?? clip.assetId;
-  const preparationLabel = derivedAsset ? prepStatus(derivedAsset, derived) : null;
+  const preparationLabel = prepStatus(derivedAsset, derived);
   const isAudioComponent = clip.mediaKind === "audio";
   const timelineLeft = (previewRange?.timelineStartUs ?? clip.timelineStartUs) * pixelsPerUs;
-  const timelineWidth = Math.max(
-    18,
-    (previewRange
-      ? previewRange.timelineEndUs - previewRange.timelineStartUs
-      : clipDurationUs(clip)) * pixelsPerUs,
-  );
+  const visibleDurationUs = previewDurationUs(previewRange, clip);
+  const timelineWidth = Math.max(18, visibleDurationUs * pixelsPerUs);
   const left = timelineLeft + CLIP_HORIZONTAL_INSET_PX;
   const width = Math.max(16, timelineWidth - CLIP_HORIZONTAL_INSET_PX * 2);
   const height = Math.max(1, trackHeight - CLIP_VERTICAL_INSET_PX * 2);
   const clipColor = timelinePaletteColor(paletteId, track, asset);
-  const fadeInUs =
-    fadeGesture?.edge === "in" ? fadeGesture.previewDurationUs : (clip.fadeInUs ?? 0);
-  const fadeOutUs =
-    fadeGesture?.edge === "out" ? fadeGesture.previewDurationUs : (clip.fadeOutUs ?? 0);
+  const fadeInUs = visibleFadeDuration("in", fadeGesture, clip);
+  const fadeOutUs = visibleFadeDuration("out", fadeGesture, clip);
   const fadeInPx = Math.min(width, fadeInUs * pixelsPerUs);
   const fadeOutPx = Math.min(width, fadeOutUs * pixelsPerUs);
   const fadeCurveTop = 8;
@@ -250,7 +244,7 @@ export function TimelineClipBlock({
         top: CLIP_VERTICAL_INSET_PX,
         height,
         backgroundColor: clipColor,
-        borderColor: selected ? undefined : `color-mix(in srgb, ${clipColor} 72%, black)`,
+        borderColor: clipBorderColor(selected, clipColor),
       }}
     >
       {asset && asset.kind !== "audio" && !isAudioComponent && derived && derivedAsset && (
@@ -280,7 +274,7 @@ export function TimelineClipBlock({
         type="button"
         {...listeners}
         {...attributes}
-        aria-label={`${selected ? "Selected " : ""}${name} clip${clip.linkedClipId ? ", linked audio and video" : ""}`}
+        aria-label={clipAriaLabel(name, selected, Boolean(clip.linkedClipId))}
         className="absolute inset-0 z-20 text-left outline-none focus-visible:ring-2 focus-visible:ring-focus"
         onClick={activate}
       >
@@ -288,7 +282,7 @@ export function TimelineClipBlock({
         <span
           className={cn(
             "pointer-events-none absolute bottom-1 left-1.5 z-20 truncate text-[10px] font-semibold text-white drop-shadow-sm",
-            clip.linkedClipId ? "right-7" : "right-1.5",
+            clipNameRightClass(Boolean(clip.linkedClipId)),
           )}
         >
           {name}
@@ -360,9 +354,7 @@ export function TimelineClipBlock({
             title={`Fade in · ${(fadeInUs / 1_000_000).toFixed(2)}s`}
             className={cn(
               "absolute top-[3px] z-[26] size-2.5 -translate-x-1/2 cursor-ew-resize rounded-[1px] border border-white/70 bg-neutral-400 shadow-[0_0_0_1px_rgba(0,0,0,0.75)] transition-[opacity,background-color] hover:bg-white hover:opacity-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-white",
-              selected || fadeInUs > 0
-                ? "opacity-90"
-                : "opacity-0 group-hover/clip:opacity-90 focus-visible:opacity-100",
+              fadeHandleOpacity(selected, fadeInUs),
             )}
             style={{ left: Math.min(width - 5, Math.max(5, fadeInPx)) }}
             onPointerDown={(event) => beginFade("in", event)}
@@ -377,9 +369,7 @@ export function TimelineClipBlock({
             title={`Fade out · ${(fadeOutUs / 1_000_000).toFixed(2)}s`}
             className={cn(
               "absolute top-[3px] z-[26] size-2.5 -translate-x-1/2 cursor-ew-resize rounded-[1px] border border-white/70 bg-neutral-400 shadow-[0_0_0_1px_rgba(0,0,0,0.75)] transition-[opacity,background-color] hover:bg-white hover:opacity-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-white",
-              selected || fadeOutUs > 0
-                ? "opacity-90"
-                : "opacity-0 group-hover/clip:opacity-90 focus-visible:opacity-100",
+              fadeHandleOpacity(selected, fadeOutUs),
             )}
             style={{ left: Math.min(width - 5, Math.max(5, width - fadeOutPx)) }}
             onPointerDown={(event) => beginFade("out", event)}
@@ -424,9 +414,10 @@ export function TimelineClipBlock({
 }
 
 function prepStatus(
-  asset: DerivedAssetSnapshot,
+  asset: DerivedAssetSnapshot | undefined,
   derived: DerivedMediaSnapshot | null,
 ): string | null {
+  if (!asset) return null;
   const activeJob = derived?.runtime.activeJob;
   if (activeJob?.assetId === asset.assetId) {
     const stage = activeJob.stage.replaceAll("-", " ");
@@ -446,6 +437,35 @@ function prepStatus(
   )
     return "Prep failed";
   return null;
+}
+
+function previewDurationUs(range: ReturnType<typeof trimPreviewRange>, clip: Clip): number {
+  return range ? range.timelineEndUs - range.timelineStartUs : clipDurationUs(clip);
+}
+
+function visibleFadeDuration(edge: "in" | "out", gesture: FadeGesture | null, clip: Clip): number {
+  if (gesture?.edge === edge) return gesture.previewDurationUs;
+  return edge === "in" ? (clip.fadeInUs ?? 0) : (clip.fadeOutUs ?? 0);
+}
+
+function clipBorderColor(selected: boolean, color: string): string | undefined {
+  return selected ? undefined : `color-mix(in srgb, ${color} 72%, black)`;
+}
+
+function clipAriaLabel(name: string, selected: boolean, linked: boolean): string {
+  const selection = selected ? "Selected " : "";
+  const linkage = linked ? ", linked audio and video" : "";
+  return `${selection}${name} clip${linkage}`;
+}
+
+function clipNameRightClass(linked: boolean): string {
+  return linked ? "right-7" : "right-1.5";
+}
+
+function fadeHandleOpacity(selected: boolean, durationUs: number): string {
+  return selected || durationUs > 0
+    ? "opacity-90"
+    : "opacity-0 group-hover/clip:opacity-90 focus-visible:opacity-100";
 }
 
 function artifactStatus(label: string, artifact: DerivedAssetSnapshot["proxy"]): string {

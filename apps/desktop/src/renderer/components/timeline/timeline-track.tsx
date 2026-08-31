@@ -14,7 +14,7 @@ import {
   VolumeX,
 } from "@cinesim/ui";
 import type { DerivedMediaSnapshot } from "../../../shared/contracts";
-import { timelineSnapCandidates } from "../../lib/timeline-geometry";
+import { timelineSnapCandidates, type TimelineDropProposal } from "../../lib/timeline-geometry";
 import { useRendererStore } from "../../store/renderer-store-context";
 import { useEditorDnd } from "../workspace/editor-dnd-context";
 import { timelinePaletteColor } from "./timeline-behavior";
@@ -58,30 +58,13 @@ export function TimelineTrackRow({
     id: `track:${track.id}`,
     data: { kind: "timeline-track", trackId: track.id },
   });
-  const trackProposal =
-    proposal?.trackId === track.id ||
-    proposal?.audioTrackId === track.id ||
-    proposal?.linkedTrackId === track.id
-      ? proposal
-      : null;
+  const trackProposal = proposalForTrack(proposal, track.id);
   const isLinkedProposal = trackProposal?.linkedTrackId === track.id;
-  const isAudioProposal = isLinkedProposal
-    ? trackProposal.linkedMediaKind === "audio"
-    : trackProposal?.kind === "clip"
-      ? trackProposal.mediaKind === "audio"
-      : trackProposal?.audioTrackId === track.id;
-  const proposalAsset = trackProposal ? assets.get(trackProposal.assetId) : undefined;
-  const proposalStartUs =
-    isLinkedProposal && trackProposal.linkedTimelineStartUs !== undefined
-      ? trackProposal.linkedTimelineStartUs
-      : trackProposal?.timelineStartUs;
-  const proposalEndUs =
-    isLinkedProposal && trackProposal.linkedTimelineEndUs !== undefined
-      ? trackProposal.linkedTimelineEndUs
-      : trackProposal?.timelineEndUs;
-  const proposalWidth = trackProposal
-    ? Math.max(18, (proposalEndUs! - proposalStartUs!) * pixelsPerUs)
-    : 0;
+  const isAudioProposal = proposalIsAudio(trackProposal, isLinkedProposal, track.id);
+  const proposalAsset = proposalAssetFor(trackProposal, assets);
+  const proposalStartUs = proposalBoundary(trackProposal, isLinkedProposal, "start");
+  const proposalEndUs = proposalBoundary(trackProposal, isLinkedProposal, "end");
+  const proposalWidth = proposalPixelWidth(proposalStartUs, proposalEndUs, pixelsPerUs);
 
   return (
     <div
@@ -202,7 +185,7 @@ export function TimelineTrackHeader({
     void execute({ type: "track.update", trackId: track.id, name: trimmed });
   }
 
-  const kindLabel = track.kind === "audio" ? "A" : track.kind === "overlay" ? "O" : "V";
+  const kindLabel = trackKindLabel(track.kind);
   const trackColor = timelinePaletteColor(paletteId, track, undefined);
   return (
     <div className="relative grid content-center gap-0.5 px-2" style={{ height }}>
@@ -241,7 +224,7 @@ export function TimelineTrackHeader({
       <div className="flex items-center gap-0.5 pl-6">
         <Button
           size="icon-sm"
-          variant={track.muted ? "secondary" : "ghost"}
+          variant={toggleVariant(track.muted)}
           className="size-6"
           aria-label={track.muted ? `Unmute ${track.name}` : `Mute ${track.name}`}
           title={track.muted ? "Unmute track" : "Mute track"}
@@ -249,11 +232,11 @@ export function TimelineTrackHeader({
             void execute({ type: "track.update", trackId: track.id, muted: !track.muted })
           }
         >
-          {track.muted ? <VolumeX size={11} /> : <Volume2 size={11} />}
+          <TrackVolumeIcon muted={track.muted} />
         </Button>
         <Button
           size="icon-sm"
-          variant={track.locked ? "secondary" : "ghost"}
+          variant={toggleVariant(track.locked)}
           className="size-6"
           aria-label={track.locked ? `Unlock ${track.name}` : `Lock ${track.name}`}
           title={track.locked ? "Unlock track" : "Lock track"}
@@ -261,7 +244,7 @@ export function TimelineTrackHeader({
             void execute({ type: "track.update", trackId: track.id, locked: !track.locked })
           }
         >
-          {track.locked ? <Lock size={11} /> : <LockOpen size={11} />}
+          <TrackLockIcon locked={track.locked} />
         </Button>
         <Button
           size="icon-sm"
@@ -303,4 +286,68 @@ export function TimelineTrackHeader({
       </div>
     </div>
   );
+}
+
+function proposalForTrack(
+  proposal: TimelineDropProposal | null,
+  trackId: Track["id"],
+): TimelineDropProposal | null {
+  if (proposal?.trackId === trackId) return proposal;
+  if (proposal?.audioTrackId === trackId) return proposal;
+  if (proposal?.linkedTrackId === trackId) return proposal;
+  return null;
+}
+
+function proposalIsAudio(
+  proposal: TimelineDropProposal | null,
+  linked: boolean,
+  trackId: Track["id"],
+): boolean {
+  if (linked) return proposal?.linkedMediaKind === "audio";
+  if (proposal?.kind === "clip") return proposal.mediaKind === "audio";
+  return proposal?.audioTrackId === trackId;
+}
+
+function proposalAssetFor(
+  proposal: TimelineDropProposal | null,
+  assets: Map<string, Asset>,
+): Asset | undefined {
+  return proposal ? assets.get(proposal.assetId) : undefined;
+}
+
+function proposalBoundary(
+  proposal: TimelineDropProposal | null,
+  linked: boolean,
+  edge: "start" | "end",
+): TimeUs | undefined {
+  if (!proposal) return undefined;
+  if (linked)
+    return edge === "start" ? proposal.linkedTimelineStartUs : proposal.linkedTimelineEndUs;
+  return edge === "start" ? proposal.timelineStartUs : proposal.timelineEndUs;
+}
+
+function proposalPixelWidth(
+  startUs: TimeUs | undefined,
+  endUs: TimeUs | undefined,
+  pixelsPerUs: number,
+): number {
+  if (startUs === undefined || endUs === undefined) return 0;
+  return Math.max(18, (endUs - startUs) * pixelsPerUs);
+}
+
+function trackKindLabel(kind: Track["kind"]): string {
+  if (kind === "audio") return "A";
+  return kind === "overlay" ? "O" : "V";
+}
+
+function toggleVariant(active: boolean): "secondary" | "ghost" {
+  return active ? "secondary" : "ghost";
+}
+
+function TrackVolumeIcon({ muted }: { muted: boolean }) {
+  return muted ? <VolumeX size={11} /> : <Volume2 size={11} />;
+}
+
+function TrackLockIcon({ locked }: { locked: boolean }) {
+  return locked ? <Lock size={11} /> : <LockOpen size={11} />;
 }

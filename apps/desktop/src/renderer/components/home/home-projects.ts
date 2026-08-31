@@ -47,22 +47,27 @@ export function sortHomeProjects(
   sort: ProjectSort,
   details: Record<string, RecentProjectDetails>,
 ): RecentProject[] {
-  return projects.toSorted((left, right) => {
-    const detailOrder =
-      sort === "name"
-        ? 0
-        : compareDescendingNullable(
-            numericDetail(
-              left,
-              details,
-              sort === "modified" ? "modifiedAt" : sort === "created" ? "createdAt" : "sizeBytes",
-            ),
-            numericDetail(
-              right,
-              details,
-              sort === "modified" ? "modifiedAt" : sort === "created" ? "createdAt" : "sizeBytes",
-            ),
-          );
-    return detailOrder || compareNames(left, right);
-  });
+  const field = detailField(sort);
+  return projects.toSorted((left, right) => compareProjects(left, right, field, details));
+}
+
+function detailField(sort: ProjectSort): keyof RecentProjectDetails | null {
+  if (sort === "modified") return "modifiedAt";
+  if (sort === "created") return "createdAt";
+  if (sort === "size") return "sizeBytes";
+  return null;
+}
+
+function compareProjects(
+  left: RecentProject,
+  right: RecentProject,
+  field: keyof RecentProjectDetails | null,
+  details: Record<string, RecentProjectDetails>,
+): number {
+  if (!field) return compareNames(left, right);
+  const detailOrder = compareDescendingNullable(
+    numericDetail(left, details, field),
+    numericDetail(right, details, field),
+  );
+  return detailOrder || compareNames(left, right);
 }

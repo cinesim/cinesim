@@ -24,13 +24,12 @@ function selectedSemanticClip(
   selectedClipId: string | null,
 ): SemanticSelection | null {
   if (!selectedClipId) return null;
-  for (const composition of session.program.compositions) {
-    for (const track of composition.timeline.tracks) {
-      const clip = track.clips.find((candidate) => candidate.id === selectedClipId);
-      if (clip) return { clip, ...(clip.content ? { content: clip.content } : {}) };
-    }
-  }
-  return null;
+  const clip = session.program.compositions
+    .flatMap((composition) => composition.timeline.tracks)
+    .flatMap((track) => track.clips)
+    .find((candidate) => candidate.id === selectedClipId);
+  if (!clip) return null;
+  return { clip, ...(clip.content ? { content: clip.content } : {}) };
 }
 
 const CLIP_INSPECTOR_PROPERTIES = new Set([
