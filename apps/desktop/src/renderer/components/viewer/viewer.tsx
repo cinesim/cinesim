@@ -161,7 +161,7 @@ export function Viewer({
               <ViewerTransformOverlay
                 asset={selectedAsset}
                 composition={selection.composition}
-                disabled={transformCommitPending}
+                disabled={transformCommitPending || runtime?.playing === true}
                 displaySize={displaySize}
                 frameRef={frameRef}
                 transform={displayedTransform}

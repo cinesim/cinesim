@@ -114,6 +114,7 @@ describe("viewer transform controls", () => {
                 clips: [
                   {
                     id: "clip_one",
+                    assetId: "asset_one",
                     enabled: true,
                     timelineStartUs: 0,
                     durationUs: 1_000_000,

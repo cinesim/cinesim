@@ -30,13 +30,14 @@ fn vertexMain(@builtin(vertex_index) index: u32) -> VertexOutput {
     vec2f(0.0, 0.0), vec2f(1.0, 1.0), vec2f(1.0, 0.0)
   );
   let angle = layer.opacityAndRadius.z;
+  let scaled = positions[index] * layer.offsetAndScale.zw;
   let rotated = vec2f(
-    positions[index].x * cos(angle) - positions[index].y * sin(angle),
-    positions[index].x * sin(angle) + positions[index].y * cos(angle)
+    scaled.x * cos(angle) - scaled.y * sin(angle),
+    scaled.x * sin(angle) + scaled.y * cos(angle)
   );
   var output: VertexOutput;
   output.position = vec4f(
-    rotated * layer.offsetAndScale.zw + layer.offsetAndScale.xy,
+    rotated + layer.offsetAndScale.xy,
     0.0,
     1.0
   );
@@ -97,13 +98,14 @@ fn vertexMain(@builtin(vertex_index) index: u32) -> VertexOutput {
     vec2f(0.0, 0.0), vec2f(1.0, 1.0), vec2f(1.0, 0.0)
   );
   let angle = graphic.transformParams.x;
+  let scaled = positions[index] * graphic.offsetAndScale.zw;
   let rotated = vec2f(
-    positions[index].x * cos(angle) - positions[index].y * sin(angle),
-    positions[index].x * sin(angle) + positions[index].y * cos(angle)
+    scaled.x * cos(angle) - scaled.y * sin(angle),
+    scaled.x * sin(angle) + scaled.y * cos(angle)
   );
   var output: VertexOutput;
   output.position = vec4f(
-    rotated * graphic.offsetAndScale.zw + graphic.offsetAndScale.xy,
+    rotated + graphic.offsetAndScale.xy,
     0.0,
     1.0
   );

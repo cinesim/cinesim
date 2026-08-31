@@ -20,6 +20,7 @@ import {
 } from "./inspector-controls";
 import {
   CLIP_INSPECTOR_PROPERTIES,
+  inspectorSelectionMatches,
   matchesInspectorQuery,
   selectedSemanticClip,
 } from "./inspector-model";
@@ -32,6 +33,9 @@ export function Inspector({ session }: { session: DesktopProjectSession }) {
   const asset = selection?.clip.assetId
     ? session.project.assets.find((candidate) => candidate.id === selection.clip.assetId)
     : null;
+  const hasMatches = selection
+    ? inspectorSelectionMatches(session, selection, asset !== null, query)
+    : false;
 
   return (
     <aside className="flex min-h-0 flex-col bg-panel">
@@ -140,6 +144,11 @@ export function Inspector({ session }: { session: DesktopProjectSession }) {
                   <ReadonlyField label="Audio" value={asset.hasAudio ? "Present" : "None"} />
                 </InspectorGroup>
               )}
+            {!hasMatches && (
+              <p className="px-2 py-8 text-center text-ui-xs text-muted">
+                No properties match “{query.trim()}”
+              </p>
+            )}
           </div>
         ) : (
           <Empty className="h-44">

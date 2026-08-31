@@ -81,6 +81,43 @@ export function sceneMatchesInspectorQuery(
   return node.children.some((child) => sceneMatchesInspectorQuery(child, editMap, schemas, query));
 }
 
+export function inspectorSelectionMatches(
+  session: DesktopProjectSession,
+  selection: SemanticSelection,
+  hasAsset: boolean,
+  query: string,
+): boolean {
+  if (query.trim().length === 0) return true;
+  if (
+    matchesInspectorQuery(query, "timing", "timeline start", "duration", "source in", "source out")
+  )
+    return true;
+  const bindings = session.editMap.nodes[selection.clip.id];
+  const clipProperties = session.propertySchemas.clip?.properties;
+  if (
+    bindings &&
+    clipProperties &&
+    Object.values(clipProperties).some(
+      (property) =>
+        CLIP_INSPECTOR_PROPERTIES.has(property.name) &&
+        bindings.properties[property.name] !== undefined &&
+        propertyMatchesQuery(property, query),
+    )
+  )
+    return true;
+  if (
+    selection.content &&
+    sceneMatchesInspectorQuery(
+      selection.content,
+      session.editMap.nodes,
+      session.propertySchemas,
+      query,
+    )
+  )
+    return true;
+  return hasAsset && matchesInspectorQuery(query, "source", "resolution", "frame rate", "audio");
+}
+
 export function groupLabel(group: string): string {
   return group.slice(0, 1).toUpperCase() + group.slice(1);
 }

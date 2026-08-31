@@ -14,6 +14,7 @@ export function selectedVisualClip(
     const clip = track.clips.find((candidate) => candidate.id === clipId);
     if (
       clip?.enabled &&
+      clip.assetId !== undefined &&
       playheadUs >= clip.timelineStartUs &&
       playheadUs < clip.timelineStartUs + clip.durationUs
     )
