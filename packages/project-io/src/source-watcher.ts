@@ -13,6 +13,7 @@ export class SourceProjectWatcher {
   #watcher: FSWatcher | null = null;
   #timer: ReturnType<typeof setTimeout> | null = null;
   #acceptedGeneration: string;
+  #hasReloadDiagnostics = false;
   #request = 0;
 
   constructor(
@@ -47,21 +48,37 @@ export class SourceProjectWatcher {
     const request = ++this.#request;
     try {
       const snapshot = await this.repository.load();
-      if (request !== this.#request || snapshot.generation === this.#acceptedGeneration) return;
-      this.#acceptedGeneration = snapshot.generation;
-      await this.events.accepted(snapshot);
+      await this.#handleLoadedSnapshot(request, snapshot);
     } catch (error) {
-      if (request !== this.#request) return;
-      const diagnostic: IrDiagnostic =
-        error instanceof CompilerError
-          ? error.diagnostic
-          : {
-              severity: "error",
-              code: "SOURCE_RELOAD_FAILED",
-              message: error instanceof Error ? error.message : String(error),
-            };
-      await this.events.diagnostics([diagnostic]);
+      await this.#handleLoadFailure(request, error);
     }
+  }
+
+  async #handleLoadedSnapshot(request: number, snapshot: SourceProjectSnapshot): Promise<void> {
+    if (request !== this.#request) return;
+    if (snapshot.generation === this.#acceptedGeneration) {
+      if (!this.#hasReloadDiagnostics) return;
+      this.#hasReloadDiagnostics = false;
+      await this.events.diagnostics([]);
+      return;
+    }
+    this.#hasReloadDiagnostics = false;
+    this.#acceptedGeneration = snapshot.generation;
+    await this.events.accepted(snapshot);
+  }
+
+  async #handleLoadFailure(request: number, error: unknown): Promise<void> {
+    if (request !== this.#request) return;
+    this.#hasReloadDiagnostics = true;
+    const diagnostic: IrDiagnostic =
+      error instanceof CompilerError
+        ? error.diagnostic
+        : {
+            severity: "error",
+            code: "SOURCE_RELOAD_FAILED",
+            message: error instanceof Error ? error.message : String(error),
+          };
+    await this.events.diagnostics([diagnostic]);
   }
 
   close(): void {

@@ -36,6 +36,13 @@ describe("SourceProjectWatcher", () => {
     expect(accepted).toEqual([]);
     expect(diagnostics.at(-1)).toBeDefined();
 
+    await writeFile(sourcePath, valid);
+    await watcher.checkNow();
+    expect(accepted).toEqual([]);
+    expect(diagnostics.at(-1)).toEqual([]);
+
+    await writeFile(sourcePath, "export const main = <composition");
+    await watcher.checkNow();
     await writeFile(sourcePath, valid.replace('name="Main timeline"', 'name="Recovered"'));
     await watcher.checkNow();
     expect(accepted).toHaveLength(1);
