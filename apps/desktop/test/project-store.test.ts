@@ -8,6 +8,13 @@ import { canonicalProjectSizeBytes } from "../src/main/projects/project-size";
 import { isTemporaryMediaSelection } from "../src/main/projects/media-import";
 
 const temporaryDirectories: string[] = [];
+const projectStores: DesktopProjectStore[] = [];
+
+function createProjectStore(): DesktopProjectStore {
+  const store = new DesktopProjectStore();
+  projectStores.push(store);
+  return store;
+}
 
 function createSilentWave(durationSeconds = 1, sampleRate = 8_000): Uint8Array {
   const sampleCount = durationSeconds * sampleRate;
@@ -36,6 +43,7 @@ function createSilentWave(durationSeconds = 1, sampleRate = 8_000): Uint8Array {
 }
 
 afterEach(async () => {
+  for (const store of projectStores.splice(0)) await store.close();
   await Promise.all(
     temporaryDirectories.splice(0).map((directory) => rm(directory, { recursive: true })),
   );
@@ -224,10 +232,10 @@ describe("DesktopProjectStore", () => {
   it("rejects a stale desktop writer without changing its live session", async () => {
     const parentDirectory = await mkdtemp(join(tmpdir(), "cinesim-stale-writer-test-"));
     temporaryDirectories.push(parentDirectory);
-    const creator = new DesktopProjectStore();
+    const creator = createProjectStore();
     const created = await creator.create(parentDirectory, "Stale writer fixture");
-    const first = new DesktopProjectStore();
-    const stale = new DesktopProjectStore();
+    const first = createProjectStore();
+    const stale = createProjectStore();
     await Promise.all([first.open(created.directory), stale.open(created.directory)]);
     const asset = {
       id: "asset_first_writer" as const,
@@ -245,7 +253,7 @@ describe("DesktopProjectStore", () => {
       }),
     ).rejects.toMatchObject({ code: "SOURCE_PROJECT_CONFLICT" });
     expect(stale.project?.assets).toEqual([]);
-    const reopened = new DesktopProjectStore();
+    const reopened = createProjectStore();
     await expect(reopened.open(created.directory)).resolves.toMatchObject({
       project: { assets: [expect.objectContaining({ id: "asset_first_writer" })] },
     });
