@@ -1,6 +1,7 @@
 import { timeUs } from "@cinesim/core";
 import type { Asset, AssetId, TimeUs, Transform } from "@cinesim/core";
 import { findIrComposition } from "@cinesim/ir";
+import type { IrClip, IrTrack } from "@cinesim/ir";
 import type {
   CompositorColor,
   CompositorGraphicLayer,
@@ -566,64 +567,14 @@ export class PlaybackRuntime {
     const composition = findIrComposition(this.#project.program);
     const durationUs = compositionDurationUs(this.#project);
     const rawTimeUs = this.#clock.now();
-    if (
-      (this.#clock.rate > 0 && rawTimeUs >= durationUs) ||
-      (this.#clock.rate < 0 && rawTimeUs <= 0)
-    ) {
+    if (this.#transportEnded(rawTimeUs, durationUs)) {
       this.#clock.seek(this.#clock.rate > 0 ? durationUs : timeUs(0));
       this.pause();
       return;
     }
-
     const safeTimeUs = timeUs(Math.max(0, Math.min(rawTimeUs, durationUs)));
-    const frameIndex = frameIndexAt(safeTimeUs, composition.frameRate);
-    if (frameIndex !== this.#lastPlaybackFrameIndex) {
-      if (this.#lastPlaybackFrameIndex !== null)
-        this.#droppedFrames += Math.max(0, Math.abs(frameIndex - this.#lastPlaybackFrameIndex) - 1);
-      this.#lastPlaybackFrameIndex = frameIndex;
-      this.#playbackRequests += 1;
-      const mode: PreviewMode = {
-        kind: "timeline",
-        timeUs: frameTimeUs(frameIndex, composition.frameRate),
-      };
-      this.#playbackFrameInFlight = true;
-      let decoded: DecodedSceneFrame;
-      try {
-        decoded =
-          this.#clock.rate > 0
-            ? await this.#decodeSequential(mode.timeUs)
-            : await this.#decodeRandom(mode);
-      } catch (error) {
-        this.#playbackFailedRequests += 1;
-        if (this.#isCurrentTransport(generation)) this.#scheduleTransportTick(generation);
-        throw error;
-      } finally {
-        this.#playbackFrameInFlight = false;
-      }
-      if (!this.#isCurrentTransport(generation)) {
-        for (const layer of decoded.layers) layer.frame.close();
-        this.#playbackFramesObsolete += 1;
-        return;
-      }
-      this.#compositor.render(
-        decoded.layers,
-        { width: composition.width, height: composition.height },
-        decoded.graphics,
-        decoded.background,
-      );
-      this.#renderedSinceSnapshot += 1;
-      this.#playbackFramesPresented += 1;
-      this.#mode = mode;
-      this.#prewarm(mode);
-    }
-
-    if (
-      this.#clock.rate === 1 &&
-      this.#audioScheduledUntilUs - safeTimeUs < 700_000 &&
-      this.#audioTransportGeneration === this.#audioGeneration &&
-      this.#audioStartingGeneration !== this.#audioGeneration &&
-      this.#audioSchedulingGeneration !== this.#audioGeneration
-    )
+    await this.#presentPlaybackFrame(generation, safeTimeUs, composition);
+    if (this.#shouldScheduleAudio(safeTimeUs)) {
       this.#runBackground(
         this.#scheduleAudioWindow(
           this.#audioScheduledUntilUs,
@@ -631,9 +582,75 @@ export class PlaybackRuntime {
           this.#audioGeneration,
         ),
       );
+    }
     if (this.#now() - this.#lastSnapshotAt > 100) this.#emit();
     if (!this.#isCurrentTransport(generation)) return;
     this.#scheduleTransportTick(generation);
+  }
+
+  #transportEnded(timeUs: TimeUs, durationUs: TimeUs): boolean {
+    return (this.#clock.rate > 0 && timeUs >= durationUs) || (this.#clock.rate < 0 && timeUs <= 0);
+  }
+
+  #nextPlaybackMode(safeTimeUs: TimeUs, frameRate: number): PreviewMode | null {
+    const frameIndex = frameIndexAt(safeTimeUs, frameRate);
+    if (frameIndex === this.#lastPlaybackFrameIndex) return null;
+    if (this.#lastPlaybackFrameIndex !== null) {
+      this.#droppedFrames += Math.max(0, Math.abs(frameIndex - this.#lastPlaybackFrameIndex) - 1);
+    }
+    this.#lastPlaybackFrameIndex = frameIndex;
+    this.#playbackRequests += 1;
+    return { kind: "timeline", timeUs: frameTimeUs(frameIndex, frameRate) };
+  }
+
+  async #decodePlaybackFrame(mode: PreviewMode, generation: number): Promise<DecodedSceneFrame> {
+    this.#playbackFrameInFlight = true;
+    try {
+      return this.#clock.rate > 0
+        ? await this.#decodeSequential(mode.kind === "timeline" ? mode.timeUs : timeUs(0))
+        : await this.#decodeRandom(mode);
+    } catch (error) {
+      this.#playbackFailedRequests += 1;
+      if (this.#isCurrentTransport(generation)) this.#scheduleTransportTick(generation);
+      throw error;
+    } finally {
+      this.#playbackFrameInFlight = false;
+    }
+  }
+
+  async #presentPlaybackFrame(
+    generation: number,
+    safeTimeUs: TimeUs,
+    composition: ReturnType<typeof findIrComposition>,
+  ): Promise<void> {
+    const mode = this.#nextPlaybackMode(safeTimeUs, composition.frameRate);
+    if (mode === null) return;
+    const decoded = await this.#decodePlaybackFrame(mode, generation);
+    if (!this.#isCurrentTransport(generation)) {
+      decoded.layers.forEach((layer) => layer.frame.close());
+      this.#playbackFramesObsolete += 1;
+      return;
+    }
+    this.#compositor.render(
+      decoded.layers,
+      { width: composition.width, height: composition.height },
+      decoded.graphics,
+      decoded.background,
+    );
+    this.#renderedSinceSnapshot += 1;
+    this.#playbackFramesPresented += 1;
+    this.#mode = mode;
+    this.#prewarm(mode);
+  }
+
+  #shouldScheduleAudio(safeTimeUs: TimeUs): boolean {
+    return (
+      this.#clock.rate === 1 &&
+      this.#audioScheduledUntilUs - safeTimeUs < 700_000 &&
+      this.#audioTransportGeneration === this.#audioGeneration &&
+      this.#audioStartingGeneration !== this.#audioGeneration &&
+      this.#audioSchedulingGeneration !== this.#audioGeneration
+    );
   }
 
   #scheduleTransportTick(generation: number): void {
@@ -804,59 +821,75 @@ export class PlaybackRuntime {
     }
   }
 
-  async #scheduleAudioWindow(fromUs: TimeUs, toUs: TimeUs, generation: number): Promise<void> {
-    if (
+  #audioWindowUnavailable(fromUs: TimeUs, toUs: TimeUs, generation: number): boolean {
+    return (
       !this.#audioScheduler ||
       toUs <= fromUs ||
       generation !== this.#audioGeneration ||
       this.#audioTransportGeneration !== generation ||
       !this.#clock.playing
-    )
-      return;
+    );
+  }
+
+  #audioWorkForClip(
+    track: IrTrack,
+    clip: IrClip,
+    assets: ReadonlyMap<AssetId, Asset>,
+    fromUs: TimeUs,
+    toUs: TimeUs,
+  ): Promise<void> | undefined {
+    const asset = clip.assetId ? assets.get(clip.assetId as AssetId) : undefined;
+    const clipEndUs = clip.timelineStartUs + clip.durationUs;
+    if (
+      !asset ||
+      !irClipCarriesAudio(asset, clip, track.kind) ||
+      clipEndUs <= fromUs ||
+      clip.timelineStartUs >= toUs
+    ) {
+      return undefined;
+    }
+    const timelineFromUs = timeUs(Math.max(fromUs, clip.timelineStartUs));
+    const timelineToUs = timeUs(Math.min(toUs, clipEndUs));
+    const sourceFromUs = timeUs(
+      clip.sourceStartUs + Math.round((timelineFromUs - clip.timelineStartUs) * clip.playbackRate),
+    );
+    const source = this.#source(this.#sourceResolver.resolve(asset.id));
+    if (!source.buffers) return undefined;
+    return this.#audioScheduler!.schedule(
+      source as VideoSource & AudioSource,
+      sourceFromUs,
+      timelineFromUs,
+      timeUs(timelineToUs - timelineFromUs),
+      {
+        timelineStartUs: timeUs(clip.timelineStartUs),
+        timelineEndUs: timeUs(clipEndUs),
+        fadeInUs: timeUs(clip.fades.inUs),
+        fadeOutUs: timeUs(clip.fades.outUs),
+        gain: 10 ** (clip.audio.gainDb / 20),
+      },
+    );
+  }
+
+  #collectAudioWork(fromUs: TimeUs, toUs: TimeUs): Promise<void>[] {
+    const composition = findIrComposition(this.#project.program);
+    const assets = new Map(this.#project.assets.map((asset) => [asset.id, asset]));
+    const work: Promise<void>[] = [];
+    for (const track of composition.timeline.tracks) {
+      if (track.muted) continue;
+      for (const clip of track.clips) {
+        const scheduled = this.#audioWorkForClip(track, clip, assets, fromUs, toUs);
+        if (scheduled) work.push(scheduled);
+      }
+    }
+    return work;
+  }
+
+  async #scheduleAudioWindow(fromUs: TimeUs, toUs: TimeUs, generation: number): Promise<void> {
+    if (this.#audioWindowUnavailable(fromUs, toUs, generation)) return;
     this.#audioSchedulingGeneration = generation;
     this.#audioScheduledUntilUs = toUs;
     try {
-      const composition = findIrComposition(this.#project.program);
-      const assets = new Map(this.#project.assets.map((asset) => [asset.id, asset]));
-      const work: Promise<void>[] = [];
-      for (const track of composition.timeline.tracks) {
-        if (track.muted) continue;
-        for (const clip of track.clips) {
-          const asset = clip.assetId ? assets.get(clip.assetId as AssetId) : undefined;
-          const clipEndUs = clip.timelineStartUs + clip.durationUs;
-          if (
-            !asset ||
-            !irClipCarriesAudio(asset, clip, track.kind) ||
-            clipEndUs <= fromUs ||
-            clip.timelineStartUs >= toUs
-          )
-            continue;
-          const timelineFromUs = timeUs(Math.max(fromUs, clip.timelineStartUs));
-          const timelineToUs = timeUs(Math.min(toUs, clipEndUs));
-          const sourceFromUs = timeUs(
-            clip.sourceStartUs +
-              Math.round((timelineFromUs - clip.timelineStartUs) * clip.playbackRate),
-          );
-          const source = this.#source(this.#sourceResolver.resolve(asset.id));
-          if (!source.buffers) continue;
-          work.push(
-            this.#audioScheduler.schedule(
-              source as VideoSource & AudioSource,
-              sourceFromUs,
-              timelineFromUs,
-              timeUs(timelineToUs - timelineFromUs),
-              {
-                timelineStartUs: timeUs(clip.timelineStartUs),
-                timelineEndUs: timeUs(clipEndUs),
-                fadeInUs: timeUs(clip.fades.inUs),
-                fadeOutUs: timeUs(clip.fades.outUs),
-                gain: 10 ** (clip.audio.gainDb / 20),
-              },
-            ),
-          );
-        }
-      }
-      await Promise.all(work);
+      await Promise.all(this.#collectAudioWork(fromUs, toUs));
     } catch (error) {
       if (this.#audioTransportGeneration === generation) this.#audioTransportGeneration = null;
       throw error;

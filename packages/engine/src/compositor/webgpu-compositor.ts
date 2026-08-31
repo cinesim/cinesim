@@ -219,6 +219,40 @@ export interface WebGpuCompositorOptions {
   onError?: (error: Error) => void;
 }
 
+type DrawItem =
+  | { kind: "media"; order: number; layer: CompositorLayer }
+  | { kind: "graphic"; order: number; graphic: CompositorGraphicLayer };
+
+function relativeRadius(
+  radiusPx: number,
+  transform: Transform,
+  output: { width: number; height: number },
+): number {
+  const width = Math.abs(transform.scaleX) * Math.max(1, output.width);
+  const height = Math.abs(transform.scaleY) * Math.max(1, output.height);
+  return Math.min(0.5, Math.max(0, radiusPx) / Math.max(1, Math.min(width, height)));
+}
+
+function mediaFit(
+  layer: CompositorLayer,
+  output: { width: number; height: number },
+): { fitX: number; fitY: number; uvScaleX: number; uvScaleY: number } {
+  const sourceAspect =
+    Math.max(1, layer.frame.displayWidth) / Math.max(1, layer.frame.displayHeight);
+  const targetAspect =
+    (Math.max(0.000_1, Math.abs(layer.transform.scaleX)) * Math.max(1, output.width)) /
+    (Math.max(0.000_1, Math.abs(layer.transform.scaleY)) * Math.max(1, output.height));
+  const fit = { fitX: 1, fitY: 1, uvScaleX: 1, uvScaleY: 1 };
+  if (layer.transform.fit === "contain") {
+    if (sourceAspect > targetAspect) fit.fitY = targetAspect / sourceAspect;
+    else fit.fitX = sourceAspect / targetAspect;
+  } else if (layer.transform.fit === "cover") {
+    if (sourceAspect > targetAspect) fit.uvScaleX = targetAspect / sourceAspect;
+    else fit.uvScaleY = sourceAspect / targetAspect;
+  }
+  return fit;
+}
+
 function packGraphicUniform(
   graphic: CompositorGraphicLayer,
   radiusFraction: number,
@@ -385,6 +419,99 @@ export class WebGpuCompositor implements PreviewCompositor {
     if (this.#canvas.height !== height) this.#canvas.height = height;
   }
 
+  #drawGraphic(
+    pass: GPURenderPassEncoder,
+    graphic: CompositorGraphicLayer,
+    output: { width: number; height: number },
+    transientBuffers: GPUBuffer[],
+  ): void {
+    const radius = relativeRadius(graphic.cornerRadiusPx ?? 0, graphic.transform, output);
+    const blur = relativeRadius(graphic.blurPx ?? 0, graphic.transform, output);
+    const uniform = this.#device!.createBuffer({
+      label: "cinesim-preview-graphic-uniform",
+      size: GRAPHIC_UNIFORM_BYTE_SIZE,
+      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+    });
+    transientBuffers.push(uniform);
+    this.#device!.queue.writeBuffer(uniform, 0, packGraphicUniform(graphic, radius, blur));
+    pass.setPipeline(this.#graphicPipeline!);
+    pass.setBindGroup(
+      0,
+      this.#device!.createBindGroup({
+        label: "cinesim-preview-graphic-bind-group",
+        layout: this.#graphicPipeline!.getBindGroupLayout(0),
+        entries: [{ binding: 0, resource: { buffer: uniform } }],
+      }),
+    );
+    pass.draw(6);
+  }
+
+  #drawMedia(
+    pass: GPURenderPassEncoder,
+    layer: CompositorLayer,
+    output: { width: number; height: number },
+    transientBuffers: GPUBuffer[],
+  ): void {
+    const fit = mediaFit(layer, output);
+    const uniform = this.#device!.createBuffer({
+      label: "cinesim-preview-layer-uniform",
+      size: LAYER_UNIFORM_BYTE_SIZE,
+      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+    });
+    transientBuffers.push(uniform);
+    this.#device!.queue.writeBuffer(
+      uniform,
+      0,
+      packLayerUniform(layer.transform, fit.fitX, fit.fitY, {
+        uvScaleX: fit.uvScaleX,
+        uvScaleY: fit.uvScaleY,
+        uvOffsetX: (1 - fit.uvScaleX) / 2,
+        uvOffsetY: (1 - fit.uvScaleY) / 2,
+        cornerRadiusFraction: relativeRadius(layer.cornerRadiusPx ?? 0, layer.transform, output),
+        ...(layer.colorAdjustment === undefined ? {} : { colorAdjustment: layer.colorAdjustment }),
+      }),
+    );
+    pass.setPipeline(this.#pipeline!);
+    pass.setBindGroup(
+      0,
+      this.#device!.createBindGroup({
+        label: "cinesim-preview-layer-bind-group",
+        layout: this.#pipeline!.getBindGroupLayout(0),
+        entries: [
+          { binding: 0, resource: this.#device!.importExternalTexture({ source: layer.frame }) },
+          { binding: 1, resource: this.#sampler! },
+          { binding: 2, resource: { buffer: uniform } },
+        ],
+      }),
+    );
+    pass.draw(6);
+  }
+
+  #drawItems(
+    pass: GPURenderPassEncoder,
+    layers: readonly CompositorLayer[],
+    graphics: readonly CompositorGraphicLayer[],
+    output: { width: number; height: number },
+    transientBuffers: GPUBuffer[],
+  ): void {
+    const items: DrawItem[] = [
+      ...layers.map((layer, index) => ({
+        kind: "media" as const,
+        order: layer.order ?? index,
+        layer,
+      })),
+      ...graphics.map((graphic, index) => ({
+        kind: "graphic" as const,
+        order: graphic.order ?? layers.length + index,
+        graphic,
+      })),
+    ];
+    for (const item of items.sort((left, right) => left.order - right.order)) {
+      if (item.kind === "graphic") this.#drawGraphic(pass, item.graphic, output, transientBuffers);
+      else this.#drawMedia(pass, item.layer, output, transientBuffers);
+    }
+  }
+
   render(
     layers: CompositorLayer[],
     output = { width: this.#canvas.width, height: this.#canvas.height },
@@ -419,116 +546,7 @@ export class WebGpuCompositor implements PreviewCompositor {
           },
         ],
       });
-      const drawItems = [
-        ...layers.map((layer, index) => ({
-          kind: "media" as const,
-          order: layer.order ?? index,
-          layer,
-        })),
-        ...graphics.map((graphic, index) => ({
-          kind: "graphic" as const,
-          order: graphic.order ?? layers.length + index,
-          graphic,
-        })),
-      ].sort((left, right) => left.order - right.order);
-      for (const item of drawItems) {
-        if (item.kind === "graphic") {
-          const { graphic } = item;
-          const targetWidthPx = Math.abs(graphic.transform.scaleX) * Math.max(1, output.width);
-          const targetHeightPx = Math.abs(graphic.transform.scaleY) * Math.max(1, output.height);
-          const radiusFraction = Math.min(
-            0.5,
-            Math.max(0, graphic.cornerRadiusPx ?? 0) /
-              Math.max(1, Math.min(targetWidthPx, targetHeightPx)),
-          );
-          const blurFraction = Math.min(
-            0.5,
-            Math.max(0, graphic.blurPx ?? 0) / Math.max(1, Math.min(targetWidthPx, targetHeightPx)),
-          );
-          const uniform = this.#device.createBuffer({
-            label: "cinesim-preview-graphic-uniform",
-            size: GRAPHIC_UNIFORM_BYTE_SIZE,
-            usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
-          });
-          transientBuffers.push(uniform);
-          this.#device.queue.writeBuffer(
-            uniform,
-            0,
-            packGraphicUniform(graphic, radiusFraction, blurFraction),
-          );
-          pass.setPipeline(this.#graphicPipeline);
-          pass.setBindGroup(
-            0,
-            this.#device.createBindGroup({
-              label: "cinesim-preview-graphic-bind-group",
-              layout: this.#graphicPipeline.getBindGroupLayout(0),
-              entries: [{ binding: 0, resource: { buffer: uniform } }],
-            }),
-          );
-          pass.draw(6);
-          continue;
-        }
-
-        const { layer } = item;
-        const frameWidth = Math.max(1, layer.frame.displayWidth);
-        const frameHeight = Math.max(1, layer.frame.displayHeight);
-        const sourceAspect = frameWidth / frameHeight;
-        const targetAspect =
-          (Math.max(0.000_1, Math.abs(layer.transform.scaleX)) * Math.max(1, output.width)) /
-          (Math.max(0.000_1, Math.abs(layer.transform.scaleY)) * Math.max(1, output.height));
-        let fitX = 1;
-        let fitY = 1;
-        let uvScaleX = 1;
-        let uvScaleY = 1;
-        if (layer.transform.fit === "contain") {
-          if (sourceAspect > targetAspect) fitY = targetAspect / sourceAspect;
-          else fitX = sourceAspect / targetAspect;
-        } else if (layer.transform.fit === "cover") {
-          if (sourceAspect > targetAspect) uvScaleX = targetAspect / sourceAspect;
-          else uvScaleY = sourceAspect / targetAspect;
-        }
-        const targetWidthPx = Math.abs(layer.transform.scaleX) * Math.max(1, output.width);
-        const targetHeightPx = Math.abs(layer.transform.scaleY) * Math.max(1, output.height);
-        const radiusFraction = Math.min(
-          0.5,
-          Math.max(0, layer.cornerRadiusPx ?? 0) /
-            Math.max(1, Math.min(targetWidthPx, targetHeightPx)),
-        );
-        const uniform = this.#device.createBuffer({
-          label: "cinesim-preview-layer-uniform",
-          size: LAYER_UNIFORM_BYTE_SIZE,
-          usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
-        });
-        transientBuffers.push(uniform);
-        this.#device.queue.writeBuffer(
-          uniform,
-          0,
-          packLayerUniform(layer.transform, fitX, fitY, {
-            uvScaleX,
-            uvScaleY,
-            uvOffsetX: (1 - uvScaleX) / 2,
-            uvOffsetY: (1 - uvScaleY) / 2,
-            cornerRadiusFraction: radiusFraction,
-            ...(layer.colorAdjustment === undefined
-              ? {}
-              : { colorAdjustment: layer.colorAdjustment }),
-          }),
-        );
-        pass.setPipeline(this.#pipeline);
-        pass.setBindGroup(
-          0,
-          this.#device.createBindGroup({
-            label: "cinesim-preview-layer-bind-group",
-            layout: this.#pipeline.getBindGroupLayout(0),
-            entries: [
-              { binding: 0, resource: this.#device.importExternalTexture({ source: layer.frame }) },
-              { binding: 1, resource: this.#sampler },
-              { binding: 2, resource: { buffer: uniform } },
-            ],
-          }),
-        );
-        pass.draw(6);
-      }
+      this.#drawItems(pass, layers, graphics, output, transientBuffers);
       pass.end();
       this.#device.queue.submit([encoder.finish()]);
       submitted = true;

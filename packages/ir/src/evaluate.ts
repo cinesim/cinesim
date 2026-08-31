@@ -7,45 +7,58 @@ function interpolateNumber(from: number, to: number, progress: number): number {
 
 function interpolate(from: IrValue, to: IrValue, progress: number): IrValue {
   if (from.kind !== to.kind) return progress < 1 ? from : to;
-  if (from.kind === "number" && to.kind === "number") {
-    return { kind: "number", value: interpolateNumber(from.value, to.value, progress) };
+  switch (from.kind) {
+    case "number":
+    case "decibels":
+    case "percent":
+      return {
+        ...from,
+        value: interpolateNumber(from.value, (to as { value: number }).value, progress),
+      };
+    case "length":
+    case "angle":
+      return {
+        ...from,
+        value: interpolateNumber(from.value, (to as { value: number }).value, progress),
+      };
+    case "time":
+      return {
+        kind: "time",
+        valueUs: irTimeUs(
+          Math.round(
+            interpolateNumber(
+              from.valueUs,
+              (to as Extract<IrValue, { kind: "time" }>).valueUs,
+              progress,
+            ),
+          ),
+        ),
+      };
+    case "vector":
+      return {
+        kind: "vector",
+        values: from.values.map((value, index) =>
+          interpolateNumber(
+            value,
+            (to as Extract<IrValue, { kind: "vector" }>).values[index]!,
+            progress,
+          ),
+        ) as [number, number],
+      };
+    case "rectangle":
+      return {
+        kind: "rectangle",
+        values: from.values.map((value, index) =>
+          interpolateNumber(
+            value,
+            (to as Extract<IrValue, { kind: "rectangle" }>).values[index]!,
+            progress,
+          ),
+        ) as [number, number, number, number],
+      };
+    default:
+      return progress < 1 ? from : to;
   }
-  if (from.kind === "length" && to.kind === "length") {
-    return { kind: "length", unit: "px", value: interpolateNumber(from.value, to.value, progress) };
-  }
-  if (from.kind === "angle" && to.kind === "angle") {
-    return { kind: "angle", unit: "deg", value: interpolateNumber(from.value, to.value, progress) };
-  }
-  if (from.kind === "decibels" && to.kind === "decibels") {
-    return { kind: "decibels", value: interpolateNumber(from.value, to.value, progress) };
-  }
-  if (from.kind === "percent" && to.kind === "percent") {
-    return { kind: "percent", value: interpolateNumber(from.value, to.value, progress) };
-  }
-  if (from.kind === "time" && to.kind === "time") {
-    return {
-      kind: "time",
-      valueUs: irTimeUs(Math.round(interpolateNumber(from.valueUs, to.valueUs, progress))),
-    };
-  }
-  if (from.kind === "vector" && to.kind === "vector") {
-    return {
-      kind: "vector",
-      values: [
-        interpolateNumber(from.values[0], to.values[0], progress),
-        interpolateNumber(from.values[1], to.values[1], progress),
-      ],
-    };
-  }
-  if (from.kind === "rectangle" && to.kind === "rectangle") {
-    return {
-      kind: "rectangle",
-      values: from.values.map((value, index) =>
-        interpolateNumber(value, to.values[index]!, progress),
-      ) as [number, number, number, number],
-    };
-  }
-  return progress < 1 ? from : to;
 }
 
 function applyEasing(progress: number, easing: string): number {

@@ -46,11 +46,14 @@ not a second bundler.
 The API has a small Vite config used solely to bundle its system-browser authentication client.
 Hono itself remains a standards-based server entry point.
 
-For targeted main-process readability work, `vp run complexity:report` measures SonarJS cognitive
-complexity for every nontrivial function and writes Markdown and JSON reports under the gitignored
-`.context/` directory. The working contract is a hard ceiling of 15, a helper target of 10, and a
-human-classified orchestration target of 5. This is a refactoring report rather than a CI gate:
-scores identify where to read first, while top-to-bottom clarity remains the acceptance criterion.
+For targeted readability work, `vp run complexity:report` measures SonarJS cognitive complexity
+across desktop main-process and package code, then writes Markdown and JSON reports under the
+gitignored `.context/` directory. The report separates the complete baseline from files changed
+against `origin/main`, and includes changed-file line counts so oversized modules remain visible.
+Set `CINESIM_COMPLEXITY_BASE` to compare against another base. The working contract is a hard
+ceiling of 15, a helper target of 10, and a human-classified orchestration target of 5. This is a
+refactoring report rather than a CI gate: scores identify where to read first, while top-to-bottom
+clarity remains the acceptance criterion.
 
 ## Project state
 

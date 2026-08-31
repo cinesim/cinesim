@@ -224,239 +224,262 @@ function clipOpacity(clip: IrClip, timelineTimeUs: number): number {
   return clip.transform.opacity * Math.max(0, Math.min(fadeIn, fadeOut));
 }
 
+interface ContentOutput {
+  composition: { width: number; height: number };
+  clip: IrClip;
+  track: IrTrack;
+  sourceTimeUs: TimeUs;
+  assets: ReadonlyMap<string, Asset>;
+  media: ResolvedLayer[];
+  graphics: ResolvedGraphicLayer[];
+  drawOrder: { value: number };
+}
+
+interface NodeLayout {
+  scaleX: number;
+  scaleY: number;
+  nodeX: number;
+  nodeY: number;
+  opacity: number;
+  effects: readonly IrEffect[];
+}
+
+function nodeLayout(node: EvaluatedIrNode, context: LayoutContext): NodeLayout {
+  const nodeScale = numeric(node.props.scale, 1);
+  return {
+    scaleX: context.scaleX * nodeScale * numeric(node.props.scaleX, 1),
+    scaleY: context.scaleY * nodeScale * numeric(node.props.scaleY, 1),
+    nodeX: context.originX + numeric(node.props.x, 0) * context.scaleX,
+    nodeY: context.originY + numeric(node.props.y, 0) * context.scaleY,
+    opacity: context.opacity * numeric(node.props.opacity, 1),
+    effects: [...context.effects, ...node.effects],
+  };
+}
+
+function contentBox(
+  node: EvaluatedIrNode,
+  context: LayoutContext,
+  layout: NodeLayout,
+  forcedBox?: Box,
+): Box {
+  return (
+    forcedBox ?? {
+      x: layout.nodeX,
+      y: layout.nodeY,
+      width:
+        numeric(node.props.width, context.available.width / Math.max(context.scaleX, 0.001)) *
+        layout.scaleX,
+      height:
+        numeric(node.props.height, context.available.height / Math.max(context.scaleY, 0.001)) *
+        layout.scaleY,
+    }
+  );
+}
+
+function childLayoutContext(layout: NodeLayout, available: Box): LayoutContext {
+  return {
+    originX: layout.nodeX,
+    originY: layout.nodeY,
+    scaleX: layout.scaleX,
+    scaleY: layout.scaleY,
+    opacity: layout.opacity,
+    available,
+    effects: layout.effects,
+  };
+}
+
+function resolveStack(
+  node: EvaluatedIrNode,
+  context: LayoutContext,
+  layout: NodeLayout,
+  available: Box,
+  output: ContentOutput,
+): void {
+  const gap = numeric(node.props.gap, 0) * layout.scaleY;
+  const horizontal = stringValue(node.props.direction, "vertical") === "horizontal";
+  const childContext = childLayoutContext(layout, available);
+  let cursor = 0;
+  for (const child of node.children) {
+    const box = {
+      x: available.x + (horizontal ? cursor : 0),
+      y: available.y + (horizontal ? 0 : cursor),
+      width:
+        numeric(child.props.width, available.width / Math.max(layout.scaleX, 0.001)) *
+        layout.scaleX,
+      height:
+        numeric(child.props.height, available.height / Math.max(layout.scaleY, 0.001)) *
+        layout.scaleY,
+    };
+    resolveContent(child, childContext, box, output);
+    cursor += (horizontal ? box.width : box.height) + gap;
+  }
+}
+
+function resolveContainer(
+  node: EvaluatedIrNode,
+  context: LayoutContext,
+  layout: NodeLayout,
+  output: ContentOutput,
+): void {
+  const available = contentBox(node, context, layout);
+  if (node.kind === "stack") return resolveStack(node, context, layout, available, output);
+  const childContext = childLayoutContext(layout, available);
+  node.children.forEach((child) => resolveContent(child, childContext, undefined, output));
+}
+
+function resolveGrid(
+  node: EvaluatedIrNode,
+  context: LayoutContext,
+  layout: NodeLayout,
+  forcedBox: Box | undefined,
+  output: ContentOutput,
+): void {
+  const area: Box = forcedBox ?? {
+    x: layout.nodeX,
+    y: layout.nodeY,
+    width: numeric(node.props.width, context.available.width) * context.scaleX,
+    height: numeric(node.props.height, context.available.height) * context.scaleY,
+  };
+  const columns = Math.max(1, Math.floor(numeric(node.props.columns, 1)));
+  const rows = Math.max(
+    1,
+    Math.floor(numeric(node.props.rows, Math.ceil(node.children.length / columns))),
+  );
+  const gapX = numeric(node.props.columnGap, numeric(node.props.gap, 0)) * context.scaleX;
+  const gapY = numeric(node.props.rowGap, numeric(node.props.gap, 0)) * context.scaleY;
+  const cellWidth = Math.max(0, (area.width - gapX * (columns - 1)) / columns);
+  const cellHeight = Math.max(0, (area.height - gapY * (rows - 1)) / rows);
+  const childContext = {
+    ...childLayoutContext(layout, area),
+    originX: area.x,
+    originY: area.y,
+  };
+  node.children.slice(0, columns * rows).forEach((child, index) => {
+    const column = index % columns;
+    const row = Math.floor(index / columns);
+    resolveContent(
+      child,
+      childContext,
+      {
+        x: area.x + column * (cellWidth + gapX),
+        y: area.y + row * (cellHeight + gapY),
+        width: cellWidth,
+        height: cellHeight,
+      },
+      output,
+    );
+  });
+}
+
+function resolveMediaNode(
+  node: EvaluatedIrNode,
+  box: Box,
+  layout: NodeLayout,
+  output: ContentOutput,
+): void {
+  const assetId = resource(node.props.source);
+  const asset = assetId === undefined ? undefined : output.assets.get(assetId);
+  if (!asset || asset.kind === "audio") return;
+  output.media.push({
+    asset,
+    clip: output.clip,
+    track: output.track,
+    nodeId: node.id,
+    sourceTimeUs: output.sourceTimeUs,
+    opacity: layout.opacity,
+    transform: normalizedTransform(
+      box,
+      output.composition.width,
+      output.composition.height,
+      stringValue(node.props.fit, "contain") as Transform["fit"],
+      layout.opacity,
+      output.clip.transform,
+    ),
+    cornerRadiusPx: numeric(node.props.radius, numeric(node.props.cornerRadius, 0)),
+    colorAdjustment: colorAdjustment(layout.effects),
+    order: output.drawOrder.value++,
+  });
+}
+
+function resolveShape(
+  node: EvaluatedIrNode,
+  box: Box,
+  layout: NodeLayout,
+  output: ContentOutput,
+): void {
+  output.graphics.push({
+    nodeId: node.id,
+    kind: "solid",
+    transform: normalizedTransform(
+      box,
+      output.composition.width,
+      output.composition.height,
+      "fill",
+      layout.opacity,
+      output.clip.transform,
+    ),
+    color: parseColor(stringValue(node.props.fill, "#ffffff")),
+    cornerRadiusPx:
+      node.kind === "ellipse"
+        ? Math.min(box.width, box.height) / 2
+        : numeric(node.props.radius, numeric(node.props.cornerRadius, 0)),
+    blurPx: numeric(node.props.blur, 0),
+    order: output.drawOrder.value++,
+  });
+}
+
+function resolveText(
+  node: EvaluatedIrNode,
+  box: Box,
+  layout: NodeLayout,
+  output: ContentOutput,
+): void {
+  const fontSize = Math.max(1, numeric(node.props.fontSize, 32) * layout.scaleY);
+  const glyphWidth = fontSize * (5 / 7);
+  const advance = glyphWidth + numeric(node.props.letterSpacing, fontSize / 7) * layout.scaleX;
+  const color = parseColor(stringValue(node.props.color, stringValue(node.props.fill, "#ffffff")));
+  for (const [index, character] of stringValue(node.props.text, "").split("").entries()) {
+    if (character === " ") continue;
+    output.graphics.push({
+      nodeId: `${node.id}/glyph-${index}`,
+      kind: "glyph",
+      transform: normalizedTransform(
+        { x: box.x + index * advance, y: box.y, width: glyphWidth, height: fontSize },
+        output.composition.width,
+        output.composition.height,
+        "fill",
+        layout.opacity,
+        output.clip.transform,
+      ),
+      color,
+      cornerRadiusPx: 0,
+      blurPx: 0,
+      glyph: glyphBits(character),
+      order: output.drawOrder.value++,
+    });
+  }
+}
+
 function resolveContent(
   node: EvaluatedIrNode,
   context: LayoutContext,
   forcedBox: Box | undefined,
-  composition: { width: number; height: number },
-  clip: IrClip,
-  track: IrTrack,
-  sourceTimeUs: TimeUs,
-  assets: ReadonlyMap<string, Asset>,
-  media: ResolvedLayer[],
-  graphics: ResolvedGraphicLayer[],
-  drawOrder: { value: number },
+  output: ContentOutput,
 ): void {
-  const nodeScale = numeric(node.props.scale, 1);
-  const scaleX = context.scaleX * nodeScale * numeric(node.props.scaleX, 1);
-  const scaleY = context.scaleY * nodeScale * numeric(node.props.scaleY, 1);
-  const nodeX = context.originX + numeric(node.props.x, 0) * context.scaleX;
-  const nodeY = context.originY + numeric(node.props.y, 0) * context.scaleY;
-  const opacity = context.opacity * numeric(node.props.opacity, 1);
-  const effects = [...context.effects, ...node.effects];
-
+  const layout = nodeLayout(node, context);
   if (node.kind === "group" || node.kind === "mask" || node.kind === "stack") {
-    const available = {
-      x: nodeX,
-      y: nodeY,
-      width:
-        numeric(node.props.width, context.available.width / Math.max(context.scaleX, 0.001)) *
-        scaleX,
-      height:
-        numeric(node.props.height, context.available.height / Math.max(context.scaleY, 0.001)) *
-        scaleY,
-    };
-    const childContext: LayoutContext = {
-      originX: nodeX,
-      originY: nodeY,
-      scaleX,
-      scaleY,
-      opacity,
-      available,
-      effects,
-    };
-    if (node.kind === "stack") {
-      const gap = numeric(node.props.gap, 0) * scaleY;
-      const direction = stringValue(node.props.direction, "vertical");
-      let cursor = 0;
-      for (const child of node.children) {
-        const childWidth = numeric(child.props.width, available.width / Math.max(scaleX, 0.001));
-        const childHeight = numeric(child.props.height, available.height / Math.max(scaleY, 0.001));
-        const box = {
-          x: available.x + (direction === "horizontal" ? cursor : 0),
-          y: available.y + (direction === "horizontal" ? 0 : cursor),
-          width: childWidth * scaleX,
-          height: childHeight * scaleY,
-        };
-        resolveContent(
-          child,
-          childContext,
-          box,
-          composition,
-          clip,
-          track,
-          sourceTimeUs,
-          assets,
-          media,
-          graphics,
-          drawOrder,
-        );
-        cursor += (direction === "horizontal" ? box.width : box.height) + gap;
-      }
-      return;
-    }
-    for (const child of node.children)
-      resolveContent(
-        child,
-        childContext,
-        undefined,
-        composition,
-        clip,
-        track,
-        sourceTimeUs,
-        assets,
-        media,
-        graphics,
-        drawOrder,
-      );
-    return;
+    return resolveContainer(node, context, layout, output);
   }
-
-  if (node.kind === "grid") {
-    const x = forcedBox?.x ?? nodeX;
-    const y = forcedBox?.y ?? nodeY;
-    const width =
-      forcedBox?.width ?? numeric(node.props.width, context.available.width) * context.scaleX;
-    const height =
-      forcedBox?.height ?? numeric(node.props.height, context.available.height) * context.scaleY;
-    const columns = Math.max(1, Math.floor(numeric(node.props.columns, 1)));
-    const rows = Math.max(
-      1,
-      Math.floor(numeric(node.props.rows, Math.ceil(node.children.length / columns))),
-    );
-    const gapX = numeric(node.props.columnGap, numeric(node.props.gap, 0)) * context.scaleX;
-    const gapY = numeric(node.props.rowGap, numeric(node.props.gap, 0)) * context.scaleY;
-    const cellWidth = Math.max(0, (width - gapX * (columns - 1)) / columns);
-    const cellHeight = Math.max(0, (height - gapY * (rows - 1)) / rows);
-    const childContext: LayoutContext = {
-      originX: x,
-      originY: y,
-      scaleX,
-      scaleY,
-      opacity,
-      available: { x, y, width, height },
-      effects,
-    };
-    for (const [index, child] of node.children.entries()) {
-      const column = index % columns;
-      const row = Math.floor(index / columns);
-      if (row >= rows) break;
-      resolveContent(
-        child,
-        childContext,
-        {
-          x: x + column * (cellWidth + gapX),
-          y: y + row * (cellHeight + gapY),
-          width: cellWidth,
-          height: cellHeight,
-        },
-        composition,
-        clip,
-        track,
-        sourceTimeUs,
-        assets,
-        media,
-        graphics,
-        drawOrder,
-      );
-    }
-    return;
-  }
-
-  const box: Box =
-    forcedBox ??
-    ({
-      x: nodeX,
-      y: nodeY,
-      width:
-        numeric(node.props.width, context.available.width / Math.max(context.scaleX, 0.001)) *
-        scaleX,
-      height:
-        numeric(node.props.height, context.available.height / Math.max(context.scaleY, 0.001)) *
-        scaleY,
-    } satisfies Box);
-
+  if (node.kind === "grid") return resolveGrid(node, context, layout, forcedBox, output);
+  const box = contentBox(node, context, layout, forcedBox);
   if (node.kind === "video" || node.kind === "image") {
-    const assetId = resource(node.props.source);
-    const asset = assetId === undefined ? undefined : assets.get(assetId);
-    if (!asset || asset.kind === "audio") return;
-    media.push({
-      asset,
-      clip,
-      track,
-      nodeId: node.id,
-      sourceTimeUs,
-      opacity,
-      transform: normalizedTransform(
-        box,
-        composition.width,
-        composition.height,
-        stringValue(node.props.fit, "contain") as Transform["fit"],
-        opacity,
-        clip.transform,
-      ),
-      cornerRadiusPx: numeric(node.props.radius, numeric(node.props.cornerRadius, 0)),
-      colorAdjustment: colorAdjustment(effects),
-      order: drawOrder.value++,
-    });
-    return;
+    return resolveMediaNode(node, box, layout, output);
   }
-
   if (node.kind === "rect" || node.kind === "ellipse") {
-    const radius =
-      node.kind === "ellipse"
-        ? Math.min(box.width, box.height) / 2
-        : numeric(node.props.radius, numeric(node.props.cornerRadius, 0));
-    graphics.push({
-      nodeId: node.id,
-      kind: "solid",
-      transform: normalizedTransform(
-        box,
-        composition.width,
-        composition.height,
-        "fill",
-        opacity,
-        clip.transform,
-      ),
-      color: parseColor(stringValue(node.props.fill, "#ffffff")),
-      cornerRadiusPx: radius,
-      blurPx: numeric(node.props.blur, 0),
-      order: drawOrder.value++,
-    });
-    return;
+    return resolveShape(node, box, layout, output);
   }
-
   if (node.kind === "text" || node.kind === "captions" || node.kind === "span") {
-    const text = stringValue(node.props.text, "");
-    const fontSize = Math.max(1, numeric(node.props.fontSize, 32) * scaleY);
-    const glyphWidth = fontSize * (5 / 7);
-    const advance = glyphWidth + numeric(node.props.letterSpacing, fontSize / 7) * scaleX;
-    const color = parseColor(
-      stringValue(node.props.color, stringValue(node.props.fill, "#ffffff")),
-    );
-    let cursorX = box.x;
-    for (const [index, character] of text.split("").entries()) {
-      if (character !== " ") {
-        graphics.push({
-          nodeId: `${node.id}/glyph-${index}`,
-          kind: "glyph",
-          transform: normalizedTransform(
-            { x: cursorX, y: box.y, width: glyphWidth, height: fontSize },
-            composition.width,
-            composition.height,
-            "fill",
-            opacity,
-            clip.transform,
-          ),
-          color,
-          cornerRadiusPx: 0,
-          blurPx: 0,
-          glyph: glyphBits(character),
-          order: drawOrder.value++,
-        });
-      }
-      cursorX += advance;
-    }
+    resolveText(node, box, layout, output);
   }
 }
 
@@ -519,14 +542,16 @@ export function resolveSceneFrame(project: PlaybackProject, timelineTimeUs: Time
           effects: layer.effects,
         },
         undefined,
-        composition,
-        clip,
-        track,
-        timeUs(layer.sourceTimeUs),
-        assets,
-        media,
-        graphics,
-        drawOrder,
+        {
+          composition,
+          clip,
+          track,
+          sourceTimeUs: timeUs(layer.sourceTimeUs),
+          assets,
+          media,
+          graphics,
+          drawOrder,
+        },
       );
     }
   }

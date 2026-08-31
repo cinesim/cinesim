@@ -53,6 +53,18 @@ export interface SourceProjectCommit {
   expectedProgram?: IrProgram;
 }
 
+interface ProjectCompilation {
+  result: CompileResult;
+  loaded: Map<string, CompilerSource>;
+}
+
+interface PreparedSourceCommit {
+  replacements: Record<string, string>;
+  manifest: V2ProjectManifest;
+  manifestSource: string;
+  compiled: ProjectCompilation;
+}
+
 export interface CreateSourceProjectOptions {
   id: string;
   name: string;
@@ -91,6 +103,33 @@ function compilerConfig(manifest: V2ProjectManifest): CompilerConfig {
   };
 }
 
+function normalizedImportPath(specifier: string, importer: string): string {
+  const base = importer.slice(0, Math.max(0, importer.lastIndexOf("/") + 1));
+  const normalized: string[] = [];
+  for (const segment of `${base}${specifier}`.replaceAll("\\", "/").split("/")) {
+    if (!segment || segment === ".") continue;
+    if (segment !== "..") {
+      normalized.push(segment);
+      continue;
+    }
+    if (normalized.length === 0) {
+      throw new Error(`Import escapes the project root: ${specifier}`);
+    }
+    normalized.pop();
+  }
+  return normalized.join("/");
+}
+
+function sourceCandidates(path: string): string[] {
+  return /\.(?:js|jsx)$/u.test(path) ? [path] : [`${path}.jsx`, `${path}.js`];
+}
+
+function firstDifference(left: string, right: string): number {
+  let offset = 0;
+  while (offset < left.length && left[offset] === right[offset]) offset += 1;
+  return offset;
+}
+
 class RepositoryCompilerHost implements CompilerHost {
   readonly loaded = new Map<string, CompilerSource>();
 
@@ -113,24 +152,10 @@ class RepositoryCompilerHost implements CompilerHost {
   }
 
   async resolve(specifier: string, importer: string): Promise<string> {
-    if (!specifier.startsWith("."))
+    if (!specifier.startsWith(".")) {
       throw new Error(`Only relative imports are supported: ${specifier}`);
-    const base = importer.slice(0, Math.max(0, importer.lastIndexOf("/") + 1));
-    const segments = `${base}${specifier}`.replaceAll("\\", "/").split("/");
-    const normalized: string[] = [];
-    for (const segment of segments) {
-      if (!segment || segment === ".") continue;
-      if (segment === "..") {
-        if (normalized.length === 0)
-          throw new Error(`Import escapes the project root: ${specifier}`);
-        normalized.pop();
-      } else normalized.push(segment);
     }
-    const unresolved = normalized.join("/");
-    const candidates = /\.(?:js|jsx)$/u.test(unresolved)
-      ? [unresolved]
-      : [`${unresolved}.jsx`, `${unresolved}.js`];
-    for (const candidate of candidates) {
+    for (const candidate of sourceCandidates(normalizedImportPath(specifier, importer))) {
       if (this.overlay[candidate] !== undefined) return candidate;
       try {
         await this.paths.assertSafeSourceFile(candidate, false);
@@ -242,79 +267,97 @@ export class SourceProjectRepository {
   }
 
   async commit(input: SourceProjectCommit): Promise<SourceProjectSnapshot> {
-    return this.#withLock(async () => {
-      await this.#recover();
-      const current = await this.#loadUnlocked({});
-      if (current.generation !== input.expectedGeneration)
-        throw new SourceProjectConflictError(input.expectedGeneration, current.generation);
-      const replacements = {
-        ...input.sources,
-        ...(input.manifestSource === undefined ? {} : { [MANIFEST]: input.manifestSource }),
-      };
-      if (Object.keys(replacements).length === 0) return current;
-      for (const relativePath of Object.keys(replacements)) {
-        if (relativePath === MANIFEST) await this.paths.assertSafeFile(relativePath);
-        else await this.paths.assertSafeSourceFile(relativePath);
+    return this.#withLock(() => this.#commitUnlocked(input));
+  }
+
+  async #commitUnlocked(input: SourceProjectCommit): Promise<SourceProjectSnapshot> {
+    await this.#recover();
+    const current = await this.#loadUnlocked({});
+    if (current.generation !== input.expectedGeneration) {
+      throw new SourceProjectConflictError(input.expectedGeneration, current.generation);
+    }
+    const prepared = await this.#prepareCommit(input, current);
+    return prepared === null ? current : this.#publishCommit(prepared);
+  }
+
+  async #prepareCommit(
+    input: SourceProjectCommit,
+    current: SourceProjectSnapshot,
+  ): Promise<PreparedSourceCommit | null> {
+    const replacements = {
+      ...input.sources,
+      ...(input.manifestSource === undefined ? {} : { [MANIFEST]: input.manifestSource }),
+    };
+    if (Object.keys(replacements).length === 0) return null;
+    for (const relativePath of Object.keys(replacements)) {
+      if (relativePath === MANIFEST) await this.paths.assertSafeFile(relativePath);
+      else await this.paths.assertSafeSourceFile(relativePath);
+    }
+    const manifestSource = replacements[MANIFEST] ?? current.manifestSource;
+    const manifest = parseV2Manifest(manifestSource);
+    const sourceOverlay = Object.fromEntries(
+      Object.entries(replacements).filter(([path]) => path !== MANIFEST),
+    );
+    const compiled = await this.#compile(manifest, sourceOverlay);
+    this.#assertExpectedProgram(compiled.result.ir, input.expectedProgram);
+    return { replacements, manifest, manifestSource, compiled };
+  }
+
+  #assertExpectedProgram(compiledProgram: IrProgram, expectedProgram?: IrProgram): void {
+    if (expectedProgram === undefined) return;
+    const compiled = serializeIr(compiledProgram);
+    const expected = serializeIr(expectedProgram);
+    if (compiled === expected) return;
+    const offset = firstDifference(compiled, expected);
+    throw new Error(
+      `Recompiled semantic IR does not match the validated command result near byte ${offset}: compiled=${JSON.stringify(compiled.slice(Math.max(0, offset - 100), offset + 160))} expected=${JSON.stringify(expected.slice(Math.max(0, offset - 100), offset + 160))}.`,
+    );
+  }
+
+  async #publishCommit(prepared: PreparedSourceCommit): Promise<SourceProjectSnapshot> {
+    const journal: SourceJournal = {
+      version: 1,
+      id: randomUUID(),
+      previous: {},
+      next: prepared.replacements,
+    };
+    for (const relativePath of Object.keys(prepared.replacements)) {
+      journal.previous[relativePath] = await this.#readOptional(relativePath);
+    }
+    const temporaryFiles = new Map<string, string>();
+    try {
+      for (const [relativePath, contents] of Object.entries(prepared.replacements)) {
+        const target = await this.paths.assertSafeFile(relativePath);
+        const temporary = join(
+          dirname(target),
+          `${TEMP_PREFIX}${journal.id}-${basename(relativePath)}.tmp`,
+        );
+        await this.#writeSynced(temporary, contents);
+        temporaryFiles.set(relativePath, temporary);
       }
-      const nextManifestSource = replacements[MANIFEST] ?? current.manifestSource;
-      const nextManifest = parseV2Manifest(nextManifestSource);
-      const sourceOverlay = Object.fromEntries(
-        Object.entries(replacements).filter(([path]) => path !== MANIFEST),
+      await this.#writeJournal(journal);
+      for (const [relativePath, temporary] of temporaryFiles) {
+        await this.fileSystem.rename(temporary, this.paths.projectFile(relativePath));
+      }
+      await this.#syncDirectory(this.paths.root);
+      const published = this.#snapshot(
+        prepared.manifest,
+        prepared.manifestSource,
+        prepared.compiled,
       );
-      const compiled = await this.#compile(nextManifest, sourceOverlay);
-      const compiledSource = serializeIr(compiled.result.ir);
-      const expectedSource =
-        input.expectedProgram === undefined ? undefined : serializeIr(input.expectedProgram);
-      if (expectedSource !== undefined && compiledSource !== expectedSource) {
-        let offset = 0;
-        while (
-          offset < compiledSource.length &&
-          compiledSource[offset] === expectedSource[offset]
-        ) {
-          offset += 1;
-        }
-        throw new Error(
-          `Recompiled semantic IR does not match the validated command result near byte ${offset}: compiled=${JSON.stringify(compiledSource.slice(Math.max(0, offset - 100), offset + 160))} expected=${JSON.stringify(expectedSource.slice(Math.max(0, offset - 100), offset + 160))}.`,
-        );
-      }
-      const journal: SourceJournal = {
-        version: 1,
-        id: randomUUID(),
-        previous: {},
-        next: replacements,
-      };
-      for (const relativePath of Object.keys(replacements))
-        journal.previous[relativePath] = await this.#readOptional(relativePath);
-      const temporaryFiles = new Map<string, string>();
-      try {
-        for (const [relativePath, contents] of Object.entries(replacements)) {
-          const target = await this.paths.assertSafeFile(relativePath);
-          const temporary = join(
-            dirname(target),
-            `${TEMP_PREFIX}${journal.id}-${basename(relativePath)}.tmp`,
-          );
-          await this.#writeSynced(temporary, contents);
-          temporaryFiles.set(relativePath, temporary);
-        }
-        await this.#writeJournal(journal);
-        for (const [relativePath, temporary] of temporaryFiles)
-          await this.fileSystem.rename(temporary, this.paths.projectFile(relativePath));
-        await this.#syncDirectory(this.paths.root);
-        const published = this.#snapshot(nextManifest, nextManifestSource, compiled);
-        await this.fileSystem.rm(this.paths.derived(JOURNAL));
-        await this.#syncDirectory(this.paths.derived(TRANSACTION_DIRECTORY));
-        return published;
-      } catch (error) {
-        await this.#recover();
-        throw error;
-      } finally {
-        await Promise.all(
-          [...temporaryFiles.values()].map((path) =>
-            this.fileSystem.rm(path, { force: true }).catch(() => undefined),
-          ),
-        );
-      }
-    });
+      await this.fileSystem.rm(this.paths.derived(JOURNAL));
+      await this.#syncDirectory(this.paths.derived(TRANSACTION_DIRECTORY));
+      return published;
+    } catch (error) {
+      await this.#recover();
+      throw error;
+    } finally {
+      await Promise.all(
+        [...temporaryFiles.values()].map((path) =>
+          this.fileSystem.rm(path, { force: true }).catch(() => undefined),
+        ),
+      );
+    }
   }
 
   async importAsset(asset: Asset, expectedGeneration: string): Promise<SourceProjectSnapshot> {
@@ -396,7 +439,7 @@ export class SourceProjectRepository {
   async #compile(
     manifest: V2ProjectManifest,
     overlay: Readonly<Record<string, string>>,
-  ): Promise<{ result: CompileResult; loaded: Map<string, CompilerSource> }> {
+  ): Promise<ProjectCompilation> {
     const host = new RepositoryCompilerHost(this.paths, this.fileSystem, overlay);
     const result = await compileVideo(manifest.project.entry, compilerConfig(manifest), host);
     return { result, loaded: host.loaded };
@@ -405,7 +448,7 @@ export class SourceProjectRepository {
   #snapshot(
     manifest: V2ProjectManifest,
     manifestSource: string,
-    compiled: { result: CompileResult; loaded: Map<string, CompilerSource> },
+    compiled: ProjectCompilation,
   ): SourceProjectSnapshot {
     const sources = Object.fromEntries(
       [...compiled.loaded].map(([uri, source]) => [uri, source.source]),
