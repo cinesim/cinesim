@@ -12,6 +12,7 @@ import {
 } from "@cinesim/protocol";
 import { DiskProjectStore } from "./project-store";
 import { parseTime } from "./time";
+import { runCompileCommand } from "./compile";
 
 const log = createCinesimLogger({ service: "cli" });
 
@@ -20,6 +21,17 @@ const program = new Command()
   .description("Inspect and edit a Cinesim project through its canonical command pathway")
   .version("0.1.0")
   .option("-p, --project <directory>", "Cinesim project directory");
+
+program
+  .command("compile")
+  .description("Compile JSX-shaped video source into deterministic ir")
+  .argument("[path]", "Directory containing cinesim.toml, or a TOML file", ".")
+  .option("--config <path>", "Use an explicit cinesim.toml file")
+  .option("--print-ir", "Print the lowered ir without writing files")
+  .option("--print-ast", "Print the parsed module and component outline")
+  .option("--explain", "Explain where every expanded ir node came from")
+  .option("--check", "Validate and summarize without writing files")
+  .action(runCompileCommand);
 
 function directory(): string {
   return (

@@ -1,0 +1,5 @@
+version = 1
+entry = "main.jsx"
+output = "../../.context/compiler/grid"
+source_maps = true
+strict = true

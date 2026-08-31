@@ -39,6 +39,37 @@ Commands that take a time accept:
 
 All are converted to integer microseconds.
 
+## compile
+
+### `compile [path]`
+
+Compile JSX-shaped video source into deterministic, renderer-independent ir. `path` may be a
+directory containing `cinesim.toml` or the configuration file itself. The compiler parses a small,
+typed JavaScript/JSX subset and never executes the source as JavaScript.
+
+```toml
+version = 1
+entry = "main.jsx"
+output = "../../.context/compiler/grid"
+source_maps = true
+strict = true
+```
+
+```bash
+vp run cli compile examples/grid
+```
+
+| Option            | Description                                                         |
+| ----------------- | ------------------------------------------------------------------- |
+| `--config <path>` | Use an explicit `cinesim.toml`                                      |
+| `--print-ir`      | Print lowered ir without writing generated files                    |
+| `--print-ast`     | Print the discovered modules, imports, and component declarations   |
+| `--explain`       | Show the source and component expansion path for every emitted node |
+| `--check`         | Validate and print a summary without writing generated files        |
+
+The default command writes `scene.ir.json`, `scene.ir.map.json`, and `diagnostics.json` under the
+configured output directory. These are derived inspection artifacts, not canonical project files.
+
 ## project
 
 ### `project inspect`

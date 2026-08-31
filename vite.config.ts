@@ -73,6 +73,10 @@ export default defineConfig({
         command: "node tools/cognitive-complexity.mjs",
         cache: false,
       },
+      cli: {
+        command: "tsx tools/cli/src/index.ts",
+        cache: false,
+      },
       typecheck: {
         command: "tsc --noEmit",
       },
@@ -107,7 +111,7 @@ export default defineConfig({
     sortPackageJson: {},
   },
   lint: {
-    ignorePatterns: ["dist/**", ".context/**", "apps/desktop/release/**"],
+    ignorePatterns: ["dist/**", ".context/**", "apps/desktop/release/**", "examples/**"],
     ...(cognitiveComplexityReport ? { jsPlugins: ["eslint-plugin-sonarjs"] } : {}),
     plugins: ["eslint", "import", "jsx-a11y", "oxc", "promise", "react", "typescript", "unicorn"],
     options: {
