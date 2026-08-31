@@ -25,6 +25,7 @@ export const DEFAULT_TRANSFORM: Transform = {
   y: 0,
   scaleX: 1,
   scaleY: 1,
+  rotation: 0,
   opacity: 1,
   fit: "contain",
 };
@@ -87,7 +88,7 @@ function transformToIr(transform: Transform): IrTransform {
     anchorY: 50,
     scaleX: transform.scaleX,
     scaleY: transform.scaleY,
-    rotation: 0,
+    rotation: transform.rotation,
     opacity: transform.opacity,
     zIndex: 0,
     fit: transform.fit,

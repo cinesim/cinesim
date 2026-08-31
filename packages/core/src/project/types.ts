@@ -46,6 +46,7 @@ export interface Transform {
   y: number;
   scaleX: number;
   scaleY: number;
+  rotation: number;
   opacity: number;
   fit: "contain" | "cover" | "fill";
 }

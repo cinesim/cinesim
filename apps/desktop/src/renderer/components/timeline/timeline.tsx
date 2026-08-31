@@ -318,6 +318,7 @@ function projectFromTimelineProjection(project: Project, timeline: TimelineProje
           y: clip.transform.y,
           scaleX: clip.transform.scaleX,
           scaleY: clip.transform.scaleY,
+          rotation: clip.transform.rotation,
           opacity: clip.transform.opacity,
           fit: clip.transform.fit,
         },

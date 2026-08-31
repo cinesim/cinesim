@@ -15,6 +15,26 @@ const asset: Asset = {
 };
 
 describe("timeline visual layer order", () => {
+  it("normalizes pixel clip offsets and preserves rotation for the compositor", () => {
+    let project = applyCommand(createProject({ name: "Transforms" }), {
+      type: "asset.import",
+      asset,
+    }).project;
+    project = applyCommand(project, {
+      type: "clip.add",
+      trackId: project.sequences[0]!.tracks[0]!.id,
+      assetId: asset.id,
+      timelineStartUs: timeUs(0),
+      transform: { x: 192, y: 108, rotation: 30 },
+    }).project;
+
+    const [layer] = resolveScene(
+      { program: projectToIr(project, DEFAULT_SETTINGS), assets: project.assets },
+      timeUs(500_000),
+    );
+    expect(layer?.transform).toMatchObject({ x: 0.2, y: 0.2, rotation: 30 });
+  });
+
   it("resolves lower tracks first so index zero composites uppermost", () => {
     let project = applyCommand(createProject({ name: "Layers" }), {
       type: "asset.import",

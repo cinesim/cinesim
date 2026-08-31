@@ -247,6 +247,7 @@ const DEFAULT_PREVIEW_TRANSFORM: Transform = {
   y: 0,
   scaleX: 1,
   scaleY: 1,
+  rotation: 0,
   opacity: 1,
   fit: "contain",
 };

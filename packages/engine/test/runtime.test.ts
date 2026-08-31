@@ -111,6 +111,7 @@ describe("WebGPU compositor uniforms", () => {
         y: -0.5,
         scaleX: 1.5,
         scaleY: 0.75,
+        rotation: 0,
         opacity: 0.5,
         fit: "contain",
       },
@@ -122,6 +123,24 @@ describe("WebGPU compositor uniforms", () => {
     expect([...uniform]).toEqual([
       0.25, 0.5, 0.75, 0.375, 0.5, 0, 0, 0, 1, 1, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0,
     ]);
+  });
+
+  it("packs clockwise rotation in radians for WebGPU coordinates", () => {
+    const uniform = packLayerUniform(
+      {
+        x: 0,
+        y: 0,
+        scaleX: 1,
+        scaleY: 1,
+        rotation: 90,
+        opacity: 1,
+        fit: "contain",
+      },
+      1,
+      1,
+    );
+
+    expect(uniform[6]).toBeCloseTo(-Math.PI / 2);
   });
 });
 

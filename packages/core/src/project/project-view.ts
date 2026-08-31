@@ -8,6 +8,7 @@ function transformFromIr(transform: IrTransform): Transform {
     y: transform.y,
     scaleX: transform.scaleX,
     scaleY: transform.scaleY,
+    rotation: transform.rotation,
     opacity: transform.opacity,
     fit: transform.fit,
   };

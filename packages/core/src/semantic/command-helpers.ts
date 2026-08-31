@@ -145,7 +145,7 @@ function defaultTransform(transform: Partial<Transform> = {}): IrClip["transform
     anchorY: 50,
     scaleX: transform.scaleX ?? 1,
     scaleY: transform.scaleY ?? 1,
-    rotation: 0,
+    rotation: transform.rotation ?? 0,
     opacity: transform.opacity ?? 1,
     zIndex: 0,
     fit: transform.fit ?? "contain",

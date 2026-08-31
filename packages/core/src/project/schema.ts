@@ -10,6 +10,7 @@ export const transformSchema = z.object({
   y: z.number().finite(),
   scaleX: z.number().finite(),
   scaleY: z.number().finite(),
+  rotation: z.number().finite(),
   opacity: z.number().min(0).max(1),
   fit: z.enum(["contain", "cover", "fill"]),
 });

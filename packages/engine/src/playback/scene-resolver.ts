@@ -184,21 +184,27 @@ function normalizedTransform(
   outer: IrTransform,
 ): Transform {
   return {
-    x: ((box.x + box.width / 2) / width) * 2 - 1 + outer.x,
-    y: ((box.y + box.height / 2) / height) * 2 - 1 + outer.y,
+    x: ((box.x + box.width / 2 + outer.x) / width) * 2 - 1,
+    y: ((box.y + box.height / 2 + outer.y) / height) * 2 - 1,
     scaleX: (box.width / width) * outer.scaleX,
     scaleY: (box.height / height) * outer.scaleY,
+    rotation: outer.rotation,
     opacity,
     fit,
   };
 }
 
-function directTransform(transform: IrTransform, opacity: number): Transform {
+function directTransform(
+  transform: IrTransform,
+  opacity: number,
+  output: { width: number; height: number },
+): Transform {
   return {
-    x: transform.x,
-    y: transform.y,
+    x: (transform.x / output.width) * 2,
+    y: (transform.y / output.height) * 2,
     scaleX: transform.scaleX,
     scaleY: transform.scaleY,
+    rotation: transform.rotation,
     opacity,
     fit: transform.fit,
   };
@@ -510,7 +516,7 @@ export function resolveSceneFrame(project: PlaybackProject, timelineTimeUs: Time
   for (const layer of plan.layers) {
     const resolved = clips.get(layer.clipId);
     if (!resolved) continue;
-    appendPlanMediaLayer(layer, resolved, assets, media, drawOrder);
+    appendPlanMediaLayer(layer, resolved, composition, assets, media, drawOrder);
     appendPlanContentLayer(layer, resolved, composition, assets, media, graphics, drawOrder);
   }
   return { media, graphics, background: parseColor(plan.background) };
@@ -529,6 +535,7 @@ function clipsById(composition: IrComposition): Map<string, ResolvedClip> {
 function appendPlanMediaLayer(
   layer: PlannedLayer,
   { clip, track }: ResolvedClip,
+  composition: IrComposition,
   assets: Map<string, Asset>,
   media: ResolvedLayer[],
   drawOrder: { value: number },
@@ -543,7 +550,7 @@ function appendPlanMediaLayer(
     nodeId: clip.id,
     sourceTimeUs: timeUs(layer.sourceTimeUs),
     opacity: layer.opacity,
-    transform: directTransform(clip.transform, layer.opacity),
+    transform: directTransform(clip.transform, layer.opacity, composition),
     cornerRadiusPx: clip.transform.cornerRadius,
     colorAdjustment: colorAdjustment(layer.effects),
     order: drawOrder.value++,
@@ -634,6 +641,7 @@ export function findUpcomingLayers(
                     transform: directTransform(
                       clip.transform,
                       clipOpacity(clip, clip.timelineStartUs),
+                      composition,
                     ),
                     cornerRadiusPx: clip.transform.cornerRadius,
                     colorAdjustment: colorAdjustment([...track.effects, ...clip.effects]),

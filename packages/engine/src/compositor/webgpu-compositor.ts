@@ -29,9 +29,14 @@ fn vertexMain(@builtin(vertex_index) index: u32) -> VertexOutput {
     vec2f(0.0, 1.0), vec2f(1.0, 1.0), vec2f(0.0, 0.0),
     vec2f(0.0, 0.0), vec2f(1.0, 1.0), vec2f(1.0, 0.0)
   );
+  let angle = layer.opacityAndRadius.z;
+  let rotated = vec2f(
+    positions[index].x * cos(angle) - positions[index].y * sin(angle),
+    positions[index].x * sin(angle) + positions[index].y * cos(angle)
+  );
   var output: VertexOutput;
   output.position = vec4f(
-    positions[index] * layer.offsetAndScale.zw + layer.offsetAndScale.xy,
+    rotated * layer.offsetAndScale.zw + layer.offsetAndScale.xy,
     0.0,
     1.0
   );
@@ -70,6 +75,7 @@ struct GraphicUniforms {
   offsetAndScale: vec4f,
   color: vec4f,
   params: vec4f,
+  transformParams: vec4f,
   glyph: vec4u,
 }
 
@@ -90,9 +96,14 @@ fn vertexMain(@builtin(vertex_index) index: u32) -> VertexOutput {
     vec2f(0.0, 1.0), vec2f(1.0, 1.0), vec2f(0.0, 0.0),
     vec2f(0.0, 0.0), vec2f(1.0, 1.0), vec2f(1.0, 0.0)
   );
+  let angle = graphic.transformParams.x;
+  let rotated = vec2f(
+    positions[index].x * cos(angle) - positions[index].y * sin(angle),
+    positions[index].x * sin(angle) + positions[index].y * cos(angle)
+  );
   var output: VertexOutput;
   output.position = vec4f(
-    positions[index] * graphic.offsetAndScale.zw + graphic.offsetAndScale.xy,
+    rotated * graphic.offsetAndScale.zw + graphic.offsetAndScale.xy,
     0.0,
     1.0
   );
@@ -124,7 +135,7 @@ fn fragmentMain(input: VertexOutput) -> @location(0) vec4f {
 `;
 
 export const LAYER_UNIFORM_BYTE_SIZE = 80;
-export const GRAPHIC_UNIFORM_BYTE_SIZE = 64;
+export const GRAPHIC_UNIFORM_BYTE_SIZE = 80;
 
 const DEFAULT_ADJUSTMENT: ColorAdjustment = {
   exposure: 0,
@@ -133,6 +144,10 @@ const DEFAULT_ADJUSTMENT: ColorAdjustment = {
   temperature: 0,
   tint: 0,
 };
+
+function clockwiseRadians(rotation: number): number {
+  return rotation === 0 ? 0 : (-rotation * Math.PI) / 180;
+}
 
 export interface LayerUniformOptions {
   uvScaleX?: number;
@@ -157,7 +172,7 @@ export function packLayerUniform(
     transform.scaleY * fitY,
     transform.opacity,
     options.cornerRadiusFraction ?? 0,
-    0,
+    clockwiseRadians(transform.rotation),
     0,
     options.uvScaleX ?? 1,
     options.uvScaleY ?? 1,
@@ -271,12 +286,16 @@ function packGraphicUniform(
       graphic.kind === "glyph" ? 1 : 0,
       graphic.transform.opacity,
       blurFraction,
+      clockwiseRadians(graphic.transform.rotation),
+      0,
+      0,
+      0,
     ],
     0,
   );
   const integers = new Uint32Array(buffer);
-  integers[12] = graphic.glyph?.[0] ?? 0;
-  integers[13] = graphic.glyph?.[1] ?? 0;
+  integers[16] = graphic.glyph?.[0] ?? 0;
+  integers[17] = graphic.glyph?.[1] ?? 0;
   return buffer;
 }
 
