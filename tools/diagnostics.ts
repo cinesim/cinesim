@@ -14,29 +14,38 @@ const operation = operationIndex >= 0 ? args[operationIndex + 1] : undefined;
 const errorsOnly = args.includes("--errors");
 const asJson = args.includes("--json");
 
-async function readEntries(): Promise<LogEntry[]> {
+function parseEntry(line: string): LogEntry | null {
+  if (!line) return null;
+  try {
+    const entry = JSON.parse(line) as LogEntry;
+    if (errorsOnly && typeof entry.level === "number" && entry.level < 50) return null;
+    if (operation && entry.operation !== operation && entry.operationId !== operation) return null;
+    return entry;
+  } catch {
+    return null;
+  }
+}
+
+async function readLogFile(file: string): Promise<LogEntry[]> {
+  const contents = await readFile(join(logDirectory, file), "utf8");
+  return contents
+    .split("\n")
+    .map(parseEntry)
+    .filter((entry): entry is LogEntry => entry !== null);
+}
+
+async function logFiles(): Promise<string[]> {
   let files: string[];
   try {
     files = (await readdir(logDirectory)).filter((file) => file.endsWith(".ndjson"));
   } catch {
     return [];
   }
+  return files;
+}
 
-  const entries: LogEntry[] = [];
-  for (const file of files) {
-    const contents = await readFile(join(logDirectory, file), "utf8");
-    for (const line of contents.split("\n")) {
-      if (!line) continue;
-      try {
-        const entry = JSON.parse(line) as LogEntry;
-        if (errorsOnly && typeof entry.level === "number" && entry.level < 50) continue;
-        if (operation && entry.operation !== operation && entry.operationId !== operation) continue;
-        entries.push(entry);
-      } catch {
-        // Ignore a partially written or non-JSON line.
-      }
-    }
-  }
+async function readEntries(): Promise<LogEntry[]> {
+  const entries = (await Promise.all((await logFiles()).map(readLogFile))).flat();
   return entries
     .toSorted((left, right) => Number(left.time ?? 0) - Number(right.time ?? 0))
     .slice(-limit);

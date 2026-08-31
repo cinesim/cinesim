@@ -146,9 +146,45 @@ export async function readJsonResponse(response: Response, provider: string): Pr
   }
 }
 
-function findWordsPayload(
-  value: unknown,
-): { owner: Record<string, unknown>; words: unknown[] } | null {
+interface WordsPayload {
+  owner: Record<string, unknown>;
+  words: unknown[];
+}
+
+interface ObjectGraphItem {
+  object: Record<string, unknown>;
+  depth: number;
+}
+
+function enqueueObject(queue: ObjectGraphItem[], value: unknown, depth: number): void {
+  const object = objectValue(value);
+  if (object) queue.push({ object, depth });
+}
+
+function enqueueChildren(queue: ObjectGraphItem[], item: ObjectGraphItem): void {
+  if (item.depth >= 6) return;
+  for (const child of Object.values(item.object)) {
+    if (Array.isArray(child)) {
+      for (const entry of child.slice(0, 16)) enqueueObject(queue, entry, item.depth + 1);
+      continue;
+    }
+    enqueueObject(queue, child, item.depth + 1);
+  }
+}
+
+function* nestedObjects(value: unknown): Generator<Record<string, unknown>> {
+  const root = objectValue(value);
+  if (!root) return;
+  const queue: ObjectGraphItem[] = [{ object: root, depth: 0 }];
+  for (let visited = 0; queue.length > 0 && visited < 200; visited += 1) {
+    const item = queue.shift();
+    if (!item) return;
+    yield item.object;
+    enqueueChildren(queue, item);
+  }
+}
+
+function documentedWordsPayload(value: unknown): WordsPayload | null {
   // Deepgram includes both the complete channel alternative word list and smaller
   // `words` arrays on each utterance. Always prefer the documented channel shape;
   // a generic breadth-first search can otherwise stop at only the first utterance.
@@ -164,148 +200,169 @@ function findWordsPayload(
       return { owner: alternative, words: alternative.words };
     }
   }
+  return null;
+}
 
-  const queue: Array<{ value: unknown; depth: number }> = [{ value, depth: 0 }];
-  let emptyWords: { owner: Record<string, unknown>; words: unknown[] } | null = null;
-  let visited = 0;
-  while (queue.length > 0 && visited < 200) {
-    const item = queue.shift();
-    if (!item) break;
-    visited += 1;
-    const object = objectValue(item.value);
-    if (!object) continue;
-    const words = object.words;
-    if (Array.isArray(words) && !emptyWords) emptyWords = { owner: object, words };
-    if (
-      Array.isArray(words) &&
-      words.some((word) => {
-        const candidate = objectValue(word);
-        return finiteNumber(candidate?.start) !== null && finiteNumber(candidate?.end) !== null;
-      })
-    ) {
-      return { owner: object, words };
-    }
-    if (item.depth >= 6) continue;
-    for (const child of Object.values(object)) {
-      if (Array.isArray(child)) {
-        for (const entry of child.slice(0, 16)) queue.push({ value: entry, depth: item.depth + 1 });
-      } else if (objectValue(child)) {
-        queue.push({ value: child, depth: item.depth + 1 });
-      }
-    }
+function hasWordTimestamps(words: readonly unknown[]): boolean {
+  return words.some((word) => {
+    const candidate = objectValue(word);
+    return finiteNumber(candidate?.start) !== null && finiteNumber(candidate?.end) !== null;
+  });
+}
+
+function wordsPayload(object: Record<string, unknown>): WordsPayload | null {
+  return Array.isArray(object.words) ? { owner: object, words: object.words } : null;
+}
+
+function findWordsPayload(value: unknown): WordsPayload | null {
+  const documented = documentedWordsPayload(value);
+  if (documented) return documented;
+  let emptyWords: WordsPayload | null = null;
+  for (const object of nestedObjects(value)) {
+    const candidate = wordsPayload(object);
+    if (!candidate) continue;
+    emptyWords ??= candidate;
+    if (hasWordTimestamps(candidate.words)) return candidate;
   }
   return emptyWords;
 }
 
 function findNestedArray(value: unknown, key: string): unknown[] {
-  const queue: Array<{ value: unknown; depth: number }> = [{ value, depth: 0 }];
-  let visited = 0;
-  while (queue.length > 0 && visited < 200) {
-    const item = queue.shift();
-    if (!item) break;
-    visited += 1;
-    const object = objectValue(item.value);
-    if (!object) continue;
+  for (const object of nestedObjects(value)) {
     if (Array.isArray(object[key])) return object[key] as unknown[];
-    if (item.depth >= 6) continue;
-    for (const child of Object.values(object)) {
-      if (Array.isArray(child)) {
-        for (const entry of child.slice(0, 16)) queue.push({ value: entry, depth: item.depth + 1 });
-      } else if (objectValue(child)) {
-        queue.push({ value: child, depth: item.depth + 1 });
-      }
-    }
   }
   return [];
 }
 
-function normalizeWords(words: readonly unknown[]): GatewayTranscriptWord[] {
-  const normalized: GatewayTranscriptWord[] = [];
-  for (const value of words) {
-    const word = objectValue(value);
-    if (!word) continue;
-    const startSeconds = finiteNumber(word.start);
-    const endSeconds = finiteNumber(word.end);
-    const text = optionalString(word.punctuated_word) ?? optionalString(word.word);
-    if (startSeconds === null || endSeconds === null || !text || endSeconds <= startSeconds)
-      continue;
-    const confidence = finiteNumber(word.confidence);
-    const speakerValue = word.speaker;
-    const utteranceId = optionalString(word.utterance_id);
-    const detectedLanguage =
-      optionalString(word.language) ?? optionalString(word.detected_language);
-    normalized.push({
-      text,
-      startSeconds,
-      endSeconds,
-      ...(confidence === null ? {} : { confidence }),
-      ...(typeof speakerValue === "number" || typeof speakerValue === "string"
-        ? { speaker: String(speakerValue) }
-        : {}),
-      ...(utteranceId ? { utteranceId } : {}),
-      ...(detectedLanguage ? { detectedLanguage } : {}),
-    });
+function speakerName(value: unknown): string | undefined {
+  return typeof value === "number" || typeof value === "string" ? String(value) : undefined;
+}
+
+function normalizeWord(value: unknown): GatewayTranscriptWord | null {
+  const word = objectValue(value);
+  if (!word) return null;
+  const startSeconds = finiteNumber(word.start);
+  const endSeconds = finiteNumber(word.end);
+  const text = optionalString(word.punctuated_word) ?? optionalString(word.word);
+  if (startSeconds === null || endSeconds === null || !text || endSeconds <= startSeconds) {
+    return null;
   }
-  return normalized.sort(
-    (left, right) => left.startSeconds - right.startSeconds || left.endSeconds - right.endSeconds,
+  const confidence = finiteNumber(word.confidence);
+  const speaker = speakerName(word.speaker);
+  const utteranceId = optionalString(word.utterance_id);
+  const detectedLanguage = optionalString(word.language) ?? optionalString(word.detected_language);
+  return {
+    text,
+    startSeconds,
+    endSeconds,
+    ...(confidence === null ? {} : { confidence }),
+    ...(speaker ? { speaker } : {}),
+    ...(utteranceId ? { utteranceId } : {}),
+    ...(detectedLanguage ? { detectedLanguage } : {}),
+  };
+}
+
+function normalizeWords(words: readonly unknown[]): GatewayTranscriptWord[] {
+  return words
+    .flatMap((value) => normalizeWord(value) ?? [])
+    .toSorted(
+      (left, right) => left.startSeconds - right.startSeconds || left.endSeconds - right.endSeconds,
+    );
+}
+
+function overlappingWordIndexes(
+  words: readonly GatewayTranscriptWord[],
+  startSeconds: number,
+  endSeconds: number,
+): number[] {
+  return words.flatMap((word, index) =>
+    word.startSeconds < endSeconds && word.endSeconds > startSeconds ? [index] : [],
   );
+}
+
+function normalizeNativeUtterance(
+  value: unknown,
+  index: number,
+  words: readonly GatewayTranscriptWord[],
+): GatewayTranscriptUtterance | null {
+  const utterance = objectValue(value);
+  const startSeconds = finiteNumber(utterance?.start);
+  const endSeconds = finiteNumber(utterance?.end);
+  if (startSeconds === null || endSeconds === null || endSeconds <= startSeconds) return null;
+  const confidence = finiteNumber(utterance?.confidence);
+  const speaker = speakerName(utterance?.speaker);
+  const detectedLanguage =
+    optionalString(utterance?.language) ?? optionalString(utterance?.detected_language);
+  return {
+    id: optionalString(utterance?.id) ?? `utterance-${String(index + 1).padStart(6, "0")}`,
+    startSeconds,
+    endSeconds,
+    ...(speaker ? { speaker } : {}),
+    ...(confidence === null ? {} : { confidence }),
+    ...(detectedLanguage ? { detectedLanguage } : {}),
+    wordIndexes: overlappingWordIndexes(words, startSeconds, endSeconds),
+  };
+}
+
+function nativeUtterances(
+  payload: unknown,
+  words: readonly GatewayTranscriptWord[],
+): GatewayTranscriptUtterance[] {
+  return findNestedArray(payload, "utterances").flatMap(
+    (value, index) => normalizeNativeUtterance(value, index, words) ?? [],
+  );
+}
+
+function startsNewUtterance(
+  current: GatewayTranscriptUtterance | null,
+  word: GatewayTranscriptWord,
+): boolean {
+  return (
+    !current ||
+    current.speaker !== word.speaker ||
+    (word.utteranceId !== undefined && current.id !== word.utteranceId)
+  );
+}
+
+function createInferredUtterance(
+  word: GatewayTranscriptWord,
+  index: number,
+): GatewayTranscriptUtterance {
+  return {
+    id: word.utteranceId ?? `utterance-${String(index + 1).padStart(6, "0")}`,
+    startSeconds: word.startSeconds,
+    endSeconds: word.endSeconds,
+    ...(word.speaker ? { speaker: word.speaker } : {}),
+    ...(word.detectedLanguage ? { detectedLanguage: word.detectedLanguage } : {}),
+    wordIndexes: [index],
+  };
+}
+
+function inferredUtterances(words: readonly GatewayTranscriptWord[]): GatewayTranscriptUtterance[] {
+  const utterances: GatewayTranscriptUtterance[] = [];
+
+  let current: GatewayTranscriptUtterance | null = null;
+  for (let index = 0; index < words.length; index += 1) {
+    const word = words[index];
+    if (!word) continue;
+    if (startsNewUtterance(current, word)) {
+      current = createInferredUtterance(word, utterances.length);
+      utterances.push(current);
+      continue;
+    }
+    if (!current) continue;
+    current.endSeconds = word.endSeconds;
+    current.wordIndexes.push(index);
+  }
+  return utterances;
 }
 
 function normalizeUtterances(
   payload: unknown,
   words: readonly GatewayTranscriptWord[],
 ): GatewayTranscriptUtterance[] {
-  const raw = findNestedArray(payload, "utterances");
-  const utterances: GatewayTranscriptUtterance[] = [];
-  for (let index = 0; index < raw.length; index += 1) {
-    const value = objectValue(raw[index]);
-    const startSeconds = finiteNumber(value?.start);
-    const endSeconds = finiteNumber(value?.end);
-    if (startSeconds === null || endSeconds === null || endSeconds <= startSeconds) continue;
-    const speaker = value?.speaker;
-    const confidence = finiteNumber(value?.confidence);
-    const detectedLanguage =
-      optionalString(value?.language) ?? optionalString(value?.detected_language);
-    utterances.push({
-      id: optionalString(value?.id) ?? `utterance-${String(index + 1).padStart(6, "0")}`,
-      startSeconds,
-      endSeconds,
-      ...(typeof speaker === "number" || typeof speaker === "string"
-        ? { speaker: String(speaker) }
-        : {}),
-      ...(confidence === null ? {} : { confidence }),
-      ...(detectedLanguage ? { detectedLanguage } : {}),
-      wordIndexes: words.flatMap((word, wordIndex) =>
-        word.startSeconds < endSeconds && word.endSeconds > startSeconds ? [wordIndex] : [],
-      ),
-    });
-  }
-  if (utterances.length > 0) return utterances;
-
-  let current: GatewayTranscriptUtterance | null = null;
-  for (let index = 0; index < words.length; index += 1) {
-    const word = words[index];
-    if (!word) continue;
-    if (
-      !current ||
-      current.speaker !== word.speaker ||
-      (word.utteranceId !== undefined && current.id !== word.utteranceId)
-    ) {
-      current = {
-        id: word.utteranceId ?? `utterance-${String(utterances.length + 1).padStart(6, "0")}`,
-        startSeconds: word.startSeconds,
-        endSeconds: word.endSeconds,
-        ...(word.speaker ? { speaker: word.speaker } : {}),
-        ...(word.detectedLanguage ? { detectedLanguage: word.detectedLanguage } : {}),
-        wordIndexes: [index],
-      };
-      utterances.push(current);
-    } else {
-      current.endSeconds = word.endSeconds;
-      current.wordIndexes.push(index);
-    }
-  }
-  return utterances;
+  const native = nativeUtterances(payload, words);
+  return native.length > 0 ? native : inferredUtterances(words);
 }
 
 function assignParagraphs(

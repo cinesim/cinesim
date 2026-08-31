@@ -31,6 +31,50 @@ export function createDeepgramTranscriptionUrl(input: TranscriptionGatewayInput)
   return url;
 }
 
+async function requestDeepgram(
+  fetchImplementation: typeof fetch,
+  apiKey: string,
+  timeoutMs: number,
+  input: TranscriptionGatewayInput,
+): Promise<Response> {
+  const timeout = AbortSignal.timeout(timeoutMs);
+  const signal = input.signal ? AbortSignal.any([input.signal, timeout]) : timeout;
+  try {
+    return await fetchImplementation(createDeepgramTranscriptionUrl(input), {
+      method: "POST",
+      headers: {
+        authorization: `Token ${apiKey}`,
+        "content-type": input.contentType,
+      },
+      body: boundedAudioStream(input.audio),
+      signal,
+      duplex: "half",
+    } as RequestInit & { duplex: "half" });
+  } catch (error) {
+    if (error instanceof TranscriptionGatewayError) throw error;
+    throw new TranscriptionGatewayError(
+      "provider_unavailable",
+      error instanceof Error ? error.message : "Deepgram transcription request failed",
+    );
+  }
+}
+
+function deepgramResponseError(response: Response, payload: unknown): TranscriptionGatewayError {
+  const root = objectValue(payload);
+  const nestedError = objectValue(root?.error);
+  const requestId = optionalString(root?.request_id) ?? response.headers.get("dg-request-id");
+  const message =
+    optionalString(root?.err_msg) ??
+    optionalString(root?.message) ??
+    optionalString(nestedError?.message) ??
+    `Deepgram returned ${response.status}`;
+  return new TranscriptionGatewayError(
+    `provider_${response.status}`,
+    requestId ? `${message} (Deepgram request ${requestId})` : message,
+    response.status >= 400 && response.status < 500 ? 400 : 502,
+  );
+}
+
 export class DeepgramTranscriptionGateway implements EditingTranscriptionGateway {
   constructor(
     private readonly apiKey: string,
@@ -39,43 +83,14 @@ export class DeepgramTranscriptionGateway implements EditingTranscriptionGateway
   ) {}
 
   async transcribe(input: TranscriptionGatewayInput): Promise<GatewayTranscript> {
-    const timeout = AbortSignal.timeout(this.timeoutMs);
-    const signal = input.signal ? AbortSignal.any([input.signal, timeout]) : timeout;
-    let response: Response;
-    try {
-      response = await this.fetchImplementation(createDeepgramTranscriptionUrl(input), {
-        method: "POST",
-        headers: {
-          authorization: `Token ${this.apiKey}`,
-          "content-type": input.contentType,
-        },
-        body: boundedAudioStream(input.audio),
-        signal,
-        duplex: "half",
-      } as RequestInit & { duplex: "half" });
-    } catch (error) {
-      if (error instanceof TranscriptionGatewayError) throw error;
-      throw new TranscriptionGatewayError(
-        "provider_unavailable",
-        error instanceof Error ? error.message : "Deepgram transcription request failed",
-      );
-    }
+    const response = await requestDeepgram(
+      this.fetchImplementation,
+      this.apiKey,
+      this.timeoutMs,
+      input,
+    );
     const payload = await readJsonResponse(response, "Deepgram");
-    if (!response.ok) {
-      const root = objectValue(payload);
-      const nestedError = objectValue(root?.error);
-      const requestId = optionalString(root?.request_id) ?? response.headers.get("dg-request-id");
-      const message =
-        optionalString(root?.err_msg) ??
-        optionalString(root?.message) ??
-        optionalString(nestedError?.message) ??
-        `Deepgram returned ${response.status}`;
-      throw new TranscriptionGatewayError(
-        `provider_${response.status}`,
-        requestId ? `${message} (Deepgram request ${requestId})` : message,
-        response.status >= 400 && response.status < 500 ? 400 : 502,
-      );
-    }
+    if (!response.ok) throw deepgramResponseError(response, payload);
     return normalizeDeepgramTranscript(payload);
   }
 }
