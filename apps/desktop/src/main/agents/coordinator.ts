@@ -93,11 +93,7 @@ export class AgentCoordinator implements AgentToolHooks {
   }
 
   async #loadSessions(): Promise<void> {
-    const providerSettings = this.settingsStore.snapshot().providers;
-    const stored = await this.#sessionStore.read({
-      claude: providerSettings.claude.effort,
-      codex: providerSettings.codex.effort,
-    });
+    const stored = await this.#sessionStore.read();
     for (const session of stored.sessions) recoverAgentSession(session, this.#sessionEvents);
     this.#sessions.replace(stored);
   }

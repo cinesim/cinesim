@@ -1,5 +1,5 @@
 import type { IrTrack } from "@cinesim/ir";
-import { CommandError } from "../commands/types";
+import { CommandError } from "./command-types";
 import {
   allocateId,
   assertUnlocked,
@@ -39,11 +39,14 @@ function addTrack(
     clips: [],
     effects: [],
   };
-  composition.timeline.tracks.push(track);
+  const index = command.kind === "audio" ? composition.timeline.tracks.length : 0;
+  composition.timeline.tracks.splice(index, 0, track);
+  const next = composition.timeline.tracks[index + 1];
   context.patches.push({
     type: "node.insert",
     parentId: composition.timeline.id,
     node: { kind: "track", track },
+    ...(next === undefined ? {} : { anchor: `before:${next.id}` }),
   });
   return finishCommand(context, command, `Added ${track.name}`, [composition.id, id], {
     createdIds: [id],

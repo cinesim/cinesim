@@ -6,8 +6,8 @@ import { ProjectPaths } from "@cinesim/project-io";
 import {
   assetIdSchema,
   inspectAsset,
-  inspectSemanticProject,
-  inspectSemanticTimeline,
+  inspectProject,
+  inspectTimeline,
   listAssets,
 } from "@cinesim/protocol";
 import { DiskProjectStore } from "./project-store";
@@ -71,7 +71,7 @@ project
     const loaded = await store();
     output(
       {
-        ...inspectSemanticProject(loaded.program, loaded.project),
+        ...inspectProject(loaded.program, loaded.project),
         directory: loaded.directory,
         settings: loaded.settings,
       },
@@ -116,7 +116,7 @@ timeline
   .option("--json", "Emit structured JSON")
   .action(async (options) => {
     const loaded = await store();
-    output(inspectSemanticTimeline(loaded.program, loaded.editMap), options.json);
+    output(inspectTimeline(loaded.program, loaded.editMap), options.json);
   });
 timeline
   .command("create-from-assets")

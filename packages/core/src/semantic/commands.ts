@@ -1,5 +1,4 @@
 import type { IrProgram } from "@cinesim/ir";
-import { CommandError } from "../commands/types";
 import type { Asset } from "../project/types";
 import { planAssetCommand } from "./asset-commands";
 import { planClipCommand } from "./clip-commands";
@@ -13,6 +12,7 @@ import type {
   SequenceCommand,
   TrackCommand,
 } from "./command-types";
+import { CommandError } from "./command-types";
 import { planPropertyCommand } from "./property-command";
 import { planSequenceCommand } from "./sequence-commands";
 import { planTrackCommand } from "./track-commands";

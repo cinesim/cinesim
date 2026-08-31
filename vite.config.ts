@@ -65,10 +65,6 @@ export default defineConfig({
         command: "node tools/dev-local.mjs",
         cache: false,
       },
-      "history:benchmark": {
-        command: "tsx tools/benchmarks/history.ts",
-        cache: false,
-      },
       "complexity:report": {
         command: "node tools/cognitive-complexity.mjs",
         cache: false,

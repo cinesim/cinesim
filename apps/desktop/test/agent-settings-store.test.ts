@@ -63,7 +63,7 @@ describe("AgentSettingsStore", () => {
     await expect(store.requireTrustedExecutable("codex")).rejects.toThrow("changed");
   });
 
-  it("does not trust executable paths from the legacy renderer-writable format", async () => {
+  it("ignores executable paths from unsupported settings formats", async () => {
     const directory = await mkdtemp(join(tmpdir(), "cinesim-agent-settings-"));
     temporaryDirectories.push(directory);
     const path = join(directory, "settings.json");

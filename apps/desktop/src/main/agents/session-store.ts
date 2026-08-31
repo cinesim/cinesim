@@ -1,6 +1,6 @@
 import { stableJson } from "@cinesim/core";
 import { z } from "zod";
-import type { AgentEffort, AgentProviderKind, AgentSessionSnapshot } from "../../shared/contracts";
+import type { AgentSessionSnapshot } from "../../shared/contracts";
 import { AtomicFileRepository } from "../app/atomic-file-repository";
 
 const MAX_AGENT_STATE_BYTES = 64 * 1024 * 1024;
@@ -101,37 +101,15 @@ export class AgentSessionStore {
 
   constructor(private readonly path: string) {}
 
-  async read(defaultEffort: Record<AgentProviderKind, AgentEffort>): Promise<PersistedAgentState> {
+  async read(): Promise<PersistedAgentState> {
     const value = JSON.parse(
       await this.#files.readText(this.path, MAX_AGENT_STATE_BYTES),
     ) as unknown;
-    return stateSchema.parse(migrateEffort(value, defaultEffort)) as PersistedAgentState;
+    return stateSchema.parse(value) as PersistedAgentState;
   }
 
   async write(value: PersistedAgentState): Promise<void> {
     const contents = stableJson(stateSchema.parse(value));
     await this.#files.writeText(this.path, contents, { maxBytes: MAX_AGENT_STATE_BYTES });
   }
-}
-
-function migrateEffort(
-  value: unknown,
-  defaultEffort: Record<AgentProviderKind, AgentEffort>,
-): unknown {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return value;
-  const state = value as Record<string, unknown>;
-  if (state.version !== 1 || !Array.isArray(state.sessions)) return value;
-  return {
-    ...state,
-    sessions: state.sessions.map((candidate) => {
-      if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) return candidate;
-      const session = candidate as Record<string, unknown>;
-      if (
-        (session.provider === "claude" || session.provider === "codex") &&
-        !["low", "medium", "high", "xhigh", "max"].includes(String(session.effort))
-      )
-        return { ...session, effort: defaultEffort[session.provider] };
-      return candidate;
-    }),
-  };
 }

@@ -9,13 +9,19 @@ import {
   timeUsSchema,
   transformSchema,
 } from "@cinesim/core";
-import type { EditorCommand, SemanticEditorCommand } from "@cinesim/core";
+import type { SemanticEditorCommand } from "@cinesim/core";
 import type { IrValue } from "@cinesim/ir";
 
 export { assetIdSchema, clipIdSchema, sequenceIdSchema, trackIdSchema };
 export { timeUsSchema };
 
-const legacyEditorCommandShapeSchema = z.discriminatedUnion("type", [
+const timelineRangeSchema = z
+  .object({ startUs: timeUsSchema, endUs: timeUsSchema })
+  .refine((range) => range.endUs > range.startUs, {
+    message: "Timeline range must end after it starts",
+  });
+
+const editorCommandShapeSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("asset.import"), asset: assetSchema }),
   z.object({
     type: z.literal("asset.setSource"),
@@ -38,10 +44,7 @@ const legacyEditorCommandShapeSchema = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("sequence.deleteRanges"),
     sequenceId: sequenceIdSchema,
-    ranges: z
-      .array(z.object({ startUs: timeUsSchema, endUs: timeUsSchema }))
-      .min(1)
-      .max(500),
+    ranges: z.array(timelineRangeSchema).min(1).max(500),
     mode: z.enum(["lift", "ripple"]),
   }),
   z.object({
@@ -97,10 +100,6 @@ const legacyEditorCommandShapeSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("clip.split"), clipId: clipIdSchema, atUs: timeUsSchema }),
 ]);
 
-export const legacyEditorCommandSchema = legacyEditorCommandShapeSchema.pipe(
-  z.custom<EditorCommand>(),
-);
-
 const finite = z.number().finite();
 export const irValueSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("angle"), unit: z.literal("deg"), value: finite }).strict(),
@@ -147,8 +146,6 @@ const semanticOnlyCommandSchema = z.discriminatedUnion("type", [
 ]);
 
 export const editorCommandSchema = z.union([
-  legacyEditorCommandShapeSchema,
+  editorCommandShapeSchema,
   semanticOnlyCommandSchema,
 ]) as unknown as z.ZodType<SemanticEditorCommand>;
-
-export type ProtocolCommand = z.infer<typeof editorCommandSchema>;

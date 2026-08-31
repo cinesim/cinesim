@@ -1,6 +1,6 @@
 import { rm } from "node:fs/promises";
 import { BUILTIN_REGISTRY } from "@cinesim/compiler";
-import { irProgramToProjectProjection, settingsSchema } from "@cinesim/core";
+import { projectViewFromIr, settingsSchema } from "@cinesim/core";
 import type {
   CloudProjectId,
   Project,
@@ -72,7 +72,7 @@ export class DesktopProjectStore {
   get project(): Project | null {
     const snapshot = this.#snapshot;
     if (!snapshot) return null;
-    return irProgramToProjectProjection(snapshot.compilation.ir, {
+    return projectViewFromIr(snapshot.compilation.ir, {
       name: snapshot.manifest.project.name,
       assets: snapshot.manifest.assets,
       ...(snapshot.manifest.project.cloudProjectId === undefined

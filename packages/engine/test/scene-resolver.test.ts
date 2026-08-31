@@ -1,12 +1,7 @@
 import { describe, expect, it } from "vite-plus/test";
-import {
-  DEFAULT_SETTINGS,
-  timeUs,
-  applyCommand,
-  createProject,
-  v1ProjectToIr,
-} from "@cinesim/core";
+import { DEFAULT_SETTINGS, timeUs } from "@cinesim/core";
 import type { Asset } from "@cinesim/core";
+import { applyCommand, createProject, projectToIr } from "../../core/test/project-fixtures";
 import { irTimeUs } from "@cinesim/ir";
 import type { IrSceneNode } from "@cinesim/ir";
 import { resolveScene, resolveSceneFrame } from "../src/playback/scene-resolver";
@@ -45,7 +40,7 @@ describe("timeline visual layer order", () => {
 
     expect(
       resolveScene(
-        { program: v1ProjectToIr(project, DEFAULT_SETTINGS), assets: project.assets },
+        { program: projectToIr(project, DEFAULT_SETTINGS), assets: project.assets },
         timeUs(500_000),
       ).map((layer) => layer.track.id),
     ).toEqual(["track_000001", "track_000003"]);
@@ -67,7 +62,7 @@ describe("timeline visual layer order", () => {
       id: `asset_${name}` as Asset["id"],
       name,
     }));
-    const ir = v1ProjectToIr(project, DEFAULT_SETTINGS);
+    const ir = projectToIr(project, DEFAULT_SETTINGS);
     const clip = ir.compositions[0]!.timeline.tracks[0]!.clips[0]!;
     delete clip.assetId;
     delete clip.mediaKind;

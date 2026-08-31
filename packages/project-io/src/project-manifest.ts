@@ -60,7 +60,6 @@ function validateEntry(entry: string): string {
 function parseSettings(input: unknown): ProjectSettings {
   const value = input === undefined ? {} : record(input, "settings");
   return settingsSchema.parse({
-    version: 1,
     autosave: value.autosave ?? DEFAULT_SETTINGS.autosave,
     previewQuality: value.preview_quality ?? DEFAULT_SETTINGS.previewQuality,
     backgroundColor: value.background_color ?? DEFAULT_SETTINGS.backgroundColor,

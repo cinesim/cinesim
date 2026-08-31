@@ -1,12 +1,7 @@
 import { describe, expect, it } from "vite-plus/test";
-import {
-  DEFAULT_SETTINGS,
-  timeUs,
-  applyCommand,
-  createProject,
-  v1ProjectToIr,
-} from "@cinesim/core";
+import { DEFAULT_SETTINGS, timeUs } from "@cinesim/core";
 import type { Asset, Project, TimeUs } from "@cinesim/core";
+import { applyCommand, createProject, projectToIr } from "../../core/test/project-fixtures";
 import {
   LatestRequestController,
   LatestOnlyExecutor,
@@ -31,7 +26,7 @@ import type {
 } from "../src";
 
 function playbackProject(project: Project): PlaybackProject {
-  return { program: v1ProjectToIr(project, DEFAULT_SETTINGS), assets: project.assets };
+  return { program: projectToIr(project, DEFAULT_SETTINGS), assets: project.assets };
 }
 
 const asset: Asset = {
@@ -393,6 +388,9 @@ describe("PlaybackRuntime transport", () => {
       trackId: project.sequences[0]!.tracks[0]!.id,
       assetId: projectAsset.id,
       timelineStartUs: timeUs(0),
+      ...(projectAsset.hasAudio
+        ? { audioTrackId: project.sequences[0]!.tracks.find((track) => track.kind === "audio")!.id }
+        : {}),
     }).project;
     return project;
   }

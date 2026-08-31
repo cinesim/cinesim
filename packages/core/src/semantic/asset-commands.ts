@@ -1,4 +1,4 @@
-import { CommandError } from "../commands/types";
+import { CommandError } from "./command-types";
 import { assertUnlocked, finishCommand } from "./command-helpers";
 import type { AssetCommand, CommandContext, SemanticCommandPlan } from "./command-types";
 

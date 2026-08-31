@@ -191,11 +191,11 @@ function newProjectSource(
   frameRate: number,
 ): string {
   const suffix = compositionId.replace(/^sequence_/u, "") || "main";
-  return `export const main = (\n  <composition id=${JSON.stringify(compositionId)} name="Main timeline" width={${width}} height={${height}} fps={${frameRate}}>\n    <timeline id=${JSON.stringify(`timeline_${suffix}`)}>\n      <track id="track_video_1" kind="video" name="Video 1" muted={false} locked={false} />\n      <track id="track_audio_1" kind="audio" name="Audio 1" muted={false} locked={false} />\n      <track id="track_overlay_1" kind="overlay" name="Titles" muted={false} locked={false} />\n    </timeline>\n  </composition>\n);\n\nexport default main;\n`;
+  return `export const main = (\n  <composition id=${JSON.stringify(compositionId)} name="Main timeline" width={${width}} height={${height}} fps={${frameRate}}>\n    <timeline id=${JSON.stringify(`timeline_${suffix}`)}>\n      <track id="track_overlay_1" kind="overlay" name="Titles" muted={false} locked={false} />\n      <track id="track_video_1" kind="video" name="Video 1" muted={false} locked={false} />\n      <track id="track_audio_1" kind="audio" name="Audio 1" muted={false} locked={false} />\n    </timeline>\n  </composition>\n);\n\nexport default main;\n`;
 }
 
 export function generatedProjectAgents(): string {
-  return `# Cinesim project guidance\n\n- Canonical state is \`cinesim.toml\` plus the reachable \`.js\` and \`.jsx\` source modules.\n- Timeline structure lives only in source. Use lowercase Cinesim built-ins and capitalized user components.\n- Reference imported media with stable \`asset("asset_id")\` values declared in \`cinesim.toml\`.\n- Do not edit \`.video/\`; it contains disposable derived/runtime data.\n- Do not create project-managed \`media/\`, \`exports/\`, \`assets.json\`, \`cinesim.json\`, or \`.cinesim/\` paths.\n`;
+  return `# Cinesim project guidance\n\n- Canonical state is \`cinesim.toml\` plus the reachable \`.js\` and \`.jsx\` source modules.\n- Timeline structure lives only in source. Use lowercase Cinesim built-ins and capitalized user components.\n- Reference imported media with stable \`asset("asset_id")\` values declared in \`cinesim.toml\`.\n- Do not edit \`.video/\`; it contains disposable derived/runtime data.\n- Do not create project-managed \`media/\` or \`exports/\` paths.\n`;
 }
 
 export class SourceProjectRepository {

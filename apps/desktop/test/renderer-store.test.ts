@@ -2,14 +2,16 @@ import { describe, expect, it, vi } from "vite-plus/test";
 import {
   timeUs,
   DEFAULT_SETTINGS,
-  DEFAULT_TRANSFORM,
-  createProject,
-  v1ProjectToIr,
   type Asset,
   type Clip,
   type EditorCommand,
   type Sequence,
 } from "@cinesim/core";
+import {
+  createProject,
+  DEFAULT_TRANSFORM,
+  projectToIr,
+} from "../../../packages/core/test/project-fixtures";
 import type { RuntimeSnapshot } from "@cinesim/engine";
 import { projectTimeline } from "@cinesim/ir";
 import type { DesktopApi, DesktopProjectSession } from "../src/shared/contracts";
@@ -23,7 +25,7 @@ import {
 
 function sessionFixture(directory = "/projects/fixture"): DesktopProjectSession {
   const project = createProject({ name: "Fixture" });
-  const program = v1ProjectToIr(project, DEFAULT_SETTINGS);
+  const program = projectToIr(project, DEFAULT_SETTINGS);
   return {
     directory,
     derivedScope: {
@@ -56,7 +58,7 @@ function sessionFixture(directory = "/projects/fixture"): DesktopProjectSession 
 }
 
 function refreshSemanticProjection(session: DesktopProjectSession): DesktopProjectSession {
-  const program = v1ProjectToIr(session.project, session.settings);
+  const program = projectToIr(session.project, session.settings);
   return {
     ...session,
     program,

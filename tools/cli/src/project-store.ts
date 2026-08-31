@@ -1,4 +1,4 @@
-import { irProgramToProjectProjection, type Project, type ProjectSettings } from "@cinesim/core";
+import { projectViewFromIr, type Project, type ProjectSettings } from "@cinesim/core";
 import { createCinesimLogger } from "@cinesim/logging";
 import type { IrEditMap, IrProgram } from "@cinesim/ir";
 import { SourceCommandService } from "@cinesim/project-io";
@@ -68,7 +68,7 @@ export class DiskProjectStore {
     this.settings = snapshot.manifest.settings;
     this.program = structuredClone(snapshot.compilation.ir);
     this.editMap = structuredClone(snapshot.compilation.sourceMap);
-    this.project = irProgramToProjectProjection(snapshot.compilation.ir, {
+    this.project = projectViewFromIr(snapshot.compilation.ir, {
       name: snapshot.manifest.project.name,
       assets: snapshot.manifest.assets,
       ...(snapshot.manifest.project.cloudProjectId === undefined

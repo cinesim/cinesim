@@ -13,7 +13,6 @@
   },
   "dependencies": {
     "@cinesim/ir": "workspace:*",
-    "smol-toml": "1.8.0",
     "zod": "4.4.3"
   }
 }

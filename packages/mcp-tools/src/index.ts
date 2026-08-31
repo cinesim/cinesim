@@ -10,8 +10,8 @@ import {
   clipIdSchema,
   irValueSchema,
   inspectAsset,
-  inspectSemanticProject,
-  inspectSemanticTimeline,
+  inspectProject,
+  inspectTimeline,
   listAssets,
   sequenceIdSchema,
   timeUsSchema,
@@ -122,7 +122,7 @@ export function registerCinesimMcpTools(server: McpServer, runtime: CinesimMcpTo
       perform("project_inspect", "Inspect project", false, () => {
         const projectRevision = runtime.projectRevision?.();
         return {
-          ...inspectSemanticProject(runtime.program(), runtime.project()),
+          ...inspectProject(runtime.program(), runtime.project()),
           directory: runtime.directory(),
           ...(projectRevision === undefined ? {} : { projectRevision }),
         };
@@ -176,7 +176,7 @@ export function registerCinesimMcpTools(server: McpServer, runtime: CinesimMcpTo
     },
     () =>
       perform("timeline_inspect", "Inspect active timeline", false, () =>
-        inspectSemanticTimeline(runtime.program(), runtime.editMap()),
+        inspectTimeline(runtime.program(), runtime.editMap()),
       ),
   );
   server.registerTool(

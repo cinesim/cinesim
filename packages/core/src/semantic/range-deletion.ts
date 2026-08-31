@@ -1,8 +1,7 @@
 import { irTimeUs, type IrClip, type IrTrack, type SemanticPatch } from "@cinesim/ir";
-import { CommandError, type TimelineRange } from "../commands/types";
-import { timeUs } from "../project/types";
-import { allocateId, assertTime, assertUnlocked, clipEnd, setClipRange } from "./command-helpers";
-import type { CommandContext } from "./command-types";
+import { allocateId, assertUnlocked, clipEnd, setClipRange } from "./command-helpers";
+import { CommandError, type CommandContext, type TimelineRange } from "./command-types";
+import { normalizeTimelineRanges } from "./timeline-ranges";
 
 interface Segment {
   start: number;
@@ -16,29 +15,6 @@ interface RangeDeletionState {
   createdIds: string[];
   changedIds: string[];
   outputsByClip: Map<string, IrClip[]>;
-}
-
-function normalizeRanges(ranges: readonly TimelineRange[]): TimelineRange[] {
-  if (ranges.length === 0) {
-    throw new CommandError("EMPTY_RANGE_SELECTION", "Select at least one timeline range");
-  }
-  const sorted = ranges
-    .map((range) => {
-      assertTime(range.startUs, "range.startUs");
-      assertTime(range.endUs, "range.endUs");
-      if (range.endUs <= range.startUs) {
-        throw new CommandError("INVALID_RANGE", "Timeline range must have positive duration");
-      }
-      return { ...range };
-    })
-    .sort((left, right) => left.startUs - right.startUs);
-  const merged: TimelineRange[] = [];
-  for (const range of sorted) {
-    const previous = merged.at(-1);
-    if (!previous || range.startUs > previous.endUs) merged.push(range);
-    else previous.endUs = timeUs(Math.max(previous.endUs, range.endUs));
-  }
-  return merged;
 }
 
 function deletedBefore(time: number, ranges: readonly TimelineRange[]): number {
@@ -202,7 +178,7 @@ export function deleteTimelineRanges(
   );
   const state: RangeDeletionState = {
     context,
-    ranges: normalizeRanges(rangesInput),
+    ranges: normalizeTimelineRanges(rangesInput),
     mode,
     createdIds: [],
     changedIds: [],

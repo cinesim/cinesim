@@ -5,7 +5,7 @@ export const CINESIM_RENDERER_HOST = "app";
 export const CINESIM_RENDERER_ORIGIN = `${CINESIM_RENDERER_SCHEME}://${CINESIM_RENDERER_HOST}`;
 export const CINESIM_RENDERER_ENTRY_URL = `${CINESIM_RENDERER_ORIGIN}/index.html`;
 export const CINESIM_MEDIA_SCHEME = "cinesim-media";
-export const EDITOR_SESSION_PARTITION = "persist:cinesim-editor-v1";
+export const EDITOR_SESSION_PARTITION = "persist:cinesim-editor";
 
 export function registerCinesimSchemes(accountScheme: string): void {
   protocol.registerSchemesAsPrivileged([

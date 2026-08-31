@@ -4,7 +4,8 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 import { CloudMediaManager } from "../src/main/cloud/manager";
 import { MIN_MULTIPART_PART_BYTES } from "../src/main/cloud/limits";
-import { timeUs, applyCommand, createProject } from "@cinesim/core";
+import { timeUs } from "@cinesim/core";
+import { applyCommand, createProject } from "../../../packages/core/test/project-fixtures";
 
 const temporaryDirectories: string[] = [];
 
@@ -123,6 +124,12 @@ async function completeUpload(managedSource: boolean) {
   await manager.queue(["asset_fixture"], managedSource ? ["asset_fixture"] : []);
   await vi.waitFor(() => expect(projectStore.project.assets[0]?.source.kind).toBe("cloud"));
   await vi.waitFor(() => expect(manager.snapshots()[0]?.state).toBe("complete"));
+  await vi.waitFor(async () => {
+    const journal = JSON.parse(
+      await readFile(join(directory, "transfers.json"), "utf8"),
+    ) as unknown[];
+    expect(journal).toEqual([]);
+  });
   return { preparationOrder, projectStore, sourceBytes, sourcePath };
 }
 

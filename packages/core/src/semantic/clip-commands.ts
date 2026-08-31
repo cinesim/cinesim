@@ -1,5 +1,5 @@
 import { irTimeUs, type IrClip } from "@cinesim/ir";
-import { CommandError } from "../commands/types";
+import { CommandError } from "./command-types";
 import type { Asset } from "../project/types";
 import {
   allocateId,

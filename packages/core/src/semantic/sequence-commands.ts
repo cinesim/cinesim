@@ -1,5 +1,5 @@
 import type { IrComposition, IrTrack } from "@cinesim/ir";
-import { CommandError } from "../commands/types";
+import { CommandError } from "./command-types";
 import { allocateId, finishCommand, newClip } from "./command-helpers";
 import type { CommandContext, SemanticCommandPlan, SequenceCommand } from "./command-types";
 import { deleteTimelineRanges } from "./range-deletion";

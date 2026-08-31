@@ -10,7 +10,7 @@ import {
   type IrValue,
   type SemanticPatch,
 } from "@cinesim/ir";
-import { CommandError } from "../commands/types";
+import { CommandError } from "./command-types";
 import { nextId } from "../ids";
 import type { Asset, Transform } from "../project/types";
 import type { CommandContext, SemanticCommandPlan, SemanticEditorCommand } from "./command-types";

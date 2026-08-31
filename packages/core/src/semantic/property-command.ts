@@ -1,5 +1,5 @@
 import type { IrClip, IrProgram, IrSceneNode, IrTrack, IrValue } from "@cinesim/ir";
-import { CommandError } from "../commands/types";
+import { CommandError } from "./command-types";
 import { finishCommand, propertyPatch } from "./command-helpers";
 import type { CommandContext, PropertyCommand, SemanticCommandPlan } from "./command-types";
 

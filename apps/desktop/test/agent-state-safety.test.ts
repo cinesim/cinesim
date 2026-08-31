@@ -49,20 +49,18 @@ describe("agent state safety", () => {
     expect(CODEX_REQUEST_TIMEOUT_MS).toBe(30_000);
   });
 
-  it("strictly validates persisted state while migrating the v1 effort field", async () => {
+  it("strictly validates persisted state", async () => {
     const directory = await mkdtemp(join(tmpdir(), "cinesim-agent-state-"));
     directories.push(directory);
     const path = join(directory, "sessions.json");
-    const legacy = stateFixture() as unknown as { sessions: Array<Record<string, unknown>> };
-    delete legacy.sessions[0]!.effort;
-    await writeFile(path, JSON.stringify(legacy));
+    const missingEffort = stateFixture() as unknown as { sessions: Array<Record<string, unknown>> };
+    delete missingEffort.sessions[0]!.effort;
+    await writeFile(path, JSON.stringify(missingEffort));
     const store = new AgentSessionStore(path);
-    expect((await store.read({ claude: "medium", codex: "xhigh" })).sessions[0]?.effort).toBe(
-      "xhigh",
-    );
+    await expect(store.read()).rejects.toThrow();
 
     await writeFile(path, JSON.stringify({ ...stateFixture(), unexpected: true }));
-    await expect(store.read({ claude: "medium", codex: "high" })).rejects.toThrow();
+    await expect(store.read()).rejects.toThrow();
   });
 
   it("serializes concurrent state writes through unique atomic files", async () => {

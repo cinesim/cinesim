@@ -1,13 +1,7 @@
 import { z } from "zod";
-import {
-  assetIdSchema,
-  clipIdSchema,
-  projectIdSchema,
-  sequenceIdSchema,
-  trackIdSchema,
-} from "../ids";
-import { timeUs } from "../project/types";
-import type { CloudAssetId, CloudProjectId } from "../project/types";
+import { assetIdSchema } from "../ids";
+import { timeUs } from "./types";
+import type { CloudAssetId, CloudProjectId } from "./types";
 
 export const timeUsSchema = z.number().int().nonnegative().safe().transform(timeUs);
 
@@ -48,49 +42,7 @@ export const assetSchema = z.object({
   hasAudio: z.boolean().optional(),
 });
 
-export const clipSchema = z.object({
-  id: clipIdSchema,
-  assetId: assetIdSchema,
-  mediaKind: z.enum(["video", "audio"]),
-  linkedClipId: clipIdSchema.optional(),
-  timelineStartUs: timeUsSchema,
-  sourceStartUs: timeUsSchema,
-  sourceEndUs: timeUsSchema,
-  fadeInUs: timeUsSchema.optional(),
-  fadeOutUs: timeUsSchema.optional(),
-  transform: transformSchema,
-});
-
-export const trackSchema = z.object({
-  id: trackIdSchema,
-  name: z.string().min(1),
-  kind: z.enum(["video", "audio", "overlay"]),
-  muted: z.boolean(),
-  locked: z.boolean(),
-  clips: z.array(clipSchema),
-});
-
-export const sequenceSchema = z.object({
-  id: sequenceIdSchema,
-  name: z.string().min(1),
-  width: z.number().int().positive(),
-  height: z.number().int().positive(),
-  frameRate: z.number().positive(),
-  tracks: z.array(trackSchema),
-});
-
-export const projectSchema = z.object({
-  version: z.literal(1),
-  id: projectIdSchema,
-  cloudProjectId: cloudProjectIdSchema.optional(),
-  name: z.string().min(1),
-  activeSequenceId: sequenceIdSchema,
-  assets: z.array(assetSchema),
-  sequences: z.array(sequenceSchema),
-});
-
 export const settingsSchema = z.object({
-  version: z.literal(1),
   autosave: z.boolean(),
   defaultFilmstripIntervalSeconds: z.number().positive(),
   previewQuality: z.enum(["full", "half", "quarter"]),

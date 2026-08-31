@@ -55,7 +55,6 @@ function emptyManifest(): ProjectManifest {
       activeCompositionId: "sequence_main",
     },
     settings: {
-      version: 1,
       autosave: true,
       previewQuality: "half",
       backgroundColor: "#09090b",
@@ -136,9 +135,6 @@ describe("SourceProjectRepository", () => {
       "Canonical state is `cinesim.toml`",
     );
     await expect(readFile(join(directory, ".gitignore"), "utf8")).resolves.toBe(".video/\n");
-    await expect(readFile(join(directory, "cinesim.json"), "utf8")).rejects.toMatchObject({
-      code: "ENOENT",
-    });
     const repository = await SourceProjectRepository.open(directory);
     const imported = await repository.importAsset(asset, created.generation);
     expect(imported.manifest.assets[0]).toEqual(asset);
