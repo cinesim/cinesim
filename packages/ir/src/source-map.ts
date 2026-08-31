@@ -1,43 +1,33 @@
-import type { IrDocument, IrNode, IrSourceMap } from "./types";
+import type { IrEditMap, IrEditMapNode, IrPropertyBinding, IrStructuralBinding } from "./types";
 
-export function createIrSourceMap(document: IrDocument): IrSourceMap {
-  const nodes: IrSourceMap["nodes"] = {};
+export interface EditMapBuilderNode {
+  structural: IrStructuralBinding;
+  properties: IrPropertyBinding[];
+  animations?: IrEditMapNode["animations"];
+}
 
-  function visit(node: IrNode): void {
-    nodes[node.id] = {
-      origin: node.origin,
-      componentStack: node.componentStack,
-      animations: node.animations.map((animation) => ({
-        property: animation.property,
-        origin: animation.origin,
-        keyframes: animation.keyframes.map((keyframe) => ({
-          origin: keyframe.origin,
-          at: {
-            source: keyframe.edits.at.source,
-            expected: keyframe.edits.at.expected,
-            strategy: keyframe.edits.at.strategy,
-          },
-          value: {
-            source: keyframe.edits.value.source,
-            expected: keyframe.edits.value.expected,
-            strategy: keyframe.edits.value.strategy,
-          },
-        })),
-      })),
-      properties: Object.fromEntries(
-        Object.entries(node.props).map(([name, property]) => [
-          name,
+export function createIrSourceMap(
+  entry: string,
+  sources: IrEditMap["sources"],
+  bindings: readonly EditMapBuilderNode[],
+): IrEditMap {
+  return {
+    version: 2,
+    entry,
+    sources: [...sources].sort((left, right) => left.uri.localeCompare(right.uri)),
+    nodes: Object.fromEntries(
+      [...bindings]
+        .sort((left, right) => left.structural.nodeId.localeCompare(right.structural.nodeId))
+        .map((binding) => [
+          binding.structural.nodeId,
           {
-            source: property.edit.source,
-            expected: property.edit.expected,
-            strategy: property.edit.strategy,
+            structural: binding.structural,
+            properties: Object.fromEntries(
+              binding.properties.map((property) => [property.property, property]),
+            ),
+            animations: binding.animations ?? [],
           },
         ]),
-      ),
-    };
-    for (const child of node.children) visit(child);
-  }
-
-  visit(document.root);
-  return { version: 1, entry: document.entry, nodes };
+    ),
+  };
 }

@@ -9,3 +9,4 @@ export * from "./project/types";
 export * from "./serialization/files";
 export * from "./serialization/schema";
 export * from "./serialization/settings-toml";
+export * from "./semantic/v1-adapter";

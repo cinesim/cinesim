@@ -1,11 +1,23 @@
-import type { IrDiagnostic, IrDocument, IrSourceMap } from "@cinesim/ir";
+import type { IrDiagnostic, IrEditMap, IrProgram } from "@cinesim/ir";
+
+export interface CompilerBudgets {
+  maxModules: number;
+  maxSourceBytes: number;
+  maxComponentDepth: number;
+  maxExpansionNodes: number;
+  maxDiagnostics: number;
+}
 
 export interface CompilerConfig {
-  version: 1;
+  languageVersion: 1;
+  projectId: string;
+  activeCompositionId: string;
   entry: string;
   output: string;
   sourceMaps: boolean;
   strict: boolean;
+  assetIds: string[];
+  budgets: CompilerBudgets;
 }
 
 export interface CompilerSource {
@@ -23,7 +35,8 @@ export interface CompilerModuleSummary {
   revision: string;
   imports: Array<{ local: string; imported: string; source: string }>;
   components: string[];
-  hasDefaultExport: boolean;
+  compositions: string[];
+  defaultExport?: string;
 }
 
 export interface CompilerExplanation {
@@ -34,9 +47,21 @@ export interface CompilerExplanation {
 }
 
 export interface CompileResult {
-  ir: IrDocument;
-  sourceMap: IrSourceMap;
+  ir: IrProgram;
+  sourceMap: IrEditMap;
   diagnostics: IrDiagnostic[];
   modules: CompilerModuleSummary[];
   explanations: CompilerExplanation[];
+  ast: Record<string, unknown>;
 }
+
+export interface FailedCompileResult {
+  ir?: undefined;
+  sourceMap?: undefined;
+  diagnostics: IrDiagnostic[];
+  modules: CompilerModuleSummary[];
+  explanations: CompilerExplanation[];
+  ast: Record<string, unknown>;
+}
+
+export type SafeCompileResult = CompileResult | FailedCompileResult;

@@ -2,6 +2,7 @@ import path from "node:path";
 import { describe, expect, it } from "vite-plus/test";
 import {
   compileVideo,
+  DEFAULT_COMPILER_BUDGETS,
   parseCompilerConfig,
   rewriteSourceValue,
   type CompilerConfig,
@@ -9,11 +10,15 @@ import {
 } from "@cinesim/compiler";
 
 const config: CompilerConfig = {
-  version: 1,
+  languageVersion: 1,
+  projectId: "project_test",
+  activeCompositionId: "sequence_main",
   entry: "main.jsx",
-  output: ".context/compiler",
+  output: ".video/compiler",
   sourceMaps: true,
   strict: true,
+  assetIds: ["asset_camera"],
+  budgets: DEFAULT_COMPILER_BUDGETS,
 };
 
 function host(files: Record<string, string>): CompilerHost {
@@ -29,77 +34,104 @@ function host(files: Record<string, string>): CompilerHost {
   };
 }
 
+const wrapper = (content: string): string =>
+  `export const main = <composition id="sequence_main" width={1920} height={1080} fps={30}><timeline id="timeline_main"><track id="track_overlay" kind="overlay" name="Overlay"><clip id="clip_scene" start={seconds(0)} duration={seconds(2)}>${content}</clip></track></timeline></composition>; export default main;`;
+
 describe("compiler", () => {
-  it("expands imported components and retains both definition and invocation origins", async () => {
+  it("lowers explicit timelines and imported components with call-site provenance", async () => {
     const files = {
-      "main.jsx": `
-        import { Card } from "./Card.jsx";
-        export default <composition id="scene" width={1920} height={1080} frameRate={30} duration={seconds(2)}><Card id="title" text="Hello" /></composition>;
-      `,
-      "Card.jsx": `
-        export function Card({ text }) {
-          return <group id="root" opacity={0}><text id="label" text={text} color="#fff" fontSize={px(40)} /></group>;
-        }
-      `,
+      "main.jsx": `import { Card } from "./Card.jsx"; ${wrapper('<Card id="title" text="Hello" />')}`,
+      "Card.jsx": `export function Card({ text, opacity = 0 }) { return <group id="root" opacity={opacity}><text id="label" text={text} color="#fff" fontSize={px(40)} /></group>; }`,
     };
-
     const result = await compileVideo("main.jsx", config, host(files));
-    const card = result.ir.root.children[0]!;
-    expect(card.id).toBe("title/root");
-    expect(card.children[0]!.id).toBe("title/label");
-    expect(card.componentStack).toHaveLength(1);
-    expect(card.componentStack[0]!.definition.uri).toBe("Card.jsx");
-    expect(card.componentStack[0]!.invocation.uri).toBe("main.jsx");
-    expect(result.sourceMap.nodes["title/label"]?.properties.text?.source.uri).toBe("main.jsx");
-
-    const opacity = card.props.opacity!;
-    expect(
-      rewriteSourceValue({
-        source: files["Card.jsx"],
-        revision: "Card.jsx-revision",
-        target: opacity.edit,
-        value: { kind: "number", value: 1 },
-      }),
-    ).toContain("opacity={1}");
+    const clip = result.ir.compositions[0]!.timeline.tracks[0]!.clips[0]!;
+    expect(clip.content?.id).toBe("title/root");
+    expect(clip.content?.children[0]!.id).toBe("title/label");
+    expect(result.sourceMap.nodes["title/label"]?.properties.text?.writeSpan?.uri).toBe("main.jsx");
+    const opacity = result.sourceMap.nodes["title/root"]!.properties.opacity!;
+    expect(opacity.kind).toBe("default");
+    expect(opacity.insertion?.source.uri).toBe("main.jsx");
   });
 
-  it("rejects stale source rewrites", async () => {
-    const source = `export default <composition id="scene" width={1} height={1} frameRate={30} duration={seconds(1)} />;`;
+  it("rewrites direct typed values and rejects stale revisions", async () => {
+    const source = wrapper('<rect id="panel" width={px(10)} height={px(20)} />');
     const result = await compileVideo("main.jsx", config, host({ "main.jsx": source }));
+    const target = result.sourceMap.nodes.panel!.properties.width!;
+    expect(
+      rewriteSourceValue({
+        source,
+        revision: "main.jsx-revision",
+        target: {
+          expected: target.value.kind,
+          source: target.writeSpan!,
+          strategy: target.strategy,
+        },
+        value: { kind: "length", unit: "px", value: 50 },
+      }),
+    ).toContain("width={px(50)}");
     expect(() =>
       rewriteSourceValue({
         source,
-        revision: "newer-revision",
-        target: result.ir.root.props.width!.edit,
-        value: { kind: "number", value: 2 },
+        revision: "newer",
+        target: {
+          expected: target.value.kind,
+          source: target.writeSpan!,
+          strategy: target.strategy,
+        },
+        value: { kind: "length", unit: "px", value: 50 },
       }),
     ).toThrow(/stale edit/);
   });
 
-  it("rejects arbitrary JavaScript execution", async () => {
-    const source = `export default <composition id="scene" width={readSecret()} height={1} frameRate={30} duration={seconds(1)} />;`;
+  it("validates asset ids and rejects arbitrary JavaScript execution", async () => {
     await expect(
-      compileVideo("main.jsx", config, host({ "main.jsx": source })),
-    ).rejects.toMatchObject({
-      diagnostic: expect.objectContaining({ code: "UNKNOWN_HELPER" }),
+      compileVideo(
+        "main.jsx",
+        config,
+        host({ "main.jsx": wrapper('<video id="camera" source={asset("asset_missing")} />') }),
+      ),
+    ).rejects.toMatchObject({ diagnostic: expect.objectContaining({ code: "UNKNOWN_ASSET" }) });
+    await expect(
+      compileVideo(
+        "main.jsx",
+        config,
+        host({ "main.jsx": wrapper('<rect id="panel" width={readSecret()} />') }),
+      ),
+    ).rejects.toMatchObject({ diagnostic: expect.objectContaining({ code: "UNKNOWN_HELPER" }) });
+  });
+
+  it("collects multiple compositions and parses the v2 manifest boundary", async () => {
+    const source = `export const main = <composition id="sequence_main" width={1920} height={1080} fps={30}><timeline id="timeline_main" /></composition>; export const selects = <composition id="sequence_selects" width={1280} height={720} fps={24}><timeline id="timeline_selects" /></composition>; export default main;`;
+    const result = await compileVideo("main.jsx", config, host({ "main.jsx": source }));
+    expect(result.ir.compositions.map((composition) => composition.id)).toEqual([
+      "sequence_main",
+      "sequence_selects",
+    ]);
+    expect(
+      parseCompilerConfig({
+        format_version: 2,
+        language_version: 1,
+        project: {
+          id: "project_test",
+          name: "Test",
+          entry: "main.jsx",
+          active_composition: "sequence_main",
+        },
+        compiler: { strict: true },
+        assets: { asset_camera: {} },
+      }),
+    ).toMatchObject({
+      projectId: "project_test",
+      entry: "main.jsx",
+      assetIds: ["asset_camera"],
+      output: ".video/compiler",
     });
   });
 
-  it("parses the stable TOML-facing configuration shape", () => {
-    expect(
-      parseCompilerConfig({
-        version: 1,
-        entry: "main.jsx",
-        output: ".context/out",
-        source_maps: false,
-        strict: true,
-      }),
-    ).toEqual({
-      version: 1,
-      entry: "main.jsx",
-      output: ".context/out",
-      sourceMaps: false,
-      strict: true,
-    });
+  it("enforces component depth and source budgets", async () => {
+    const tiny = { ...config, budgets: { ...config.budgets, maxSourceBytes: 10 } };
+    await expect(
+      compileVideo("main.jsx", tiny, host({ "main.jsx": wrapper("") })),
+    ).rejects.toMatchObject({ diagnostic: expect.objectContaining({ code: "SOURCE_BUDGET" }) });
   });
 });

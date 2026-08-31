@@ -13,15 +13,19 @@ function rawValue(value: IrValue): string | number | boolean {
     case "number":
     case "string":
     case "color":
+    case "angle":
+    case "decibels":
+    case "percent":
       return value.value;
     case "length":
       return `${value.value}px`;
     case "resource":
-      return value.uri;
+      return value.assetId;
     case "time":
       return `${value.valueUs / 1_000_000}s`;
     case "vector":
-      return value.values.map(rawValue).join(", ");
+    case "rectangle":
+      return value.values.join(", ");
   }
 }
 
@@ -33,14 +37,22 @@ function expression(value: IrValue): string {
     case "string":
     case "color":
       return JSON.stringify(value.value);
+    case "angle":
+      return `deg(${value.value})`;
+    case "decibels":
+      return `db(${value.value})`;
+    case "percent":
+      return `percent(${value.value})`;
     case "length":
       return `px(${value.value})`;
     case "resource":
-      return `asset(${JSON.stringify(value.uri)})`;
+      return `asset(${JSON.stringify(value.assetId)})`;
     case "time":
       return `seconds(${value.valueUs / 1_000_000})`;
     case "vector":
-      return `vec2(${value.values.map(expression).join(", ")})`;
+      return `vec2(${value.values.join(", ")})`;
+    case "rectangle":
+      return `rect(${value.values.join(", ")})`;
   }
 }
 
