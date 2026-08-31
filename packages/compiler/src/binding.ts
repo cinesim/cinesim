@@ -37,6 +37,11 @@ interface CompiledChildren {
   animations: BoundAnimation[];
 }
 
+function isEmptyJsxExpression(child: AstNode): boolean {
+  if (child.type !== "JSXExpressionContainer") return false;
+  return node(child.expression, "child expression").type === "JSXEmptyExpression";
+}
+
 export class Compilation {
   readonly diagnostics: IrDiagnostic[] = [];
   readonly modules = new Map<string, ModuleRecord>();
@@ -252,27 +257,30 @@ export class Compilation {
   ): Promise<CompiledChildren> {
     const result: CompiledChildren = { children: [], animations: [] };
     for (const child of jsxChildren(element)) {
-      if (child.type === "JSXText" && String(child.value).trim() === "") continue;
-      if (
-        child.type === "JSXExpressionContainer" &&
-        node(child.expression, "child expression").type === "JSXEmptyExpression"
-      ) {
-        continue;
-      }
-      if (child.type !== "JSXElement") {
-        fail(
-          "CHILD_FORM",
-          `Unsupported ${child.type} JSX child.`,
-          nodeLocation(context.module, child),
-        );
-      }
-      if (jsxElementName(child) === "animate") {
-        result.animations.push(this.compileAnimation(child, context, props));
-      } else {
-        result.children.push(await this.compileElement(child, context));
-      }
+      await this.compileChild(child, context, props, result);
     }
     return result;
+  }
+
+  async compileChild(
+    child: AstNode,
+    context: CompileContext,
+    props: Record<string, AttributeValue>,
+    result: CompiledChildren,
+  ): Promise<void> {
+    if (child.type === "JSXText" && String(child.value).trim() === "") return;
+    if (isEmptyJsxExpression(child)) return;
+    if (child.type !== "JSXElement")
+      fail(
+        "CHILD_FORM",
+        `Unsupported ${child.type} JSX child.`,
+        nodeLocation(context.module, child),
+      );
+    if (jsxElementName(child) === "animate") {
+      result.animations.push(this.compileAnimation(child, context, props));
+      return;
+    }
+    result.children.push(await this.compileElement(child, context));
   }
 
   propertyBindings(

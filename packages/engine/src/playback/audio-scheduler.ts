@@ -1,6 +1,6 @@
 import { secondsToTimeUs, timeSeconds, timeUs, timeUsToSeconds } from "@cinesim/core";
 import type { TimeUs } from "@cinesim/core";
-import type { AudioSource } from "../media/video-source";
+import type { AudioBufferChunk, AudioSource } from "../media/video-source";
 
 export interface PlaybackAudioScheduler {
   startTransport(timelineUs: TimeUs): void;
@@ -97,53 +97,44 @@ export class WebAudioScheduler implements PlaybackAudioScheduler {
     const generation = this.#generation;
     for await (const chunk of source.buffers(sourceFromUs, timeUs(sourceFromUs + durationUs))) {
       if (generation !== this.#generation) return;
-      const chunkDurationUs = secondsToTimeUs(timeSeconds(chunk.buffer.duration));
-      const sourceToUs = sourceFromUs + durationUs;
-      const audibleSourceStartUs = Math.max(sourceFromUs, chunk.timestampUs);
-      const audibleSourceEndUs = Math.min(sourceToUs, chunk.timestampUs + chunkDurationUs);
-      if (audibleSourceEndUs <= audibleSourceStartUs) continue;
+      const timing = audioChunkTiming(chunk, {
+        sourceFromUs,
+        timelineFromUs,
+        durationUs,
+        contextTime: this.#context.currentTime,
+        transportTimelineUs: this.#transportTimelineUs,
+        transportContextTime: this.#transportContextTime,
+      });
+      if (timing) this.#scheduleChunk(chunk, timing, envelope);
+    }
+  }
 
-      const chunkTimelineStartUs = timelineFromUs + audibleSourceStartUs - sourceFromUs;
-      const chunkTimelineEndUs = timelineFromUs + audibleSourceEndUs - sourceFromUs;
-      const timelineOffsetSeconds = (chunkTimelineStartUs - this.#transportTimelineUs) / 1_000_000;
-      const desiredStartAt = this.#transportContextTime + timelineOffsetSeconds;
-      const lateByUs = Math.max(
-        0,
-        Math.round((this.#context.currentTime - desiredStartAt) * 1_000_000),
+  #scheduleChunk(
+    chunk: AudioBufferChunk,
+    timing: ScheduledAudioTiming,
+    envelope: AudioFadeEnvelope | undefined,
+  ): void {
+    const node = this.#context.createBufferSource();
+    node.buffer = chunk.buffer;
+    const gain = this.#context.createGain();
+    node.connect(gain);
+    gain.connect(this.#master);
+    const scheduled = { gain, node };
+    node.onended = () => this.#release(scheduled);
+    if (envelope)
+      scheduleFadeAutomation(
+        gain.gain,
+        timing.startAt,
+        timing.timelineStartUs,
+        timing.timelineEndUs,
+        envelope,
       );
-      const effectiveSourceStartUs = audibleSourceStartUs + lateByUs;
-      if (effectiveSourceStartUs >= audibleSourceEndUs) continue;
-
-      const effectiveTimelineStartUs = timeUs(
-        timelineFromUs + effectiveSourceStartUs - sourceFromUs,
-      );
-      const effectiveTimelineEndUs = timeUs(chunkTimelineEndUs);
-      const bufferOffsetSeconds = (effectiveSourceStartUs - chunk.timestampUs) / 1_000_000;
-      const playbackDurationSeconds = (audibleSourceEndUs - effectiveSourceStartUs) / 1_000_000;
-      const startAt = Math.max(this.#context.currentTime, desiredStartAt);
-      const node = this.#context.createBufferSource();
-      node.buffer = chunk.buffer;
-      const gain = this.#context.createGain();
-      node.connect(gain);
-      gain.connect(this.#master);
-      const scheduled = { gain, node };
-      node.onended = () => this.#release(scheduled);
-      if (envelope) {
-        scheduleFadeAutomation(
-          gain.gain,
-          startAt,
-          effectiveTimelineStartUs,
-          effectiveTimelineEndUs,
-          envelope,
-        );
-      }
-      try {
-        node.start(startAt, bufferOffsetSeconds, playbackDurationSeconds);
-        this.#scheduled.add(scheduled);
-      } catch (error) {
-        this.#release(scheduled);
-        throw error;
-      }
+    try {
+      node.start(timing.startAt, timing.bufferOffsetSeconds, timing.playbackDurationSeconds);
+      this.#scheduled.add(scheduled);
+    } catch (error) {
+      this.#release(scheduled);
+      throw error;
     }
   }
 
@@ -199,6 +190,48 @@ export class WebAudioScheduler implements PlaybackAudioScheduler {
       // The gain may already be disconnected during overlapping cleanup.
     }
   }
+}
+
+interface ScheduledAudioTiming {
+  startAt: number;
+  bufferOffsetSeconds: number;
+  playbackDurationSeconds: number;
+  timelineStartUs: TimeUs;
+  timelineEndUs: TimeUs;
+}
+
+interface AudioChunkTimingContext {
+  sourceFromUs: TimeUs;
+  timelineFromUs: TimeUs;
+  durationUs: TimeUs;
+  contextTime: number;
+  transportTimelineUs: TimeUs;
+  transportContextTime: number;
+}
+
+function audioChunkTiming(
+  chunk: AudioBufferChunk,
+  context: AudioChunkTimingContext,
+): ScheduledAudioTiming | null {
+  const chunkDurationUs = secondsToTimeUs(timeSeconds(chunk.buffer.duration));
+  const sourceToUs = context.sourceFromUs + context.durationUs;
+  const audibleStartUs = Math.max(context.sourceFromUs, chunk.timestampUs);
+  const audibleEndUs = Math.min(sourceToUs, chunk.timestampUs + chunkDurationUs);
+  if (audibleEndUs <= audibleStartUs) return null;
+  const timelineStartUs = context.timelineFromUs + audibleStartUs - context.sourceFromUs;
+  const timelineEndUs = context.timelineFromUs + audibleEndUs - context.sourceFromUs;
+  const desiredStartAt =
+    context.transportContextTime + (timelineStartUs - context.transportTimelineUs) / 1_000_000;
+  const lateByUs = Math.max(0, Math.round((context.contextTime - desiredStartAt) * 1_000_000));
+  const effectiveStartUs = audibleStartUs + lateByUs;
+  if (effectiveStartUs >= audibleEndUs) return null;
+  return {
+    startAt: Math.max(context.contextTime, desiredStartAt),
+    bufferOffsetSeconds: (effectiveStartUs - chunk.timestampUs) / 1_000_000,
+    playbackDurationSeconds: (audibleEndUs - effectiveStartUs) / 1_000_000,
+    timelineStartUs: timeUs(context.timelineFromUs + effectiveStartUs - context.sourceFromUs),
+    timelineEndUs: timeUs(timelineEndUs),
+  };
 }
 
 function scheduleFadeAutomation(

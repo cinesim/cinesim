@@ -123,13 +123,12 @@ function findClip(program: IrProgram, id: string): IrClip | undefined {
 }
 
 function findSceneInProgram(program: IrProgram, id: string): IrSceneNode | undefined {
-  for (const composition of program.compositions) {
-    for (const track of composition.timeline.tracks) {
-      for (const clip of track.clips) {
-        const scene = clip.content && findScene(clip.content, id);
-        if (scene) return scene;
-      }
-    }
+  const clips = program.compositions.flatMap((composition) =>
+    composition.timeline.tracks.flatMap((track) => track.clips),
+  );
+  for (const clip of clips) {
+    const scene = clip.content && findScene(clip.content, id);
+    if (scene) return scene;
   }
   return undefined;
 }

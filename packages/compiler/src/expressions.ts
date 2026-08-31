@@ -177,26 +177,17 @@ function evaluateHelper(
   origin: SourceSpan,
 ): IrValue {
   const numeric = numericHelpers[name];
-  if (numeric !== undefined && args.length === 1) {
+  if (numeric !== undefined && hasArity(args, 1)) {
     return numeric(numberArgument(args[0]!.value, name));
   }
-  if (name === "asset" && args.length === 1 && args[0]!.value.kind === "string") {
-    const assetId = args[0]!.value.value;
-    if (!/^asset_[a-zA-Z0-9][a-zA-Z0-9_-]*$/u.test(assetId)) {
-      fail("ASSET_ID", `Invalid stable asset id: ${assetId}.`, origin);
-    }
-    if (!assets.has(assetId)) {
-      fail("UNKNOWN_ASSET", `Asset ${assetId} is not declared in cinesim.toml.`, origin);
-    }
-    return { kind: "resource", assetId };
-  }
-  if (name === "vec2" && args.length === 2) {
+  if (name === "asset" && hasArity(args, 1)) return evaluateAssetHelper(args[0]!, assets, origin);
+  if (name === "vec2" && hasArity(args, 2)) {
     return {
       kind: "vector",
       values: [numberArgument(args[0]!.value, name), numberArgument(args[1]!.value, name)],
     };
   }
-  if (name === "rect" && args.length === 4) {
+  if (name === "rect" && hasArity(args, 4)) {
     return {
       kind: "rectangle",
       values: args.map((argument) => numberArgument(argument.value, name)) as [
@@ -208,6 +199,25 @@ function evaluateHelper(
     };
   }
   fail("UNKNOWN_HELPER", `Unsupported helper ${name}().`, origin);
+}
+
+function hasArity(args: readonly AttributeValue[], count: number): boolean {
+  return args.length === count;
+}
+
+function evaluateAssetHelper(
+  argument: AttributeValue,
+  assets: ReadonlySet<string>,
+  origin: SourceSpan,
+): IrValue {
+  if (argument.value.kind !== "string")
+    fail("UNKNOWN_HELPER", "Unsupported helper asset().", origin);
+  const assetId = argument.value.value;
+  if (!/^asset_[a-zA-Z0-9][a-zA-Z0-9_-]*$/u.test(assetId))
+    fail("ASSET_ID", `Invalid stable asset id: ${assetId}.`, origin);
+  if (!assets.has(assetId))
+    fail("UNKNOWN_ASSET", `Asset ${assetId} is not declared in cinesim.toml.`, origin);
+  return { kind: "resource", assetId };
 }
 
 function evaluateCall(

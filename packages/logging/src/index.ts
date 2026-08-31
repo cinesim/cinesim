@@ -36,25 +36,33 @@ function terminalSafe(value: string): string {
   let safe = "";
   for (let index = 0; index < value.length; index += 1) {
     const code = value.charCodeAt(index);
-    if (code === 0x1b && value[index + 1] === "[") {
-      index += 2;
-      while (
-        index < value.length &&
-        (value.charCodeAt(index) < 0x40 || value.charCodeAt(index) > 0x7e)
-      ) {
-        index += 1;
-      }
+    if (isAnsiSequenceStart(value, index)) {
+      index = ansiSequenceEnd(value, index);
       continue;
     }
-    if (code === 0x0a || code === 0x0d) {
-      if (safe.at(-1) !== " ") safe += " ";
-    } else if (code < 0x20 || code === 0x7f) {
-      safe += "?";
-    } else {
-      safe += value[index];
-    }
+    safe += terminalCharacter(value[index]!, code, safe.at(-1));
   }
   return safe;
+}
+
+function isAnsiSequenceStart(value: string, index: number): boolean {
+  return value.charCodeAt(index) === 0x1b && value[index + 1] === "[";
+}
+
+function ansiSequenceEnd(value: string, start: number): number {
+  let index = start + 2;
+  while (index < value.length && !isAnsiFinalByte(value.charCodeAt(index))) index += 1;
+  return index;
+}
+
+function isAnsiFinalByte(code: number): boolean {
+  return code >= 0x40 && code <= 0x7e;
+}
+
+function terminalCharacter(character: string, code: number, previous: string | undefined): string {
+  if (code === 0x0a || code === 0x0d) return previous === " " ? "" : " ";
+  if (code < 0x20 || code === 0x7f) return "?";
+  return character;
 }
 
 function formatValue(value: unknown): string {

@@ -149,13 +149,7 @@ class SequentialVideoCursor {
 
   async frameAt(timeUs: TimeUs): Promise<VideoFrame | null> {
     if (!this.#source.frames) return this.#source.getFrame(timeUs);
-    if (
-      !this.#current ||
-      this.#lastRequestedUs === null ||
-      timeUs < this.#lastRequestedUs ||
-      timeUs - this.#lastRequestedUs > 500_000
-    )
-      await this.#restart(timeUs);
+    if (this.#requiresRestart(timeUs)) await this.#restart(timeUs);
     this.#lastRequestedUs = timeUs;
     if (!this.#current) return null;
 
@@ -163,23 +157,45 @@ class SequentialVideoCursor {
     const currentDurationUs = Math.max(1, Math.round(this.#current.duration ?? 1));
     if (timeUs < currentStartUs + currentDurationUs) return this.#current.clone();
 
-    while (true) {
-      if (!this.#next) {
-        const generation = this.#generation;
-        const result = await this.#iterator?.next();
-        if (!result || result.done) break;
-        if (generation !== this.#generation) {
-          result.value.close();
-          return null;
-        }
-        this.#next = result.value;
-      }
-      if (frameTimestampUs(this.#next, timeUs) > timeUs) break;
+    if (!(await this.#advanceTo(timeUs))) return null;
+    return this.#current?.clone() ?? null;
+  }
+
+  #requiresRestart(requestedTimeUs: TimeUs): boolean {
+    if (!this.#current || this.#lastRequestedUs === null) return true;
+    return (
+      requestedTimeUs < this.#lastRequestedUs || requestedTimeUs - this.#lastRequestedUs > 500_000
+    );
+  }
+
+  async #advanceTo(requestedTimeUs: TimeUs): Promise<boolean> {
+    while (this.#current) {
+      const read = await this.#ensureNext();
+      if (read === "stale") return false;
+      if (read === "ended") return true;
+      if (!this.#next) return false;
+      if (frameTimestampUs(this.#next, requestedTimeUs) > requestedTimeUs) return true;
       this.#current.close();
       this.#current = this.#next;
       this.#next = null;
     }
-    return this.#current.clone();
+    return false;
+  }
+
+  async #ensureNext(): Promise<"available" | "ended" | "stale"> {
+    return this.#next ? "available" : this.#readNext();
+  }
+
+  async #readNext(): Promise<"available" | "ended" | "stale"> {
+    const generation = this.#generation;
+    const result = await this.#iterator?.next();
+    if (!result || result.done) return "ended";
+    if (generation !== this.#generation) {
+      result.value.close();
+      return "stale";
+    }
+    this.#next = result.value;
+    return "available";
   }
 
   async #restart(requestedTimeUs: TimeUs): Promise<void> {

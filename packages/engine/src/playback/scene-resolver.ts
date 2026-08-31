@@ -4,6 +4,7 @@ import { createRenderPlan, findIrComposition } from "@cinesim/ir";
 import type {
   EvaluatedIrNode,
   IrClip,
+  IrComposition,
   IrEffect,
   IrProgram,
   IrTrack,
@@ -501,9 +502,7 @@ export function resolveSceneFrame(project: PlaybackProject, timelineTimeUs: Time
   const composition = findIrComposition(project.program);
   const plan = createRenderPlan(project.program, timelineTimeUs);
   const assets = new Map(project.assets.map((asset) => [asset.id as string, asset]));
-  const clips = new Map<string, { clip: IrClip; track: IrTrack }>();
-  for (const track of composition.timeline.tracks)
-    for (const clip of track.clips) clips.set(clip.id, { clip, track });
+  const clips = clipsById(composition);
   const media: ResolvedLayer[] = [];
   const graphics: ResolvedGraphicLayer[] = [];
   const drawOrder = { value: 0 };
@@ -511,51 +510,79 @@ export function resolveSceneFrame(project: PlaybackProject, timelineTimeUs: Time
   for (const layer of plan.layers) {
     const resolved = clips.get(layer.clipId);
     if (!resolved) continue;
-    const { clip, track } = resolved;
-    if (layer.assetId !== undefined) {
-      const asset = assets.get(layer.assetId);
-      if (asset && asset.kind !== "audio") {
-        media.push({
-          asset,
-          clip,
-          track,
-          nodeId: clip.id,
-          sourceTimeUs: timeUs(layer.sourceTimeUs),
-          opacity: layer.opacity,
-          transform: directTransform(clip.transform, layer.opacity),
-          cornerRadiusPx: clip.transform.cornerRadius,
-          colorAdjustment: colorAdjustment(layer.effects),
-          order: drawOrder.value++,
-        });
-      }
-    }
-    if (layer.content !== undefined) {
-      resolveContent(
-        layer.content,
-        {
-          originX: 0,
-          originY: 0,
-          scaleX: 1,
-          scaleY: 1,
-          opacity: layer.opacity,
-          available: { x: 0, y: 0, width: composition.width, height: composition.height },
-          effects: layer.effects,
-        },
-        undefined,
-        {
-          composition,
-          clip,
-          track,
-          sourceTimeUs: timeUs(layer.sourceTimeUs),
-          assets,
-          media,
-          graphics,
-          drawOrder,
-        },
-      );
-    }
+    appendPlanMediaLayer(layer, resolved, assets, media, drawOrder);
+    appendPlanContentLayer(layer, resolved, composition, assets, media, graphics, drawOrder);
   }
   return { media, graphics, background: parseColor(plan.background) };
+}
+
+type PlannedLayer = ReturnType<typeof createRenderPlan>["layers"][number];
+type ResolvedClip = { clip: IrClip; track: IrTrack };
+
+function clipsById(composition: IrComposition): Map<string, ResolvedClip> {
+  const clips = new Map<string, ResolvedClip>();
+  for (const track of composition.timeline.tracks)
+    for (const clip of track.clips) clips.set(clip.id, { clip, track });
+  return clips;
+}
+
+function appendPlanMediaLayer(
+  layer: PlannedLayer,
+  { clip, track }: ResolvedClip,
+  assets: Map<string, Asset>,
+  media: ResolvedLayer[],
+  drawOrder: { value: number },
+): void {
+  if (layer.assetId === undefined) return;
+  const asset = assets.get(layer.assetId);
+  if (!asset || asset.kind === "audio") return;
+  media.push({
+    asset,
+    clip,
+    track,
+    nodeId: clip.id,
+    sourceTimeUs: timeUs(layer.sourceTimeUs),
+    opacity: layer.opacity,
+    transform: directTransform(clip.transform, layer.opacity),
+    cornerRadiusPx: clip.transform.cornerRadius,
+    colorAdjustment: colorAdjustment(layer.effects),
+    order: drawOrder.value++,
+  });
+}
+
+function appendPlanContentLayer(
+  layer: PlannedLayer,
+  { clip, track }: ResolvedClip,
+  composition: IrComposition,
+  assets: Map<string, Asset>,
+  media: ResolvedLayer[],
+  graphics: ResolvedGraphicLayer[],
+  drawOrder: { value: number },
+): void {
+  if (layer.content === undefined) return;
+  resolveContent(
+    layer.content,
+    {
+      originX: 0,
+      originY: 0,
+      scaleX: 1,
+      scaleY: 1,
+      opacity: layer.opacity,
+      available: { x: 0, y: 0, width: composition.width, height: composition.height },
+      effects: layer.effects,
+    },
+    undefined,
+    {
+      composition,
+      clip,
+      track,
+      sourceTimeUs: timeUs(layer.sourceTimeUs),
+      assets,
+      media,
+      graphics,
+      drawOrder,
+    },
+  );
 }
 
 /** Compatibility projection for callers interested only in decoded media. */

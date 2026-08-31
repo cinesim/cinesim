@@ -244,13 +244,12 @@ function collectSceneAssets(node: IrSceneNode, assets: Set<string>): void {
 
 export function referencedAssetIds(compositions: readonly IrComposition[]): string[] {
   const assets = new Set<string>();
-  for (const composition of compositions) {
-    for (const track of composition.timeline.tracks) {
-      for (const clip of track.clips) {
-        if (clip.assetId !== undefined) assets.add(clip.assetId);
-        if (clip.content) collectSceneAssets(clip.content, assets);
-      }
-    }
+  const clips = compositions.flatMap((composition) =>
+    composition.timeline.tracks.flatMap((track) => track.clips),
+  );
+  for (const clip of clips) {
+    if (clip.assetId !== undefined) assets.add(clip.assetId);
+    if (clip.content) collectSceneAssets(clip.content, assets);
   }
   return [...assets].sort((left, right) => left.localeCompare(right));
 }
