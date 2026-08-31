@@ -75,7 +75,6 @@ export interface ProjectSlice {
   undo: () => Promise<ActionResult<DesktopProjectSession>>;
   redo: () => Promise<ActionResult<DesktopProjectSession>>;
   save: () => Promise<ActionResult<DesktopProjectSession>>;
-  revealProject: () => Promise<ActionResult<void>>;
   forgetProject: (directory: string) => Promise<ActionResult<DesktopAppState>>;
   trashProject: (directory: string) => Promise<ActionResult<DesktopAppState>>;
   navigate: (destination: Destination) => void;

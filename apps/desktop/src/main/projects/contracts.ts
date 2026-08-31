@@ -2,11 +2,14 @@ import { z } from "zod";
 import type { ProjectSettings, SemanticEditorCommand } from "@cinesim/core";
 import { settingsSchema } from "@cinesim/core";
 import { editorCommandSchema } from "@cinesim/protocol";
+import { PROJECT_OPEN_TARGET_IDS } from "../../shared/contracts";
 import type {
   CreateProjectLocation,
   DesktopAppState,
   DesktopCommandResult,
   DesktopProjectSession,
+  ProjectOpenTarget,
+  ProjectOpenTargetId,
   RecentProjectDetails,
 } from "../../shared/contracts";
 import { invokeChannels } from "../../shared/contracts/channels";
@@ -78,10 +81,15 @@ export const projectContracts = {
   ),
   undo: sessionContract(invokeChannels.project.undo, emptyRequestSchema, "canonical-command"),
   redo: sessionContract(invokeChannels.project.redo, emptyRequestSchema, "canonical-command"),
-  reveal: defineInvokeContract<[], void>({
-    channel: invokeChannels.project.reveal,
+  openTargets: defineInvokeContract<[], ProjectOpenTarget[]>({
+    channel: invokeChannels.project.openTargets,
     request: emptyRequestSchema,
     privilege: "read",
+  }),
+  openWith: defineInvokeContract<[{ target: ProjectOpenTargetId }], void>({
+    channel: invokeChannels.project.openWith,
+    request: z.tuple([z.object({ target: z.enum(PROJECT_OPEN_TARGET_IDS) }).strict()]),
+    privilege: "process-launch",
   }),
   forget: appStateContract(invokeChannels.project.forget, "reversible-mutation"),
   trash: appStateContract(invokeChannels.project.trash, "destructive"),

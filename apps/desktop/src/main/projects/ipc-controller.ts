@@ -5,13 +5,18 @@ import { dialog, shell } from "electron";
 import { cloudProjectIdSchema, projectIdSchema, settingsSchema } from "@cinesim/core";
 import type { ProjectId } from "@cinesim/core";
 import { parseProjectManifest } from "@cinesim/project-io";
-import type { CreateProjectLocation, RecentProjectDetails } from "../../shared/contracts";
+import type {
+  CreateProjectLocation,
+  ProjectOpenTargetId,
+  RecentProjectDetails,
+} from "../../shared/contracts";
 import type { AgentManager } from "../agents/manager";
 import type { DesktopAccountService } from "../account/service";
 import type { CloudMediaManager } from "../cloud/manager";
 import type { DesktopAppStateStore } from "../state/app-state-store";
 import { requireUserIntent } from "../app/user-intent";
 import { canonicalProjectSizeBytes } from "./project-size";
+import { availableProjectOpenTargets, launchProjectOpenTarget } from "./project-open-targets";
 import { isTemporaryMediaSelection } from "./media-import";
 import type { DesktopProjectStore } from "./project-store";
 
@@ -106,10 +111,18 @@ export class ProjectIpcController {
     return this.store.updateSettings(settingsSchema.parse({ ...current, ...update }));
   }
 
-  async reveal(): Promise<void> {
+  async openTargets() {
+    return availableProjectOpenTargets();
+  }
+
+  async openWith(target: ProjectOpenTargetId): Promise<void> {
     if (!this.store.directory) return;
-    const error = await shell.openPath(this.store.directory);
-    if (error) throw new Error("The project could not be revealed in Finder");
+    if (target === "finder") {
+      const error = await shell.openPath(this.store.directory);
+      if (error) throw new Error("The project could not be opened in Finder");
+      return;
+    }
+    await launchProjectOpenTarget(target, this.store.directory);
   }
 
   async forget(directory: string) {

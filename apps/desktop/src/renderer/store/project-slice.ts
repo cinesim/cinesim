@@ -114,18 +114,6 @@ export function createProjectSlice(context: RendererStoreContext): ProjectSlice 
     redo: () => context.runSessionAction(() => api.project.redo(), "The edit could not be redone"),
     save: () =>
       context.runSessionAction(() => api.project.save(), "The project could not be saved"),
-    revealProject: async () => {
-      const blocked = context.blockedByProjectOpening<void>();
-      if (blocked) return blocked;
-      try {
-        await api.project.reveal();
-        return { ok: true, value: undefined };
-      } catch (error) {
-        const message = messageFrom(error, "The project could not be revealed");
-        set({ operationError: message });
-        return { ok: false, error: message };
-      }
-    },
     forgetProject: async (directory) => {
       try {
         const appState = await api.project.forget(directory);

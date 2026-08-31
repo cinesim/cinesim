@@ -33,6 +33,10 @@ describe("desktop IPC contracts", () => {
       (contract) => contract.channel === "project:open-recent",
     );
     expect(() => openRecent?.request.parse(["x".repeat(4_097)])).toThrow();
+    const openWith = allInvokeContracts.find(
+      (contract) => contract.channel === "project:open-with",
+    );
+    expect(() => openWith?.request.parse([{ target: "untrusted-application" }])).toThrow();
   });
 
   it("preserves structured error identity for renderer code", () => {

@@ -25,6 +25,23 @@ export interface CreateProjectLocation {
   directory: string;
 }
 
+export const PROJECT_OPEN_TARGET_IDS = [
+  "finder",
+  "vscode",
+  "cursor",
+  "zed",
+  "ghostty",
+  "terminal",
+] as const;
+
+export type ProjectOpenTargetId = (typeof PROJECT_OPEN_TARGET_IDS)[number];
+
+export interface ProjectOpenTarget {
+  id: ProjectOpenTargetId;
+  label: string;
+  kind: "file-manager" | "editor" | "terminal";
+}
+
 export interface RecentProjectDetails {
   sizeBytes: number | null;
   createdAt: number | null;

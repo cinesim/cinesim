@@ -31,6 +31,8 @@ import type { ElectronHealthSnapshot } from "./contracts/health";
 import type {
   CreateProjectLocation,
   DesktopProjectSession,
+  ProjectOpenTarget,
+  ProjectOpenTargetId,
   DesktopCommandResult,
   RecentProjectDetails,
 } from "./contracts/project";
@@ -75,7 +77,8 @@ export interface DesktopProjectApi {
   redo(): Promise<DesktopProjectSession>;
   save(): Promise<DesktopProjectSession>;
   updateSettings(update: Partial<ProjectSettings>): Promise<DesktopProjectSession>;
-  reveal(): Promise<void>;
+  openTargets(): Promise<ProjectOpenTarget[]>;
+  openWith(target: ProjectOpenTargetId): Promise<void>;
   forget(directory: string): Promise<DesktopAppState>;
   trash(directory: string): Promise<DesktopAppState>;
   getSession(): Promise<DesktopProjectSession | null>;

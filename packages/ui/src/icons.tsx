@@ -11,6 +11,7 @@ export {
   IconArrowsMoveHorizontal as MoveHorizontal,
   IconBrandGoogle as BrandGoogle,
   IconBrandOpenai as BrandOpenAI,
+  IconBrandVscode as BrandVscode,
   IconBug as Bug,
   IconChartBar as ChartNoAxesColumnIncreasing,
   IconCheck as Check,
