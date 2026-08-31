@@ -12,9 +12,16 @@ interface ApplicationTarget extends ProjectOpenTarget {
 
 type PathAccess = (path: string) => Promise<void>;
 type ApplicationLaunch = (arguments_: readonly string[]) => Promise<void>;
+type IconForPath = (path: string) => Promise<string>;
+
+export interface ProjectOpenTargetDiscoveryOptions {
+  pathAccess?: PathAccess;
+  iconForPath?: IconForPath;
+}
 
 const executeFile = promisify(execFile);
 const userApplications = join(homedir(), "Applications");
+const finderPath = "/System/Library/CoreServices/Finder.app";
 
 export const FINDER_TARGET: ProjectOpenTarget = {
   id: "finder",
@@ -72,29 +79,51 @@ async function pathExists(path: string, pathAccess: PathAccess): Promise<boolean
   }
 }
 
-async function targetInstalled(
+async function installedTargetPath(
   target: ApplicationTarget,
   pathAccess: PathAccess,
-): Promise<boolean> {
+): Promise<string | null> {
   const results = await Promise.all(target.paths.map((path) => pathExists(path, pathAccess)));
-  return results.some(Boolean);
+  const index = results.findIndex(Boolean);
+  return index === -1 ? null : target.paths[index]!;
+}
+
+function publicTarget(target: ApplicationTarget): ProjectOpenTarget {
+  const { applicationName: _applicationName, paths: _paths, ...result } = target;
+  return result;
+}
+
+async function targetWithIcon(
+  target: ProjectOpenTarget,
+  path: string,
+  iconForPath: IconForPath | undefined,
+): Promise<ProjectOpenTarget> {
+  if (!iconForPath) return target;
+  try {
+    const iconDataUrl = await iconForPath(path);
+    return iconDataUrl ? { ...target, iconDataUrl } : target;
+  } catch {
+    return target;
+  }
 }
 
 export async function availableProjectOpenTargets(
-  pathAccess: PathAccess = access,
+  options: ProjectOpenTargetDiscoveryOptions = {},
 ): Promise<ProjectOpenTarget[]> {
+  const pathAccess = options.pathAccess ?? access;
   const installed = await Promise.all(
     APPLICATION_TARGETS.map(async (target) => ({
       target,
-      installed: await targetInstalled(target, pathAccess),
+      path: await installedTargetPath(target, pathAccess),
     })),
   );
-  return [
-    FINDER_TARGET,
-    ...installed
-      .filter((candidate) => candidate.installed)
-      .map(({ target: { applicationName: _applicationName, paths: _paths, ...target } }) => target),
-  ];
+  const finder = await targetWithIcon(FINDER_TARGET, finderPath, options.iconForPath);
+  const optionalTargets = await Promise.all(
+    installed.flatMap(({ target, path }) =>
+      path ? [targetWithIcon(publicTarget(target), path, options.iconForPath)] : [],
+    ),
+  );
+  return [finder, ...optionalTargets];
 }
 
 async function launchMacApplication(arguments_: readonly string[]): Promise<void> {

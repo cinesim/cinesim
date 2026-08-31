@@ -40,6 +40,7 @@ export interface ProjectOpenTarget {
   id: ProjectOpenTargetId;
   label: string;
   kind: "file-manager" | "editor" | "terminal";
+  iconDataUrl?: string;
 }
 
 export interface RecentProjectDetails {

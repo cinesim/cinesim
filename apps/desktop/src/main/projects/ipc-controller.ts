@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { lstat, readFile, realpath, stat } from "node:fs/promises";
 import { parse, resolve } from "node:path";
-import { dialog, shell } from "electron";
+import { app, dialog, shell } from "electron";
 import { cloudProjectIdSchema, projectIdSchema, settingsSchema } from "@cinesim/core";
 import type { ProjectId } from "@cinesim/core";
 import { parseProjectManifest } from "@cinesim/project-io";
@@ -112,7 +112,9 @@ export class ProjectIpcController {
   }
 
   async openTargets() {
-    return availableProjectOpenTargets();
+    return availableProjectOpenTargets({
+      iconForPath: async (path) => (await app.getFileIcon(path, { size: "normal" })).toDataURL(),
+    });
   }
 
   async openWith(target: ProjectOpenTargetId): Promise<void> {

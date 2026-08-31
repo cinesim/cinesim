@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
 import {
-  BrandVscode,
   Button,
   Check,
   ChevronDown,
@@ -37,33 +36,18 @@ function rememberTarget(target: ProjectOpenTargetId): void {
 }
 
 function targetIcon(target: ProjectOpenTarget, className?: string) {
-  if (target.id === "vscode") return <BrandVscode className={cn("text-[#23a8f2]", className)} />;
-  if (target.id === "cursor") return <TargetMonogram className={className}>C</TargetMonogram>;
-  if (target.id === "zed") return <TargetMonogram className={className}>Z</TargetMonogram>;
-  if (target.id === "ghostty") return <Terminal className={cn("text-violet-400", className)} />;
+  if (target.iconDataUrl)
+    return (
+      <img
+        src={target.iconDataUrl}
+        alt=""
+        draggable={false}
+        className={cn("shrink-0 object-contain", className)}
+      />
+    );
   if (target.kind === "terminal") return <Terminal className={className} />;
   if (target.kind === "editor") return <FilePenLine className={className} />;
   return <FolderOpen className={className} />;
-}
-
-function TargetMonogram({
-  children,
-  className,
-}: {
-  children: string;
-  className?: string | undefined;
-}) {
-  return (
-    <span
-      aria-hidden="true"
-      className={cn(
-        "grid shrink-0 place-items-center rounded-[3px] bg-primary text-[9px] font-bold leading-none text-canvas",
-        className,
-      )}
-    >
-      {children}
-    </span>
-  );
 }
 
 export function ProjectOpenButton() {
