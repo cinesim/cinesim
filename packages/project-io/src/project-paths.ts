@@ -2,7 +2,7 @@ import { isAbsolute, relative, resolve, sep } from "node:path";
 import type { ProjectFileSystem } from "./file-system";
 import { nodeProjectFileSystem } from "./file-system";
 
-const CANONICAL_DIRECTORY = ".cinesim";
+const LEGACY_CANONICAL_DIRECTORY = ".cinesim";
 const DERIVED_DIRECTORY = ".video";
 
 function isMissing(error: unknown): boolean {
@@ -45,11 +45,35 @@ export class ProjectPaths {
 
   canonical(relativePath: string): string {
     if (
-      relativePath !== "cinesim.json" &&
-      relativePath !== CANONICAL_DIRECTORY &&
-      !relativePath.startsWith(`${CANONICAL_DIRECTORY}/`)
+      relativePath !== "cinesim.toml" &&
+      relativePath !== "AGENTS.md" &&
+      relativePath !== ".gitignore" &&
+      !/\.(?:js|jsx)$/u.test(relativePath)
     ) {
       throw new UnsafeProjectPathError(`Not a canonical project path: ${relativePath}`);
+    }
+    return this.#resolve(relativePath);
+  }
+
+  /** Format-v1 access is deliberately isolated to the migration reader. */
+  legacyCanonical(relativePath: string): string {
+    if (
+      relativePath !== "cinesim.json" &&
+      relativePath !== LEGACY_CANONICAL_DIRECTORY &&
+      !relativePath.startsWith(`${LEGACY_CANONICAL_DIRECTORY}/`)
+    ) {
+      throw new UnsafeProjectPathError(`Not a format-v1 project path: ${relativePath}`);
+    }
+    return this.#resolve(relativePath);
+  }
+
+  source(relativePath: string): string {
+    if (
+      !/\.(?:js|jsx)$/u.test(relativePath) ||
+      relativePath.startsWith(".video/") ||
+      relativePath.includes("node_modules")
+    ) {
+      throw new UnsafeProjectPathError(`Not a video source module: ${relativePath}`);
     }
     return this.#resolve(relativePath);
   }
@@ -66,7 +90,6 @@ export class ProjectPaths {
   }
 
   async ensureLayout(derivedFolders: readonly string[] = []): Promise<void> {
-    await this.ensureDirectory(CANONICAL_DIRECTORY);
     await this.ensureDirectory(DERIVED_DIRECTORY);
     for (const folder of derivedFolders) {
       if (folder.includes("/") || folder.includes("\\") || folder === "." || folder === "..") {
@@ -117,6 +140,11 @@ export class ProjectPaths {
 
   async assertSafeDerivedFile(relativePath: string, allowMissing = true): Promise<string> {
     this.derived(relativePath);
+    return this.assertSafeFile(relativePath, allowMissing);
+  }
+
+  async assertSafeSourceFile(relativePath: string, allowMissing = true): Promise<string> {
+    this.source(relativePath);
     return this.assertSafeFile(relativePath, allowMissing);
   }
 

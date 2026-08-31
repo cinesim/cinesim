@@ -2,7 +2,7 @@
 import { existsSync } from "node:fs";
 import { Command } from "commander";
 import { createCinesimLogger } from "@cinesim/logging";
-import { ProjectPaths } from "@cinesim/project-io";
+import { checkV1Migration, migrateV1Project, ProjectPaths } from "@cinesim/project-io";
 import {
   assetIdSchema,
   inspectAsset,
@@ -32,6 +32,17 @@ program
   .option("--explain", "Explain where every expanded ir node came from")
   .option("--check", "Validate and summarize without writing files")
   .action(runCompileCommand);
+
+program
+  .command("migrate")
+  .description("Upgrade a format-v1 project to source-driven format v2")
+  .argument("[path]", "Project directory", ".")
+  .option("--check", "Report the migration plan without writing")
+  .action(async (target, options: { check?: boolean }) => {
+    const result = options.check ? await checkV1Migration(target) : await migrateV1Project(target);
+    output(result, true);
+    if (result.issues.length > 0) process.exitCode = 1;
+  });
 
 function directory(): string {
   return (

@@ -8,6 +8,7 @@ import {
   type CompilerSource,
 } from "@cinesim/compiler";
 import { serializeIr } from "@cinesim/ir";
+import { SourceProjectRepository } from "@cinesim/project-io";
 import { parse } from "smol-toml";
 
 export interface CompileCommandOptions {
@@ -82,12 +83,22 @@ export async function runCompileCommand(
 ): Promise<void> {
   const filename = await configFilename(target, options.config);
   const configDirectory = path.dirname(filename);
-  const config = parseCompilerConfig(parse(await readFile(filename, "utf8")) as unknown);
-  const entry = safeUri(config.entry);
-  const result = await compileVideo(entry, config, new DiskCompilerHost(configDirectory));
+  const useRepository =
+    options.config === undefined && (await stat(path.resolve(target))).isDirectory();
+  const repositorySnapshot = useRepository
+    ? await (await SourceProjectRepository.open(path.resolve(target))).load()
+    : undefined;
+  const config =
+    repositorySnapshot === undefined
+      ? parseCompilerConfig(parse(await readFile(filename, "utf8")) as unknown)
+      : undefined;
+  const entry = repositorySnapshot?.manifest.project.entry ?? safeUri(config?.entry ?? "main.jsx");
+  const result =
+    repositorySnapshot?.compilation ??
+    (await compileVideo(entry, config!, new DiskCompilerHost(configDirectory)));
 
   if (options.printIr) writeOutput(result.ir);
-  if (options.printAst) writeOutput({ entry, modules: result.modules });
+  if (options.printAst) writeOutput({ entry, modules: result.ast });
   if (options.explain) writeOutput({ entry, nodes: result.explanations });
 
   if (options.check) {
@@ -103,13 +114,13 @@ export async function runCompileCommand(
 
   if (options.printIr || options.printAst || options.explain) return;
 
-  const outputDirectory = path.resolve(configDirectory, config.output);
+  const outputDirectory = path.resolve(configDirectory, config?.output ?? ".video/compiler");
   await mkdir(outputDirectory, { recursive: true });
   const writes: Array<Promise<void>> = [
     writeFile(path.join(outputDirectory, "scene.ir.json"), serializeIr(result.ir)),
     writeFile(path.join(outputDirectory, "diagnostics.json"), serializeIr(result.diagnostics)),
   ];
-  if (config.sourceMaps) {
+  if (config?.sourceMaps ?? true) {
     writes.push(
       writeFile(path.join(outputDirectory, "scene.ir.map.json"), serializeIr(result.sourceMap)),
     );

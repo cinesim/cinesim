@@ -228,12 +228,12 @@ export class CanonicalProjectRepository {
           await this.#fileSystem.rename(staged.get(path)!, this.paths.projectFile(path));
         }
         await this.#syncDirectory(this.paths.root);
-        await this.#syncDirectory(this.paths.canonical(".cinesim"));
+        await this.#syncDirectory(this.paths.legacyCanonical(".cinesim"));
         const published = await this.#readContents();
         if (generationOf(published) !== nextGeneration)
           throw new Error("Canonical transaction verification failed");
-        await this.#fileSystem.rm(this.paths.canonical(JOURNAL_PATH));
-        await this.#syncDirectory(this.paths.canonical(".cinesim"));
+        await this.#fileSystem.rm(this.paths.legacyCanonical(JOURNAL_PATH));
+        await this.#syncDirectory(this.paths.legacyCanonical(".cinesim"));
         return nextGeneration;
       } catch (error) {
         try {
@@ -299,11 +299,11 @@ export class CanonicalProjectRepository {
         await this.#fileSystem.rename(temporary, target);
       }
       await this.#syncDirectory(this.paths.root);
-      await this.#syncDirectory(this.paths.canonical(".cinesim"));
+      await this.#syncDirectory(this.paths.legacyCanonical(".cinesim"));
     }
     await this.#fileSystem.rm(journalPath);
     await this.#removeOrphanTemps();
-    await this.#syncDirectory(this.paths.canonical(".cinesim"));
+    await this.#syncDirectory(this.paths.legacyCanonical(".cinesim"));
   }
 
   async #atomicWriteJournal(contents: string, transactionId: string): Promise<void> {
@@ -334,7 +334,7 @@ export class CanonicalProjectRepository {
   }
 
   async #removeOrphanTemps(): Promise<void> {
-    for (const directory of [this.paths.root, this.paths.canonical(".cinesim")]) {
+    for (const directory of [this.paths.root, this.paths.legacyCanonical(".cinesim")]) {
       const names = await this.#fileSystem.readdir(directory);
       await Promise.all(
         names
@@ -354,7 +354,7 @@ export class CanonicalProjectRepository {
   }
 
   async #acquireLock(): Promise<LockOwner> {
-    const lockPath = this.paths.canonical(LOCK_DIRECTORY);
+    const lockPath = this.paths.legacyCanonical(LOCK_DIRECTORY);
     const startedAt = this.#now();
     while (true) {
       const owner: LockOwner = {
@@ -366,10 +366,14 @@ export class CanonicalProjectRepository {
       };
       try {
         await this.#fileSystem.mkdir(lockPath);
-        await this.#fileSystem.writeFile(this.paths.canonical(LOCK_OWNER), stableJson(owner), {
-          encoding: "utf8",
-          flag: "wx",
-        });
+        await this.#fileSystem.writeFile(
+          this.paths.legacyCanonical(LOCK_OWNER),
+          stableJson(owner),
+          {
+            encoding: "utf8",
+            flag: "wx",
+          },
+        );
         return owner;
       } catch (error) {
         if (!isExists(error)) {
@@ -389,7 +393,7 @@ export class CanonicalProjectRepository {
     if (info.isSymbolicLink() || !info.isDirectory())
       throw new Error("Canonical write lock path is unsafe");
     const ownerSource = await this.#fileSystem
-      .readFile(this.paths.canonical(LOCK_OWNER), "utf8")
+      .readFile(this.paths.legacyCanonical(LOCK_OWNER), "utf8")
       .catch((error: unknown) => {
         if (isMissing(error)) return null;
         throw error;
@@ -411,14 +415,14 @@ export class CanonicalProjectRepository {
       }
     }
     if (!stale) return;
-    await this.#fileSystem.rm(this.paths.canonical(LOCK_OWNER), { force: true });
+    await this.#fileSystem.rm(this.paths.legacyCanonical(LOCK_OWNER), { force: true });
     await this.#fileSystem.rmdir(lockPath).catch((error: unknown) => {
       if (!isMissing(error) && (error as NodeJS.ErrnoException).code !== "ENOTEMPTY") throw error;
     });
   }
 
   async #releaseLock(owner: LockOwner): Promise<void> {
-    const ownerPath = this.paths.canonical(LOCK_OWNER);
+    const ownerPath = this.paths.legacyCanonical(LOCK_OWNER);
     const source = await this.#fileSystem.readFile(ownerPath, "utf8").catch(() => null);
     if (!source) return;
     try {
@@ -428,6 +432,6 @@ export class CanonicalProjectRepository {
       return;
     }
     await this.#fileSystem.rm(ownerPath, { force: true });
-    await this.#fileSystem.rmdir(this.paths.canonical(LOCK_DIRECTORY));
+    await this.#fileSystem.rmdir(this.paths.legacyCanonical(LOCK_DIRECTORY));
   }
 }

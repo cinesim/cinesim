@@ -154,7 +154,10 @@
       "name": "@cinesim/project-io",
       "version": "0.1.0",
       "dependencies": {
+        "@cinesim/compiler": "workspace:*",
         "@cinesim/core": "workspace:*",
+        "@cinesim/ir": "workspace:*",
+        "smol-toml": "1.8.0",
       },
     },
     "packages/protocol": {

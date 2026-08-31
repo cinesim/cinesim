@@ -610,7 +610,12 @@ class Compilation {
     this.usedIds.add(id);
   }
 
-  structuralBinding(element: AstNode, context: CompileContext, id: string): IrStructuralBinding {
+  structuralBinding(
+    element: AstNode,
+    context: CompileContext,
+    id: string,
+    nodeKind: string,
+  ): IrStructuralBinding {
     const opening = openingElement(element);
     const closing = closingElement(element);
     const source = context.module.source;
@@ -618,8 +623,15 @@ class Compilation {
     const indent = source.slice(lineStart, element.start).match(/^\s*/u)?.[0] ?? "";
     const newline = source.includes("\r\n") ? "\r\n" : "\n";
     const beforeClose = opening.end - (opening.selfClosing === true ? 2 : 1);
+    const closingOffset = closing === undefined ? beforeClose : closing.start;
+    const closingLineStart = source.lastIndexOf("\n", closingOffset - 1) + 1;
+    const childInsertionOffset =
+      closing !== undefined && /^[ \t]*$/u.test(source.slice(closingLineStart, closingOffset))
+        ? closingLineStart
+        : closingOffset;
     return {
       nodeId: id,
+      nodeKind,
       kind: context.componentStack.length === 0 ? "direct" : "generated",
       element: nodeLocation(context.module, element),
       openingElement: nodeLocation(context.module, opening),
@@ -632,7 +644,8 @@ class Compilation {
             ? nodeLocation(context.module, opening).end
             : nodeLocation(context.module, closing).start,
       },
-      insertionOffset: beforeClose,
+      attributeInsertionOffset: beforeClose,
+      insertionOffset: childInsertionOffset,
       style: { newline, indent },
       componentStack: context.componentStack,
       safeToRemove: context.componentStack.length === 0,
@@ -721,7 +734,7 @@ class Compilation {
         animations.push(this.compileAnimation(child, context, props));
       else children.push(await this.compileElement(child, context));
     }
-    const structural = this.structuralBinding(element, context, id);
+    const structural = this.structuralBinding(element, context, id, kind);
     const propertyBindings: IrPropertyBinding[] = [...propertyValues]
       .filter(([name]) => name !== "id")
       .map(([name, attribute]) => ({
@@ -730,6 +743,19 @@ class Compilation {
         value: attribute.value,
         kind: attribute.bindingKind,
         readSpan: attribute.readSpan,
+        ...(attributes(element).find(
+          (candidate) => candidate.type === "JSXAttribute" && jsxAttributeName(candidate) === name,
+        ) === undefined
+          ? {}
+          : {
+              attributeSpan: nodeLocation(
+                context.module,
+                attributes(element).find(
+                  (candidate) =>
+                    candidate.type === "JSXAttribute" && jsxAttributeName(candidate) === name,
+                )!,
+              ),
+            }),
         ...(attribute.edit === undefined ? {} : { writeSpan: attribute.edit.source }),
         ...(attribute.insertion === undefined ? {} : { insertion: attribute.insertion }),
         strategy: attribute.edit?.strategy ?? "insert-jsx-attribute",

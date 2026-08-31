@@ -12,6 +12,9 @@
     "check": "vp check"
   },
   "dependencies": {
-    "@cinesim/core": "workspace:*"
+    "@cinesim/compiler": "workspace:*",
+    "@cinesim/core": "workspace:*",
+    "@cinesim/ir": "workspace:*",
+    "smol-toml": "1.8.0"
   }
 }

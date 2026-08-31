@@ -228,6 +228,7 @@ export interface IrPropertyBinding {
   value: IrValue;
   kind: BindingKind;
   readSpan: SourceSpan;
+  attributeSpan?: SourceSpan;
   writeSpan?: SourceSpan;
   insertion?: { source: SourceSpan; beforeOffset: number };
   strategy: SourcePrintStrategy;
@@ -237,10 +238,12 @@ export interface IrPropertyBinding {
 
 export interface IrStructuralBinding {
   nodeId: string;
+  nodeKind: string;
   kind: BindingKind;
   element: SourceSpan;
   openingElement: SourceSpan;
   children: SourceSpan;
+  attributeInsertionOffset: number;
   insertionOffset: number;
   leadingTrivia?: SourceSpan;
   trailingTrivia?: SourceSpan;
@@ -275,6 +278,7 @@ export interface IrEditMap {
 export type IrSourceMap = IrEditMap;
 
 export type IrNodeTemplate =
+  | { kind: "composition"; composition: IrComposition }
   | { kind: "track"; track: IrTrack }
   | { kind: "clip"; clip: IrClip }
   | { kind: "marker"; marker: IrMarker }
@@ -289,6 +293,7 @@ export type SemanticPatch =
       value: IrValue;
       scope: EditScope;
     }
+  | { type: "property.remove"; nodeId: string; property: string }
   | { type: "node.insert"; parentId: string; node: IrNodeTemplate; anchor?: string }
   | { type: "node.remove"; nodeId: string }
   | { type: "node.move"; nodeId: string; parentId: string; anchor?: string }
