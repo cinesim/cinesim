@@ -4,6 +4,7 @@ import { finishCommand, propertyPatch } from "./command-helpers";
 import type { CommandContext, PropertyCommand, SemanticCommandPlan } from "./command-types";
 
 type ValueWriter<T> = (target: T, value: IrValue) => boolean;
+type SinglePropertyCommand = Extract<PropertyCommand, { type: "property.set" }>;
 
 const trackWriters: Readonly<Record<string, ValueWriter<IrTrack>>> = {
   name: (track, value) => {
@@ -133,7 +134,7 @@ function findSceneInProgram(program: IrProgram, id: string): IrSceneNode | undef
   return undefined;
 }
 
-function applyProperty(program: IrProgram, command: PropertyCommand): void {
+function applyProperty(program: IrProgram, command: SinglePropertyCommand): void {
   const composition = program.compositions.find((candidate) => candidate.id === command.nodeId);
   if (composition) {
     if (command.property === "background" && command.value.kind === "color") {
@@ -167,9 +168,25 @@ export function planPropertyCommand(
   context: CommandContext,
   command: PropertyCommand,
 ): SemanticCommandPlan {
-  applyProperty(context.program, command);
-  context.patches.push(
-    propertyPatch(command.nodeId, command.property, command.value, command.scope ?? "instance"),
-  );
-  return finishCommand(context, command, `Updated ${command.property}`, [command.nodeId]);
+  const updates =
+    command.type === "property.set"
+      ? [{ property: command.property, value: command.value }]
+      : command.updates;
+  for (const update of updates) {
+    applyProperty(context.program, {
+      type: "property.set",
+      nodeId: command.nodeId,
+      property: update.property,
+      value: update.value,
+      ...(command.scope === undefined ? {} : { scope: command.scope }),
+    });
+    context.patches.push(
+      propertyPatch(command.nodeId, update.property, update.value, command.scope ?? "instance"),
+    );
+  }
+  const summary =
+    updates.length === 1
+      ? `Updated ${updates[0]!.property}`
+      : `Updated ${updates.length} properties`;
+  return finishCommand(context, command, summary, [command.nodeId]);
 }

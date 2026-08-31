@@ -63,6 +63,27 @@ describe("editor command protocol", () => {
     ).toMatchObject({ type: "property.set", property: "opacity" });
     expect(
       editorCommandSchema.parse({
+        type: "property.setMany",
+        nodeId: "clip_000001",
+        updates: [
+          { property: "x", value: { kind: "length", unit: "px", value: 120 } },
+          { property: "y", value: { kind: "length", unit: "px", value: -40 } },
+        ],
+        scope: "instance",
+      }),
+    ).toMatchObject({ type: "property.setMany", updates: [{ property: "x" }, { property: "y" }] });
+    expect(() =>
+      editorCommandSchema.parse({
+        type: "property.setMany",
+        nodeId: "clip_000001",
+        updates: [
+          { property: "x", value: { kind: "length", unit: "px", value: 1 } },
+          { property: "x", value: { kind: "length", unit: "px", value: 2 } },
+        ],
+      }),
+    ).toThrow();
+    expect(
+      editorCommandSchema.parse({
         type: "clip.slip",
         clipId: "clip_000001",
         sourceStartUs: 500_000,

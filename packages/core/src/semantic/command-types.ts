@@ -77,6 +77,12 @@ export type SemanticEditorCommand =
       value: IrValue;
       scope?: EditScope;
     }
+  | {
+      type: "property.setMany";
+      nodeId: string;
+      updates: Array<{ property: string; value: IrValue }>;
+      scope?: EditScope;
+    }
   | { type: "clip.slip"; clipId: string; sourceStartUs: TimeUs }
   | { type: "clip.duplicate"; clipId: string; timelineStartUs?: TimeUs; trackId?: string }
   | { type: "clip.link"; clipId: string; linkedClipId: string }
@@ -104,6 +110,6 @@ export type AssetCommand = Extract<
   { type: "asset.import" | "asset.remove" | "asset.setSource" }
 >;
 export type ClipCommand = Extract<SemanticEditorCommand, { type: `clip.${string}` }>;
-export type PropertyCommand = Extract<SemanticEditorCommand, { type: "property.set" }>;
+export type PropertyCommand = Extract<SemanticEditorCommand, { type: `property.${string}` }>;
 export type SequenceCommand = Extract<SemanticEditorCommand, { type: `sequence.${string}` }>;
 export type TrackCommand = Extract<SemanticEditorCommand, { type: `track.${string}` }>;

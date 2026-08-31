@@ -71,6 +71,10 @@ export const CINESIM_MCP_COMMAND_SUPPORT = {
   "clip.setFade": { kind: "tool", toolName: "clip_fade" },
   "clip.split": { kind: "tool", toolName: "clip_split" },
   "property.set": { kind: "tool", toolName: "property_set" },
+  "property.setMany": {
+    kind: "unsupported",
+    reason: "Atomic property batches are reserved for local editor gestures",
+  },
 } as const satisfies Record<
   SemanticEditorCommand["type"],
   { kind: "tool"; toolName: CinesimMcpToolName } | { kind: "unsupported"; reason: string }

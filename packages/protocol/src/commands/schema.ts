@@ -129,6 +129,29 @@ const semanticOnlyCommandSchema = z.discriminatedUnion("type", [
     })
     .strict(),
   z
+    .object({
+      type: z.literal("property.setMany"),
+      nodeId: z.string().min(1).max(512),
+      updates: z
+        .array(
+          z
+            .object({
+              property: z.string().min(1).max(120),
+              value: irValueSchema,
+            })
+            .strict(),
+        )
+        .min(1)
+        .max(16),
+      scope: z.enum(["instance", "definition", "materialized"]).optional(),
+    })
+    .strict()
+    .refine(
+      (command) =>
+        new Set(command.updates.map((update) => update.property)).size === command.updates.length,
+      { message: "Property batch contains duplicate properties" },
+    ),
+  z
     .object({ type: z.literal("clip.slip"), clipId: clipIdSchema, sourceStartUs: timeUsSchema })
     .strict(),
   z

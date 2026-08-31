@@ -114,6 +114,52 @@ describe("source-backed semantic commands", () => {
     ).rejects.toBeInstanceOf(SourceProjectConflictError);
   });
 
+  it("commits a direct transform gesture as one source transaction", async () => {
+    const { service } = await setup();
+    const added = await service.execute({
+      type: "clip.add",
+      trackId: "track_video_1",
+      assetId: "asset_camera",
+      timelineStartUs: timeUs(0),
+    });
+    const clipId = added.createdIds[0]!;
+    const transformed = await service.execute({
+      type: "property.setMany",
+      nodeId: clipId,
+      scope: "instance",
+      updates: [
+        { property: "x", value: { kind: "length", unit: "px", value: 120 } },
+        { property: "y", value: { kind: "length", unit: "px", value: -40 } },
+        { property: "scaleX", value: { kind: "number", value: 0.75 } },
+        { property: "scaleY", value: { kind: "number", value: 0.75 } },
+        { property: "rotation", value: { kind: "angle", unit: "deg", value: 15 } },
+      ],
+    });
+    const clip = transformed.snapshot.compilation.ir.compositions[0]!.timeline.tracks.flatMap(
+      (track) => track.clips,
+    ).find((candidate) => candidate.id === clipId)!;
+    expect(clip.transform).toMatchObject({
+      x: 120,
+      y: -40,
+      scaleX: 0.75,
+      scaleY: 0.75,
+      rotation: 15,
+    });
+    expect(transformed.snapshot.sources["main.jsx"]).toContain("x={px(120)}");
+
+    const undone = await service.undo();
+    const restored = undone.compilation.ir.compositions[0]!.timeline.tracks.flatMap(
+      (track) => track.clips,
+    ).find((candidate) => candidate.id === clipId)!;
+    expect(restored.transform).toMatchObject({
+      x: 0,
+      y: 0,
+      scaleX: 1,
+      scaleY: 1,
+      rotation: 0,
+    });
+  });
+
   it("edits component invocations and inserts inherited instance overrides", async () => {
     const { directory, service: initialService } = await setup();
     const main = `import { Card } from "./Card.jsx";
