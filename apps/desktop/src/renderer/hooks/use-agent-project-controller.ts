@@ -23,6 +23,14 @@ function messageFrom(error: unknown, fallback: string): string {
   return error instanceof Error ? error.message : fallback;
 }
 
+function preferredProvider(
+  providers: readonly AgentProviderStatus[],
+  settings: AgentSettings,
+): AgentProviderStatus | undefined {
+  const connected = providers.filter((status) => status.state === "connected");
+  return connected.find((status) => status.provider === settings.defaultProvider) ?? connected[0];
+}
+
 export function buildAgentTurnContext(
   activeSequenceId: string | null,
   playheadUs: number,
@@ -88,35 +96,44 @@ export function useAgentProjectController(session: DesktopProjectSession) {
       }
     }
 
-    void (async () => {
+    async function ensureInitialSession(
+      initial: AgentProjectSnapshot,
+      agentSettings: AgentSettings,
+      providerStatuses: readonly AgentProviderStatus[],
+    ): Promise<AgentProjectSnapshot> {
+      if (initial.sessions.length > 0) return initial;
+      const preferred = preferredProvider(providerStatuses, agentSettings);
+      if (!preferred) return initial;
+      try {
+        return await window.cinesim.agents.ensure({
+          projectDirectory: session.directory,
+          provider: preferred.provider,
+        });
+      } catch (caught) {
+        if (active) setError(messageFrom(caught, "Could not prepare a project agent"));
+        return initial;
+      }
+    }
+
+    async function initialize(): Promise<void> {
       const [agentSnapshot, agentSettings, providerStatuses] = await Promise.all([
         loadSnapshot(),
         loadSettings(),
         loadProviders(),
       ]);
       if (!active || !agentSnapshot || !agentSettings || !providerStatuses) return;
-      let nextSnapshot = agentSnapshot;
-      if (agentSnapshot.sessions.length === 0) {
-        const connected = providerStatuses.filter((status) => status.state === "connected");
-        const preferred =
-          connected.find((status) => status.provider === agentSettings.defaultProvider) ??
-          connected[0];
-        if (preferred) {
-          try {
-            nextSnapshot = await window.cinesim.agents.ensure({
-              projectDirectory: session.directory,
-              provider: preferred.provider,
-            });
-          } catch (caught) {
-            if (active) setError(messageFrom(caught, "Could not prepare a project agent"));
-          }
-        }
-      }
+      const nextSnapshot = await ensureInitialSession(
+        agentSnapshot,
+        agentSettings,
+        providerStatuses,
+      );
       if (active) {
         cacheAgentProject(nextSnapshot);
         setSnapshot(nextSnapshot);
       }
-    })();
+    }
+
+    void initialize();
     const unsubscribe = window.cinesim.agents.onDelta((delta) => {
       if (delta.projectDirectory !== session.directory) return;
       setSnapshot((current) => {

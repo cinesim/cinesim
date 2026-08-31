@@ -3,10 +3,12 @@ import { join } from "node:path";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
-import type { EditorCommand, Project } from "@cinesim/core";
+import type { Project, SemanticEditorCommand } from "@cinesim/core";
+import type { IrEditMap, IrProgram } from "@cinesim/ir";
 import {
   assetIdSchema,
   clipIdSchema,
+  irValueSchema,
   inspectAsset,
   inspectProject,
   inspectTimeline,
@@ -31,10 +33,15 @@ export const CINESIM_MCP_TOOL_NAMES = [
   "track_delete",
   "clip_add",
   "clip_move",
+  "clip_slip",
+  "clip_duplicate",
+  "clip_link",
+  "clip_unlink",
   "clip_trim",
   "clip_fade",
   "clip_split",
   "clip_delete",
+  "property_set",
   "filmstrip_get",
   "frame_get",
 ] as const;
@@ -55,12 +62,21 @@ export const CINESIM_MCP_COMMAND_SUPPORT = {
   "clip.add": { kind: "tool", toolName: "clip_add" },
   "clip.remove": { kind: "tool", toolName: "clip_delete" },
   "clip.move": { kind: "tool", toolName: "clip_move" },
+  "clip.slip": { kind: "tool", toolName: "clip_slip" },
+  "clip.duplicate": { kind: "tool", toolName: "clip_duplicate" },
+  "clip.link": { kind: "tool", toolName: "clip_link" },
+  "clip.unlink": { kind: "tool", toolName: "clip_unlink" },
   "clip.trimStart": { kind: "tool", toolName: "clip_trim" },
   "clip.trimEnd": { kind: "tool", toolName: "clip_trim" },
   "clip.setFade": { kind: "tool", toolName: "clip_fade" },
   "clip.split": { kind: "tool", toolName: "clip_split" },
+  "property.set": { kind: "tool", toolName: "property_set" },
+  "property.setMany": {
+    kind: "unsupported",
+    reason: "Atomic property batches are reserved for local editor gestures",
+  },
 } as const satisfies Record<
-  EditorCommand["type"],
+  SemanticEditorCommand["type"],
   { kind: "tool"; toolName: CinesimMcpToolName } | { kind: "unsupported"; reason: string }
 >;
 
@@ -74,9 +90,11 @@ export interface CinesimMcpCommandResult {
 
 export interface CinesimMcpToolRuntime {
   project(): Project;
+  program(): IrProgram;
+  editMap(): IrEditMap;
   directory(): string;
   projectRevision?(): number | undefined;
-  execute(command: EditorCommand): Promise<CinesimMcpCommandResult>;
+  execute(command: SemanticEditorCommand): Promise<CinesimMcpCommandResult>;
   perform<T extends Record<string, unknown>>(
     tool: { name: CinesimMcpToolName; detail: string; mutating: boolean },
     operation: () => Promise<T> | T,
@@ -108,7 +126,7 @@ export function registerCinesimMcpTools(server: McpServer, runtime: CinesimMcpTo
       perform("project_inspect", "Inspect project", false, () => {
         const projectRevision = runtime.projectRevision?.();
         return {
-          ...inspectProject(runtime.project()),
+          ...inspectProject(runtime.program(), runtime.project()),
           directory: runtime.directory(),
           ...(projectRevision === undefined ? {} : { projectRevision }),
         };
@@ -162,7 +180,7 @@ export function registerCinesimMcpTools(server: McpServer, runtime: CinesimMcpTo
     },
     () =>
       perform("timeline_inspect", "Inspect active timeline", false, () =>
-        inspectTimeline(runtime.project()),
+        inspectTimeline(runtime.program(), runtime.editMap()),
       ),
   );
   server.registerTool(
@@ -354,6 +372,67 @@ export function registerCinesimMcpTools(server: McpServer, runtime: CinesimMcpTo
       ),
   );
   server.registerTool(
+    "clip_slip",
+    {
+      title: "Slip a clip",
+      description: "Change a clip's source in-point without moving it on the timeline.",
+      inputSchema: { clipId: clipIdSchema, sourceStartUs: timeUsSchema },
+      annotations: update,
+    },
+    ({ clipId, sourceStartUs }) =>
+      perform("clip_slip", `Slip ${clipId} to source ${sourceStartUs}µs`, true, () =>
+        runtime.execute({ type: "clip.slip", clipId, sourceStartUs }),
+      ),
+  );
+  server.registerTool(
+    "clip_duplicate",
+    {
+      title: "Duplicate a clip",
+      description: "Duplicate a clip at an optional timeline position and destination track.",
+      inputSchema: {
+        clipId: clipIdSchema,
+        timelineStartUs: timeUsSchema.optional(),
+        trackId: trackIdSchema.optional(),
+      },
+      annotations: create,
+    },
+    ({ clipId, timelineStartUs, trackId }) =>
+      perform("clip_duplicate", `Duplicate ${clipId}`, true, () =>
+        runtime.execute({
+          type: "clip.duplicate",
+          clipId,
+          ...(timelineStartUs === undefined ? {} : { timelineStartUs }),
+          ...(trackId === undefined ? {} : { trackId }),
+        }),
+      ),
+  );
+  server.registerTool(
+    "clip_link",
+    {
+      title: "Link two clips",
+      description: "Create a reciprocal link between range-equivalent audio and video clips.",
+      inputSchema: { clipId: clipIdSchema, linkedClipId: clipIdSchema },
+      annotations: update,
+    },
+    ({ clipId, linkedClipId }) =>
+      perform("clip_link", `Link ${clipId} and ${linkedClipId}`, true, () =>
+        runtime.execute({ type: "clip.link", clipId, linkedClipId }),
+      ),
+  );
+  server.registerTool(
+    "clip_unlink",
+    {
+      title: "Unlink a clip pair",
+      description: "Remove both sides of a reciprocal clip link.",
+      inputSchema: { clipId: clipIdSchema },
+      annotations: update,
+    },
+    ({ clipId }) =>
+      perform("clip_unlink", `Unlink ${clipId}`, true, () =>
+        runtime.execute({ type: "clip.unlink", clipId }),
+      ),
+  );
+  server.registerTool(
     "clip_trim",
     {
       title: "Trim a clip edge",
@@ -415,6 +494,31 @@ export function registerCinesimMcpTools(server: McpServer, runtime: CinesimMcpTo
     ({ clipId }) =>
       perform("clip_delete", `Delete ${clipId}`, true, () =>
         runtime.execute({ type: "clip.remove", clipId }),
+      ),
+  );
+  server.registerTool(
+    "property_set",
+    {
+      title: "Set a semantic property",
+      description:
+        "Set a typed source-backed property using the same edit lens as the desktop inspector.",
+      inputSchema: {
+        nodeId: z.string().min(1).max(512),
+        property: z.string().min(1).max(120),
+        value: irValueSchema,
+        scope: z.enum(["instance", "definition", "materialized"]).optional(),
+      },
+      annotations: update,
+    },
+    ({ nodeId, property, value, scope }) =>
+      perform("property_set", `Set ${nodeId}.${property}`, true, () =>
+        runtime.execute({
+          type: "property.set",
+          nodeId,
+          property,
+          value,
+          ...(scope === undefined ? {} : { scope }),
+        }),
       ),
   );
   server.registerTool(

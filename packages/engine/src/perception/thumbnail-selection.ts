@@ -31,6 +31,20 @@ export function scoreThumbnailRgba(
 ): ThumbnailScore {
   if (width < 2 || height < 2 || rgba.length < width * height * 4)
     throw new Error("Invalid thumbnail analysis pixels");
+  const { luminance, mean } = luminanceSamples(rgba, width, height);
+  const { contrast, edgeEnergy } = imageVariation(luminance, width, height, mean);
+  const exposure = 1 - Math.min(1, Math.abs(mean - 0.5) * 2);
+  const boundaryWeight = thumbnailBoundaryWeight(sourceTimeUs, durationUs);
+  const rejected = rejectThumbnail(mean, contrast, edgeEnergy);
+  const score = thumbnailScore(rejected, exposure, contrast, edgeEnergy, boundaryWeight);
+  return { score, rejected, exposure, contrast, edgeEnergy, boundaryWeight };
+}
+
+function luminanceSamples(
+  rgba: Uint8ClampedArray,
+  width: number,
+  height: number,
+): { luminance: Float32Array; mean: number } {
   const luminance = new Float32Array(width * height);
   let sum = 0;
   for (let index = 0; index < luminance.length; index += 1) {
@@ -40,7 +54,15 @@ export function scoreThumbnailRgba(
     luminance[index] = value;
     sum += value;
   }
-  const mean = sum / luminance.length;
+  return { luminance, mean: sum / luminance.length };
+}
+
+function imageVariation(
+  luminance: Float32Array,
+  width: number,
+  height: number,
+  mean: number,
+): { contrast: number; edgeEnergy: number } {
   let varianceSum = 0;
   let edgeSum = 0;
   let edgeCount = 0;
@@ -61,15 +83,30 @@ export function scoreThumbnailRgba(
   }
   const contrast = Math.sqrt(varianceSum / luminance.length);
   const edgeEnergy = edgeCount ? edgeSum / edgeCount : 0;
-  const exposure = 1 - Math.min(1, Math.abs(mean - 0.5) * 2);
+  return { contrast, edgeEnergy };
+}
+
+function thumbnailBoundaryWeight(sourceTimeUs: TimeUs, durationUs: TimeUs): number {
   const ratio = durationUs > 1 ? sourceTimeUs / (durationUs - 1) : 0.5;
-  const boundaryWeight = Math.min(1, Math.max(0, Math.min(ratio, 1 - ratio) * 4));
-  const rejected = mean < 0.035 || mean > 0.965 || contrast < 0.018 || edgeEnergy < 0.006;
-  const score = rejected
-    ? -1
-    : exposure * 0.3 +
-      Math.min(1, contrast * 5) * 0.3 +
-      Math.min(1, edgeEnergy * 8) * 0.3 +
-      boundaryWeight * 0.1;
-  return { score, rejected, exposure, contrast, edgeEnergy, boundaryWeight };
+  return Math.min(1, Math.max(0, Math.min(ratio, 1 - ratio) * 4));
+}
+
+function rejectThumbnail(mean: number, contrast: number, edgeEnergy: number): boolean {
+  return mean < 0.035 || mean > 0.965 || contrast < 0.018 || edgeEnergy < 0.006;
+}
+
+function thumbnailScore(
+  rejected: boolean,
+  exposure: number,
+  contrast: number,
+  edgeEnergy: number,
+  boundaryWeight: number,
+): number {
+  if (rejected) return -1;
+  return (
+    exposure * 0.3 +
+    Math.min(1, contrast * 5) * 0.3 +
+    Math.min(1, edgeEnergy * 8) * 0.3 +
+    boundaryWeight * 0.1
+  );
 }

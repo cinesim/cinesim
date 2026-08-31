@@ -21,7 +21,7 @@ const faqs = [
   ],
   [
     "Where do my project files live?",
-    "In an ordinary folder on your disk. A project is a cinesim.json manifest plus a .cinesim directory of deterministic JSON. Generated media stays in .video and is always disposable.",
+    "In an ordinary folder on your disk. A project is a cinesim.toml manifest plus deterministic JavaScript/JSX-shaped video source. Generated media stays in .video and is disposable.",
   ],
   [
     "How do agents fit in?",
@@ -223,7 +223,7 @@ export default function HomePage() {
                     </li>
                   </ul>
                   <div className="agent-diff">
-                    <span>.cinesim/timeline.json</span>
+                    <span>main.jsx</span>
                     <b className="add">+12</b>
                     <b className="del">−4</b>
                   </div>
@@ -257,7 +257,7 @@ export default function HomePage() {
                 <pre>
                   <code>
                     {
-                      "mira/\n├── cinesim.json\n├── .cinesim/\n│   ├── assets.json\n│   └── timeline.json\n└── .video/          "
+                      "mira/\n├── cinesim.toml\n├── main.jsx\n├── components/\n└── .video/          "
                     }
                     <span>generated</span>
                   </code>

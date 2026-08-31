@@ -2,10 +2,10 @@ import { randomUUID } from "node:crypto";
 import { constants } from "node:fs";
 import { copyFile, link, lstat, rm, stat } from "node:fs/promises";
 import { join } from "node:path";
-import type { CanonicalProjectRepository } from "@cinesim/project-io";
+import type { SourceProjectRepository } from "@cinesim/project-io";
 
 export async function stageManagedOriginal(input: {
-  repository: CanonicalProjectRepository;
+  repository: SourceProjectRepository;
   projectDirectory: string;
   sourcePath: string;
   assetId: string;

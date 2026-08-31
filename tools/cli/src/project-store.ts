@@ -1,36 +1,33 @@
-import type { Project, ProjectSettings } from "@cinesim/core";
+import { projectViewFromIr, type Project, type ProjectSettings } from "@cinesim/core";
 import { createCinesimLogger } from "@cinesim/logging";
-import { CanonicalProjectRepository } from "@cinesim/project-io";
-import { dispatchCommand, editorCommandSchema } from "@cinesim/protocol";
+import type { IrEditMap, IrProgram } from "@cinesim/ir";
+import { SourceCommandService } from "@cinesim/project-io";
+import { editorCommandSchema } from "@cinesim/protocol";
 
 const log = createCinesimLogger({ service: "commands" });
 
+/** CLI adapter over the same source-backed command service used by desktop and MCP. */
 export class DiskProjectStore {
   readonly directory: string;
   project!: Project;
+  program!: IrProgram;
+  editMap!: IrEditMap;
   settings!: ProjectSettings;
-  #generation: string | null = null;
-  #repository: CanonicalProjectRepository | null = null;
+  #service: SourceCommandService | null = null;
 
   constructor(directory = process.env.CINESIM_PROJECT || process.cwd()) {
     this.directory = directory;
   }
 
   async load(): Promise<this> {
-    this.#repository = await CanonicalProjectRepository.open(this.directory);
-    const snapshot = await this.#repository.load();
-    this.project = snapshot.project;
-    this.settings = snapshot.settings;
-    this.#generation = snapshot.generation;
+    this.#service = await SourceCommandService.open(this.directory);
+    this.#projectFromSnapshot();
     return this;
   }
 
   async save(): Promise<void> {
-    this.#generation = await this.#requireRepository().commit({
-      project: this.project,
-      settings: this.settings,
-      expectedGeneration: this.#generation,
-    });
+    await this.#requireService().refresh();
+    this.#projectFromSnapshot();
   }
 
   async execute(input: unknown) {
@@ -39,41 +36,51 @@ export class DiskProjectStore {
     const startedAt = Date.now();
     log.info({ operationId, operation: command.type }, "command started");
     try {
-      const result = dispatchCommand(this.project, command);
-      if (!result.ok) {
-        const error = new Error(`${result.error.code}: ${result.error.message}`);
-        (error as Error & { code: string }).code = result.error.code;
-        throw error;
-      }
-      const generation = await this.#requireRepository().commit({
-        project: result.value.project,
-        settings: this.settings,
-        expectedGeneration: this.#generation,
-      });
-      this.project = result.value.project;
-      this.#generation = generation;
+      const result = await this.#requireService().execute(command);
+      this.#projectFromSnapshot();
       log.info(
         {
           operationId,
           operation: command.type,
           durationMs: Date.now() - startedAt,
-          changedIds: result.value.changedIds,
-          createdIds: result.value.createdIds,
+          changedIds: result.changedIds,
+          createdIds: result.createdIds,
         },
         "command completed",
       );
-      return result.value;
+      return result;
     } catch (error) {
       log.error(
-        { err: error, operationId, operation: command.type, durationMs: Date.now() - startedAt },
+        {
+          err: error,
+          operationId,
+          operation: command.type,
+          durationMs: Date.now() - startedAt,
+        },
         "command failed",
       );
       throw error;
     }
   }
 
-  #requireRepository(): CanonicalProjectRepository {
-    if (!this.#repository) throw new Error("Project store must be loaded before use");
-    return this.#repository;
+  #projectFromSnapshot(): void {
+    const snapshot = this.#requireService().snapshot;
+    this.settings = snapshot.manifest.settings;
+    this.program = structuredClone(snapshot.compilation.ir);
+    this.editMap = structuredClone(snapshot.compilation.sourceMap);
+    this.project = projectViewFromIr(snapshot.compilation.ir, {
+      name: snapshot.manifest.project.name,
+      assets: snapshot.manifest.assets,
+      ...(snapshot.manifest.project.cloudProjectId === undefined
+        ? {}
+        : {
+            cloudProjectId: snapshot.manifest.project.cloudProjectId as Project["cloudProjectId"],
+          }),
+    });
+  }
+
+  #requireService(): SourceCommandService {
+    if (!this.#service) throw new Error("Project store must be loaded before use");
+    return this.#service;
   }
 }

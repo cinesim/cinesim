@@ -1,84 +1,154 @@
-import { SlidersHorizontal } from "@cinesim/ui";
 import {
   Empty,
   EmptyDescription,
   EmptyHeader,
   EmptyIcon,
   EmptyTitle,
-  SectionHeading,
+  SearchField,
+  SlidersHorizontal,
 } from "@cinesim/ui";
-import { findClip, timeUs } from "@cinesim/core";
-import type { Project } from "@cinesim/core";
+import { timeUs } from "@cinesim/core";
+import { useState } from "react";
+import type { DesktopProjectSession } from "../../../shared/contracts";
 import { formatDuration } from "../../lib/format";
 import { useRendererStore } from "../../store/renderer-store-context";
+import {
+  InspectorGroup,
+  ReadonlyField,
+  SceneControls,
+  SemanticControls,
+} from "./inspector-controls";
+import {
+  CLIP_INSPECTOR_PROPERTIES,
+  inspectorSelectionMatches,
+  matchesInspectorQuery,
+  selectedSemanticClip,
+} from "./inspector-model";
 
-export function Inspector({ project }: { project: Project }) {
+export function Inspector({ session }: { session: DesktopProjectSession }) {
+  const execute = useRendererStore((state) => state.execute);
   const selectedClipId = useRendererStore((state) => state.selectedClipId);
-  const location = selectedClipId
-    ? (() => {
-        try {
-          return findClip(project, selectedClipId);
-        } catch {
-          return null;
-        }
-      })()
+  const [query, setQuery] = useState("");
+  const selection = selectedSemanticClip(session, selectedClipId);
+  const asset = selection?.clip.assetId
+    ? session.project.assets.find((candidate) => candidate.id === selection.clip.assetId)
     : null;
-  const asset = location
-    ? project.assets.find((candidate) => candidate.id === location.clip.assetId)
-    : null;
+  const hasMatches = selection
+    ? inspectorSelectionMatches(session, selection, asset !== null, query)
+    : false;
 
   return (
     <aside className="flex min-h-0 flex-col bg-panel">
-      <div className="min-h-0 flex-1 overflow-y-auto p-3">
-        {location && asset ? (
-          <div className="space-y-5">
-            <div>
-              <p className="truncate text-ui font-medium text-primary">{asset.name}</p>
-              <p className="mt-1 text-ui-xs text-muted tabular-nums">{location.clip.id}</p>
+      {selection && (
+        <div className="px-2 pt-2">
+          <SearchField
+            aria-label="Search inspector properties"
+            className="border-0 bg-transparent shadow-none"
+            inputClassName="text-ui-xs"
+            placeholder="Search properties"
+            size="sm"
+            value={query}
+            onChange={(event) => setQuery(event.currentTarget.value)}
+          />
+        </div>
+      )}
+      <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-2">
+        {selection ? (
+          <div>
+            <div className="border-b border-border/70 px-1 py-2.5">
+              <p className="truncate text-ui-xs font-semibold text-primary">
+                {asset?.name ?? selection.clip.name ?? "Generated clip"}
+              </p>
+              <p className="mt-0.5 truncate text-[9px] text-disabled tabular-nums">
+                {selection.clip.id}
+              </p>
             </div>
-            <InspectorGroup title="Timing">
-              <ReadonlyField
-                label="Timeline start"
-                value={formatDuration(location.clip.timelineStartUs)}
+            {matchesInspectorQuery(
+              query,
+              "timing",
+              "timeline start",
+              "duration",
+              "source in",
+              "source out",
+            ) && (
+              <InspectorGroup title="Timing" forceOpen={query.length > 0}>
+                <ReadonlyField
+                  label="Timeline start"
+                  value={formatDuration(timeUs(selection.clip.timelineStartUs))}
+                />
+                <ReadonlyField
+                  label="Duration"
+                  value={formatDuration(timeUs(selection.clip.durationUs))}
+                />
+                <ReadonlyField
+                  label="Source in"
+                  value={formatDuration(timeUs(selection.clip.sourceStartUs))}
+                />
+                <ReadonlyField
+                  label="Source out"
+                  value={formatDuration(
+                    timeUs(
+                      selection.clip.sourceStartUs +
+                        Math.round(selection.clip.durationUs * selection.clip.playbackRate),
+                    ),
+                  )}
+                />
+              </InspectorGroup>
+            )}
+            <SemanticControls
+              generation={session.generation}
+              nodeId={selection.clip.id}
+              bindings={session.editMap.nodes[selection.clip.id]}
+              schema={session.propertySchemas.clip?.properties}
+              include={CLIP_INSPECTOR_PROPERTIES}
+              query={query}
+              onCommit={(property, value) =>
+                void execute({
+                  type: "property.set",
+                  nodeId: selection.clip.id,
+                  property,
+                  value,
+                  scope: "instance",
+                })
+              }
+            />
+            {selection.content && (
+              <SceneControls
+                generation={session.generation}
+                node={selection.content}
+                editMap={session.editMap.nodes}
+                schemas={session.propertySchemas}
+                query={query}
+                onCommit={(nodeId, property, value) =>
+                  void execute({
+                    type: "property.set",
+                    nodeId,
+                    property,
+                    value,
+                    scope: "instance",
+                  })
+                }
               />
-              <ReadonlyField
-                label="Duration"
-                value={formatDuration(
-                  timeUs(location.clip.sourceEndUs - location.clip.sourceStartUs),
-                )}
-              />
-              <ReadonlyField
-                label="Source in"
-                value={formatDuration(location.clip.sourceStartUs)}
-              />
-              <ReadonlyField label="Source out" value={formatDuration(location.clip.sourceEndUs)} />
-            </InspectorGroup>
-            <InspectorGroup title="Transform">
-              <ReadonlyField
-                label="Position"
-                value={`${location.clip.transform.x.toFixed(2)}, ${location.clip.transform.y.toFixed(2)}`}
-              />
-              <ReadonlyField
-                label="Scale"
-                value={`${location.clip.transform.scaleX.toFixed(2)} × ${location.clip.transform.scaleY.toFixed(2)}`}
-              />
-              <ReadonlyField
-                label="Opacity"
-                value={`${Math.round(location.clip.transform.opacity * 100)}%`}
-              />
-              <ReadonlyField label="Fit" value={location.clip.transform.fit} />
-            </InspectorGroup>
-            <InspectorGroup title="Source">
-              <ReadonlyField
-                label="Resolution"
-                value={asset.width && asset.height ? `${asset.width} × ${asset.height}` : "—"}
-              />
-              <ReadonlyField
-                label="Frame rate"
-                value={asset.frameRate ? asset.frameRate.toFixed(2) : "—"}
-              />
-              <ReadonlyField label="Audio" value={asset.hasAudio ? "Present" : "None"} />
-            </InspectorGroup>
+            )}
+            {asset &&
+              matchesInspectorQuery(query, "source", "resolution", "frame rate", "audio") && (
+                <InspectorGroup title="Source" forceOpen={query.length > 0}>
+                  <ReadonlyField
+                    label="Resolution"
+                    value={asset.width && asset.height ? `${asset.width} × ${asset.height}` : "—"}
+                  />
+                  <ReadonlyField
+                    label="Frame rate"
+                    value={asset.frameRate ? asset.frameRate.toFixed(2) : "—"}
+                  />
+                  <ReadonlyField label="Audio" value={asset.hasAudio ? "Present" : "None"} />
+                </InspectorGroup>
+              )}
+            {!hasMatches && (
+              <p className="px-2 py-8 text-center text-ui-xs text-muted">
+                No properties match “{query.trim()}”
+              </p>
+            )}
           </div>
         ) : (
           <Empty className="h-44">
@@ -87,31 +157,11 @@ export function Inspector({ project }: { project: Project }) {
                 <SlidersHorizontal size={21} />
               </EmptyIcon>
               <EmptyTitle>Select a clip</EmptyTitle>
-              <EmptyDescription>Its timing and transform will appear here</EmptyDescription>
+              <EmptyDescription>Its source-backed properties will appear here</EmptyDescription>
             </EmptyHeader>
           </Empty>
         )}
       </div>
     </aside>
-  );
-}
-
-function InspectorGroup({ title, children }: { title: string; children: React.ReactNode }) {
-  return (
-    <section>
-      <SectionHeading className="mb-2 border-b border-border pb-2">{title}</SectionHeading>
-      <div className="space-y-1.5">{children}</div>
-    </section>
-  );
-}
-
-function ReadonlyField({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="grid grid-cols-[84px_1fr] items-center text-ui-xs">
-      <span className="text-muted">{label}</span>
-      <span className="truncate rounded border border-border bg-panel-muted px-2 py-1.5 text-secondary">
-        {value}
-      </span>
-    </div>
   );
 }

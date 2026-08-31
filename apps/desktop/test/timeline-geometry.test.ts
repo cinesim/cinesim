@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vite-plus/test";
-import { timeUs, applyCommand, createProject } from "@cinesim/core";
+import { timeUs } from "@cinesim/core";
 import type { Asset, Project } from "@cinesim/core";
+import { applyCommand, createProject } from "../../../packages/core/test/project-fixtures";
 import {
   commandForTimelineDrop,
   isNoopClipMove,

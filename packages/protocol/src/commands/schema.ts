@@ -9,10 +9,17 @@ import {
   timeUsSchema,
   transformSchema,
 } from "@cinesim/core";
-import type { EditorCommand } from "@cinesim/core";
+import type { SemanticEditorCommand } from "@cinesim/core";
+import type { IrValue } from "@cinesim/ir";
 
 export { assetIdSchema, clipIdSchema, sequenceIdSchema, trackIdSchema };
 export { timeUsSchema };
+
+const timelineRangeSchema = z
+  .object({ startUs: timeUsSchema, endUs: timeUsSchema })
+  .refine((range) => range.endUs > range.startUs, {
+    message: "Timeline range must end after it starts",
+  });
 
 const editorCommandShapeSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("asset.import"), asset: assetSchema }),
@@ -37,10 +44,7 @@ const editorCommandShapeSchema = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("sequence.deleteRanges"),
     sequenceId: sequenceIdSchema,
-    ranges: z
-      .array(z.object({ startUs: timeUsSchema, endUs: timeUsSchema }))
-      .min(1)
-      .max(500),
+    ranges: z.array(timelineRangeSchema).min(1).max(500),
     mode: z.enum(["lift", "ripple"]),
   }),
   z.object({
@@ -96,6 +100,75 @@ const editorCommandShapeSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("clip.split"), clipId: clipIdSchema, atUs: timeUsSchema }),
 ]);
 
-export const editorCommandSchema = editorCommandShapeSchema.pipe(z.custom<EditorCommand>());
+const finite = z.number().finite();
+export const irValueSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("angle"), unit: z.literal("deg"), value: finite }).strict(),
+  z.object({ kind: z.literal("boolean"), value: z.boolean() }).strict(),
+  z.object({ kind: z.literal("color"), value: z.string().min(1).max(256) }).strict(),
+  z.object({ kind: z.literal("decibels"), value: finite }).strict(),
+  z.object({ kind: z.literal("length"), unit: z.literal("px"), value: finite }).strict(),
+  z.object({ kind: z.literal("number"), value: finite }).strict(),
+  z.object({ kind: z.literal("percent"), value: finite }).strict(),
+  z
+    .object({ kind: z.literal("rectangle"), values: z.tuple([finite, finite, finite, finite]) })
+    .strict(),
+  z.object({ kind: z.literal("resource"), assetId: assetIdSchema }).strict(),
+  z.object({ kind: z.literal("string"), value: z.string().max(100_000) }).strict(),
+  z.object({ kind: z.literal("time"), valueUs: timeUsSchema }).strict(),
+  z.object({ kind: z.literal("vector"), values: z.tuple([finite, finite]) }).strict(),
+]) as unknown as z.ZodType<IrValue>;
 
-export type ProtocolCommand = z.infer<typeof editorCommandSchema>;
+const semanticOnlyCommandSchema = z.discriminatedUnion("type", [
+  z
+    .object({
+      type: z.literal("property.set"),
+      nodeId: z.string().min(1).max(512),
+      property: z.string().min(1).max(120),
+      value: irValueSchema,
+      scope: z.enum(["instance", "definition", "materialized"]).optional(),
+    })
+    .strict(),
+  z
+    .object({
+      type: z.literal("property.setMany"),
+      nodeId: z.string().min(1).max(512),
+      updates: z
+        .array(
+          z
+            .object({
+              property: z.string().min(1).max(120),
+              value: irValueSchema,
+            })
+            .strict(),
+        )
+        .min(1)
+        .max(16),
+      scope: z.enum(["instance", "definition", "materialized"]).optional(),
+    })
+    .strict()
+    .refine(
+      (command) =>
+        new Set(command.updates.map((update) => update.property)).size === command.updates.length,
+      { message: "Property batch contains duplicate properties" },
+    ),
+  z
+    .object({ type: z.literal("clip.slip"), clipId: clipIdSchema, sourceStartUs: timeUsSchema })
+    .strict(),
+  z
+    .object({
+      type: z.literal("clip.duplicate"),
+      clipId: clipIdSchema,
+      timelineStartUs: timeUsSchema.optional(),
+      trackId: trackIdSchema.optional(),
+    })
+    .strict(),
+  z
+    .object({ type: z.literal("clip.link"), clipId: clipIdSchema, linkedClipId: clipIdSchema })
+    .strict(),
+  z.object({ type: z.literal("clip.unlink"), clipId: clipIdSchema }).strict(),
+]);
+
+export const editorCommandSchema = z.union([
+  editorCommandShapeSchema,
+  semanticOnlyCommandSchema,
+]) as unknown as z.ZodType<SemanticEditorCommand>;

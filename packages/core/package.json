@@ -12,7 +12,7 @@
     "check": "vp check"
   },
   "dependencies": {
-    "smol-toml": "1.8.0",
+    "@cinesim/ir": "workspace:*",
     "zod": "4.4.3"
   }
 }

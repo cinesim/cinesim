@@ -93,8 +93,8 @@ Regenerating against a changed fingerprint or model creates a new artifact revis
 not retain old word IDs.
 
 User-authored speaker names, merges, and text corrections are intentionally not part of the first
-artifact schema. If introduced, they belong in a versioned deterministic file under `.cinesim/` and
-must be changed only by validated commands.
+artifact schema. If introduced, they must use a versioned deterministic canonical source form and
+be changed only by validated commands; disposable transcript artifacts must not become authority.
 
 ## Deterministic projection decisions
 

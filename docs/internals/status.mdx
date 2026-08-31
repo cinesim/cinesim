@@ -60,13 +60,14 @@ measurements need the interactive pass above.
 
 ## Known limitations
 
-**Editing model.** V1 supports one active flat sequence and rejects overlaps per track. There are no
-transitions, nested timelines, keyframes, or export and render. Audio embedded in a video clip
-follows that clip; linked and unlinked A/V editing is not modeled.
+**Editing model.** The source format supports multiple explicit compositions, typed animations,
+effects, transitions in IR, generated visual content, and linked/unlinked A/V commands. Nested
+composition playback and final export/render remain future work.
 
 **Concurrency.** Desktop, CLI, and MCP writers share a cross-process project lock and reject stale
-generations instead of overwriting a newer edit. An already-open client does not live-refresh after
-another process commits; reopen it after a conflict to load the current generation.
+generations instead of overwriting a newer edit. The desktop watches the manifest and source module
+graph, retains its last-known-good program through invalid saves, publishes diagnostics, and
+live-refreshes when external source becomes valid again.
 
 **Media.** Exact-frame artifact generation is lookup-only. There is no bundled FFmpeg, so footage
 Chromium cannot decode cannot be proxied. Still-image import is not exposed in the media picker.

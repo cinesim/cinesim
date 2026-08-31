@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vite-plus/test";
-import { DEFAULT_TRANSFORM } from "@cinesim/core";
+import { DEFAULT_TRANSFORM } from "../../core/test/project-fixtures";
 import { WebGpuCompositor } from "../src";
 
 const originalDescriptors = new Map(

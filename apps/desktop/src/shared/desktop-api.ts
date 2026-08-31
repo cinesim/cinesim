@@ -1,4 +1,4 @@
-import type { CommandResult, EditorCommand, ProjectSettings } from "@cinesim/core";
+import type { ProjectSettings, SemanticEditorCommand } from "@cinesim/core";
 import type { TranscriptAudioChunkInput, TranscriptSnapshot } from "./transcript";
 import type { AccountSnapshot, SignInMethod } from "./contracts/account";
 import type {
@@ -31,6 +31,9 @@ import type { ElectronHealthSnapshot } from "./contracts/health";
 import type {
   CreateProjectLocation,
   DesktopProjectSession,
+  ProjectOpenTarget,
+  ProjectOpenTargetId,
+  DesktopCommandResult,
   RecentProjectDetails,
 } from "./contracts/project";
 
@@ -67,13 +70,15 @@ export interface DesktopProjectApi {
   openRecent(directory: string): Promise<DesktopProjectSession>;
   importMedia(): Promise<DesktopProjectSession | null>;
   execute(
-    command: EditorCommand,
-  ): Promise<{ session: DesktopProjectSession; result: Omit<CommandResult, "project"> }>;
+    command: SemanticEditorCommand,
+    expectedGeneration?: string,
+  ): Promise<{ session: DesktopProjectSession; result: DesktopCommandResult }>;
   undo(): Promise<DesktopProjectSession>;
   redo(): Promise<DesktopProjectSession>;
   save(): Promise<DesktopProjectSession>;
   updateSettings(update: Partial<ProjectSettings>): Promise<DesktopProjectSession>;
-  reveal(): Promise<void>;
+  openTargets(): Promise<ProjectOpenTarget[]>;
+  openWith(target: ProjectOpenTargetId): Promise<void>;
   forget(directory: string): Promise<DesktopAppState>;
   trash(directory: string): Promise<DesktopAppState>;
   getSession(): Promise<DesktopProjectSession | null>;

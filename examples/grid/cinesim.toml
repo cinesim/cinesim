@@ -1,0 +1,62 @@
+format_version = 2
+language_version = 1
+
+[project]
+id = "project_grid"
+name = "Five-person grid"
+entry = "main.jsx"
+active_composition = "sequence_main"
+
+[settings]
+autosave = true
+preview_quality = "half"
+background_color = "#070914"
+filmstrip_interval_seconds = 5
+proxy_generation = "automatic"
+proxy_profile = "balanced"
+proxy_max_long_edge = 1280
+proxy_frame_rate_cap = 60
+proxy_quality = "medium"
+
+[compiler]
+strict = true
+
+[assets.asset_leo]
+kind = "video"
+name = "Leo"
+duration_us = 12000000
+[assets.asset_leo.source]
+kind = "local"
+path = "/example/leo.mov"
+
+[assets.asset_maya]
+kind = "video"
+name = "Maya"
+duration_us = 12000000
+[assets.asset_maya.source]
+kind = "local"
+path = "/example/maya.mov"
+
+[assets.asset_mina]
+kind = "video"
+name = "Mina"
+duration_us = 12000000
+[assets.asset_mina.source]
+kind = "local"
+path = "/example/mina.mov"
+
+[assets.asset_noah]
+kind = "video"
+name = "Noah"
+duration_us = 12000000
+[assets.asset_noah.source]
+kind = "local"
+path = "/example/noah.mov"
+
+[assets.asset_zara]
+kind = "video"
+name = "Zara"
+duration_us = 12000000
+[assets.asset_zara.source]
+kind = "local"
+path = "/example/zara.mov"

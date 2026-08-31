@@ -13,7 +13,9 @@
     "./project-store": "./src/project-store.ts"
   },
   "dependencies": {
+    "@cinesim/compiler": "workspace:*",
     "@cinesim/core": "workspace:*",
+    "@cinesim/ir": "workspace:*",
     "@cinesim/logging": "workspace:*",
     "@cinesim/project-io": "workspace:*",
     "@cinesim/protocol": "workspace:*",

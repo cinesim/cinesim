@@ -6,6 +6,25 @@ export interface PlanarAudioSample {
   copyTo(destination: Float32Array, options: { planeIndex: number; format: "f32-planar" }): void;
 }
 
+function accumulateChannel(
+  channelData: Float32Array,
+  sample: PlanarAudioSample,
+  durationSeconds: number,
+  minima: Float32Array,
+  maxima: Float32Array,
+): void {
+  for (let frame = 0; frame < sample.numberOfFrames; frame += 1) {
+    const timestamp = sample.timestamp + frame / sample.sampleRate;
+    const peakIndex = Math.max(
+      0,
+      Math.min(minima.length - 1, Math.floor((timestamp / durationSeconds) * minima.length)),
+    );
+    const value = channelData[frame] ?? 0;
+    if (value < minima[peakIndex]!) minima[peakIndex] = value;
+    if (value > maxima[peakIndex]!) maxima[peakIndex] = value;
+  }
+}
+
 /** Reduce one decoded Mediabunny audio sample without requiring Web Audio's AudioBuffer. */
 export function accumulateWaveformSample(
   sample: PlanarAudioSample,
@@ -20,15 +39,6 @@ export function accumulateWaveformSample(
   const channelData = new Float32Array(sample.numberOfFrames);
   for (let channel = 0; channel < sample.numberOfChannels; channel += 1) {
     sample.copyTo(channelData, { planeIndex: channel, format: "f32-planar" });
-    for (let frame = 0; frame < sample.numberOfFrames; frame += 1) {
-      const timestamp = sample.timestamp + frame / sample.sampleRate;
-      const peakIndex = Math.max(
-        0,
-        Math.min(minima.length - 1, Math.floor((timestamp / durationSeconds) * minima.length)),
-      );
-      const value = channelData[frame] ?? 0;
-      if (value < minima[peakIndex]!) minima[peakIndex] = value;
-      if (value > maxima[peakIndex]!) maxima[peakIndex] = value;
-    }
+    accumulateChannel(channelData, sample, durationSeconds, minima, maxima);
   }
 }

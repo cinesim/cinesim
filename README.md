@@ -62,14 +62,12 @@ Projects are ordinary directories. Canonical state is Git-friendly and generated
 
 ```text
 my-project/
-├── cinesim.json
+├── cinesim.toml              # identity, settings, and stable asset catalog
+├── main.jsx                  # compositions, tracks, clips, and graphics
+├── components/               # optional reusable source modules
 ├── AGENTS.md
 ├── script.md                 # optional user content
 ├── research/                 # optional user content
-├── .cinesim/
-│   ├── assets.json
-│   ├── timeline.json
-│   └── settings.toml
 └── .video/                   # ignored, generated/local only
     ├── cache/
     ├── originals/
@@ -86,6 +84,11 @@ Apple Photos picker exports receive a managed copy under `.video/originals/` so 
 Cloud projects require sign-in and automatically store supported originals privately after a local
 edit proxy is ready. Users can explicitly keep or remove a disposable downloaded original under
 `.video/originals/`; external source files are never moved or deleted.
+
+Cinesim parses the restricted JavaScript/JSX-shaped video language without executing it. The
+timeline, inspector, renderer, audio engine, CLI, and MCP tools all operate on projections of one
+deterministic semantic IR. Graphical edits are validated commands that produce minimal source
+patches; saves from an external text editor recompile into the same live session.
 
 See [architecture](docs/internals/architecture.mdx), [project format](docs/reference/project-files.mdx),
 [cloud originals](docs/internals/cloud-storage.mdx), and [dependency licenses](docs/internals/dependencies.mdx).

@@ -1,8 +1,8 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { createProject } from "@cinesim/core";
-import type { EditorCommand } from "@cinesim/core";
+import type { SemanticEditorCommand } from "@cinesim/core";
+import { createProject, projectToIr } from "../../core/test/project-fixtures";
 import { describe, expect, it } from "vite-plus/test";
 import {
   CINESIM_MCP_COMMAND_SUPPORT,
@@ -17,11 +17,14 @@ const textResult = (value: Record<string, unknown>) => ({
 
 describe("canonical Cinesim MCP catalog", () => {
   it("registers one complete catalog and translates newer commands", async () => {
-    const commands: EditorCommand[] = [];
+    const commands: SemanticEditorCommand[] = [];
     const project = createProject({ name: "Tool catalog" });
     const server = new McpServer({ name: "catalog-test", version: "0.1.0" });
+    const converted = projectToIr(project);
     registerCinesimMcpTools(server, {
       project: () => project,
+      program: () => converted,
+      editMap: () => ({ version: 2, entry: "main.jsx", sources: [], nodes: {} }),
       directory: () => "/project",
       execute: async (command) => {
         commands.push(command);
@@ -36,9 +39,22 @@ describe("canonical Cinesim MCP catalog", () => {
 
     const tools = await client.listTools();
     expect(tools.tools.map((tool) => tool.name).sort()).toEqual([...CINESIM_MCP_TOOL_NAMES].sort());
+    await expect(
+      client.callTool({ name: "project_inspect", arguments: {} }),
+    ).resolves.toMatchObject({
+      structuredContent: { version: 2, activeCompositionId: project.activeSequenceId },
+    });
     await client.callTool({
       name: "clip_fade",
       arguments: { clipId: "clip_fixture", edge: "out", durationUs: 250_000 },
+    });
+    await client.callTool({
+      name: "property_set",
+      arguments: {
+        nodeId: "clip_fixture",
+        property: "opacity",
+        value: { kind: "number", value: 0.5 },
+      },
     });
     await client.callTool({
       name: "timeline_delete_ranges",
@@ -54,6 +70,12 @@ describe("canonical Cinesim MCP catalog", () => {
         clipId: "clip_fixture",
         edge: "out",
         durationUs: 250_000,
+      },
+      {
+        type: "property.set",
+        nodeId: "clip_fixture",
+        property: "opacity",
+        value: { kind: "number", value: 0.5 },
       },
       {
         type: "sequence.deleteRanges",
@@ -72,6 +94,8 @@ describe("canonical Cinesim MCP catalog", () => {
     const server = new McpServer({ name: "validation-test", version: "0.1.0" });
     registerCinesimMcpTools(server, {
       project: () => project,
+      program: () => projectToIr(project),
+      editMap: () => ({ version: 2, entry: "main.jsx", sources: [], nodes: {} }),
       directory: () => "/project",
       execute: async () => ({ summary: "unexpected", changedIds: [], createdIds: [] }),
       perform: async (_tool, operation) => {
@@ -99,11 +123,11 @@ describe("canonical Cinesim MCP catalog", () => {
   });
 
   it("makes every canonical command either supported or explicitly unsupported", () => {
-    expect(Object.keys(CINESIM_MCP_COMMAND_SUPPORT)).toHaveLength(17);
+    expect(Object.keys(CINESIM_MCP_COMMAND_SUPPORT)).toHaveLength(23);
     expect(
       Object.entries(CINESIM_MCP_COMMAND_SUPPORT)
         .filter(([, support]) => support.kind === "unsupported")
         .map(([type]) => type),
-    ).toEqual(["asset.import", "asset.setSource"]);
+    ).toEqual(["asset.import", "asset.setSource", "property.setMany"]);
   });
 });

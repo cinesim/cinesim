@@ -2,6 +2,7 @@ import { execFile } from "node:child_process";
 import { mkdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { promisify } from "node:util";
+import { SourceProjectRepository } from "@cinesim/project-io";
 
 const execFileAsync = promisify(execFile);
 
@@ -33,7 +34,7 @@ export class AgentCheckpointStore {
       };
       try {
         await this.#git(["read-tree", "--empty"], environment);
-        await this.#git(["add", "-A", "--", "cinesim.json", ".cinesim"], environment);
+        await this.#git(["add", "-A", "--", ...(await this.#canonicalFiles())], environment);
         const tree = (await this.#git(["write-tree"], environment)).trim();
         const commit = (
           await this.#git(["commit-tree", tree, "-m", `cinesim checkpoint ${ref}`], environment)
@@ -55,8 +56,18 @@ export class AgentCheckpointStore {
         GIT_INDEX_FILE: indexPath,
       };
       try {
+        const currentFiles = await this.#canonicalFiles();
         await this.#git(["read-tree", ref], environment);
-        await this.#git(["clean", "-fdx", "--", "cinesim.json", ".cinesim"], environment);
+        const targetFiles = new Set(
+          (await this.#git(["ls-tree", "-r", "--name-only", ref], environment))
+            .split("\n")
+            .filter(Boolean),
+        );
+        await Promise.all(
+          currentFiles
+            .filter((path) => !targetFiles.has(path))
+            .map((path) => rm(join(this.projectDirectory, path), { force: true })),
+        );
         await this.#git(["checkout-index", "-a", "-f"], environment);
       } finally {
         await rm(indexPath, { force: true });
@@ -84,6 +95,12 @@ export class AgentCheckpointStore {
       await execFileAsync("git", ["init", "--bare", gitDirectory]);
     }
     return { gitDirectory, indexPath };
+  }
+
+  async #canonicalFiles(): Promise<string[]> {
+    const repository = await SourceProjectRepository.open(this.projectDirectory);
+    const snapshot = await repository.load();
+    return ["cinesim.toml", ...Object.keys(snapshot.sources).sort()];
   }
 
   async #git(arguments_: string[], environment: NodeJS.ProcessEnv): Promise<string> {

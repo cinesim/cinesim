@@ -1,93 +1,101 @@
 import { describe, expect, it } from "vite-plus/test";
-import { createProject } from "@cinesim/core";
-import { dispatchCommand } from "../src";
+import { editorCommandSchema } from "../src";
 
-describe("protocol command dispatch", () => {
-  it("validates and dispatches track commands", () => {
-    const project = createProject({ name: "Protocol" });
-    const added = dispatchCommand(project, {
-      type: "track.add",
-      sequenceId: project.activeSequenceId,
-      kind: "overlay",
-      name: " Titles ",
-    });
-    expect(added.ok).toBe(true);
-    if (!added.ok) return;
-    expect(added.value.project.sequences[0]!.tracks[0]).toMatchObject({
-      id: "track_000003",
-      name: "Titles",
-      kind: "overlay",
-    });
-
-    const reordered = dispatchCommand(added.value.project, {
-      type: "track.reorder",
-      trackId: "track_000003",
-      index: 1,
-    });
-    expect(reordered.ok).toBe(true);
+describe("editor command protocol", () => {
+  it("validates track commands and rejects empty updates", () => {
+    expect(
+      editorCommandSchema.parse({
+        type: "track.add",
+        sequenceId: "sequence_main",
+        kind: "overlay",
+        name: "Titles",
+      }),
+    ).toMatchObject({ type: "track.add", name: "Titles" });
+    expect(() =>
+      editorCommandSchema.parse({ type: "track.update", trackId: "track_000001" }),
+    ).toThrow();
   });
 
-  it("rejects empty track updates at the protocol boundary", () => {
-    const result = dispatchCommand(createProject({ name: "Protocol" }), {
-      type: "track.update",
-      trackId: "track_000001",
-    });
-    expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.error.code).toBe("INVALID_COMMAND");
+  it("rejects malformed IDs, times, and collection edits", () => {
+    expect(() =>
+      editorCommandSchema.parse({
+        type: "clip.move",
+        clipId: "third clip",
+        timelineStartUs: 1.5,
+      }),
+    ).toThrow();
+    expect(() =>
+      editorCommandSchema.parse({ type: "sequence.createFromAssets", assetIds: [] }),
+    ).toThrow();
+    expect(() =>
+      editorCommandSchema.parse({ type: "asset.remove", assetIds: ["not-an-asset"] }),
+    ).toThrow();
   });
 
-  it("serializes malformed command errors", () => {
-    const result = dispatchCommand(createProject({ name: "Protocol" }), {
-      type: "clip.move",
-      clipId: "third clip",
-      timelineStartUs: 1.5,
-    });
-    expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.error.code).toBe("INVALID_COMMAND");
+  it("validates nonempty, positive sequence range edits", () => {
+    expect(() =>
+      editorCommandSchema.parse({
+        type: "sequence.deleteRanges",
+        sequenceId: "sequence_main",
+        ranges: [],
+        mode: "ripple",
+      }),
+    ).toThrow();
+    expect(() =>
+      editorCommandSchema.parse({
+        type: "sequence.deleteRanges",
+        sequenceId: "sequence_main",
+        ranges: [{ startUs: 20, endUs: 10 }],
+        mode: "lift",
+      }),
+    ).toThrow();
   });
 
-  it("uses core command errors for valid requests", () => {
-    const result = dispatchCommand(createProject({ name: "Protocol" }), {
-      type: "clip.remove",
-      clipId: "clip_000001",
-    });
-    expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.error.message).toMatch(/not found/);
-  });
-
-  it("validates collection edit commands before dispatch", () => {
-    const emptySelection = dispatchCommand(createProject({ name: "Protocol" }), {
-      type: "sequence.createFromAssets",
-      assetIds: [],
-    });
-    expect(emptySelection.ok).toBe(false);
-    if (!emptySelection.ok) expect(emptySelection.error.code).toBe("INVALID_COMMAND");
-
-    const malformedRemoval = dispatchCommand(createProject({ name: "Protocol" }), {
-      type: "asset.remove",
-      assetIds: ["not-an-asset"],
-    });
-    expect(malformedRemoval.ok).toBe(false);
-    if (!malformedRemoval.ok) expect(malformedRemoval.error.code).toBe("INVALID_COMMAND");
-  });
-
-  it("validates atomic sequence range edits at the protocol boundary", () => {
-    const project = createProject({ name: "Protocol" });
-    const empty = dispatchCommand(project, {
-      type: "sequence.deleteRanges",
-      sequenceId: project.activeSequenceId,
-      ranges: [],
-      mode: "ripple",
-    });
-    expect(empty.ok).toBe(false);
-
-    const inverted = dispatchCommand(project, {
-      type: "sequence.deleteRanges",
-      sequenceId: project.activeSequenceId,
-      ranges: [{ startUs: 20, endUs: 10 }],
-      mode: "lift",
-    });
-    expect(inverted.ok).toBe(false);
-    if (!inverted.ok) expect(inverted.error.code).toBe("INVALID_RANGE");
+  it("validates typed properties and extended clip commands", () => {
+    expect(
+      editorCommandSchema.parse({
+        type: "property.set",
+        nodeId: "title:root",
+        property: "opacity",
+        value: { kind: "number", value: 0.5 },
+        scope: "instance",
+      }),
+    ).toMatchObject({ type: "property.set", property: "opacity" });
+    expect(
+      editorCommandSchema.parse({
+        type: "property.setMany",
+        nodeId: "clip_000001",
+        updates: [
+          { property: "x", value: { kind: "length", unit: "px", value: 120 } },
+          { property: "y", value: { kind: "length", unit: "px", value: -40 } },
+        ],
+        scope: "instance",
+      }),
+    ).toMatchObject({ type: "property.setMany", updates: [{ property: "x" }, { property: "y" }] });
+    expect(() =>
+      editorCommandSchema.parse({
+        type: "property.setMany",
+        nodeId: "clip_000001",
+        updates: [
+          { property: "x", value: { kind: "length", unit: "px", value: 1 } },
+          { property: "x", value: { kind: "length", unit: "px", value: 2 } },
+        ],
+      }),
+    ).toThrow();
+    expect(
+      editorCommandSchema.parse({
+        type: "clip.slip",
+        clipId: "clip_000001",
+        sourceStartUs: 500_000,
+      }),
+    ).toMatchObject({ type: "clip.slip" });
+    expect(() =>
+      editorCommandSchema.parse({
+        type: "property.set",
+        nodeId: "title:root",
+        property: "opacity",
+        value: { kind: "number", value: Number.NaN },
+      }),
+    ).toThrow();
   });
 });

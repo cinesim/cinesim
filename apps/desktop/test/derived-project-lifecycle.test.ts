@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vite-plus/test";
-import { createProject, DEFAULT_SETTINGS } from "@cinesim/core";
+import { DEFAULT_SETTINGS } from "@cinesim/core";
 import { ProjectPaths } from "@cinesim/project-io";
+import { createProject } from "../../../packages/core/test/project-fixtures";
 import {
   activeDerivedProject,
   beginDerivedProjectPreparation,

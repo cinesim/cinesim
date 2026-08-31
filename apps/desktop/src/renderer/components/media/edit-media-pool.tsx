@@ -27,6 +27,110 @@ interface EditMediaPoolProps {
   sequenceId: string;
 }
 
+const transcriptLabels = {
+  missing: "Not transcribed",
+  queued: "Transcript queued",
+  running: "Transcribing",
+  ready: "Transcript ready",
+  failed: "Transcript failed",
+} as const;
+
+function transcriptStatusClass(state: keyof typeof transcriptLabels): string {
+  if (state === "ready") return "bg-accent";
+  if (state === "failed") return "bg-primary";
+  return state === "queued" || state === "running"
+    ? "animate-pulse bg-primary"
+    : "bg-border-strong";
+}
+
+function TranscriptAction({
+  asset,
+  available,
+  onCancel,
+  onRequest,
+  state,
+}: {
+  asset: Asset;
+  available: boolean;
+  onCancel: () => Promise<unknown>;
+  onRequest: () => void;
+  state: keyof typeof transcriptLabels;
+}) {
+  if (state === "queued" || state === "running") {
+    return (
+      <button
+        type="button"
+        className="inline-flex size-5 shrink-0 items-center justify-center rounded text-secondary hover:bg-surface hover:text-primary"
+        aria-label={`Cancel transcript for ${asset.name}`}
+        title="Cancel transcription"
+        onPointerDown={(event) => event.stopPropagation()}
+        onClick={(event) => {
+          event.stopPropagation();
+          void onCancel();
+        }}
+      >
+        <X size={11} />
+      </button>
+    );
+  }
+  if (state !== "missing" && state !== "failed") return null;
+  const action = state === "failed" ? "Retry" : "Generate";
+  return (
+    <button
+      type="button"
+      className="inline-flex size-5 shrink-0 items-center justify-center rounded text-secondary hover:bg-surface hover:text-primary disabled:opacity-40"
+      aria-label={`${action} transcript for ${asset.name}`}
+      title={available ? `${action} transcript` : "Sign in to transcribe"}
+      disabled={!available}
+      onPointerDown={(event) => event.stopPropagation()}
+      onClick={(event) => {
+        event.stopPropagation();
+        onRequest();
+      }}
+    >
+      {state === "failed" ? <RotateCcw size={11} /> : <Sparkles size={11} />}
+    </button>
+  );
+}
+
+function TranscriptStatus({
+  asset,
+  available,
+  onCancel,
+  onRequest,
+  transcript,
+}: {
+  asset: Asset;
+  available: boolean;
+  onCancel: () => Promise<unknown>;
+  onRequest: () => void;
+  transcript: TranscriptAssetSnapshot | undefined;
+}) {
+  const supported = asset.kind === "audio" || (asset.kind === "video" && asset.hasAudio === true);
+  if (!supported) return null;
+  const state = transcript?.state ?? "missing";
+  const progress =
+    state === "running" && transcript?.progress !== undefined
+      ? ` · ${Math.round(transcript.progress * 100)}%`
+      : "";
+  return (
+    <div className="mt-1 flex min-w-0 items-center gap-1.5 text-[10px]">
+      <span className={cn("size-1.5 shrink-0 rounded-full", transcriptStatusClass(state))} />
+      <span className="min-w-0 flex-1 truncate text-muted">
+        {transcriptLabels[state]}
+        {progress}
+      </span>
+      <TranscriptAction
+        asset={asset}
+        available={available}
+        onCancel={onCancel}
+        onRequest={onRequest}
+        state={state}
+      />
+    </div>
+  );
+}
+
 export function EditMediaPool({ project, sequenceId }: EditMediaPoolProps) {
   const [query, setQuery] = useState("");
   const appendAsset = useRendererStore((state) => state.appendAsset);
@@ -113,17 +217,6 @@ function DraggableAssetCard({
     id: `asset:${asset.id}`,
     data: { kind: "asset", assetId: asset.id },
   });
-  const supportsTranscription =
-    asset.kind === "audio" || (asset.kind === "video" && asset.hasAudio === true);
-  const transcriptState = supportsTranscription ? (transcript?.state ?? "missing") : null;
-  const transcriptLabels = {
-    missing: "Not transcribed",
-    queued: "Transcript queued",
-    running: "Transcribing",
-    ready: "Transcript ready",
-    failed: "Transcript failed",
-  } as const;
-
   return (
     <div
       ref={setNodeRef}
@@ -183,65 +276,13 @@ function DraggableAssetCard({
           asset={asset}
           className="edit-media-card-secondary mt-0.5 truncate text-[10px] text-muted tabular-nums"
         />
-        {transcriptState && (
-          <div className="mt-1 flex min-w-0 items-center gap-1.5 text-[10px]">
-            <span
-              className={cn(
-                "size-1.5 shrink-0 rounded-full",
-                transcriptState === "ready"
-                  ? "bg-accent"
-                  : transcriptState === "failed"
-                    ? "bg-primary"
-                    : transcriptState === "queued" || transcriptState === "running"
-                      ? "animate-pulse bg-primary"
-                      : "bg-border-strong",
-              )}
-            />
-            <span className="min-w-0 flex-1 truncate text-muted">
-              {transcriptLabels[transcriptState]}
-              {transcriptState === "running" && transcript?.progress !== undefined
-                ? ` · ${Math.round(transcript.progress * 100)}%`
-                : ""}
-            </span>
-            {(transcriptState === "missing" || transcriptState === "failed") && (
-              <button
-                type="button"
-                className="inline-flex size-5 shrink-0 items-center justify-center rounded text-secondary hover:bg-surface hover:text-primary disabled:opacity-40"
-                aria-label={`${transcriptState === "failed" ? "Retry" : "Generate"} transcript for ${asset.name}`}
-                title={
-                  transcriptionAvailable
-                    ? transcriptState === "failed"
-                      ? "Retry transcript"
-                      : "Generate transcript"
-                    : "Sign in to transcribe"
-                }
-                disabled={!transcriptionAvailable}
-                onPointerDown={(event) => event.stopPropagation()}
-                onClick={(event) => {
-                  event.stopPropagation();
-                  onRequestTranscript();
-                }}
-              >
-                {transcriptState === "failed" ? <RotateCcw size={11} /> : <Sparkles size={11} />}
-              </button>
-            )}
-            {(transcriptState === "queued" || transcriptState === "running") && (
-              <button
-                type="button"
-                className="inline-flex size-5 shrink-0 items-center justify-center rounded text-secondary hover:bg-surface hover:text-primary"
-                aria-label={`Cancel transcript for ${asset.name}`}
-                title="Cancel transcription"
-                onPointerDown={(event) => event.stopPropagation()}
-                onClick={(event) => {
-                  event.stopPropagation();
-                  void onCancelTranscript();
-                }}
-              >
-                <X size={11} />
-              </button>
-            )}
-          </div>
-        )}
+        <TranscriptStatus
+          asset={asset}
+          available={transcriptionAvailable}
+          onCancel={onCancelTranscript}
+          onRequest={onRequestTranscript}
+          transcript={transcript}
+        />
       </PreviewCard>
     </div>
   );

@@ -12,8 +12,10 @@
   "dependencies": {
     "@base-ui/react": "1.7.0",
     "@better-auth/electron": "1.7.2",
+    "@cinesim/compiler": "workspace:*",
     "@cinesim/core": "workspace:*",
     "@cinesim/engine": "workspace:*",
+    "@cinesim/ir": "workspace:*",
     "@cinesim/logging": "workspace:*",
     "@cinesim/mcp-tools": "workspace:*",
     "@cinesim/project-io": "workspace:*",

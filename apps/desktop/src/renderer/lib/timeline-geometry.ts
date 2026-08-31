@@ -81,16 +81,19 @@ export function snapTimelineRange(
 ): { timeUs: TimeUs; snapped: boolean; snapPointUs?: TimeUs } {
   const frameStartUs = quantizeToFrame(rawStartUs, frameRate);
   let nearest: { pointUs: TimeUs; startUs: TimeUs; distanceUs: number } | null = null;
-  for (const candidate of candidatesUs) {
-    for (const edgeOffsetUs of [timeUsValue(0), durationUs]) {
-      const rawCandidateStartUs = candidate - edgeOffsetUs;
-      if (rawCandidateStartUs < 0) continue;
-      const startUs = timeUsValue(rawCandidateStartUs);
-      const edgeUs = frameStartUs + edgeOffsetUs;
-      const distanceUs = Math.abs(candidate - edgeUs);
-      if (distanceUs <= toleranceUs && (!nearest || distanceUs < nearest.distanceUs)) {
-        nearest = { pointUs: candidate, startUs, distanceUs };
-      }
+  const candidates = candidatesUs.flatMap((pointUs) =>
+    [timeUsValue(0), durationUs].map((edgeOffsetUs) => ({ pointUs, edgeOffsetUs })),
+  );
+  for (const candidate of candidates) {
+    const rawCandidateStartUs = candidate.pointUs - candidate.edgeOffsetUs;
+    if (rawCandidateStartUs < 0) continue;
+    const distanceUs = Math.abs(candidate.pointUs - (frameStartUs + candidate.edgeOffsetUs));
+    if (distanceUs <= toleranceUs && (!nearest || distanceUs < nearest.distanceUs)) {
+      nearest = {
+        pointUs: candidate.pointUs,
+        startUs: timeUsValue(rawCandidateStartUs),
+        distanceUs,
+      };
     }
   }
   return nearest

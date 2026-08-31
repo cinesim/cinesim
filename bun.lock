@@ -44,8 +44,10 @@
       "dependencies": {
         "@base-ui/react": "1.7.0",
         "@better-auth/electron": "1.7.2",
+        "@cinesim/compiler": "workspace:*",
         "@cinesim/core": "workspace:*",
         "@cinesim/engine": "workspace:*",
+        "@cinesim/ir": "workspace:*",
         "@cinesim/logging": "workspace:*",
         "@cinesim/mcp-tools": "workspace:*",
         "@cinesim/project-io": "workspace:*",
@@ -102,11 +104,20 @@
         "typescript": "7.0.2",
       },
     },
+    "packages/compiler": {
+      "name": "@cinesim/compiler",
+      "version": "0.1.0",
+      "dependencies": {
+        "@cinesim/ir": "workspace:*",
+        "acorn": "8.18.0",
+        "acorn-jsx": "5.3.2",
+      },
+    },
     "packages/core": {
       "name": "@cinesim/core",
       "version": "0.1.0",
       "dependencies": {
-        "smol-toml": "1.8.0",
+        "@cinesim/ir": "workspace:*",
         "zod": "4.4.3",
       },
     },
@@ -115,8 +126,13 @@
       "version": "0.1.0",
       "dependencies": {
         "@cinesim/core": "workspace:*",
+        "@cinesim/ir": "workspace:*",
         "mediabunny": "1.55.2",
       },
+    },
+    "packages/ir": {
+      "name": "@cinesim/ir",
+      "version": "0.1.0",
     },
     "packages/logging": {
       "name": "@cinesim/logging",
@@ -140,7 +156,10 @@
       "name": "@cinesim/project-io",
       "version": "0.1.0",
       "dependencies": {
+        "@cinesim/compiler": "workspace:*",
         "@cinesim/core": "workspace:*",
+        "@cinesim/ir": "workspace:*",
+        "smol-toml": "1.8.0",
       },
     },
     "packages/protocol": {
@@ -148,6 +167,7 @@
       "version": "0.1.0",
       "dependencies": {
         "@cinesim/core": "workspace:*",
+        "@cinesim/ir": "workspace:*",
         "zod": "4.4.3",
       },
     },
@@ -174,7 +194,9 @@
         "video": "./src/index.ts",
       },
       "dependencies": {
+        "@cinesim/compiler": "workspace:*",
         "@cinesim/core": "workspace:*",
+        "@cinesim/ir": "workspace:*",
         "@cinesim/logging": "workspace:*",
         "@cinesim/project-io": "workspace:*",
         "@cinesim/protocol": "workspace:*",
@@ -266,11 +288,15 @@
 
     "@cinesim/cli": ["@cinesim/cli@workspace:tools/cli"],
 
+    "@cinesim/compiler": ["@cinesim/compiler@workspace:packages/compiler"],
+
     "@cinesim/core": ["@cinesim/core@workspace:packages/core"],
 
     "@cinesim/desktop": ["@cinesim/desktop@workspace:apps/desktop"],
 
     "@cinesim/engine": ["@cinesim/engine@workspace:packages/engine"],
+
+    "@cinesim/ir": ["@cinesim/ir@workspace:packages/ir"],
 
     "@cinesim/logging": ["@cinesim/logging@workspace:packages/logging"],
 

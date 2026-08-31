@@ -1,4 +1,4 @@
-import type { AssetId, ClipId, EditorCommand, TimeUs } from "@cinesim/core";
+import type { AssetId, ClipId, SemanticEditorCommand, TimeUs } from "@cinesim/core";
 import type { RuntimeSnapshot } from "@cinesim/engine";
 import type {
   AccountSnapshot,
@@ -67,7 +67,7 @@ export interface ProjectSlice {
   openProject: () => Promise<ActionResult<DesktopProjectSession | null>>;
   openRecentProject: (directory: string) => Promise<ActionResult<DesktopProjectSession>>;
   importMedia: () => Promise<ActionResult<DesktopProjectSession | null>>;
-  execute: (command: EditorCommand) => Promise<ActionResult<DesktopProjectSession>>;
+  execute: (command: SemanticEditorCommand) => Promise<ActionResult<DesktopProjectSession>>;
   appendAsset: (
     assetId: string,
     sequenceId: string,
@@ -75,7 +75,6 @@ export interface ProjectSlice {
   undo: () => Promise<ActionResult<DesktopProjectSession>>;
   redo: () => Promise<ActionResult<DesktopProjectSession>>;
   save: () => Promise<ActionResult<DesktopProjectSession>>;
-  revealProject: () => Promise<ActionResult<void>>;
   forgetProject: (directory: string) => Promise<ActionResult<DesktopAppState>>;
   trashProject: (directory: string) => Promise<ActionResult<DesktopAppState>>;
   navigate: (destination: Destination) => void;

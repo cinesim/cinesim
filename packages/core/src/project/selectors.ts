@@ -1,14 +1,10 @@
-import type { ClipId, SequenceId, TrackId } from "../ids";
+import type { ClipId, TrackId } from "../ids";
 import type { Clip, Project, Sequence, Track } from "./types";
 
 export function getSequence(project: Project, sequenceId = project.activeSequenceId): Sequence {
   const sequence = project.sequences.find((candidate) => candidate.id === sequenceId);
   if (!sequence) throw new Error(`Sequence not found: ${sequenceId}`);
   return sequence;
-}
-
-export function getTrack(project: Project, trackId: TrackId): Track {
-  return findTrack(project, trackId).track;
 }
 
 export interface TrackLocation {
@@ -42,8 +38,4 @@ export function findClip(project: Project, clipId: ClipId): ClipLocation {
     }
   }
   throw new Error(`Clip not found: ${clipId}`);
-}
-
-export function findSequenceForTrack(project: Project, trackId: TrackId): SequenceId {
-  return findTrack(project, trackId).sequence.id;
 }

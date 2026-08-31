@@ -1,8 +1,9 @@
-import { FolderOpen, Redo2, Save, Sparkles, Undo2 } from "@cinesim/ui";
+import { Redo2, Save, Sparkles, Undo2 } from "@cinesim/ui";
 import { Button, Tooltip, TooltipContent, TooltipTrigger } from "@cinesim/ui";
 import { sessionFromLifecycle } from "../../store/renderer-store";
 import { useRendererStore } from "../../store/renderer-store-context";
 import { toggleAuxiliaryMode } from "../../hooks/use-shell-shortcuts";
+import { ProjectOpenButton } from "./project-open-button";
 
 export function TopBar() {
   const session = useRendererStore((state) => sessionFromLifecycle(state.project));
@@ -11,7 +12,6 @@ export function TopBar() {
   const undo = useRendererStore((state) => state.undo);
   const redo = useRendererStore((state) => state.redo);
   const save = useRendererStore((state) => state.save);
-  const revealProject = useRendererStore((state) => state.revealProject);
   const agentsOpen = auxiliaryMode === "agents";
   if (!session) return null;
 
@@ -80,21 +80,7 @@ export function TopBar() {
         </TooltipTrigger>
         <TooltipContent>{agentsOpen ? "Close Agents" : "Open Agents"}</TooltipContent>
       </Tooltip>
-      <Tooltip>
-        <TooltipTrigger
-          render={
-            <Button
-              size="icon"
-              variant="ghost"
-              aria-label="Reveal project"
-              onClick={() => void revealProject()}
-            />
-          }
-        >
-          <FolderOpen size={15} />
-        </TooltipTrigger>
-        <TooltipContent>Reveal project</TooltipContent>
-      </Tooltip>
+      <ProjectOpenButton />
     </div>
   );
 }

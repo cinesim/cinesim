@@ -162,67 +162,87 @@ function setMode(next: AuthMode): void {
   submit.textContent = submitLabel();
 }
 
-async function handleEmailSubmit(): Promise<void> {
-  if (busy || !form.reportValidity()) return;
-  if (mode === "reset-password" && passwordInput.value !== confirmPasswordInput.value) {
-    confirmPasswordInput.setCustomValidity("Passwords do not match.");
-    confirmPasswordInput.reportValidity();
+async function submitSignUp(): Promise<void> {
+  const result = await authClient.signUp.email({
+    name: nameInput.value.trim(),
+    email: emailInput.value.trim(),
+    password: passwordInput.value,
+    callbackURL: callbackUrl({ verified: "true" }),
+    fetchOptions: { query: persistentQuery },
+  });
+  if (result.error) {
+    showNotice(errorMessage(result.error), "error");
     return;
   }
+  passwordInput.value = "";
+  showNotice("Check your email.");
+}
+
+async function submitSignIn(): Promise<void> {
+  const result = await authClient.signIn.email({
+    email: emailInput.value.trim(),
+    password: passwordInput.value,
+    callbackURL: callbackUrl({ auth_complete: "email" }),
+    fetchOptions: { query: persistentQuery },
+  });
+  if (result.error) {
+    showNotice(errorMessage(result.error), "error");
+    return;
+  }
+  showNotice("Signed in. Reopening Cinesim…");
+  await completeExplicitAuthentication();
+}
+
+async function submitPasswordResetRequest(): Promise<void> {
+  const result = await authClient.requestPasswordReset({
+    email: emailInput.value.trim(),
+    redirectTo: callbackUrl({ reset_password: "true" }),
+    fetchOptions: { query: persistentQuery },
+  });
+  if (result.error) {
+    showNotice(errorMessage(result.error), "error");
+    return;
+  }
+  showNotice("If an account exists with this email, check your email for a password reset link.");
+}
+
+async function submitNewPassword(): Promise<void> {
+  const result = await authClient.resetPassword({
+    newPassword: passwordInput.value,
+    token: query.token ?? "",
+    fetchOptions: { query: persistentQuery },
+  });
+  if (result.error) {
+    showNotice(errorMessage(result.error), "error");
+    return;
+  }
+  passwordInput.value = "";
+  confirmPasswordInput.value = "";
+  window.history.replaceState({}, "", callbackUrl());
+  setMode("sign-in");
+  showNotice("Password updated. You can sign in now.");
+}
+
+const emailSubmissions: Record<AuthMode, () => Promise<void>> = {
+  "sign-up": submitSignUp,
+  "sign-in": submitSignIn,
+  "forgot-password": submitPasswordResetRequest,
+  "reset-password": submitNewPassword,
+};
+
+function passwordsMatch(): boolean {
+  if (mode !== "reset-password" || passwordInput.value === confirmPasswordInput.value) return true;
+  confirmPasswordInput.setCustomValidity("Passwords do not match.");
+  confirmPasswordInput.reportValidity();
+  return false;
+}
+
+async function handleEmailSubmit(): Promise<void> {
+  if (busy || !form.reportValidity() || !passwordsMatch()) return;
   setBusy(true);
   clearNotice();
   try {
-    if (mode === "sign-up") {
-      const result = await authClient.signUp.email({
-        name: nameInput.value.trim(),
-        email: emailInput.value.trim(),
-        password: passwordInput.value,
-        callbackURL: callbackUrl({ verified: "true" }),
-        fetchOptions: { query: persistentQuery },
-      });
-      if (result.error) showNotice(errorMessage(result.error), "error");
-      else {
-        passwordInput.value = "";
-        showNotice("Check your email.");
-      }
-    } else if (mode === "sign-in") {
-      const result = await authClient.signIn.email({
-        email: emailInput.value.trim(),
-        password: passwordInput.value,
-        callbackURL: callbackUrl({ auth_complete: "email" }),
-        fetchOptions: { query: persistentQuery },
-      });
-      if (result.error) showNotice(errorMessage(result.error), "error");
-      else {
-        showNotice("Signed in. Reopening Cinesim…");
-        await completeExplicitAuthentication();
-      }
-    } else if (mode === "forgot-password") {
-      const result = await authClient.requestPasswordReset({
-        email: emailInput.value.trim(),
-        redirectTo: callbackUrl({ reset_password: "true" }),
-        fetchOptions: { query: persistentQuery },
-      });
-      if (result.error) showNotice(errorMessage(result.error), "error");
-      else
-        showNotice(
-          "If an account exists with this email, check your email for a password reset link.",
-        );
-    } else {
-      const result = await authClient.resetPassword({
-        newPassword: passwordInput.value,
-        token: query.token ?? "",
-        fetchOptions: { query: persistentQuery },
-      });
-      if (result.error) showNotice(errorMessage(result.error), "error");
-      else {
-        passwordInput.value = "";
-        confirmPasswordInput.value = "";
-        window.history.replaceState({}, "", callbackUrl());
-        setMode("sign-in");
-        showNotice("Password updated. You can sign in now.");
-      }
-    }
+    await emailSubmissions[mode]();
   } catch {
     showNotice("The local authentication server is unavailable.", "error");
   } finally {

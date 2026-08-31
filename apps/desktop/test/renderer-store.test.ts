@@ -2,14 +2,18 @@ import { describe, expect, it, vi } from "vite-plus/test";
 import {
   timeUs,
   DEFAULT_SETTINGS,
-  DEFAULT_TRANSFORM,
-  createProject,
   type Asset,
   type Clip,
   type EditorCommand,
   type Sequence,
 } from "@cinesim/core";
+import {
+  createProject,
+  DEFAULT_TRANSFORM,
+  projectToIr,
+} from "../../../packages/core/test/project-fixtures";
 import type { RuntimeSnapshot } from "@cinesim/engine";
+import { projectTimeline } from "@cinesim/ir";
 import type { DesktopApi, DesktopProjectSession } from "../src/shared/contracts";
 import type { AccountSnapshot } from "../src/shared/contracts";
 import type { TranscriptArtifact, TranscriptSnapshot } from "../src/shared/transcript";
@@ -20,17 +24,51 @@ import {
 } from "../src/renderer/store/renderer-store";
 
 function sessionFixture(directory = "/projects/fixture"): DesktopProjectSession {
+  const project = createProject({ name: "Fixture" });
+  const program = projectToIr(project, DEFAULT_SETTINGS);
   return {
     directory,
     derivedScope: {
       cacheKey: "aaaaaaaaaaaaaaaaaaaaaaaa",
       epoch: "00000000-0000-4000-8000-000000000001",
     },
-    project: createProject({ name: "Fixture" }),
+    project,
+    program,
+    timeline: projectTimeline(program),
+    timelines: Object.fromEntries(
+      program.compositions.map((composition) => [
+        composition.id,
+        projectTimeline(program, undefined, composition.id),
+      ]),
+    ),
+    editMap: {
+      version: 2,
+      entry: "main.jsx",
+      sources: [],
+      nodes: {},
+    },
+    propertySchemas: {},
+    diagnostics: [],
     settings: DEFAULT_SETTINGS,
+    generation: "fixture-generation",
     revision: 0,
     canUndo: false,
     canRedo: false,
+  };
+}
+
+function refreshSemanticProjection(session: DesktopProjectSession): DesktopProjectSession {
+  const program = projectToIr(session.project, session.settings);
+  return {
+    ...session,
+    program,
+    timeline: projectTimeline(program),
+    timelines: Object.fromEntries(
+      program.compositions.map((composition) => [
+        composition.id,
+        projectTimeline(program, undefined, composition.id),
+      ]),
+    ),
   };
 }
 
@@ -472,6 +510,7 @@ describe("renderer project controller", () => {
       assets: [asset],
       sequences: [...session.project.sequences, secondSequence],
     };
+    Object.assign(session, refreshSemanticProjection(session));
     const store = createRendererStore({
       api: apiFixture({ getSession: async () => session }),
     });
@@ -480,7 +519,7 @@ describe("renderer project controller", () => {
     store.getState().selectClip(clip.id);
     store.getState().setPlayheadUs(timeUs(3_000_000));
 
-    await store.getState().receiveExternalSession({
+    const externalSession = refreshSemanticProjection({
       ...session,
       revision: 1,
       project: {
@@ -495,6 +534,7 @@ describe("renderer project controller", () => {
         ),
       },
     });
+    await store.getState().receiveExternalSession(externalSession);
 
     expect(store.getState().activeSequenceId).toBe(secondSequence.id);
     expect(store.getState().selectedClipId).toBeNull();
@@ -557,12 +597,15 @@ describe("renderer project controller", () => {
     const result = await store.getState().appendAsset(asset.id, secondSequence.id);
 
     expect(result.ok).toBe(true);
-    expect(execute).toHaveBeenCalledWith({
-      type: "clip.add",
-      trackId: "track_second_video",
-      assetId: asset.id,
-      timelineStartUs: timeUs(0),
-    });
+    expect(execute).toHaveBeenCalledWith(
+      {
+        type: "clip.add",
+        trackId: "track_second_video",
+        assetId: asset.id,
+        timelineStartUs: timeUs(0),
+      },
+      session.generation,
+    );
   });
 
   it("appends to the first unlocked compatible track", async () => {
@@ -597,12 +640,15 @@ describe("renderer project controller", () => {
     const result = await store.getState().appendAsset(asset.id, sequence.id);
 
     expect(result.ok).toBe(true);
-    expect(execute).toHaveBeenCalledWith({
-      type: "clip.add",
-      trackId: "track_overlay",
-      assetId: asset.id,
-      timelineStartUs: timeUs(0),
-    });
+    expect(execute).toHaveBeenCalledWith(
+      {
+        type: "clip.add",
+        trackId: "track_overlay",
+        assetId: asset.id,
+        timelineStartUs: timeUs(0),
+      },
+      session.generation,
+    );
   });
 
   it("forgets project metadata without closing the active project", async () => {

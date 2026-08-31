@@ -1,6 +1,6 @@
 import { mkdir, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import type { CanonicalProjectRepository } from "@cinesim/project-io";
+import type { SourceProjectRepository } from "@cinesim/project-io";
 
 const PROJECT_DIRECTORY_COLLISION_LIMIT = 10_000;
 const DERIVED_FOLDERS = [
@@ -20,8 +20,8 @@ const PROJECT_AGENTS = `# Project creative direction
 This is a Cinesim video editing project.
 
 - Prefer the Cinesim CLI or MCP tools for timeline edits.
-- Canonical state is \`cinesim.json\` and \`.cinesim/\`.
-- Human-readable settings are in \`.cinesim/settings.toml\`.
+- Canonical state is \`cinesim.toml\` plus reachable \`.js\` and \`.jsx\` source modules.
+- Timeline structure is explicit in source; reference media through stable \`asset("asset_id")\` values.
 - \`.video/\` contains generated caches, optional downloaded originals, proxies, perception
   artifacts, and runtime files.
 - Derived files may be deleted and regenerated. Do not edit them manually.
@@ -72,7 +72,7 @@ export async function createAvailableProjectDirectory(
   );
 }
 
-export async function ensureProjectLayout(repository: CanonicalProjectRepository): Promise<void> {
+export async function ensureProjectLayout(repository: SourceProjectRepository): Promise<void> {
   await repository.paths.ensureLayout(DERIVED_FOLDERS);
   await Promise.all([
     repository.paths

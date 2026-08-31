@@ -65,12 +65,12 @@ export default defineConfig({
         command: "node tools/dev-local.mjs",
         cache: false,
       },
-      "history:benchmark": {
-        command: "tsx tools/benchmarks/history.ts",
-        cache: false,
-      },
       "complexity:report": {
         command: "node tools/cognitive-complexity.mjs",
+        cache: false,
+      },
+      cli: {
+        command: "tsx tools/cli/src/index.ts",
         cache: false,
       },
       typecheck: {
@@ -107,7 +107,12 @@ export default defineConfig({
     sortPackageJson: {},
   },
   lint: {
-    ignorePatterns: ["dist/**", ".context/**", "apps/desktop/release/**"],
+    ignorePatterns: [
+      "dist/**",
+      ".context/**",
+      "apps/desktop/release/**",
+      ...(cognitiveComplexityReport ? [] : ["examples/**"]),
+    ],
     ...(cognitiveComplexityReport ? { jsPlugins: ["eslint-plugin-sonarjs"] } : {}),
     plugins: ["eslint", "import", "jsx-a11y", "oxc", "promise", "react", "typescript", "unicorn"],
     options: {

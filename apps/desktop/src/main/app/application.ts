@@ -117,6 +117,10 @@ export class DesktopApplication implements ApplicationLifecycle {
 
   async #registerMedia(cloudMedia: CloudMediaManager): Promise<void> {
     await registerMediaProtocol(this.projectStore, cloudMedia, this.development.rendererUrl);
+    const unsubscribeProject = this.projectStore.subscribe((session) => {
+      this.windows.broadcast(desktopEvents.projectChanged, session);
+    });
+    app.once("will-quit", unsubscribeProject);
     this.projectStore.derivedMedia.subscribe((snapshot) => {
       this.windows.broadcast(desktopEvents.derivedChanged, snapshot);
     });

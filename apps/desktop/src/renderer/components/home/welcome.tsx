@@ -114,6 +114,93 @@ function ProjectContextMenu({
   );
 }
 
+function shortcutModifier(platform: string): string {
+  return platform === "darwin" ? "⌘" : "Ctrl+";
+}
+
+function projectShortcut(index: number, modifier: string, dark: boolean): React.ReactNode {
+  if (index >= 9) return null;
+  return <Shortcut dark={dark}>{`${modifier}${index + 1}`}</Shortcut>;
+}
+
+function ProjectCloudBadge({ kind }: { kind: RecentProject["kind"] }) {
+  if (kind !== "cloud") return null;
+  return (
+    <Cloud
+      size={22}
+      strokeWidth={2.25}
+      className="absolute left-3 top-3 text-white drop-shadow-[0_1px_2px_rgb(0_0_0/0.45)]"
+      aria-label="Cloud project"
+      title="Cloud project"
+    />
+  );
+}
+
+function ProjectStorageIcon({ kind }: { kind: RecentProject["kind"] }) {
+  return kind === "cloud" ? <Cloud size={14} /> : <FolderOpen size={14} />;
+}
+
+function projectStorageLabel(kind: RecentProject["kind"]): string {
+  return kind === "cloud" ? "Cloud" : "Local";
+}
+
+function ProjectCollection({
+  count,
+  view,
+  grid,
+  list,
+}: {
+  count: number;
+  view: "grid" | "list";
+  grid: React.ReactNode;
+  list: React.ReactNode;
+}) {
+  if (count > 0) return view === "grid" ? grid : list;
+  return (
+    <div className="grid min-h-64 place-items-center rounded-lg border border-dashed border-border-strong bg-panel-muted px-6 text-center">
+      <div>
+        <FolderOpen className="mx-auto mb-3 text-muted" size={24} />
+        <p className="text-ui font-medium text-primary">No projects yet</p>
+        <p className="mt-1 text-ui-xs text-muted">Create a project or open one from this Mac.</p>
+      </div>
+    </div>
+  );
+}
+
+function storageChoiceClass(selected: boolean): string {
+  return selected ? "border-accent bg-accent/10" : "border-border bg-panel-muted";
+}
+
+function CloudProjectNotice({
+  kind,
+  signedIn,
+  cloudUnavailable,
+}: {
+  kind: "cloud" | "local";
+  signedIn: boolean;
+  cloudUnavailable: boolean;
+}) {
+  if (kind === "cloud" && !signedIn)
+    return <Notice size="default">Sign in is required before creating a cloud project.</Notice>;
+  if (cloudUnavailable)
+    return (
+      <Notice size="default">
+        Cloud projects are unavailable from the connected account service.
+      </Notice>
+    );
+  return null;
+}
+
+function createButtonLabel(opening: boolean, kind: "cloud" | "local", signedIn: boolean): string {
+  if (opening) return "Creating…";
+  if (kind === "cloud" && !signedIn) return "Sign in to create";
+  return "Create project";
+}
+
+function emailSignInVariant(googleSignIn: boolean): "primary" | "secondary" {
+  return googleSignIn ? "secondary" : "primary";
+}
+
 export function Welcome() {
   const appState = useRendererStore((state) => state.appState);
   const opening = useRendererStore((state) => state.project.status === "opening");
@@ -138,7 +225,7 @@ export function Welcome() {
   const [cloudSignInOpen, setCloudSignInOpen] = useState(false);
   const [signInBusy, setSignInBusy] = useState<"email" | "google" | null>(null);
   const [trashTarget, setTrashTarget] = useState<string | null>(null);
-  const modifier = window.cinesim.platform === "darwin" ? "⌘" : "Ctrl+";
+  const modifier = shortcutModifier(window.cinesim.platform);
 
   const displayedProjects = useMemo(
     () => sortHomeProjects(appState.recentProjects, sort, projectDetails),
@@ -283,20 +370,8 @@ export function Welcome() {
                 variant="frameless"
                 previewClassName="text-white"
                 previewStyle={projectGradient(`${project.name}:${project.directory}`)}
-                corner={
-                  index < 9 ? <Shortcut dark>{`${modifier}${index + 1}`}</Shortcut> : undefined
-                }
-                preview={
-                  project.kind === "cloud" ? (
-                    <Cloud
-                      size={22}
-                      strokeWidth={2.25}
-                      className="absolute left-3 top-3 text-white drop-shadow-[0_1px_2px_rgb(0_0_0/0.45)]"
-                      aria-label="Cloud project"
-                      title="Cloud project"
-                    />
-                  ) : null
-                }
+                corner={projectShortcut(index, modifier, true)}
+                preview={<ProjectCloudBadge kind={project.kind} />}
                 onClick={() => void openRecent(project.directory)}
               >
                 <p className="truncate text-ui font-medium text-primary">{project.name}</p>
@@ -341,8 +416,8 @@ export function Welcome() {
                   <span className="truncate font-medium text-primary">{project.name}</span>
                 </span>
                 <span className="flex items-center gap-1.5 px-3 py-2.5">
-                  {project.kind === "cloud" ? <Cloud size={14} /> : <FolderOpen size={14} />}
-                  {project.kind === "cloud" ? "Cloud" : "Local"}
+                  <ProjectStorageIcon kind={project.kind} />
+                  {projectStorageLabel(project.kind)}
                 </span>
                 <span className="px-3 py-2.5 tabular-nums">
                   {projectDateLabel(details?.modifiedAt)}
@@ -355,7 +430,7 @@ export function Welcome() {
                 </span>
                 <span className="truncate px-3 py-2.5 text-muted">{project.directory}</span>
                 <span className="px-3 py-2.5">
-                  {index < 9 ? <Shortcut>{`${modifier}${index + 1}`}</Shortcut> : "—"}
+                  {projectShortcut(index, modifier, false) ?? "—"}
                 </span>
               </LibraryListRow>
             </ProjectContextMenu>
@@ -396,23 +471,12 @@ export function Welcome() {
       </LibraryToolbar>
 
       <div className="min-h-0 flex-1 overflow-y-auto px-5 py-6">
-        {displayedProjects.length > 0 ? (
-          view === "grid" ? (
-            projectGrid()
-          ) : (
-            projectList()
-          )
-        ) : (
-          <div className="grid min-h-64 place-items-center rounded-lg border border-dashed border-border-strong bg-panel-muted px-6 text-center">
-            <div>
-              <FolderOpen className="mx-auto mb-3 text-muted" size={24} />
-              <p className="text-ui font-medium text-primary">No projects yet</p>
-              <p className="mt-1 text-ui-xs text-muted">
-                Create a project or open one from this Mac.
-              </p>
-            </div>
-          </div>
-        )}
+        <ProjectCollection
+          count={displayedProjects.length}
+          view={view}
+          grid={projectGrid()}
+          list={projectList()}
+        />
       </div>
 
       <Dialog
@@ -439,9 +503,7 @@ export function Welcome() {
                     type="button"
                     className={cn(
                       "rounded-lg border p-3 text-left outline-none transition-colors hover:bg-surface focus-visible:ring-2 focus-visible:ring-focus",
-                      newProjectKind === "local"
-                        ? "border-accent bg-accent/10"
-                        : "border-border bg-panel-muted",
+                      storageChoiceClass(newProjectKind === "local"),
                     )}
                     aria-pressed={newProjectKind === "local"}
                     onClick={() => setNewProjectKind("local")}
@@ -457,9 +519,7 @@ export function Welcome() {
                     type="button"
                     className={cn(
                       "rounded-lg border p-3 text-left outline-none transition-colors hover:bg-surface focus-visible:ring-2 focus-visible:ring-focus",
-                      newProjectKind === "cloud"
-                        ? "border-accent bg-accent/10"
-                        : "border-border bg-panel-muted",
+                      storageChoiceClass(newProjectKind === "cloud"),
                     )}
                     aria-pressed={newProjectKind === "cloud"}
                     onClick={() => setNewProjectKind("cloud")}
@@ -512,14 +572,11 @@ export function Welcome() {
                 </FieldDescription>
               </Field>
 
-              {newProjectKind === "cloud" && account.status !== "signed-in" && (
-                <Notice size="default">Sign in is required before creating a cloud project.</Notice>
-              )}
-              {signedInCloudUnavailable && (
-                <Notice size="default">
-                  Cloud projects are unavailable from the connected account service.
-                </Notice>
-              )}
+              <CloudProjectNotice
+                kind={newProjectKind}
+                signedIn={account.status === "signed-in"}
+                cloudUnavailable={signedInCloudUnavailable}
+              />
             </div>
             <DialogFooter className="border-t border-border p-4">
               <Button
@@ -531,11 +588,7 @@ export function Welcome() {
                 Cancel
               </Button>
               <Button type="submit" variant="primary" disabled={!canCreate}>
-                {opening
-                  ? "Creating…"
-                  : newProjectKind === "cloud" && account.status !== "signed-in"
-                    ? "Sign in to create"
-                    : "Create project"}
+                {createButtonLabel(opening, newProjectKind, account.status === "signed-in")}
               </Button>
             </DialogFooter>
           </form>
@@ -566,7 +619,7 @@ export function Welcome() {
               )}
               <Button
                 className="w-full"
-                variant={account.googleSignIn ? "secondary" : "primary"}
+                variant={emailSignInVariant(account.googleSignIn)}
                 disabled={!account.serviceAvailable || signInBusy !== null}
                 onClick={() => void signIn("email")}
               >

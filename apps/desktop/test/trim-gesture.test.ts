@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vite-plus/test";
-import { timeUs, DEFAULT_TRANSFORM, type Clip } from "@cinesim/core";
+import { timeUs, type Clip } from "@cinesim/core";
+import { DEFAULT_TRANSFORM } from "../../../packages/core/test/project-fixtures";
 import {
   IDLE_TRIM_GESTURE,
   trimPreviewClip,

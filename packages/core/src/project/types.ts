@@ -46,6 +46,7 @@ export interface Transform {
   y: number;
   scaleX: number;
   scaleY: number;
+  rotation: number;
   opacity: number;
   fit: "contain" | "cover" | "fill";
 }
@@ -85,8 +86,11 @@ export interface Clip {
   /** Reciprocal link to the other component of an imported A/V clip. */
   linkedClipId?: ClipId;
   timelineStartUs: TimeUs;
+  /** Timeline duration. Canonical source duration is independent from playback rate. */
+  durationUs?: TimeUs;
   sourceStartUs: TimeUs;
   sourceEndUs: TimeUs;
+  playbackRate?: number;
   /** Linear fade from silence/transparent at the clip's timeline start. */
   fadeInUs?: TimeUs;
   /** Linear fade to silence/transparent at the clip's timeline end. */
@@ -123,14 +127,6 @@ export function isAssetMediaCompatibleWithTrack(
   return trackKind !== "audio" && asset.kind !== "audio";
 }
 
-export function clipCarriesAudio(asset: Asset, clip: Clip, track: Track): boolean {
-  return (
-    track.kind === "audio" &&
-    clip.mediaKind === "audio" &&
-    (asset.kind === "audio" || asset.hasAudio === true)
-  );
-}
-
 export interface Sequence {
   id: SequenceId;
   name: string;
@@ -141,7 +137,6 @@ export interface Sequence {
 }
 
 export interface Project {
-  version: 1;
   id: ProjectId;
   cloudProjectId?: CloudProjectId;
   name: string;
@@ -151,7 +146,6 @@ export interface Project {
 }
 
 export interface ProjectSettings {
-  version: 1;
   autosave: boolean;
   defaultFilmstripIntervalSeconds: number;
   previewQuality: "full" | "half" | "quarter";
@@ -163,17 +157,7 @@ export interface ProjectSettings {
   proxyQuality: "low" | "medium" | "high";
 }
 
-export const DEFAULT_TRANSFORM: Transform = {
-  x: 0,
-  y: 0,
-  scaleX: 1,
-  scaleY: 1,
-  opacity: 1,
-  fit: "contain",
-};
-
 export const DEFAULT_SETTINGS: ProjectSettings = {
-  version: 1,
   autosave: true,
   defaultFilmstripIntervalSeconds: 5,
   previewQuality: "half",
@@ -186,24 +170,11 @@ export const DEFAULT_SETTINGS: ProjectSettings = {
 };
 
 export function clipDurationUs(clip: Clip): TimeUs {
-  return timeUs(clip.sourceEndUs - clip.sourceStartUs);
+  return clip.durationUs ?? timeUs(clip.sourceEndUs - clip.sourceStartUs);
 }
 
 export function clipEndUs(clip: Clip): TimeUs {
   return timeUs(clip.timelineStartUs + clipDurationUs(clip));
-}
-
-export function clipFadeGainAt(clip: Clip, timelineTimeUs: TimeUs): number {
-  const durationUs = clipDurationUs(clip);
-  if (durationUs <= 0) return 0;
-  const elapsedUs = timelineTimeUs - clip.timelineStartUs;
-  if (elapsedUs < 0 || elapsedUs >= durationUs) return 0;
-  const fadeInUs = Math.min(durationUs, Math.max(0, clip.fadeInUs ?? 0));
-  const fadeOutUs = Math.min(durationUs, Math.max(0, clip.fadeOutUs ?? 0));
-  const fadeInGain = fadeInUs > 0 ? Math.min(1, elapsedUs / fadeInUs) : 1;
-  const remainingUs = durationUs - elapsedUs;
-  const fadeOutGain = fadeOutUs > 0 ? Math.min(1, remainingUs / fadeOutUs) : 1;
-  return Math.max(0, Math.min(fadeInGain, fadeOutGain));
 }
 
 export function canSplitClipAt(clip: Clip, atUs: TimeUs): boolean {

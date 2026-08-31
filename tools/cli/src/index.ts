@@ -12,6 +12,7 @@ import {
 } from "@cinesim/protocol";
 import { DiskProjectStore } from "./project-store";
 import { parseTime } from "./time";
+import { runCompileCommand } from "./compile";
 
 const log = createCinesimLogger({ service: "cli" });
 
@@ -20,6 +21,17 @@ const program = new Command()
   .description("Inspect and edit a Cinesim project through its canonical command pathway")
   .version("0.1.0")
   .option("-p, --project <directory>", "Cinesim project directory");
+
+program
+  .command("compile")
+  .description("Compile JSX-shaped video source into deterministic ir")
+  .argument("[path]", "Directory containing cinesim.toml, or a TOML file", ".")
+  .option("--config <path>", "Use an explicit cinesim.toml file")
+  .option("--print-ir", "Print the lowered ir without writing files")
+  .option("--print-ast", "Print the parsed module and component outline")
+  .option("--explain", "Explain where every expanded ir node came from")
+  .option("--check", "Validate and summarize without writing files")
+  .action(runCompileCommand);
 
 function directory(): string {
   return (
@@ -58,7 +70,11 @@ project
   .action(async (options) => {
     const loaded = await store();
     output(
-      { ...inspectProject(loaded.project), directory: loaded.directory, settings: loaded.settings },
+      {
+        ...inspectProject(loaded.program, loaded.project),
+        directory: loaded.directory,
+        settings: loaded.settings,
+      },
       options.json,
     );
   });
@@ -100,7 +116,7 @@ timeline
   .option("--json", "Emit structured JSON")
   .action(async (options) => {
     const loaded = await store();
-    output(inspectTimeline(loaded.project), options.json);
+    output(inspectTimeline(loaded.program, loaded.editMap), options.json);
   });
 timeline
   .command("create-from-assets")
@@ -193,6 +209,28 @@ track
 
 const clip = program.command("clip").description("Deterministic clip edits");
 clip
+  .command("add")
+  .argument("<track-id>")
+  .argument("<asset-id>")
+  .requiredOption("--at <time>", "Timeline start")
+  .option("--source-in <time>", "Source in-point")
+  .option("--source-out <time>", "Source out-point")
+  .option("--audio-track <track-id>", "Create reciprocal linked audio")
+  .option("--json")
+  .action(async (trackId, assetId, options) => {
+    const loaded = await store();
+    const result = await loaded.execute({
+      type: "clip.add",
+      trackId,
+      assetId,
+      timelineStartUs: parseTime(options.at),
+      ...(options.sourceIn === undefined ? {} : { sourceStartUs: parseTime(options.sourceIn) }),
+      ...(options.sourceOut === undefined ? {} : { sourceEndUs: parseTime(options.sourceOut) }),
+      ...(options.audioTrack === undefined ? {} : { audioTrackId: options.audioTrack }),
+    });
+    output({ summary: result.summary, createdIds: result.createdIds }, options.json);
+  });
+clip
   .command("split")
   .argument("<clip-id>")
   .requiredOption("--at <time>")
@@ -248,6 +286,73 @@ clip
       clipId,
       atUs: parseTime(options.at),
     });
+    output({ summary: result.summary }, options.json);
+  });
+clip
+  .command("fade")
+  .argument("<clip-id>")
+  .requiredOption("--edge <edge>", "in or out")
+  .requiredOption("--duration <time>")
+  .option("--json")
+  .action(async (clipId, options) => {
+    if (options.edge !== "in" && options.edge !== "out")
+      throw new Error("Fade edge must be in or out");
+    const loaded = await store();
+    const result = await loaded.execute({
+      type: "clip.setFade",
+      clipId,
+      edge: options.edge,
+      durationUs: parseTime(options.duration),
+    });
+    output({ summary: result.summary }, options.json);
+  });
+clip
+  .command("slip")
+  .argument("<clip-id>")
+  .requiredOption("--source-in <time>")
+  .option("--json")
+  .action(async (clipId, options) => {
+    const loaded = await store();
+    const result = await loaded.execute({
+      type: "clip.slip",
+      clipId,
+      sourceStartUs: parseTime(options.sourceIn),
+    });
+    output({ summary: result.summary }, options.json);
+  });
+clip
+  .command("duplicate")
+  .argument("<clip-id>")
+  .option("--at <time>")
+  .option("--track <track-id>")
+  .option("--json")
+  .action(async (clipId, options) => {
+    const loaded = await store();
+    const result = await loaded.execute({
+      type: "clip.duplicate",
+      clipId,
+      ...(options.at === undefined ? {} : { timelineStartUs: parseTime(options.at) }),
+      ...(options.track === undefined ? {} : { trackId: options.track }),
+    });
+    output({ summary: result.summary, createdIds: result.createdIds }, options.json);
+  });
+clip
+  .command("link")
+  .argument("<clip-id>")
+  .argument("<linked-clip-id>")
+  .option("--json")
+  .action(async (clipId, linkedClipId, options) => {
+    const loaded = await store();
+    const result = await loaded.execute({ type: "clip.link", clipId, linkedClipId });
+    output({ summary: result.summary }, options.json);
+  });
+clip
+  .command("unlink")
+  .argument("<clip-id>")
+  .option("--json")
+  .action(async (clipId, options) => {
+    const loaded = await store();
+    const result = await loaded.execute({ type: "clip.unlink", clipId });
     output({ summary: result.summary }, options.json);
   });
 clip

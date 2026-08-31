@@ -6,7 +6,7 @@ import {
   scoreThumbnailRgba,
   thumbnailCandidateTimes,
 } from "@cinesim/engine";
-import { timeUs } from "@cinesim/core";
+import { timeUs, type TimeUs } from "@cinesim/core";
 import {
   ALL_FORMATS,
   AudioSampleSink,
@@ -68,6 +68,12 @@ const TILE_WIDTH = 160;
 const TILE_HEIGHT = 90;
 const COLUMNS = 8;
 
+type GenerateRequest = Extract<DerivedWorkerRequest, { type: "generate" }>;
+type ProxyRequest = Extract<DerivedWorkerRequest, { type: "proxy" }>;
+type TranscriptRequest = Extract<DerivedWorkerRequest, { type: "transcript" }>;
+type VideoTrack = NonNullable<Awaited<ReturnType<Input["getPrimaryVideoTrack"]>>>;
+type AudioTrack = NonNullable<Awaited<ReturnType<Input["getPrimaryAudioTrack"]>>>;
+
 function post(message: DerivedWorkerResponse, transfer: Transferable[] = []): void {
   scope.postMessage(message, transfer);
 }
@@ -99,175 +105,198 @@ function assertActive(jobId: string): void {
   if (canceled.has(jobId)) throw new DOMException("Derived job canceled", "AbortError");
 }
 
-async function generate(request: Extract<DerivedWorkerRequest, { type: "generate" }>) {
-  const started = performance.now();
-  activePerception = { jobId: request.jobId, paused: false, resume: null };
-  activity(request.jobId, "input-opening", started);
-  const input = new Input({
+function mediaInput(request: { assetId: string; projectScope: GenerateRequest["projectScope"] }) {
+  return new Input({
     source: new UrlSource(
       originalMediaUrl({ id: request.assetId as `asset_${string}` }, request.projectScope),
-      {
-        maxCacheSize: 32 * 1024 * 1024,
-        parallelism: 1,
-      },
+      { maxCacheSize: 32 * 1024 * 1024, parallelism: 1 },
     ),
     formats: ALL_FORMATS,
   });
+}
+
+async function perceptionTracks(
+  input: Input,
+  request: GenerateRequest,
+): Promise<{ track: VideoTrack | null; audioTrack: AudioTrack | null }> {
+  const needsVideo = request.kinds.some((kind) => kind !== "waveform");
+  const needsAudio = request.kinds.includes("waveform");
+  const [track, audioTrack] = await Promise.all([
+    needsVideo ? input.getPrimaryVideoTrack() : null,
+    needsAudio ? input.getPrimaryAudioTrack() : null,
+  ]);
+  if (needsVideo && !track) throw new Error("source-undecodable");
+  if (needsAudio && !audioTrack) throw new Error("source-has-no-audio");
+  if (track && !(await track.canDecode())) throw new Error("source-undecodable");
+  if (audioTrack && !(await audioTrack.canDecode())) throw new Error("source-audio-undecodable");
+  return { track, audioTrack };
+}
+
+async function sampleThumbnail(
+  request: GenerateRequest,
+  track: VideoTrack,
+  started: number,
+): Promise<TimeUs> {
+  const candidateTimesUs = thumbnailCandidateTimes(request.durationUs);
+  activity(request.jobId, "thumbnail-sampling", started, {
+    completedSamples: 0,
+    totalSamples: candidateTimesUs.length,
+  });
+  const candidateSink = new CanvasSink(track, {
+    width: THUMBNAIL_WIDTH,
+    height: THUMBNAIL_HEIGHT,
+    fit: "contain",
+    poolSize: 2,
+    decoderOptions: { hardwareAcceleration: "prefer-hardware", optimizeForLatency: true },
+  });
+  const analysis = new OffscreenCanvas(64, 36);
+  const analysisContext = analysis.getContext("2d", { willReadFrequently: true });
+  const thumbnail = new OffscreenCanvas(THUMBNAIL_WIDTH, THUMBNAIL_HEIGHT);
+  const thumbnailContext = thumbnail.getContext("2d");
+  if (!analysisContext || !thumbnailContext) throw new Error("canvas-unavailable");
+  let bestScore = Number.NEGATIVE_INFINITY;
+  let sourceTimeUs = candidateTimesUs[0] ?? timeUs(0);
+  let candidateIndex = 0;
+  for await (const wrapped of candidateSink.canvasesAtTimestamps(
+    candidateTimesUs.map((candidate) => candidate / 1_000_000),
+    { verifyKeyPackets: false },
+  )) {
+    await waitUntilPerceptionResumed(request.jobId);
+    assertActive(request.jobId);
+    const requestedTimeUs = candidateTimesUs[candidateIndex] ?? timeUs(0);
+    candidateIndex += 1;
+    if (!wrapped) continue;
+    analysisContext.clearRect(0, 0, 64, 36);
+    analysisContext.drawImage(wrapped.canvas, 0, 0, 64, 36);
+    const pixels = analysisContext.getImageData(0, 0, 64, 36).data;
+    const scored = scoreThumbnailRgba(pixels, 64, 36, requestedTimeUs, request.durationUs);
+    if (scored.score > bestScore) {
+      bestScore = scored.score;
+      sourceTimeUs = requestedTimeUs;
+      thumbnailContext.clearRect(0, 0, THUMBNAIL_WIDTH, THUMBNAIL_HEIGHT);
+      thumbnailContext.drawImage(wrapped.canvas, 0, 0, THUMBNAIL_WIDTH, THUMBNAIL_HEIGHT);
+    }
+    progress(request.jobId, "thumbnail", candidateIndex / Math.max(1, candidateTimesUs.length));
+  }
+  assertActive(request.jobId);
+  activity(request.jobId, "thumbnail-encoding", started, {
+    completedSamples: candidateIndex,
+    totalSamples: candidateTimesUs.length,
+  });
+  const thumbnailBlob = await thumbnail.convertToBlob({ type: "image/jpeg", quality: 0.84 });
+  const thumbnailBytes = await thumbnailBlob.arrayBuffer();
+  post(
+    { type: "thumbnail-complete", jobId: request.jobId, thumbnail: thumbnailBytes, sourceTimeUs },
+    [thumbnailBytes],
+  );
+  activity(request.jobId, "thumbnail-ready", started, {
+    completedSamples: candidateIndex,
+    totalSamples: candidateTimesUs.length,
+  });
+  return sourceTimeUs;
+}
+
+function alignFilmstripSample(
+  tileTimesUs: TimeUs[],
+  sourceTimeUs: TimeUs,
+  durationUs: TimeUs,
+): void {
+  const nearest = nearestSampleIndex(tileTimesUs, sourceTimeUs);
+  const spacing = durationUs / Math.max(1, tileTimesUs.length);
+  if (Math.abs(tileTimesUs[nearest]! - sourceTimeUs) <= spacing / 2) return;
+  tileTimesUs[nearest] = sourceTimeUs;
+  tileTimesUs.sort((left, right) => left - right);
+}
+
+async function sampleFilmstrip(
+  request: GenerateRequest,
+  track: VideoTrack,
+  sourceTimeUs: TimeUs,
+  started: number,
+): Promise<void> {
+  const tileTimesUs = filmstripSampleTimes(request.durationUs);
+  if (tileTimesUs.length === 0) throw new Error("no-video-frames");
+  activity(request.jobId, "filmstrip-sampling", started, {
+    completedSamples: 0,
+    totalSamples: tileTimesUs.length,
+  });
+  alignFilmstripSample(tileTimesUs, sourceTimeUs, request.durationUs);
+  const rows = Math.ceil(tileTimesUs.length / COLUMNS);
+  const contactSheet = new OffscreenCanvas(COLUMNS * TILE_WIDTH, rows * TILE_HEIGHT);
+  const contactContext = contactSheet.getContext("2d");
+  if (!contactContext) throw new Error("canvas-unavailable");
+  const filmstripSink = new CanvasSink(track, {
+    width: TILE_WIDTH,
+    height: TILE_HEIGHT,
+    fit: "contain",
+    poolSize: 2,
+    decoderOptions: { hardwareAcceleration: "prefer-hardware", optimizeForLatency: true },
+  });
+  let tileIndex = 0;
+  for await (const wrapped of filmstripSink.canvasesAtTimestamps(
+    tileTimesUs.map((candidate) => candidate / 1_000_000),
+    { verifyKeyPackets: false },
+  )) {
+    await waitUntilPerceptionResumed(request.jobId);
+    assertActive(request.jobId);
+    if (wrapped) {
+      const column = tileIndex % COLUMNS;
+      const row = Math.floor(tileIndex / COLUMNS);
+      contactContext.drawImage(
+        wrapped.canvas,
+        column * TILE_WIDTH,
+        row * TILE_HEIGHT,
+        TILE_WIDTH,
+        TILE_HEIGHT,
+      );
+    }
+    tileIndex += 1;
+    progress(request.jobId, "filmstrip", tileIndex / tileTimesUs.length);
+  }
+  assertActive(request.jobId);
+  activity(request.jobId, "filmstrip-encoding", started, {
+    completedSamples: tileIndex,
+    totalSamples: tileTimesUs.length,
+  });
+  const filmstripBlob = await contactSheet.convertToBlob({ type: "image/jpeg", quality: 0.78 });
+  const filmstripBytes = await filmstripBlob.arrayBuffer();
+  post(
+    {
+      type: "filmstrip-complete",
+      jobId: request.jobId,
+      filmstrip: filmstripBytes,
+      tileTimesUs,
+      columns: COLUMNS,
+      rows,
+      tileWidth: TILE_WIDTH,
+      tileHeight: TILE_HEIGHT,
+    },
+    [filmstripBytes],
+  );
+  activity(request.jobId, "filmstrip-ready", started, {
+    completedSamples: tileIndex,
+    totalSamples: tileTimesUs.length,
+  });
+}
+
+async function generate(request: GenerateRequest) {
+  const started = performance.now();
+  activePerception = { jobId: request.jobId, paused: false, resume: null };
+  activity(request.jobId, "input-opening", started);
+  const input = mediaInput(request);
   try {
     if (!(await input.canRead())) throw new Error("unsupported-container");
     activity(request.jobId, "container-ready", started);
-    const needsVideo = request.kinds.some((kind) => kind !== "waveform");
-    const needsAudio = request.kinds.includes("waveform");
-    const [track, audioTrack] = await Promise.all([
-      needsVideo ? input.getPrimaryVideoTrack() : null,
-      needsAudio ? input.getPrimaryAudioTrack() : null,
-    ]);
-    if (needsVideo && !track) throw new Error("source-undecodable");
-    if (needsAudio && !audioTrack) throw new Error("source-has-no-audio");
+    const { track, audioTrack } = await perceptionTracks(input, request);
     activity(request.jobId, "track-ready", started);
-    if (track && !(await track.canDecode())) throw new Error("source-undecodable");
-    if (audioTrack && !(await audioTrack.canDecode())) throw new Error("source-audio-undecodable");
     activity(request.jobId, "decoder-ready", started);
 
     let sourceTimeUs = request.thumbnailSourceTimeUs ?? timeUs(0);
-    if (request.kinds.includes("thumbnail")) {
-      const candidateTimesUs = thumbnailCandidateTimes(request.durationUs);
-      activity(request.jobId, "thumbnail-sampling", started, {
-        completedSamples: 0,
-        totalSamples: candidateTimesUs.length,
-      });
-      const candidateSink = new CanvasSink(track!, {
-        width: THUMBNAIL_WIDTH,
-        height: THUMBNAIL_HEIGHT,
-        fit: "contain",
-        poolSize: 2,
-        decoderOptions: { hardwareAcceleration: "prefer-hardware", optimizeForLatency: true },
-      });
-      const analysis = new OffscreenCanvas(64, 36);
-      const analysisContext = analysis.getContext("2d", { willReadFrequently: true });
-      const thumbnail = new OffscreenCanvas(THUMBNAIL_WIDTH, THUMBNAIL_HEIGHT);
-      const thumbnailContext = thumbnail.getContext("2d");
-      if (!analysisContext || !thumbnailContext) throw new Error("canvas-unavailable");
-      let bestScore = Number.NEGATIVE_INFINITY;
-      sourceTimeUs = candidateTimesUs[0] ?? timeUs(0);
-      let candidateIndex = 0;
-      for await (const wrapped of candidateSink.canvasesAtTimestamps(
-        candidateTimesUs.map((timeUs) => timeUs / 1_000_000),
-        { verifyKeyPackets: false },
-      )) {
-        await waitUntilPerceptionResumed(request.jobId);
-        assertActive(request.jobId);
-        const requestedTimeUs = candidateTimesUs[candidateIndex] ?? timeUs(0);
-        candidateIndex += 1;
-        if (!wrapped) continue;
-        analysisContext.clearRect(0, 0, 64, 36);
-        analysisContext.drawImage(wrapped.canvas, 0, 0, 64, 36);
-        const pixels = analysisContext.getImageData(0, 0, 64, 36).data;
-        const scored = scoreThumbnailRgba(pixels, 64, 36, requestedTimeUs, request.durationUs);
-        if (scored.score > bestScore) {
-          bestScore = scored.score;
-          sourceTimeUs = requestedTimeUs;
-          thumbnailContext.clearRect(0, 0, THUMBNAIL_WIDTH, THUMBNAIL_HEIGHT);
-          thumbnailContext.drawImage(wrapped.canvas, 0, 0, THUMBNAIL_WIDTH, THUMBNAIL_HEIGHT);
-        }
-        progress(request.jobId, "thumbnail", candidateIndex / Math.max(1, candidateTimesUs.length));
-      }
-      assertActive(request.jobId);
-      activity(request.jobId, "thumbnail-encoding", started, {
-        completedSamples: candidateIndex,
-        totalSamples: candidateTimesUs.length,
-      });
-      const thumbnailBlob = await thumbnail.convertToBlob({ type: "image/jpeg", quality: 0.84 });
-      const thumbnailBytes = await thumbnailBlob.arrayBuffer();
-      post(
-        {
-          type: "thumbnail-complete",
-          jobId: request.jobId,
-          thumbnail: thumbnailBytes,
-          sourceTimeUs,
-        },
-        [thumbnailBytes],
-      );
-      activity(request.jobId, "thumbnail-ready", started, {
-        completedSamples: candidateIndex,
-        totalSamples: candidateTimesUs.length,
-      });
-    }
-
-    if (request.kinds.includes("filmstrip")) {
-      const tileTimesUs = filmstripSampleTimes(request.durationUs);
-      if (tileTimesUs.length === 0) throw new Error("no-video-frames");
-      activity(request.jobId, "filmstrip-sampling", started, {
-        completedSamples: 0,
-        totalSamples: tileTimesUs.length,
-      });
-      const nearest = nearestSampleIndex(tileTimesUs, sourceTimeUs);
-      const spacing = request.durationUs / Math.max(1, tileTimesUs.length);
-      if (Math.abs(tileTimesUs[nearest]! - sourceTimeUs) > spacing / 2) {
-        tileTimesUs[nearest] = sourceTimeUs;
-        tileTimesUs.sort((left, right) => left - right);
-      }
-      const rows = Math.ceil(tileTimesUs.length / COLUMNS);
-      const contactSheet = new OffscreenCanvas(COLUMNS * TILE_WIDTH, rows * TILE_HEIGHT);
-      const contactContext = contactSheet.getContext("2d");
-      if (!contactContext) throw new Error("canvas-unavailable");
-      const filmstripSink = new CanvasSink(track!, {
-        width: TILE_WIDTH,
-        height: TILE_HEIGHT,
-        fit: "contain",
-        poolSize: 2,
-        decoderOptions: { hardwareAcceleration: "prefer-hardware", optimizeForLatency: true },
-      });
-      let tileIndex = 0;
-      for await (const wrapped of filmstripSink.canvasesAtTimestamps(
-        tileTimesUs.map((timeUs) => timeUs / 1_000_000),
-        { verifyKeyPackets: false },
-      )) {
-        await waitUntilPerceptionResumed(request.jobId);
-        assertActive(request.jobId);
-        if (wrapped) {
-          const column = tileIndex % COLUMNS;
-          const row = Math.floor(tileIndex / COLUMNS);
-          contactContext.drawImage(
-            wrapped.canvas,
-            column * TILE_WIDTH,
-            row * TILE_HEIGHT,
-            TILE_WIDTH,
-            TILE_HEIGHT,
-          );
-        }
-        tileIndex += 1;
-        progress(request.jobId, "filmstrip", tileIndex / tileTimesUs.length);
-      }
-      assertActive(request.jobId);
-      activity(request.jobId, "filmstrip-encoding", started, {
-        completedSamples: tileIndex,
-        totalSamples: tileTimesUs.length,
-      });
-      const filmstripBlob = await contactSheet.convertToBlob({ type: "image/jpeg", quality: 0.78 });
-      const filmstripBytes = await filmstripBlob.arrayBuffer();
-      post(
-        {
-          type: "filmstrip-complete",
-          jobId: request.jobId,
-          filmstrip: filmstripBytes,
-          tileTimesUs,
-          columns: COLUMNS,
-          rows,
-          tileWidth: TILE_WIDTH,
-          tileHeight: TILE_HEIGHT,
-        },
-        [filmstripBytes],
-      );
-      activity(request.jobId, "filmstrip-ready", started, {
-        completedSamples: tileIndex,
-        totalSamples: tileTimesUs.length,
-      });
-    }
-
-    if (request.kinds.includes("waveform")) {
-      await generateWaveform(request, audioTrack!, started);
-    }
+    if (request.kinds.includes("thumbnail"))
+      sourceTimeUs = await sampleThumbnail(request, track!, started);
+    if (request.kinds.includes("filmstrip"))
+      await sampleFilmstrip(request, track!, sourceTimeUs, started);
+    if (request.kinds.includes("waveform")) await generateWaveform(request, audioTrack!, started);
     activity(request.jobId, "completed", started);
     post({
       type: "perception-complete",
@@ -341,6 +370,123 @@ function even(value: number): number {
   return Math.max(2, Math.round(value / 2) * 2);
 }
 
+function proxyQuality(quality: ProxyRequest["quality"]) {
+  if (quality === "low") return QUALITY_LOW;
+  if (quality === "high") return QUALITY_HIGH;
+  return QUALITY_MEDIUM;
+}
+
+async function proxyTracks(
+  input: Input,
+  request: ProxyRequest,
+): Promise<{ track: VideoTrack | null; audioTrack: AudioTrack | null }> {
+  const [track, audioTrack] = await Promise.all([
+    input.getPrimaryVideoTrack(),
+    input.getPrimaryAudioTrack(),
+  ]);
+  if (request.assetKind === "video" && !track) throw new Error("source-undecodable");
+  if (request.assetKind === "audio" && !audioTrack) throw new Error("source-undecodable");
+  if (track && !(await track.canDecode())) throw new Error("source-undecodable");
+  if (audioTrack && !(await audioTrack.canDecode())) throw new Error("source-undecodable");
+  return { track, audioTrack };
+}
+
+function proxySize(request: ProxyRequest): { width: number; height: number } {
+  const scale = Math.min(1, request.maxLongEdge / Math.max(request.width, request.height));
+  return { width: even(request.width * scale), height: even(request.height * scale) };
+}
+
+function proxyWritable(request: ProxyRequest): {
+  writable: WritableStream<StreamTargetChunk>;
+  bytes: () => number;
+} {
+  let maxEnd = 0;
+  const writable = new WritableStream<StreamTargetChunk>({
+    write: async (chunk) => {
+      assertActive(request.jobId);
+      const chunkId = nextChunkId++;
+      const copy = chunk.data.slice().buffer;
+      maxEnd = Math.max(maxEnd, chunk.position + copy.byteLength);
+      await new Promise<void>((resolve, reject) => {
+        chunkAcks.set(chunkId, { resolve, reject });
+        post(
+          {
+            type: "proxy-chunk",
+            jobId: request.jobId,
+            chunkId,
+            offset: chunk.position,
+            data: copy,
+          },
+          [copy],
+        );
+      });
+    },
+  });
+  return { writable, bytes: () => maxEnd };
+}
+
+async function createProxyConversion(
+  input: Input,
+  request: ProxyRequest,
+  track: VideoTrack | null,
+  audioTrack: AudioTrack | null,
+  writable: WritableStream<StreamTargetChunk>,
+): Promise<Conversion> {
+  const quality = proxyQuality(request.quality);
+  const { width, height } = proxySize(request);
+  const [codec, audioCodec] = await Promise.all([
+    track
+      ? getFirstEncodableVideoCodec(["avc", "hevc"], { width, height, quality })
+      : Promise.resolve(null),
+    audioTrack ? getFirstEncodableAudioCodec(["aac"], { quality }) : Promise.resolve(null),
+  ]);
+  if (track && !codec) throw new Error("proxy-encoder-unavailable");
+  if (audioTrack && !audioCodec) throw new Error("proxy-audio-encoder-unavailable");
+  const output = new Output({
+    format: new Mp4OutputFormat({ fastStart: "fragmented", minimumFragmentDuration: 1 }),
+    target: new StreamTarget(writable, { chunked: true, chunkSize: 1024 * 1024 }),
+  });
+  return Conversion.init({
+    input,
+    output,
+    tracks: "primary",
+    video: track
+      ? {
+          width,
+          height,
+          fit: "contain",
+          frameRate: Math.min(request.frameRateCap, Math.max(1, request.frameRate ?? 30)),
+          codec: codec!,
+          quality,
+          keyFrameInterval: 0.75,
+          hardwareAcceleration: "prefer-hardware",
+          forceTranscode: true,
+        }
+      : { discard: true },
+    audio: audioTrack ? { codec: audioCodec!, quality, forceTranscode: true } : { discard: true },
+    tags: {},
+    showWarnings: false,
+  });
+}
+
+async function executeProxyConversion(
+  request: ProxyRequest,
+  conversion: Conversion,
+): Promise<void> {
+  while (conversion.state !== "done") {
+    assertActive(request.jobId);
+    await waitUntilResumed(request.jobId);
+    assertActive(request.jobId);
+    const pauseController = new AbortController();
+    if (activeProxy?.jobId === request.jobId) activeProxy.pauseController = pauseController;
+    try {
+      await conversion.execute({ pauseSignal: pauseController.signal });
+    } catch (error) {
+      if (!activeProxy?.paused) throw error;
+    }
+  }
+}
+
 async function waitUntilResumed(jobId: string): Promise<void> {
   if (!activeProxy || activeProxy.jobId !== jobId || !activeProxy.paused) return;
   await new Promise<void>((resolve) => {
@@ -349,20 +495,10 @@ async function waitUntilResumed(jobId: string): Promise<void> {
   });
 }
 
-async function generateProxy(request: Extract<DerivedWorkerRequest, { type: "proxy" }>) {
+async function generateProxy(request: ProxyRequest) {
   const started = performance.now();
   activity(request.jobId, "input-opening", started);
-  const input = new Input({
-    source: new UrlSource(
-      originalMediaUrl({ id: request.assetId as `asset_${string}` }, request.projectScope),
-      {
-        maxCacheSize: 32 * 1024 * 1024,
-        parallelism: 1,
-      },
-    ),
-    formats: ALL_FORMATS,
-  });
-  let maxEnd = 0;
+  const input = mediaInput(request);
   activeProxy = {
     jobId: request.jobId,
     conversion: null,
@@ -373,98 +509,25 @@ async function generateProxy(request: Extract<DerivedWorkerRequest, { type: "pro
   try {
     if (!(await input.canRead())) throw new Error("unsupported-container");
     activity(request.jobId, "container-ready", started);
-    const [track, audioTrack] = await Promise.all([
-      input.getPrimaryVideoTrack(),
-      input.getPrimaryAudioTrack(),
-    ]);
-    if (request.assetKind === "video" && !track) throw new Error("source-undecodable");
-    if (request.assetKind === "audio" && !audioTrack) throw new Error("source-undecodable");
+    const { track, audioTrack } = await proxyTracks(input, request);
     activity(request.jobId, "track-ready", started);
-    if (track && !(await track.canDecode())) throw new Error("source-undecodable");
-    if (audioTrack && !(await audioTrack.canDecode())) throw new Error("source-undecodable");
     activity(request.jobId, "decoder-ready", started);
-    const quality =
-      request.quality === "low"
-        ? QUALITY_LOW
-        : request.quality === "high"
-          ? QUALITY_HIGH
-          : QUALITY_MEDIUM;
-    const scale = Math.min(1, request.maxLongEdge / Math.max(request.width, request.height));
-    const width = even(request.width * scale);
-    const height = even(request.height * scale);
-    const [codec, audioCodec] = await Promise.all([
-      track
-        ? getFirstEncodableVideoCodec(["avc", "hevc"], { width, height, quality })
-        : Promise.resolve(null),
-      audioTrack ? getFirstEncodableAudioCodec(["aac"], { quality }) : Promise.resolve(null),
-    ]);
-    if (track && !codec) throw new Error("proxy-encoder-unavailable");
-    if (audioTrack && !audioCodec) throw new Error("proxy-audio-encoder-unavailable");
-    const writable = new WritableStream<StreamTargetChunk>({
-      write: async (chunk) => {
-        assertActive(request.jobId);
-        const chunkId = nextChunkId++;
-        const copy = chunk.data.slice().buffer;
-        maxEnd = Math.max(maxEnd, chunk.position + copy.byteLength);
-        await new Promise<void>((resolve, reject) => {
-          chunkAcks.set(chunkId, { resolve, reject });
-          post(
-            {
-              type: "proxy-chunk",
-              jobId: request.jobId,
-              chunkId,
-              offset: chunk.position,
-              data: copy,
-            },
-            [copy],
-          );
-        });
-      },
-    });
-    const output = new Output({
-      format: new Mp4OutputFormat({ fastStart: "fragmented", minimumFragmentDuration: 1 }),
-      target: new StreamTarget(writable, { chunked: true, chunkSize: 1024 * 1024 }),
-    });
-    const conversion = await Conversion.init({
+    const target = proxyWritable(request);
+    const conversion = await createProxyConversion(
       input,
-      output,
-      tracks: "primary",
-      video: track
-        ? {
-            width,
-            height,
-            fit: "contain",
-            frameRate: Math.min(request.frameRateCap, Math.max(1, request.frameRate ?? 30)),
-            codec: codec!,
-            quality,
-            keyFrameInterval: 0.75,
-            hardwareAcceleration: "prefer-hardware",
-            forceTranscode: true,
-          }
-        : { discard: true },
-      audio: audioTrack ? { codec: audioCodec!, quality, forceTranscode: true } : { discard: true },
-      tags: {},
-      showWarnings: false,
-    });
+      request,
+      track,
+      audioTrack,
+      target.writable,
+    );
     if (!conversion.isValid) throw new Error("proxy-conversion-invalid");
     activity(request.jobId, "proxy-converting", started);
     activeProxy.conversion = conversion;
     conversion.onProgress = (value) =>
       post({ type: "proxy-progress", jobId: request.jobId, progress: value });
-    while (conversion.state !== "done") {
-      assertActive(request.jobId);
-      await waitUntilResumed(request.jobId);
-      assertActive(request.jobId);
-      const pauseController = new AbortController();
-      if (activeProxy?.jobId === request.jobId) activeProxy.pauseController = pauseController;
-      try {
-        await conversion.execute({ pauseSignal: pauseController.signal });
-      } catch (error) {
-        if (!activeProxy?.paused) throw error;
-      }
-    }
+    await executeProxyConversion(request, conversion);
     activity(request.jobId, "completed", started);
-    post({ type: "proxy-complete", jobId: request.jobId, bytes: maxEnd });
+    post({ type: "proxy-complete", jobId: request.jobId, bytes: target.bytes() });
   } finally {
     input.dispose();
     activeProxy = null;
@@ -480,16 +543,113 @@ async function waitUntilTranscriptResumed(jobId: string): Promise<void> {
   });
 }
 
-async function generateTranscript(
-  request: Extract<DerivedWorkerRequest, { type: "transcript" }>,
-): Promise<void> {
-  const input = new Input({
-    source: new UrlSource(
-      originalMediaUrl({ id: request.assetId as `asset_${string}` }, request.projectScope),
-      { maxCacheSize: 32 * 1024 * 1024, parallelism: 1 },
-    ),
-    formats: ALL_FORMATS,
+async function transcriptAudioTrack(input: Input): Promise<AudioTrack> {
+  if (!(await input.canRead())) throw new Error("unsupported-container");
+  const audioTrack = await input.getPrimaryAudioTrack();
+  if (!audioTrack) throw new Error("source-has-no-audio");
+  if (!(await audioTrack.canDecode())) throw new Error("source-audio-undecodable");
+  return audioTrack;
+}
+
+async function createTranscriptConversion(
+  input: Input,
+  sourceStartUs: TimeUs,
+  sourceEndUs: TimeUs,
+  target: BufferTarget,
+): Promise<Conversion> {
+  return Conversion.init({
+    input,
+    output: new Output({ format: new WavOutputFormat(), target }),
+    tracks: "primary",
+    video: { discard: true },
+    audio: {
+      codec: "pcm-s16",
+      numberOfChannels: 1,
+      sampleRate: 16_000,
+      sampleFormat: "s16",
+      forceTranscode: true,
+    },
+    trim: { start: sourceStartUs / 1_000_000, end: sourceEndUs / 1_000_000 },
+    tags: {},
+    showWarnings: false,
   });
+}
+
+async function executeTranscriptConversion(
+  request: TranscriptRequest,
+  conversion: Conversion,
+): Promise<void> {
+  while (conversion.state !== "done") {
+    assertActive(request.jobId);
+    await waitUntilTranscriptResumed(request.jobId);
+    const pauseController = new AbortController();
+    if (activeTranscript?.jobId === request.jobId)
+      activeTranscript.pauseController = pauseController;
+    try {
+      await conversion.execute({ pauseSignal: pauseController.signal });
+    } catch (error) {
+      if (!activeTranscript?.paused) throw error;
+    }
+  }
+}
+
+async function sendTranscriptChunk(
+  request: TranscriptRequest,
+  chunkIndex: number,
+  sourceStartUs: TimeUs,
+  sourceEndUs: TimeUs,
+  data: ArrayBuffer,
+): Promise<void> {
+  await new Promise<void>((resolve, reject) => {
+    transcriptChunkAcks.set(chunkIndex, { resolve, reject });
+    post(
+      {
+        type: "transcript-chunk",
+        jobId: request.jobId,
+        chunkIndex,
+        sourceStartUs,
+        sourceEndUs,
+        data,
+      },
+      [data],
+    );
+  });
+}
+
+async function convertTranscriptChunk(
+  input: Input,
+  request: TranscriptRequest,
+  chunkIndex: number,
+  sourceStartUs: TimeUs,
+): Promise<TimeUs> {
+  const sourceEndUs = timeUs(Math.min(request.durationUs, sourceStartUs + request.chunkDurationUs));
+  const target = new BufferTarget();
+  const conversion = await createTranscriptConversion(input, sourceStartUs, sourceEndUs, target);
+  if (!conversion.isValid) throw new Error("transcript-conversion-invalid");
+  if (activeTranscript?.jobId === request.jobId) activeTranscript.conversion = conversion;
+  conversion.onProgress = (value) => {
+    const chunkProgress =
+      (sourceStartUs + value * (sourceEndUs - sourceStartUs)) / request.durationUs;
+    post({
+      type: "transcript-progress",
+      jobId: request.jobId,
+      progress: Math.min(0.99, chunkProgress),
+    });
+  };
+  await executeTranscriptConversion(request, conversion);
+  const data = target.buffer;
+  if (!data || data.byteLength === 0) throw new Error("transcript-audio-empty");
+  await sendTranscriptChunk(request, chunkIndex, sourceStartUs, sourceEndUs, data);
+  post({
+    type: "transcript-progress",
+    jobId: request.jobId,
+    progress: sourceEndUs / request.durationUs,
+  });
+  return sourceEndUs;
+}
+
+async function generateTranscript(request: TranscriptRequest): Promise<void> {
+  const input = mediaInput(request);
   activeTranscript = {
     jobId: request.jobId,
     conversion: null,
@@ -498,10 +658,7 @@ async function generateTranscript(
     resume: null,
   };
   try {
-    if (!(await input.canRead())) throw new Error("unsupported-container");
-    const audioTrack = await input.getPrimaryAudioTrack();
-    if (!audioTrack) throw new Error("source-has-no-audio");
-    if (!(await audioTrack.canDecode())) throw new Error("source-audio-undecodable");
+    await transcriptAudioTrack(input);
     let chunkIndex = 0;
     for (
       let sourceStartUs = timeUs(0);
@@ -510,72 +667,8 @@ async function generateTranscript(
     ) {
       assertActive(request.jobId);
       await waitUntilTranscriptResumed(request.jobId);
-      const sourceEndUs = timeUs(
-        Math.min(request.durationUs, sourceStartUs + request.chunkDurationUs),
-      );
-      const target = new BufferTarget();
-      const output = new Output({ format: new WavOutputFormat(), target });
-      const conversion = await Conversion.init({
-        input,
-        output,
-        tracks: "primary",
-        video: { discard: true },
-        audio: {
-          codec: "pcm-s16",
-          numberOfChannels: 1,
-          sampleRate: 16_000,
-          sampleFormat: "s16",
-          forceTranscode: true,
-        },
-        trim: { start: sourceStartUs / 1_000_000, end: sourceEndUs / 1_000_000 },
-        tags: {},
-        showWarnings: false,
-      });
-      if (!conversion.isValid) throw new Error("transcript-conversion-invalid");
-      if (activeTranscript?.jobId === request.jobId) activeTranscript.conversion = conversion;
-      conversion.onProgress = (value) => {
-        const chunkProgress =
-          (sourceStartUs + value * (sourceEndUs - sourceStartUs)) / request.durationUs;
-        post({
-          type: "transcript-progress",
-          jobId: request.jobId,
-          progress: Math.min(0.99, chunkProgress),
-        });
-      };
-      while (conversion.state !== "done") {
-        assertActive(request.jobId);
-        await waitUntilTranscriptResumed(request.jobId);
-        const pauseController = new AbortController();
-        if (activeTranscript?.jobId === request.jobId)
-          activeTranscript.pauseController = pauseController;
-        try {
-          await conversion.execute({ pauseSignal: pauseController.signal });
-        } catch (error) {
-          if (!activeTranscript?.paused) throw error;
-        }
-      }
-      const data = target.buffer;
-      if (!data || data.byteLength === 0) throw new Error("transcript-audio-empty");
-      await new Promise<void>((resolve, reject) => {
-        transcriptChunkAcks.set(chunkIndex, { resolve, reject });
-        post(
-          {
-            type: "transcript-chunk",
-            jobId: request.jobId,
-            chunkIndex,
-            sourceStartUs,
-            sourceEndUs,
-            data,
-          },
-          [data],
-        );
-      });
+      await convertTranscriptChunk(input, request, chunkIndex, sourceStartUs);
       chunkIndex += 1;
-      post({
-        type: "transcript-progress",
-        jobId: request.jobId,
-        progress: sourceEndUs / request.durationUs,
-      });
     }
     post({ type: "transcript-complete", jobId: request.jobId });
   } finally {
@@ -588,95 +681,122 @@ async function generateTranscript(
   }
 }
 
+function cancelJob(jobId: string): void {
+  canceled.add(jobId);
+  if (activePerception?.jobId === jobId) activePerception.resume?.();
+  if (activeProxy?.jobId === jobId) {
+    activeProxy.resume?.();
+    void activeProxy.conversion?.cancel();
+  }
+  if (activeTranscript?.jobId === jobId) {
+    activeTranscript.resume?.();
+    void activeTranscript.conversion?.cancel();
+  }
+}
+
+function settleAck(
+  acknowledgements: Map<number, { resolve: () => void; reject: (error: Error) => void }>,
+  id: number,
+  error?: string,
+): void {
+  const ack = acknowledgements.get(id);
+  if (!ack) return;
+  acknowledgements.delete(id);
+  if (error) ack.reject(new Error(error));
+  else ack.resolve();
+}
+
+function pauseProxy(jobId: string): void {
+  if (activeProxy?.jobId !== jobId) return;
+  activeProxy.paused = true;
+  activeProxy.pauseController?.abort();
+}
+
+function resumeProxy(jobId: string): void {
+  if (activeProxy?.jobId !== jobId) return;
+  activeProxy.paused = false;
+  activeProxy.resume?.();
+  activeProxy.resume = null;
+}
+
+function pausePerception(jobId: string): void {
+  if (activePerception?.jobId === jobId) activePerception.paused = true;
+}
+
+function resumePerception(jobId: string): void {
+  if (activePerception?.jobId !== jobId) return;
+  activePerception.paused = false;
+  activePerception.resume?.();
+  activePerception.resume = null;
+}
+
+function pauseTranscript(jobId: string): void {
+  if (activeTranscript?.jobId !== jobId) return;
+  activeTranscript.paused = true;
+  activeTranscript.pauseController?.abort();
+}
+
+function resumeTranscript(jobId: string): void {
+  if (activeTranscript?.jobId !== jobId) return;
+  activeTranscript.paused = false;
+  activeTranscript.resume?.();
+  activeTranscript.resume = null;
+}
+
+function handleWorkerControl(request: DerivedWorkerRequest): boolean {
+  switch (request.type) {
+    case "cancel":
+      cancelJob(request.jobId);
+      return true;
+    case "proxy-chunk-ack":
+      settleAck(chunkAcks, request.chunkId, request.error);
+      return true;
+    case "transcript-chunk-ack":
+      settleAck(transcriptChunkAcks, request.chunkIndex, request.error);
+      return true;
+    case "proxy-pause":
+      pauseProxy(request.jobId);
+      return true;
+    case "proxy-resume":
+      resumeProxy(request.jobId);
+      return true;
+    case "perception-pause":
+      pausePerception(request.jobId);
+      return true;
+    case "perception-resume":
+      resumePerception(request.jobId);
+      return true;
+    case "transcript-pause":
+      pauseTranscript(request.jobId);
+      return true;
+    case "transcript-resume":
+      resumeTranscript(request.jobId);
+      return true;
+    default:
+      return false;
+  }
+}
+
+function generationFailure(jobId: string, error: unknown): void {
+  const detail = error instanceof Error ? error.message : "Derived media generation failed";
+  let failureCode = "generation-failed";
+  if (detail === "source-undecodable" || detail === "unsupported-container") failureCode = detail;
+  else if (error instanceof DOMException && error.name === "AbortError") failureCode = "canceled";
+  post({ type: "failed", jobId, failureCode, detail });
+}
+
+function startGeneration(request: GenerateRequest | ProxyRequest | TranscriptRequest): void {
+  let operation: Promise<void>;
+  if (request.type === "proxy") operation = generateProxy(request);
+  else if (request.type === "transcript") operation = generateTranscript(request);
+  else operation = generate(request);
+  void operation.catch((error: unknown) => generationFailure(request.jobId, error));
+}
+
 scope.onmessage = (event: MessageEvent<DerivedWorkerRequest>) => {
   const request = event.data;
-  if (request.type === "cancel") {
-    canceled.add(request.jobId);
-    if (activePerception?.jobId === request.jobId) activePerception.resume?.();
-    if (activeProxy?.jobId === request.jobId) {
-      activeProxy.resume?.();
-      void activeProxy.conversion?.cancel();
-    }
-    if (activeTranscript?.jobId === request.jobId) {
-      activeTranscript.resume?.();
-      void activeTranscript.conversion?.cancel();
-    }
-    return;
+  if (handleWorkerControl(request)) return;
+  if (request.type === "proxy" || request.type === "generate" || request.type === "transcript") {
+    startGeneration(request);
   }
-  if (request.type === "proxy-chunk-ack") {
-    const ack = chunkAcks.get(request.chunkId);
-    if (!ack) return;
-    chunkAcks.delete(request.chunkId);
-    if (request.error) ack.reject(new Error(request.error));
-    else ack.resolve();
-    return;
-  }
-  if (request.type === "transcript-chunk-ack") {
-    const ack = transcriptChunkAcks.get(request.chunkIndex);
-    if (!ack) return;
-    transcriptChunkAcks.delete(request.chunkIndex);
-    if (request.error) ack.reject(new Error(request.error));
-    else ack.resolve();
-    return;
-  }
-  if (request.type === "proxy-pause") {
-    if (activeProxy?.jobId === request.jobId) {
-      activeProxy.paused = true;
-      activeProxy.pauseController?.abort();
-    }
-    return;
-  }
-  if (request.type === "proxy-resume") {
-    if (activeProxy?.jobId === request.jobId) {
-      activeProxy.paused = false;
-      activeProxy.resume?.();
-      activeProxy.resume = null;
-    }
-    return;
-  }
-  if (request.type === "perception-pause") {
-    if (activePerception?.jobId === request.jobId) activePerception.paused = true;
-    return;
-  }
-  if (request.type === "perception-resume") {
-    if (activePerception?.jobId === request.jobId) {
-      activePerception.paused = false;
-      activePerception.resume?.();
-      activePerception.resume = null;
-    }
-    return;
-  }
-  if (request.type === "transcript-pause") {
-    if (activeTranscript?.jobId === request.jobId) {
-      activeTranscript.paused = true;
-      activeTranscript.pauseController?.abort();
-    }
-    return;
-  }
-  if (request.type === "transcript-resume") {
-    if (activeTranscript?.jobId === request.jobId) {
-      activeTranscript.paused = false;
-      activeTranscript.resume?.();
-      activeTranscript.resume = null;
-    }
-    return;
-  }
-  if (request.type !== "proxy" && request.type !== "generate" && request.type !== "transcript")
-    return;
-  const operation =
-    request.type === "proxy"
-      ? generateProxy(request)
-      : request.type === "transcript"
-        ? generateTranscript(request)
-        : generate(request);
-  void operation.catch((error: unknown) => {
-    const detail = error instanceof Error ? error.message : "Derived media generation failed";
-    const failureCode =
-      detail === "source-undecodable" || detail === "unsupported-container"
-        ? detail
-        : error instanceof DOMException && error.name === "AbortError"
-          ? "canceled"
-          : "generation-failed";
-    post({ type: "failed", jobId: request.jobId, failureCode, detail });
-  });
 };

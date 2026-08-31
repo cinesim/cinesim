@@ -3,7 +3,7 @@ import { AlertTriangle, Film, Image as ImageIcon, LoaderCircle, Music2 } from "@
 import { nearestSampleIndex, pointerSourceTimeUs } from "@cinesim/engine";
 import { timeUs } from "@cinesim/core";
 import type { Asset, TimeUs } from "@cinesim/core";
-import type { DerivedAssetSnapshot } from "../../../shared/contracts";
+import type { DerivedAssetSnapshot, DerivedMediaSnapshot } from "../../../shared/contracts";
 import { derivedArtifactUrl } from "../../lib/media-url";
 import { useDelayedBusy } from "../../hooks/use-delayed-busy";
 import { useRendererStore } from "../../store/renderer-store-context";
@@ -55,6 +55,95 @@ export function skimPositionPercent(skimTimeUs: number | null, durationUs: numbe
   return Math.min(100, Math.max(0, (skimTimeUs / durationUs) * 100));
 }
 
+function FilmstripTile({
+  asset,
+  derived,
+  record,
+  tileIndex,
+}: {
+  asset: Asset;
+  derived: DerivedMediaSnapshot;
+  record: DerivedAssetSnapshot;
+  tileIndex: number;
+}) {
+  const filmstrip = record.filmstrip;
+  const columns = Math.max(1, filmstrip.columns ?? 1);
+  const rows = Math.max(1, filmstrip.rows ?? 1);
+  const column = tileIndex % columns;
+  const row = Math.floor(tileIndex / columns);
+  return (
+    <span
+      className="absolute inset-0 bg-no-repeat"
+      style={{
+        backgroundImage: `url("${derivedArtifactUrl(
+          "filmstrip",
+          asset,
+          derived.projectScope,
+          derived.generatorVersion,
+          filmstrip.updatedAt!,
+        )}")`,
+        backgroundSize: `${columns * 100}% ${rows * 100}%`,
+        backgroundPosition: `${columns === 1 ? 0 : (column / (columns - 1)) * 100}% ${rows === 1 ? 0 : (row / (rows - 1)) * 100}%`,
+      }}
+    />
+  );
+}
+
+function Thumbnail({
+  asset,
+  derived,
+  record,
+}: {
+  asset: Asset;
+  derived: DerivedMediaSnapshot;
+  record: DerivedAssetSnapshot;
+}) {
+  return (
+    <img
+      src={derivedArtifactUrl(
+        "thumbnail",
+        asset,
+        derived.projectScope,
+        derived.generatorVersion,
+        record.thumbnail.updatedAt!,
+      )}
+      alt=""
+      draggable={false}
+      className="absolute inset-0 h-full w-full object-cover"
+    />
+  );
+}
+
+function MediaVisual({
+  asset,
+  derived,
+  record,
+  thumbnailState,
+  showThumbnailPending,
+  tileIndex,
+}: {
+  asset: Asset;
+  derived: DerivedMediaSnapshot | null;
+  record: DerivedAssetSnapshot | undefined;
+  thumbnailState: ReturnType<typeof thumbnailPresentation>;
+  showThumbnailPending: boolean;
+  tileIndex: number | null;
+}) {
+  if (tileIndex !== null && record && derived) {
+    return <FilmstripTile asset={asset} derived={derived} record={record} tileIndex={tileIndex} />;
+  }
+  if (thumbnailState === "ready" && record && derived) {
+    return <Thumbnail asset={asset} derived={derived} record={record} />;
+  }
+  if (thumbnailState === "pending" && showThumbnailPending) {
+    return <LoaderCircle aria-label="Generating thumbnail" className="animate-spin" size={18} />;
+  }
+  if (thumbnailState === "failed") {
+    return <AlertTriangle aria-label="Thumbnail generation failed" size={18} />;
+  }
+  return <Placeholder asset={asset} />;
+}
+
 export function MediaSkimSurface({
   asset,
   className,
@@ -74,10 +163,6 @@ export function MediaSkimSurface({
     skimTimeUs !== null && filmstripReady
       ? nearestSampleIndex(tileTimesUs.map(timeUs), skimTimeUs)
       : null;
-  const columns = Math.max(1, filmstrip?.columns ?? 1);
-  const rows = Math.max(1, filmstrip?.rows ?? 1);
-  const column = tileIndex === null ? 0 : tileIndex % columns;
-  const row = tileIndex === null ? 0 : Math.floor(tileIndex / columns);
   const skimPosition = skimPositionPercent(skimTimeUs, asset.durationUs);
 
   function move(event: React.PointerEvent<HTMLDivElement>): void {
@@ -104,41 +189,14 @@ export function MediaSkimSurface({
       onPointerMove={move}
       onPointerLeave={leave}
     >
-      {tileIndex !== null ? (
-        <span
-          className="absolute inset-0 bg-no-repeat"
-          style={{
-            backgroundImage: `url("${derivedArtifactUrl(
-              "filmstrip",
-              asset,
-              derived!.projectScope,
-              derived!.generatorVersion,
-              filmstrip!.updatedAt!,
-            )}")`,
-            backgroundSize: `${columns * 100}% ${rows * 100}%`,
-            backgroundPosition: `${columns === 1 ? 0 : (column / (columns - 1)) * 100}% ${rows === 1 ? 0 : (row / (rows - 1)) * 100}%`,
-          }}
-        />
-      ) : thumbnailState === "ready" ? (
-        <img
-          src={derivedArtifactUrl(
-            "thumbnail",
-            asset,
-            derived!.projectScope,
-            derived!.generatorVersion,
-            record!.thumbnail.updatedAt!,
-          )}
-          alt=""
-          draggable={false}
-          className="absolute inset-0 h-full w-full object-cover"
-        />
-      ) : thumbnailState === "pending" && showThumbnailPending ? (
-        <LoaderCircle aria-label="Generating thumbnail" className="animate-spin" size={18} />
-      ) : thumbnailState === "failed" ? (
-        <AlertTriangle aria-label="Thumbnail generation failed" size={18} />
-      ) : (
-        <Placeholder asset={asset} />
-      )}
+      <MediaVisual
+        asset={asset}
+        derived={derived}
+        record={record}
+        thumbnailState={thumbnailState}
+        showThumbnailPending={showThumbnailPending}
+        tileIndex={tileIndex}
+      />
       {skimPosition !== null && (
         <span
           aria-hidden="true"

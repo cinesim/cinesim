@@ -10,10 +10,11 @@ files you can read, diff, move, and commit.
 
 Every file in a project is one of two kinds, and the distinction governs almost everything else.
 
-**Canonical** state is the project. `cinesim.json` identifies it and points at the files under
-`.cinesim/`, which hold your assets, timeline, and settings. Cinesim only writes these through
-validated commands, and serializes them deterministically — sorted, pretty-printed, and free of
-timestamps — so a Git diff shows the edit you made and nothing else.
+**Canonical** state is `cinesim.toml` plus the reachable JavaScript/JSX-shaped video source.
+The manifest holds identity, settings, and stable asset references; source holds compositions,
+tracks, clips, graphics, effects, and animation. Cinesim changes these only through validated
+semantic commands and minimal revision-checked patches, so a Git diff shows the edit you made and
+nothing else.
 
 **Derived** state lives entirely under `.video/`: proxies, thumbnails, filmstrips, waveforms,
 caches, and runtime scratch data. It exists to make editing fast. You can delete the whole directory
@@ -22,9 +23,10 @@ excludes it.
 
 ```text
 documentary-cut/
-├── cinesim.json          canonical
+├── cinesim.toml          canonical manifest and asset catalog
+├── main.jsx              canonical video source
+├── components/           optional canonical source modules
 ├── AGENTS.md             canonical, yours to write
-├── .cinesim/             canonical
 └── .video/               derived — disposable
 ```
 

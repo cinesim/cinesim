@@ -76,9 +76,9 @@ days. Expired multipart uploads and expired Trash are reconciled whenever accoun
 
 ## Proxy policy
 
-Proxy generation mode and profile are per-project settings in `.cinesim/settings.toml`. See
+Proxy generation mode and profile are per-project settings in `[settings]` in `cinesim.toml`. See
 [Tune proxies](../guides/tune-proxies.mdx) and the
-[settings reference](../reference/settings.mdx#proxy).
+[settings reference](../reference/settings.mdx).
 
 Two rules are specific to cloud assets: an original backed by cloud storage always queues a missing
 proxy even when the project is set to `manual`, and cloud-backed proxies are never candidates for

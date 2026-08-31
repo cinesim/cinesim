@@ -86,26 +86,6 @@ describe("DesktopAppStateStore", () => {
     });
   });
 
-  it("does not migrate the prior account-only state shape", async () => {
-    const { path } = await stateFixture();
-    await writeFile(
-      path,
-      JSON.stringify({
-        version: 2,
-        accounts: {
-          user_one: {
-            version: 1,
-            recentProjects: [{ name: "Legacy", directory: "/films/legacy" }],
-          },
-        },
-      }),
-    );
-    const store = new DesktopAppStateStore(path);
-    await store.load();
-    store.setAccount("user_one");
-    expect(store.snapshot().recentProjects).toEqual([]);
-  });
-
   it("keeps valid persisted fields and discards malformed entries", async () => {
     const { path } = await stateFixture();
     const recentProjects = Array.from({ length: 13 }, (_, index) => ({

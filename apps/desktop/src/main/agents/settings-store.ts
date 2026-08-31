@@ -100,8 +100,7 @@ export class AgentSettingsStore {
   #loadParsedSettings(parsed: unknown): void {
     const record = objectRecord(parsed);
     if (record.version !== 2) {
-      this.#settings = parseSettings(parsed);
-      this.#clearExecutablePaths();
+      this.#reset();
       return;
     }
 
@@ -115,11 +114,6 @@ export class AgentSettingsStore {
     const identity = isAgentExecutableIdentity(value) ? value : null;
     this.#executableIdentities[provider] = identity;
     if (!identity) this.#settings.providers[provider].executablePath = "";
-  }
-
-  #clearExecutablePaths(): void {
-    for (const provider of ["claude", "codex"] as const)
-      this.#settings.providers[provider].executablePath = "";
   }
 
   #reset(): void {

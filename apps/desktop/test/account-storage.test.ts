@@ -38,20 +38,20 @@ describe("DesktopAuthStorage", () => {
     expect(file).not.toMatch(/createdAt|updatedAt|timestamp/);
   });
 
-  it("migrates legacy plaintext on the next write", async () => {
+  it("ignores unsupported plaintext storage", async () => {
     const directory = await mkdtemp(join(tmpdir(), "cinesim-auth-storage-"));
     temporaryDirectories.push(directory);
     const path = join(directory, "account-session.json");
     await writeFile(
       path,
-      JSON.stringify({ version: 1, values: { "cinesim-auth.cookie": "legacy-secret" } }),
+      JSON.stringify({ version: 1, values: { "cinesim-auth.cookie": "plaintext-secret" } }),
     );
     const storage = new DesktopAuthStorage(path, safeStorage);
-    expect(storage.getItem("cinesim-auth.cookie")).toBe("legacy-secret");
+    expect(storage.getItem("cinesim-auth.cookie")).toBeNull();
     storage.setItem("cinesim-auth.cookie", "fresh-secret");
     const file = await readFile(path, "utf8");
     expect(JSON.parse(file)).toMatchObject({ version: 2 });
-    expect(file).not.toMatch(/legacy-secret|fresh-secret/);
+    expect(file).not.toMatch(/plaintext-secret|fresh-secret/);
   });
 
   it("fails closed when encrypted credentials cannot be decrypted", async () => {

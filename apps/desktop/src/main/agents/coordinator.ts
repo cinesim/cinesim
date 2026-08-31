@@ -93,11 +93,7 @@ export class AgentCoordinator implements AgentToolHooks {
   }
 
   async #loadSessions(): Promise<void> {
-    const providerSettings = this.settingsStore.snapshot().providers;
-    const stored = await this.#sessionStore.read({
-      claude: providerSettings.claude.effort,
-      codex: providerSettings.codex.effort,
-    });
+    const stored = await this.#sessionStore.read();
     for (const session of stored.sessions) recoverAgentSession(session, this.#sessionEvents);
     this.#sessions.replace(stored);
   }
@@ -622,6 +618,6 @@ export class AgentCoordinator implements AgentToolHooks {
   #instructions(): string {
     return `You are working inside Cinesim, a local-first nonlinear video editor.
 
-Use the cinesim MCP tools for every canonical project edit. Never write cinesim.json or files under .cinesim directly. Inspect the current project and timeline before editing. All timeline times are integer microseconds and all entities are addressed by stable IDs. Source media is referenced in place and must never be moved, overwritten, or deleted. Files under .video are derived and disposable. Explain completed changes clearly and mention the stable IDs you changed.`;
+Use the cinesim MCP tools for every canonical project edit. Canonical state is cinesim.toml plus reachable JavaScript/JSX video source; never bypass semantic commands to edit it. Inspect the current project and timeline before editing. All timeline times are integer microseconds and all entities are addressed by stable IDs. Source media is referenced in place and must never be moved, overwritten, or deleted. Files under .video are derived and disposable. Explain completed changes clearly and mention the stable IDs you changed.`;
   }
 }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vite-plus/test";
-import type { AccountSnapshot } from "../src/shared/contracts";
+import type { AccountSnapshot, DesktopProjectSession } from "../src/shared/contracts";
 import { appStatus } from "../src/renderer/components/shell/status-bar-model";
 
 const account: AccountSnapshot = {
@@ -67,6 +67,29 @@ describe("application status bar", () => {
     expect(current.tone).toBe("error");
     expect(current.summary).toBe("The project could not be opened");
     expect(current.dismissible).toBe(true);
+  });
+
+  it("shows source errors in the header status with details", () => {
+    const current = status({
+      project: {
+        status: "ready",
+        session: {
+          diagnostics: [
+            {
+              severity: "error",
+              code: "SOURCE_RELOAD_FAILED",
+              message: "Clip link is not reciprocal: clip_000006",
+            },
+          ],
+        } as DesktopProjectSession,
+      },
+    });
+
+    expect(current.tone).toBe("error");
+    expect(current.summary).toBe("1 source error");
+    expect(current.detail).toContain("last valid preview remains active");
+    expect(current.detail).toContain("SOURCE_RELOAD_FAILED");
+    expect(current.dismissible).toBe(false);
   });
 
   it("shows cloud transfer failures and progress", () => {

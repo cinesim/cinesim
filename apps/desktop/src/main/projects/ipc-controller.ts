@@ -1,26 +1,24 @@
 import { randomUUID } from "node:crypto";
 import { lstat, readFile, realpath, stat } from "node:fs/promises";
 import { parse, resolve } from "node:path";
-import { dialog, shell } from "electron";
-import { z } from "zod";
+import { app, dialog, shell } from "electron";
 import { cloudProjectIdSchema, projectIdSchema, settingsSchema } from "@cinesim/core";
 import type { ProjectId } from "@cinesim/core";
-import type { CreateProjectLocation, RecentProjectDetails } from "../../shared/contracts";
+import { parseProjectManifest } from "@cinesim/project-io";
+import type {
+  CreateProjectLocation,
+  ProjectOpenTargetId,
+  RecentProjectDetails,
+} from "../../shared/contracts";
 import type { AgentManager } from "../agents/manager";
 import type { DesktopAccountService } from "../account/service";
 import type { CloudMediaManager } from "../cloud/manager";
 import type { DesktopAppStateStore } from "../state/app-state-store";
 import { requireUserIntent } from "../app/user-intent";
 import { canonicalProjectSizeBytes } from "./project-size";
+import { availableProjectOpenTargets, launchProjectOpenTarget } from "./project-open-targets";
 import { isTemporaryMediaSelection } from "./media-import";
 import type { DesktopProjectStore } from "./project-store";
-
-const projectManifestSchema = z.object({
-  version: z.literal(1),
-  id: projectIdSchema,
-  cloudProjectId: cloudProjectIdSchema.optional(),
-  name: z.string().min(1),
-});
 
 export class ProjectIpcController {
   #createLocation: CreateProjectLocation | null = null;
@@ -93,7 +91,7 @@ export class ProjectIpcController {
         const [size, directoryStats, manifestStats] = await Promise.all([
           canonicalProjectSizeBytes(project.directory).catch(() => null),
           stat(project.directory).catch(() => null),
-          stat(resolve(project.directory, "cinesim.json")).catch(() => null),
+          stat(resolve(project.directory, "cinesim.toml")).catch(() => null),
         ]);
         return [
           project.directory,
@@ -113,10 +111,20 @@ export class ProjectIpcController {
     return this.store.updateSettings(settingsSchema.parse({ ...current, ...update }));
   }
 
-  async reveal(): Promise<void> {
+  async openTargets() {
+    return availableProjectOpenTargets({
+      iconForPath: async (path) => (await app.getFileIcon(path, { size: "normal" })).toDataURL(),
+    });
+  }
+
+  async openWith(target: ProjectOpenTargetId): Promise<void> {
     if (!this.store.directory) return;
-    const error = await shell.openPath(this.store.directory);
-    if (error) throw new Error("The project could not be revealed in Finder");
+    if (target === "finder") {
+      const error = await shell.openPath(this.store.directory);
+      if (error) throw new Error("The project could not be opened in Finder");
+      return;
+    }
+    await launchProjectOpenTarget(target, this.store.directory);
   }
 
   async forget(directory: string) {
@@ -188,12 +196,16 @@ export class ProjectIpcController {
   }
 
   async #projectManifest(directory: string) {
-    const manifest = projectManifestSchema.parse(
-      JSON.parse(await readFile(resolve(directory, "cinesim.json"), "utf8")) as unknown,
+    const manifest = parseProjectManifest(
+      await readFile(resolve(directory, "cinesim.toml"), "utf8"),
     );
-    const base = { id: manifest.id, name: manifest.name };
-    return typeof manifest.cloudProjectId === "string"
-      ? { ...base, kind: "cloud" as const, cloudProjectId: manifest.cloudProjectId }
+    const base = { id: manifest.project.id, name: manifest.project.name };
+    return typeof manifest.project.cloudProjectId === "string"
+      ? {
+          ...base,
+          kind: "cloud" as const,
+          cloudProjectId: manifest.project.cloudProjectId,
+        }
       : { ...base, kind: "local" as const };
   }
 
@@ -248,9 +260,7 @@ export class ProjectIpcController {
     if ((await lstat(requested)).isSymbolicLink())
       throw new Error("Open the project at its real location before moving it to Trash");
     const canonical = await realpath(requested);
-    projectManifestSchema.parse(
-      JSON.parse(await readFile(resolve(canonical, "cinesim.json"), "utf8")) as unknown,
-    );
+    parseProjectManifest(await readFile(resolve(canonical, "cinesim.toml"), "utf8"));
     return canonical;
   }
 }

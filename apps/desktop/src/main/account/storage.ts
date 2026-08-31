@@ -16,7 +16,6 @@ interface SecretPayload {
 
 const MAX_AUTH_STORAGE_BYTES = 1024 * 1024;
 const valuesSchema = z.record(z.string().min(1).max(4_096), z.unknown());
-const legacyStorageSchema = z.object({ version: z.literal(1), values: valuesSchema }).strict();
 const encryptedStorageSchema = z
   .object({
     version: z.literal(2),
@@ -57,11 +56,6 @@ export class DesktopAuthStorage implements Storage {
       const metadata = statSync(this.#path);
       if (!metadata.isFile() || metadata.size > MAX_AUTH_STORAGE_BYTES) throw new Error();
       const raw = JSON.parse(readFileSync(this.#path, "utf8"));
-      const legacy = legacyStorageSchema.safeParse(raw);
-      if (legacy.success) {
-        this.#values = legacy.data.values;
-        return this.#values;
-      }
       const encrypted = encryptedStorageSchema.safeParse(raw);
       if (!encrypted.success || !this.#safeStorage.isEncryptionAvailable()) {
         this.#values = {};
