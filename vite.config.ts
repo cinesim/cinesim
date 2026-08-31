@@ -107,7 +107,12 @@ export default defineConfig({
     sortPackageJson: {},
   },
   lint: {
-    ignorePatterns: ["dist/**", ".context/**", "apps/desktop/release/**", "examples/**"],
+    ignorePatterns: [
+      "dist/**",
+      ".context/**",
+      "apps/desktop/release/**",
+      ...(cognitiveComplexityReport ? [] : ["examples/**"]),
+    ],
     ...(cognitiveComplexityReport ? { jsPlugins: ["eslint-plugin-sonarjs"] } : {}),
     plugins: ["eslint", "import", "jsx-a11y", "oxc", "promise", "react", "typescript", "unicorn"],
     options: {
