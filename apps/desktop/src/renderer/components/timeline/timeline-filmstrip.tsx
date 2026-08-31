@@ -8,6 +8,11 @@ import { filmstripPresentationReady, thumbnailPresentation } from "../media/medi
 const MAX_VISIBLE_CELLS = 96;
 const MIN_CELL_WIDTH = 32;
 
+export function timelineFilmstripCellWidth(height: number, tileAspectRatio: number): number {
+  if (!Number.isFinite(height) || !Number.isFinite(tileAspectRatio)) return MIN_CELL_WIDTH;
+  return Math.max(MIN_CELL_WIDTH, height * tileAspectRatio);
+}
+
 export function timelineFilmstripTileIndices({
   tileTimesUs,
   sourceStartUs,
@@ -25,7 +30,7 @@ export function timelineFilmstripTileIndices({
 }): number[] {
   if (tileTimesUs.length === 0 || sourceEndUs <= sourceStartUs || width <= 0 || height <= 0)
     return [];
-  const preferredCellWidth = Math.max(MIN_CELL_WIDTH, height * tileAspectRatio);
+  const preferredCellWidth = timelineFilmstripCellWidth(height, tileAspectRatio);
   const cellCount = Math.min(MAX_VISIBLE_CELLS, Math.max(1, Math.ceil(width / preferredCellWidth)));
   const sourceDurationUs = sourceEndUs - sourceStartUs;
   return Array.from({ length: cellCount }, (_, index) => {
@@ -53,6 +58,7 @@ export function TimelineFilmstrip({
   const ready = filmstripPresentationReady(record);
   const tileWidth = filmstrip.tileWidth ?? 1;
   const tileHeight = filmstrip.tileHeight ?? 1;
+  const cellWidth = timelineFilmstripCellWidth(height, tileWidth / tileHeight);
   const tileIndices = ready
     ? timelineFilmstripTileIndices({
         tileTimesUs: filmstrip.tileTimesUs ?? [],
@@ -85,8 +91,13 @@ export function TimelineFilmstrip({
           return (
             <span
               key={`${cellIndex}:${tileIndex}`}
-              className="h-full min-w-0 flex-1 border-r border-black/30 bg-cover bg-center bg-no-repeat opacity-95 last:border-r-0"
+              className="h-full shrink-0 border-r border-black/30 bg-center bg-no-repeat opacity-95 last:border-r-0"
               style={{
+                width: cellWidth,
+                marginLeft:
+                  tileIndices.length === 1 && width < cellWidth
+                    ? (width - cellWidth) / 2
+                    : undefined,
                 backgroundImage: `url("${imageUrl}")`,
                 backgroundSize: `${columns * 100}% ${rows * 100}%`,
                 backgroundPosition: `${columns === 1 ? 0 : (column / (columns - 1)) * 100}% ${rows === 1 ? 0 : (row / (rows - 1)) * 100}%`,

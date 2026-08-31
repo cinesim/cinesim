@@ -6,7 +6,17 @@ import { derivedArtifactUrl } from "../../lib/media-url";
 
 const INT16_MAX = 0x7fff;
 const MAX_CACHED_WAVEFORMS = 64;
+const MAX_VISIBLE_COLUMNS = 4_096;
+const PIXELS_PER_COLUMN = 2;
 const waveformCache = new Map<string, Promise<WaveformEnvelope>>();
+
+export function timelineWaveformColumnCount(width: number, peakCount: number): number {
+  const safeWidth = Number.isFinite(width) ? Math.max(1, width) : 1;
+  return Math.max(
+    1,
+    Math.min(MAX_VISIBLE_COLUMNS, peakCount, Math.ceil(safeWidth / PIXELS_PER_COLUMN)),
+  );
+}
 
 function loadWaveformEnvelope(url: string): Promise<WaveformEnvelope> {
   const cached = waveformCache.get(url);
@@ -83,11 +93,13 @@ export function TimelineWaveform({
   clip,
   artifact,
   derived,
+  width,
 }: {
   asset: Asset;
   clip: Pick<Clip, "sourceStartUs" | "sourceEndUs">;
   artifact: DerivedArtifactSnapshot;
   derived: DerivedMediaSnapshot;
+  width: number;
 }) {
   const [loaded, setLoaded] = useState<{ url: string; envelope: WaveformEnvelope } | null>(null);
   const revision = artifact.updatedAt;
@@ -127,6 +139,7 @@ export function TimelineWaveform({
     asset.durationUs,
     clip.sourceStartUs,
     clip.sourceEndUs,
+    timelineWaveformColumnCount(width, envelope.peakCount),
   );
   return (
     <svg

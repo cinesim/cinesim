@@ -37,6 +37,7 @@ export {
   IconKeyboard as Keyboard,
   IconLayoutGrid as Grid3X3,
   IconLibrary as Library,
+  IconLink as Link,
   IconListTree as ListTree,
   IconLoader2 as LoaderCircle,
   IconLock as Lock,

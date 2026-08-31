@@ -7,6 +7,7 @@ import {
   proposeAssetDrop,
   proposeClipMove,
   quantizeToFrame,
+  snapTimelineRange,
   snapTimelineTime,
 } from "../src/renderer/lib/timeline-geometry";
 
@@ -40,7 +41,17 @@ describe("timeline interaction geometry", () => {
     expect(snapTimelineTime(timeUs(980_000), 30, [timeUs(1_000_000)], timeUs(50_000))).toEqual({
       timeUs: 1_000_000,
       snapped: true,
+      snapPointUs: 1_000_000,
     });
+    expect(
+      snapTimelineRange(
+        timeUs(1_080_000),
+        timeUs(1_000_000),
+        30,
+        [timeUs(2_000_000)],
+        timeUs(100_000),
+      ),
+    ).toEqual({ timeUs: 1_000_000, snapped: true, snapPointUs: 2_000_000 });
   });
 
   it("enforces track compatibility before a canonical command is submitted", () => {
@@ -121,5 +132,39 @@ describe("timeline interaction geometry", () => {
         null,
       ),
     ).toBeNull();
+  });
+
+  it("previews and commits linked video and audio moves as one command", () => {
+    for (const component of ["video", "audio"] as const) {
+      let project = fixture();
+      const videoTrack = project.sequences[0]!.tracks[0]!;
+      const audioTrack = project.sequences[0]!.tracks[1]!;
+      project = applyCommand(project, {
+        type: "clip.add",
+        trackId: videoTrack.id,
+        audioTrackId: audioTrack.id,
+        assetId: video.id,
+        timelineStartUs: timeUs(0),
+      }).project;
+      const track = component === "video" ? videoTrack : audioTrack;
+      const clip = project.sequences[0]!.tracks.find(
+        (candidate) => candidate.id === track.id,
+      )!.clips.find((candidate) => candidate.mediaKind === component)!;
+      const proposal = proposeClipMove(project, clip.id, track.id, timeUs(3_000_000))!;
+      expect(proposal).toMatchObject({
+        valid: true,
+        linkedTrackId: track.id === videoTrack.id ? audioTrack.id : videoTrack.id,
+        linkedTimelineStartUs: timeUs(3_000_000),
+        linkedTimelineEndUs: timeUs(5_000_000),
+      });
+      const command = commandForTimelineDrop(
+        project,
+        { kind: "clip", clipId: clip.id, trackId: track.id },
+        proposal,
+      )!;
+      project = applyCommand(project, command).project;
+      expect(project.sequences[0]!.tracks[0]!.clips[0]!.timelineStartUs).toBe(3_000_000);
+      expect(project.sequences[0]!.tracks[1]!.clips[0]!.timelineStartUs).toBe(3_000_000);
+    }
   });
 });

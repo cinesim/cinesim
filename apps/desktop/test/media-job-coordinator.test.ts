@@ -12,6 +12,11 @@ import type {
   DerivedWorkerResponse,
 } from "../src/renderer/lib/derived-worker-api";
 import { MediaJobCoordinator } from "../src/renderer/lib/media-job-coordinator";
+import {
+  WAVEFORM_FORMAT_VERSION,
+  waveformByteLength,
+  waveformPeakCount,
+} from "../src/shared/waveform-format";
 
 const projectScope = {
   cacheKey: "aaaaaaaaaaaaaaaaaaaaaaaa",
@@ -476,6 +481,8 @@ describe("MediaJobCoordinator", () => {
   it("publishes a bounded waveform for video with embedded audio", async () => {
     const withAudio = project();
     withAudio.assets[0]!.hasAudio = true;
+    const peakCount = waveformPeakCount(withAudio.assets[0]!.durationUs);
+    const expectedBytes = waveformByteLength(peakCount);
     const { begun, finalized } = setup(snapshot("ready", "ready", "queued"));
     const coordinator = new MediaJobCoordinator(withAudio, projectScope, () => undefined);
     await coordinator.start();
@@ -485,20 +492,20 @@ describe("MediaJobCoordinator", () => {
     expect(begun).toContainEqual({
       assetId: "asset_fixture",
       kind: "waveform",
-      expectedBytes: 176,
+      expectedBytes,
     });
 
     FakeWorker.instance!.emit({
       type: "waveform-complete",
       jobId: request.jobId,
-      waveform: new ArrayBuffer(176),
-      peakCount: 40,
-      waveformFormatVersion: 1,
+      waveform: new ArrayBuffer(expectedBytes),
+      peakCount,
+      waveformFormatVersion: WAVEFORM_FORMAT_VERSION,
     });
     await vi.waitFor(() => expect(finalized).toHaveLength(1));
     expect(finalized[0]).toEqual({
       writerId: "waveform-writer",
-      result: { bytes: 176, peakCount: 40, waveformFormatVersion: 1 },
+      result: { bytes: expectedBytes, peakCount, waveformFormatVersion: WAVEFORM_FORMAT_VERSION },
     });
     await coordinator.destroy();
   });

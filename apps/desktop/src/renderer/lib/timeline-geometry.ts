@@ -15,13 +15,19 @@ export interface TimelineDropProposal {
   kind: TimelineDropKind;
   assetId: Asset["id"];
   clipId?: ClipId;
+  mediaKind?: "video" | "audio";
   trackId: TrackId;
   audioTrackId?: TrackId;
+  linkedTrackId?: TrackId;
+  linkedMediaKind?: "video" | "audio";
+  linkedTimelineStartUs?: TimeUs;
+  linkedTimelineEndUs?: TimeUs;
   timelineStartUs: TimeUs;
   timelineEndUs: TimeUs;
   valid: boolean;
   reason?: "incompatible-track" | "locked-track" | "overlap";
   snapped: boolean;
+  snapPointUs?: TimeUs;
 }
 
 export type TimelineDragInput =
@@ -46,7 +52,7 @@ export function snapTimelineTime(
   frameRate: number,
   candidatesUs: readonly TimeUs[],
   toleranceUs: TimeUs,
-): { timeUs: TimeUs; snapped: boolean } {
+): { timeUs: TimeUs; snapped: boolean; snapPointUs?: TimeUs } {
   const frameTimeUs = quantizeToFrame(rawTimeUs, frameRate);
   let nearest: TimeUs | null = null;
   let nearestDistance = Number.POSITIVE_INFINITY;
@@ -59,7 +65,37 @@ export function snapTimelineTime(
   }
   return nearest === null
     ? { timeUs: frameTimeUs, snapped: frameTimeUs !== Math.round(rawTimeUs) }
-    : { timeUs: timeUsValue(Math.max(0, nearest)), snapped: true };
+    : {
+        timeUs: timeUsValue(Math.max(0, nearest)),
+        snapped: true,
+        snapPointUs: timeUsValue(Math.max(0, nearest)),
+      };
+}
+
+export function snapTimelineRange(
+  rawStartUs: TimeUs,
+  durationUs: TimeUs,
+  frameRate: number,
+  candidatesUs: readonly TimeUs[],
+  toleranceUs: TimeUs,
+): { timeUs: TimeUs; snapped: boolean; snapPointUs?: TimeUs } {
+  const frameStartUs = quantizeToFrame(rawStartUs, frameRate);
+  let nearest: { pointUs: TimeUs; startUs: TimeUs; distanceUs: number } | null = null;
+  for (const candidate of candidatesUs) {
+    for (const edgeOffsetUs of [timeUsValue(0), durationUs]) {
+      const rawCandidateStartUs = candidate - edgeOffsetUs;
+      if (rawCandidateStartUs < 0) continue;
+      const startUs = timeUsValue(rawCandidateStartUs);
+      const edgeUs = frameStartUs + edgeOffsetUs;
+      const distanceUs = Math.abs(candidate - edgeUs);
+      if (distanceUs <= toleranceUs && (!nearest || distanceUs < nearest.distanceUs)) {
+        nearest = { pointUs: candidate, startUs, distanceUs };
+      }
+    }
+  }
+  return nearest
+    ? { timeUs: nearest.startUs, snapped: true, snapPointUs: nearest.pointUs }
+    : { timeUs: frameStartUs, snapped: frameStartUs !== Math.round(rawStartUs) };
 }
 
 export function timelineSnapCandidates(project: Project, ignoredClipId?: ClipId): TimeUs[] {
@@ -153,8 +189,9 @@ export function proposeAssetDrop(
   const asset = project.assets.find((candidate) => candidate.id === assetId);
   if (!asset) return null;
   const sequence = getSequence(project);
-  const snapped = snapTimelineTime(
+  const snapped = snapTimelineRange(
     rawTimelineStartUs,
+    asset.durationUs,
     sequence.frameRate,
     options.snapCandidatesUs ?? timelineSnapCandidates(project),
     options.snapToleranceUs ?? timeUsValue(0),
@@ -181,6 +218,7 @@ export function proposeAssetDrop(
     ...primaryValidation,
     ...(audioTrack ? { audioTrackId: audioTrack.id } : {}),
     snapped: snapped.snapped,
+    ...(snapped.snapPointUs !== undefined ? { snapPointUs: snapped.snapPointUs } : {}),
   };
 }
 
@@ -200,8 +238,9 @@ export function proposeClipMove(
   const asset = project.assets.find((candidate) => candidate.id === location.clip.assetId);
   if (!asset) return null;
   const sequence = getSequence(project);
-  const snapped = snapTimelineTime(
+  const snapped = snapTimelineRange(
     rawTimelineStartUs,
+    clipDurationUs(location.clip),
     sequence.frameRate,
     options.snapCandidatesUs ?? timelineSnapCandidates(project, clipId),
     options.snapToleranceUs ?? timeUsValue(0),
@@ -233,10 +272,20 @@ export function proposeClipMove(
     kind: "clip",
     assetId: asset.id,
     clipId,
+    mediaKind: location.clip.mediaKind,
     trackId,
     timelineStartUs: snapped.timeUs,
     timelineEndUs,
+    ...(linked
+      ? {
+          linkedTrackId: linked.track.id,
+          linkedMediaKind: linked.clip.mediaKind,
+          linkedTimelineStartUs: timeUsValue(linked.clip.timelineStartUs + deltaUs),
+          linkedTimelineEndUs: timeUsValue(clipEndUs(linked.clip) + deltaUs),
+        }
+      : {}),
     ...(primaryValidation.valid && linkedValidation ? linkedValidation : primaryValidation),
     snapped: snapped.snapped,
+    ...(snapped.snapPointUs !== undefined ? { snapPointUs: snapped.snapPointUs } : {}),
   };
 }

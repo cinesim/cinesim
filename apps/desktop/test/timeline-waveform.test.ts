@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vite-plus/test";
 import type { WaveformEnvelope } from "../src/shared/waveform-format";
-import { waveformEnvelopePath } from "../src/renderer/components/timeline/timeline-waveform";
+import {
+  timelineWaveformColumnCount,
+  waveformEnvelopePath,
+} from "../src/renderer/components/timeline/timeline-waveform";
 
 describe("timeline waveform geometry", () => {
   const envelope: WaveformEnvelope = {
@@ -8,6 +11,11 @@ describe("timeline waveform geometry", () => {
     peakCount: 4,
     peaks: new Int16Array([-100, 200, -300, 400, -500, 600, -700, 800]),
   };
+
+  it("adapts detail to the rendered clip width with a fixed upper bound", () => {
+    expect(timelineWaveformColumnCount(800, 1_000)).toBe(400);
+    expect(timelineWaveformColumnCount(20_000, 16_384)).toBe(4_096);
+  });
 
   it("turns a source slice into a closed, normalized envelope", () => {
     const path = waveformEnvelopePath(envelope, 4_000_000, 1_000_000, 3_000_000);

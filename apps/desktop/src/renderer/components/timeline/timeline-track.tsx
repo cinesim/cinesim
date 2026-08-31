@@ -57,18 +57,35 @@ export function TimelineTrackRow({
     data: { kind: "timeline-track", trackId: track.id },
   });
   const trackProposal =
-    proposal?.trackId === track.id || proposal?.audioTrackId === track.id ? proposal : null;
-  const isAudioProposal = trackProposal?.audioTrackId === track.id;
+    proposal?.trackId === track.id ||
+    proposal?.audioTrackId === track.id ||
+    proposal?.linkedTrackId === track.id
+      ? proposal
+      : null;
+  const isLinkedProposal = trackProposal?.linkedTrackId === track.id;
+  const isAudioProposal = isLinkedProposal
+    ? trackProposal.linkedMediaKind === "audio"
+    : trackProposal?.kind === "clip"
+      ? trackProposal.mediaKind === "audio"
+      : trackProposal?.audioTrackId === track.id;
   const proposalAsset = trackProposal ? assets.get(trackProposal.assetId) : undefined;
+  const proposalStartUs =
+    isLinkedProposal && trackProposal.linkedTimelineStartUs !== undefined
+      ? trackProposal.linkedTimelineStartUs
+      : trackProposal?.timelineStartUs;
+  const proposalEndUs =
+    isLinkedProposal && trackProposal.linkedTimelineEndUs !== undefined
+      ? trackProposal.linkedTimelineEndUs
+      : trackProposal?.timelineEndUs;
   const proposalWidth = trackProposal
-    ? Math.max(18, (trackProposal.timelineEndUs - trackProposal.timelineStartUs) * pixelsPerUs)
+    ? Math.max(18, (proposalEndUs! - proposalStartUs!) * pixelsPerUs)
     : 0;
 
   return (
     <div
       ref={setNodeRef}
-      className={cn("timeline-track relative border-b border-border", isOver && "bg-surface/55")}
-      style={{ height: trackHeight, backgroundSize: `${pixelsPerUs * 1_000_000}px 100%` }}
+      className={cn("relative", isOver && "bg-surface/55")}
+      style={{ height: trackHeight }}
     >
       <button
         type="button"
@@ -99,15 +116,16 @@ export function TimelineTrackRow({
       {trackProposal && (
         <div
           className={cn(
-            "pointer-events-none absolute top-0 z-40 overflow-hidden border-2 px-2 py-1 shadow-lg",
+            "pointer-events-none absolute top-0 z-40 overflow-hidden rounded-md border-2 px-2 py-1 shadow-lg",
             trackProposal.valid
               ? "border-primary bg-selection/80 text-primary"
               : "border-red-500/80 bg-red-500/15 text-red-700 dark:text-red-300",
           )}
           style={{
-            left: trackProposal.timelineStartUs * pixelsPerUs,
-            width: proposalWidth,
-            height: trackHeight,
+            left: proposalStartUs! * pixelsPerUs + 1,
+            top: 2,
+            width: Math.max(16, proposalWidth - 2),
+            height: Math.max(1, trackHeight - 4),
           }}
         >
           {proposalAsset &&
@@ -131,6 +149,7 @@ export function TimelineTrackRow({
                 clip={{ sourceStartUs: timeUs(0), sourceEndUs: proposalAsset.durationUs }}
                 artifact={derived.assets[proposalAsset.id]!.waveform}
                 derived={derived}
+                width={Math.max(16, proposalWidth - 2)}
               />
             )}
           <span className="relative block w-fit max-w-[80%] truncate rounded-sm bg-black/35 px-1 text-ui-xs font-medium text-white">
@@ -182,13 +201,12 @@ export function TimelineTrackHeader({
   const kindLabel = track.kind === "audio" ? "A" : track.kind === "overlay" ? "O" : "V";
   const trackColor = timelinePaletteColor(paletteId, track, undefined);
   return (
-    <div
-      className="relative grid content-center gap-0.5 border-b border-border px-2"
-      style={{ height }}
-    >
-      <span className="absolute inset-y-0 left-0 w-1" style={{ background: trackColor }} />
+    <div className="relative grid content-center gap-0.5 px-2" style={{ height }}>
       <div className="flex min-w-0 items-center gap-1.5">
-        <span className="grid size-5 shrink-0 place-items-center rounded bg-surface text-[10px] font-semibold text-muted">
+        <span
+          className="grid size-5 shrink-0 place-items-center rounded text-[10px] font-semibold text-white shadow-sm ring-1 ring-inset ring-white/10"
+          style={{ backgroundColor: trackColor }}
+        >
           {kindLabel}
         </span>
         {renaming ? (

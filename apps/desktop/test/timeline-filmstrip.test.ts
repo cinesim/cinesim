@@ -1,10 +1,18 @@
 import { timeUs } from "@cinesim/core";
 import { describe, expect, it } from "vite-plus/test";
-import { timelineFilmstripTileIndices } from "../src/renderer/components/timeline/timeline-filmstrip";
+import {
+  timelineFilmstripCellWidth,
+  timelineFilmstripTileIndices,
+} from "../src/renderer/components/timeline/timeline-filmstrip";
 
 const tileTimesUs = Array.from({ length: 32 }, (_, index) => index * 1_000_000);
 
 describe("timeline filmstrip layout", () => {
+  it("keeps frame cells at the source tile aspect ratio across zoom levels", () => {
+    expect(timelineFilmstripCellWidth(90, 16 / 9)).toBe(160);
+    expect(timelineFilmstripCellWidth(90, 9 / 16)).toBeCloseTo(50.625);
+  });
+
   it("selects representative frames across the visible source range", () => {
     expect(
       timelineFilmstripTileIndices({

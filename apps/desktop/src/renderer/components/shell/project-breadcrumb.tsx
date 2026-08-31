@@ -19,6 +19,9 @@ export function ProjectBreadcrumb() {
     session.project.sequences.find((sequence) => sequence.id === activeSequenceId) ??
     session.project.sequences.find((sequence) => sequence.id === session.project.activeSequenceId);
   const timelineVisible = projectSection === "cut" || projectSection === "edit";
+  const switchableProjects = recentProjects
+    .filter((project) => project.directory !== session.directory)
+    .slice(0, 8);
 
   return (
     <nav className="no-drag flex min-w-0 items-center" aria-label="Project location">
@@ -28,23 +31,18 @@ export function ProjectBreadcrumb() {
         </MenuTrigger>
         <MenuContent className="w-72" sideOffset={7}>
           <MenuItem>
-            <span className="min-w-0 flex-1">
-              <span className="block truncate text-ui font-medium">{session.project.name}</span>
-              <span className="block truncate text-ui-xs text-muted">Current project</span>
+            <span className="min-w-0 flex-1 truncate text-ui font-medium">
+              {session.project.name}
             </span>
-            <Check size={14} className="shrink-0 text-accent" />
           </MenuItem>
-          {recentProjects
-            .filter((project) => project.directory !== session.directory)
-            .slice(0, 8)
-            .map((project) => (
-              <MenuItem
-                key={project.directory}
-                onClick={() => void openRecentProject(project.directory)}
-              >
-                <span className="min-w-0 flex-1 truncate text-ui font-medium">{project.name}</span>
-              </MenuItem>
-            ))}
+          {switchableProjects.map((project) => (
+            <MenuItem
+              key={project.directory}
+              onClick={() => void openRecentProject(project.directory)}
+            >
+              <span className="min-w-0 flex-1 truncate text-ui font-medium">{project.name}</span>
+            </MenuItem>
+          ))}
           <MenuSeparator />
           <MenuItem onClick={() => void openProject()}>
             <span className="text-ui text-secondary group-data-[highlighted]:text-primary">

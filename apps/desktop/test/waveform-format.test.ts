@@ -11,7 +11,7 @@ import {
 describe("waveform format", () => {
   it("chooses a deterministic bounded peak count", () => {
     expect(waveformPeakCount(0)).toBe(1);
-    expect(waveformPeakCount(1_000_000)).toBe(20);
+    expect(waveformPeakCount(1_000_000)).toBe(200);
     expect(waveformPeakCount(86_400_000_000)).toBe(WAVEFORM_MAX_PEAKS);
   });
 

@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { useDraggable } from "@dnd-kit/core";
 import { canSplitClipAt, clipDurationUs, timeUs } from "@cinesim/core";
 import type { Asset, Clip, TimeUs, Track } from "@cinesim/core";
-import { cn } from "@cinesim/ui";
+import { cn, Link } from "@cinesim/ui";
 import type { DerivedAssetSnapshot, DerivedMediaSnapshot } from "../../../shared/contracts";
 import {
   IDLE_TRIM_GESTURE,
@@ -41,6 +41,9 @@ interface ClipBlockProps {
   paletteId: TimelinePaletteId;
 }
 
+const CLIP_HORIZONTAL_INSET_PX = 1;
+const CLIP_VERTICAL_INSET_PX = 2;
+
 export function TimelineClipBlock({
   clip,
   track,
@@ -72,13 +75,16 @@ export function TimelineClipBlock({
   const name = asset?.name ?? clip.assetId;
   const preparationLabel = derivedAsset ? prepStatus(derivedAsset, derived) : null;
   const isAudioComponent = clip.mediaKind === "audio";
-  const left = (previewRange?.timelineStartUs ?? clip.timelineStartUs) * pixelsPerUs;
-  const width = Math.max(
+  const timelineLeft = (previewRange?.timelineStartUs ?? clip.timelineStartUs) * pixelsPerUs;
+  const timelineWidth = Math.max(
     18,
     (previewRange
       ? previewRange.timelineEndUs - previewRange.timelineStartUs
       : clipDurationUs(clip)) * pixelsPerUs,
   );
+  const left = timelineLeft + CLIP_HORIZONTAL_INSET_PX;
+  const width = Math.max(16, timelineWidth - CLIP_HORIZONTAL_INSET_PX * 2);
+  const height = Math.max(1, trackHeight - CLIP_VERTICAL_INSET_PX * 2);
   const clipColor = timelinePaletteColor(paletteId, track, asset);
   const fadeInUs =
     fadeGesture?.edge === "in" ? fadeGesture.previewDurationUs : (clip.fadeInUs ?? 0);
@@ -87,7 +93,7 @@ export function TimelineClipBlock({
   const fadeInPx = Math.min(width, fadeInUs * pixelsPerUs);
   const fadeOutPx = Math.min(width, fadeOutUs * pixelsPerUs);
   const fadeCurveTop = 8;
-  const fadeCurveBottom = Math.max(fadeCurveTop + 1, trackHeight - 5);
+  const fadeCurveBottom = Math.max(fadeCurveTop + 1, height - 5);
   const fadeOutStartX = width - fadeOutPx;
   const fadeInCurve = `M 0 ${fadeCurveBottom} C ${fadeInPx * 0.38} ${fadeCurveBottom}, ${fadeInPx * 0.68} ${fadeCurveTop}, ${fadeInPx} ${fadeCurveTop}`;
   const fadeOutCurve = `M ${fadeOutStartX} ${fadeCurveTop} C ${fadeOutStartX + fadeOutPx * 0.32} ${fadeCurveTop}, ${width - fadeOutPx * 0.38} ${fadeCurveBottom}, ${width} ${fadeCurveBottom}`;
@@ -228,7 +234,7 @@ export function TimelineClipBlock({
     <div
       ref={setNodeRef}
       className={cn(
-        "group/clip absolute top-0 overflow-hidden border text-left shadow-sm outline-none transition-[border-color,filter]",
+        "group/clip absolute overflow-hidden rounded-md border text-left shadow-sm outline-none transition-[border-color,filter]",
         selected && "border-primary ring-1 ring-primary",
         isDragging && "z-30 opacity-35",
         trimGesture.status === "trimming" && "z-30 ring-1 ring-primary",
@@ -237,7 +243,8 @@ export function TimelineClipBlock({
       style={{
         left,
         width,
-        height: trackHeight,
+        top: CLIP_VERTICAL_INSET_PX,
+        height,
         backgroundColor: clipColor,
         borderColor: selected ? undefined : `color-mix(in srgb, ${clipColor} 72%, black)`,
       }}
@@ -249,7 +256,7 @@ export function TimelineClipBlock({
           record={derivedAsset}
           derived={derived}
           width={width}
-          height={trackHeight}
+          height={height}
         />
       )}
       {asset &&
@@ -262,20 +269,35 @@ export function TimelineClipBlock({
             clip={previewClip}
             artifact={derivedAsset.waveform}
             derived={derived}
+            width={width}
           />
         )}
       <button
         type="button"
         {...listeners}
         {...attributes}
-        aria-label={`${selected ? "Selected " : ""}${name} clip`}
+        aria-label={`${selected ? "Selected " : ""}${name} clip${clip.linkedClipId ? ", linked audio and video" : ""}`}
         className="absolute inset-0 z-20 text-left outline-none focus-visible:ring-2 focus-visible:ring-focus"
         onClick={activate}
       >
         <span className="pointer-events-none absolute inset-x-0 bottom-0 z-10 h-6 bg-gradient-to-t from-black/75 to-transparent" />
-        <span className="pointer-events-none absolute bottom-1 left-1.5 right-1.5 z-20 truncate text-[10px] font-semibold text-white drop-shadow-sm">
+        <span
+          className={cn(
+            "pointer-events-none absolute bottom-1 left-1.5 z-20 truncate text-[10px] font-semibold text-white drop-shadow-sm",
+            clip.linkedClipId ? "right-7" : "right-1.5",
+          )}
+        >
           {name}
         </span>
+        {clip.linkedClipId && (
+          <span
+            aria-hidden="true"
+            title="Linked audio and video"
+            className="pointer-events-none absolute right-1.5 bottom-1 z-20 grid size-4 place-items-center rounded bg-black/55 text-white/90 shadow-sm ring-1 ring-inset ring-white/15"
+          >
+            <Link size={10} strokeWidth={2.25} />
+          </span>
+        )}
         {preparationLabel && (
           <span className="absolute right-1.5 top-1 rounded bg-black/35 px-1 py-0.5 text-[9px] font-medium text-white/85">
             {preparationLabel}
@@ -286,8 +308,8 @@ export function TimelineClipBlock({
         aria-hidden="true"
         className="pointer-events-none absolute inset-0 z-[24] overflow-visible drop-shadow-sm"
         width={width}
-        height={trackHeight}
-        viewBox={`0 0 ${width} ${trackHeight}`}
+        height={height}
+        viewBox={`0 0 ${width} ${height}`}
         preserveAspectRatio="none"
       >
         {fadeInPx > 0.5 && (

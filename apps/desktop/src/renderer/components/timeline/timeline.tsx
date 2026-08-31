@@ -3,10 +3,11 @@ import { canSplitClipAt, getSequence, sequenceDurationUs, timeUs } from "@cinesi
 import type { Project, TimelineRange } from "@cinesim/core";
 import { timelineMajorSecondStep } from "../../lib/timeline-scale";
 import { useRendererStore } from "../../store/renderer-store-context";
+import { useEditorDnd } from "../workspace/editor-dnd-context";
 import { useEditorTransport } from "../workspace/editor-transport-context";
 import { MasterLevelMeter } from "./master-level-meter";
 import { ReducedTimeline } from "./reduced-timeline";
-import { isTimelinePaletteId } from "./timeline-behavior";
+import { isTimelinePaletteId, timelinePaletteColor } from "./timeline-behavior";
 import type { TimelinePaletteId } from "./timeline-behavior";
 import { TimelineEditToolbar, TimelineZoomControls } from "./timeline-toolbar";
 import { TimelineTrackHeader, TimelineTrackRow } from "./timeline-track";
@@ -38,6 +39,7 @@ export function Timeline({ project, selectedRanges = [] }: TimelineProps) {
   const transcripts = useRendererStore((state) => state.transcripts);
   const playback = useRendererStore((state) => state.playbackRuntime?.snapshot ?? null);
   const transport = useEditorTransport();
+  const { proposal } = useEditorDnd();
   const [paletteId, setPaletteId] = useState<TimelinePaletteId>(() => {
     const stored = localStorage.getItem("cinesim.timelinePalette");
     return isTimelinePaletteId(stored) ? stored : "northern-lights";
@@ -71,6 +73,13 @@ export function Timeline({ project, selectedRanges = [] }: TimelineProps) {
     ? sequence.tracks.flatMap((track) => track.clips).find((clip) => clip.id === selectedClipId)
     : undefined;
   const canSplitSelection = Boolean(selectedClip && canSplitClipAt(selectedClip, playheadUs));
+  const snapGuideTrack = proposal
+    ? sequence.tracks.find((track) => track.id === proposal.trackId)
+    : undefined;
+  const snapGuideColor =
+    proposal?.snapPointUs !== undefined && snapGuideTrack
+      ? timelinePaletteColor(paletteId, snapGuideTrack, assets.get(proposal.assetId))
+      : null;
 
   function selectPalette(next: TimelinePaletteId): void {
     setPaletteId(next);
@@ -224,6 +233,17 @@ export function Timeline({ project, selectedRanges = [] }: TimelineProps) {
                 paletteId={paletteId}
               />
             ))}
+            {proposal?.snapPointUs !== undefined && snapGuideColor && (
+              <div
+                aria-hidden="true"
+                className="pointer-events-none absolute bottom-0 top-6 z-[25] w-px opacity-60"
+                style={{
+                  left: proposal.snapPointUs * pixelsPerUs,
+                  backgroundColor: snapGuideColor,
+                  boxShadow: `0 0 5px ${snapGuideColor}`,
+                }}
+              />
+            )}
             {selectedRanges.map((range, index) => (
               <div
                 key={`${range.startUs}:${range.endUs}:${index}`}
