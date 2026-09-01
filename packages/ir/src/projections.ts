@@ -1,4 +1,4 @@
-import { evaluateIrFrame } from "./evaluate";
+import { evaluateAnimation, evaluateIrEffects, evaluateIrFrame } from "./evaluate";
 import { irTimeUs } from "./types";
 import type {
   AudioPlan,
@@ -10,6 +10,7 @@ import type {
   IrProgram,
   IrTrack,
   IrTransition,
+  IrValue,
   RenderPlan,
   RenderLayer,
   RenderTransition,
@@ -38,6 +39,7 @@ export function projectTimeline(
     name: track.name,
     muted: track.muted,
     locked: track.locked,
+    adjustments: track.adjustments ?? [],
     clips: [...track.clips]
       .sort(
         (left, right) =>
@@ -77,7 +79,12 @@ export function projectTimeline(
         ),
       tracks.reduce(
         (maximum, track) =>
-          track.clips.reduce((inner, clip) => Math.max(inner, clip.endUs), maximum),
+          Math.max(
+            track.clips.reduce((inner, clip) => Math.max(inner, clip.endUs), maximum),
+            ...track.adjustments.map(
+              (adjustment) => adjustment.timelineStartUs + adjustment.durationUs,
+            ),
+          ),
         0,
       ),
     ),
@@ -129,17 +136,43 @@ function easingProgress(progress: number, easing: string): number {
   return progress;
 }
 
+function applyTransformValue(
+  transform: IrClip["transform"],
+  property: string,
+  value: IrValue,
+): void {
+  if ((property === "x" || property === "y") && value.kind === "length")
+    transform[property] = value.value;
+  else if ((property === "scaleX" || property === "scaleY") && value.kind === "number")
+    transform[property] = value.value;
+  else if (property === "rotation" && value.kind === "angle") transform.rotation = value.value;
+  else if (property === "opacity" && value.kind === "number") transform.opacity = value.value;
+}
+
+function animatedTransform(clip: IrClip, localTime: number): IrClip["transform"] {
+  const transform = { ...clip.transform };
+  for (const animation of clip.animations ?? []) {
+    const value = evaluateAnimation(animation, localTime);
+    if (value !== undefined) applyTransformValue(transform, animation.property, value);
+  }
+  return transform;
+}
+
 function renderLayer(track: IrTrack, clip: IrClip, playheadUs: number): RenderLayer {
   const localTime = Math.max(0, playheadUs - clip.timelineStartUs);
+  const transform = animatedTransform(clip, localTime);
   return {
     clipId: clip.id,
     trackId: track.id,
     ...(clip.assetId === undefined ? {} : { assetId: clip.assetId }),
     sourceTimeUs: irTimeUs(sourceTime(clip, playheadUs)),
-    opacity: clip.transform.opacity * fadeGain(clip, playheadUs),
-    transform: { ...clip.transform },
+    opacity: transform.opacity * fadeGain(clip, playheadUs),
+    transform,
     ...(clip.content === undefined ? {} : { content: evaluateIrFrame(clip.content, localTime) }),
-    effects: [...track.effects, ...clip.effects],
+    effects: [
+      ...evaluateIrEffects(track.effects, playheadUs),
+      ...evaluateIrEffects(clip.effects, localTime),
+    ],
   };
 }
 
@@ -153,6 +186,44 @@ function baseRenderLayers(composition: IrComposition, playheadUs: number): Rende
             .filter((clip) => active(clip, playheadUs))
             .map((clip) => renderLayer(track, clip, playheadUs)),
     );
+}
+
+function adjustmentTargets(
+  composition: IrComposition,
+  ownerIndex: number,
+  depth: number,
+): string[] {
+  return composition.timeline.tracks
+    .slice(ownerIndex + 1)
+    .filter((track) => track.kind !== "audio")
+    .slice(0, depth)
+    .map((track) => track.id);
+}
+
+function activeAdjustments(
+  composition: IrComposition,
+  playheadUs: number,
+): RenderPlan["adjustments"] {
+  return composition.timeline.tracks.flatMap((track, ownerIndex) =>
+    (track.adjustments ?? []).flatMap((adjustment) => {
+      const active =
+        adjustment.enabled &&
+        playheadUs >= adjustment.timelineStartUs &&
+        playheadUs < adjustment.timelineStartUs + adjustment.durationUs;
+      if (!active) return [];
+      return [
+        {
+          id: adjustment.id,
+          trackId: track.id,
+          targetTrackIds:
+            adjustment.scope === "tracks"
+              ? adjustment.targetTrackIds
+              : adjustmentTargets(composition, ownerIndex, adjustment.depth),
+          effects: evaluateIrEffects(adjustment.effects, playheadUs - adjustment.timelineStartUs),
+        },
+      ];
+    }),
+  );
 }
 
 interface TransitionClips {
@@ -285,6 +356,13 @@ export function createRenderPlan(
   const composition = findIrComposition(program, compositionId);
   const layers = baseRenderLayers(composition, playheadUs);
   const transitions = renderTransitions(composition, layers, playheadUs);
+  const adjustments = activeAdjustments(composition, playheadUs);
+  for (const adjustment of adjustments) {
+    for (const layer of layers) {
+      if (adjustment.targetTrackIds.includes(layer.trackId))
+        layer.effects.push(...adjustment.effects);
+    }
+  }
   const captions = composition.timeline.captionTracks.flatMap((track) =>
     track.cues
       .filter((cue) => playheadUs >= cue.startUs && playheadUs < cue.startUs + cue.durationUs)
@@ -314,6 +392,7 @@ export function createRenderPlan(
     background: composition.background,
     layers,
     transitions,
+    adjustments,
     captions,
   };
 }

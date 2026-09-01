@@ -40,6 +40,23 @@ const wrapper = (content: string): string =>
   `export const main = <composition id="sequence_main" width={1920} height={1080} fps={30}><timeline id="timeline_main"><track id="track_overlay" kind="overlay" name="Overlay"><clip id="clip_scene" start={seconds(0)} duration={seconds(2)}>${content}</clip></track></timeline></composition>; export default main;`;
 
 describe("compiler", () => {
+  it("lowers explicit time-bounded adjustment-layer scope and effects", async () => {
+    const source = `export const main = <composition id="sequence_main" width={1920} height={1080} fps={30}><timeline id="timeline_main"><track id="track_adjust" kind="overlay" name="Adjustments"><adjustmentlayer id="look" start={seconds(1)} duration={seconds(2)} scope="tracks" tracks="track_video"><colorgrade id="look/grade" exposure={0.5}><animate property="exposure"><key at={seconds(0)} value={0.5} /><key at={seconds(2)} value={1} easing="ease-in" /></animate></colorgrade><vignette id="look/vignette" amount={0.4} softness={0.25} /></adjustmentlayer></track><track id="track_video" kind="video" name="Video"><clip id="clip_camera" asset={asset("asset_camera")} media="video" start={seconds(0)} in={seconds(0)} duration={seconds(4)} x={px(0)}><animate property="x"><key at={seconds(0)} value={px(0)} /><key at={seconds(4)} value={px(200)} /></animate></clip></track></timeline></composition>; export default main;`;
+    const result = await compileVideo("main.jsx", config, host({ "main.jsx": source }));
+    expect(result.ir.compositions[0]!.timeline.tracks[0]!.adjustments?.[0]).toMatchObject({
+      id: "look",
+      timelineStartUs: 1_000_000,
+      durationUs: 2_000_000,
+      scope: "tracks",
+      targetTrackIds: ["track_video"],
+      effects: [{ kind: "colorgrade" }, { kind: "vignette" }],
+    });
+    expect(
+      result.ir.compositions[0]!.timeline.tracks[0]!.adjustments?.[0]?.effects[0]?.animations,
+    ).toHaveLength(1);
+    expect(result.ir.compositions[0]!.timeline.tracks[1]!.clips[0]!.animations).toHaveLength(1);
+  });
+
   it("lowers explicit timelines and imported components with call-site provenance", async () => {
     const files = {
       "main.jsx": `import { Card } from "./Card.jsx"; ${wrapper('<Card id="title" text="Hello" />')}`,

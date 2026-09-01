@@ -121,6 +121,67 @@ describe("semantic ir", () => {
     expect(createAudioPlan(ir, 250_000).sources).toEqual([]);
   });
 
+  it("targets active time-bounded adjustment layers below their owner", () => {
+    const ir = program();
+    ir.compositions[0]!.timeline.tracks.unshift({
+      id: "track_adjustments",
+      kind: "overlay",
+      name: "Adjustments",
+      muted: false,
+      locked: false,
+      clips: [],
+      effects: [],
+      adjustments: [
+        {
+          id: "adjustment_grade",
+          trackId: "track_adjustments",
+          timelineStartUs: irTimeUs(100_000),
+          durationUs: irTimeUs(500_000),
+          scope: "below",
+          depth: 1,
+          targetTrackIds: [],
+          enabled: true,
+          animations: [],
+          effects: [
+            {
+              id: "adjustment_grade/color",
+              kind: "colorgrade",
+              enabled: true,
+              props: { exposure: { kind: "number", value: 0.5 } },
+              animations: [
+                {
+                  property: "exposure",
+                  keyframes: [
+                    { at: irTimeUs(0), value: { kind: "number", value: 0 }, easing: "linear" },
+                    {
+                      at: irTimeUs(300_000),
+                      value: { kind: "number", value: 1 },
+                      easing: "linear",
+                    },
+                  ],
+                },
+              ],
+              children: [],
+            },
+          ],
+        },
+      ],
+    });
+    validateIrProgram(ir, new Set(["asset_camera"]));
+    expect(createRenderPlan(ir, 50_000).adjustments).toEqual([]);
+    const plan = createRenderPlan(ir, 250_000);
+    expect(plan.adjustments[0]).toMatchObject({
+      id: "adjustment_grade",
+      targetTrackIds: ["track_video"],
+    });
+    expect(plan.layers[0]!.effects.at(-1)?.id).toBe("adjustment_grade/color");
+    expect(plan.layers[0]!.effects.at(-1)?.props.exposure).toEqual({
+      kind: "number",
+      value: 0.5,
+    });
+    expect(projectTimeline(ir).tracks[0]!.adjustments[0]?.id).toBe("adjustment_grade");
+  });
+
   it("projects active caption cues with cue-local typed animation", () => {
     const ir = program();
     ir.compositions[0]!.timeline.captionTracks.push({

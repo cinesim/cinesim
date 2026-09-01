@@ -1,6 +1,8 @@
 import type { Transform } from "@cinesim/core";
-import type { ColorAdjustment } from "../playback/scene-resolver";
+import type { ColorAdjustment, VisualEffectSettings } from "../playback/scene-resolver";
 import type { AtlasGlyph, ShapedAtlasGlyph, WebGpuGlyphAtlas } from "./glyph-atlas";
+import { buildRenderGraph, type RenderGraphLayer } from "./render-graph";
+import { BoundedRenderTexturePool } from "./texture-pool";
 
 const VIDEO_SHADER = /* wgsl */ `
 struct LayerUniforms {
@@ -11,6 +13,11 @@ struct LayerUniforms {
   colorAdjustTwo: vec4f,
   transitionOne: vec4f,
   transitionTwo: vec4f,
+  effectOne: vec4f,
+  effectTwo: vec4f,
+  chromaColor: vec4f,
+  shadowColor: vec4f,
+  shadowParams: vec4f,
 }
 
 @group(0) @binding(0) var videoTexture: texture_external;
@@ -89,22 +96,67 @@ fn transitionSample(uv: vec2f) -> vec4f {
   return result;
 }
 
+fn effectSample(uv: vec2f) -> vec4f {
+  let radius = layer.effectOne.x;
+  if (radius <= 0.00001) { return transitionSample(uv); }
+  var result = transitionSample(uv) * 0.4;
+  result += transitionSample(uv + vec2f(radius, 0.0)) * 0.15;
+  result += transitionSample(uv - vec2f(radius, 0.0)) * 0.15;
+  result += transitionSample(uv + vec2f(0.0, radius)) * 0.15;
+  result += transitionSample(uv - vec2f(0.0, radius)) * 0.15;
+  return result;
+}
+
+fn randomGrain(uv: vec2f, size: f32) -> f32 {
+  let cell = floor(uv * 2048.0 / max(0.1, size));
+  return fract(sin(dot(cell, vec2f(12.9898, 78.233))) * 43758.5453) - 0.5;
+}
+
+fn chromaAlpha(rgb: vec3f, alpha: f32) -> f32 {
+  let tolerance = layer.effectTwo.y;
+  if (tolerance <= 0.0) { return alpha; }
+  let distance = length(rgb - layer.chromaColor.rgb) / 1.7320508;
+  return alpha * smoothstep(tolerance * 0.6, max(tolerance, 0.0001), distance);
+}
+
+fn shadowSample(uv: vec2f) -> f32 {
+  let blur = layer.shadowParams.z;
+  let shifted = uv - layer.shadowParams.xy;
+  var alpha = transitionSample(shifted).a * 0.4;
+  alpha += transitionSample(shifted + vec2f(blur, 0.0)).a * 0.15;
+  alpha += transitionSample(shifted - vec2f(blur, 0.0)).a * 0.15;
+  alpha += transitionSample(shifted + vec2f(0.0, blur)).a * 0.15;
+  alpha += transitionSample(shifted - vec2f(0.0, blur)).a * 0.15;
+  return alpha * layer.shadowColor.a;
+}
+
 @fragment
 fn fragmentMain(input: VertexOutput) -> @location(0) vec4f {
   let uv = input.uv * layer.uvScaleAndOffset.xy + layer.uvScaleAndOffset.zw;
-  let sampled = transitionSample(uv);
+  let sampled = effectSample(uv);
   let exposure = layer.colorAdjustOne.x;
   let contrast = layer.colorAdjustOne.y;
   let saturation = layer.colorAdjustOne.z;
   let temperature = layer.colorAdjustOne.w;
   let tint = layer.colorAdjustTwo.x;
+  let highlights = layer.colorAdjustTwo.y;
+  let shadows = layer.colorAdjustTwo.z;
   var rgb = sampled.rgb * exp2(exposure);
   rgb = (rgb - vec3f(0.5)) * contrast + vec3f(0.5);
   let luma = dot(rgb, vec3f(0.2126, 0.7152, 0.0722));
   rgb = mix(vec3f(luma), rgb, saturation);
   rgb += vec3f(temperature * 0.08, tint * 0.06, -temperature * 0.08);
-  let alpha = sampled.a * layer.opacityAndRadius.x * roundedAlpha(input.uv, layer.opacityAndRadius.y) * transitionAlpha(input.uv);
-  return vec4f(rgb, alpha);
+  rgb += highlights * smoothstep(0.55, 1.0, luma) + shadows * (1.0 - smoothstep(0.0, 0.45, luma));
+  let vignette = 1.0 - layer.effectOne.y * smoothstep(
+    max(0.0, 0.72 - layer.effectOne.z),
+    0.72,
+    distance(input.uv, vec2f(0.5))
+  );
+  rgb = rgb * vignette + vec3f(randomGrain(input.uv, layer.effectTwo.x) * layer.effectOne.w);
+  let shapeAlpha = layer.opacityAndRadius.x * roundedAlpha(input.uv, layer.opacityAndRadius.y) * transitionAlpha(input.uv);
+  let alpha = chromaAlpha(sampled.rgb, sampled.a) * shapeAlpha;
+  let shadowAlpha = shadowSample(uv) * shapeAlpha * (1.0 - alpha);
+  return vec4f(mix(rgb, layer.shadowColor.rgb, shadowAlpha), alpha + shadowAlpha);
 }
 `;
 
@@ -240,7 +292,38 @@ fn fragmentMain(input: VertexOutput) -> @location(0) vec4f {
 }
 `;
 
-export const LAYER_UNIFORM_BYTE_SIZE = 112;
+const OUTPUT_SHADER = /* wgsl */ `
+@group(0) @binding(0) var sceneTexture: texture_2d<f32>;
+@group(0) @binding(1) var sceneSampler: sampler;
+
+struct VertexOutput {
+  @builtin(position) position: vec4f,
+  @location(0) uv: vec2f,
+}
+
+@vertex
+fn vertexMain(@builtin(vertex_index) index: u32) -> VertexOutput {
+  var positions = array<vec2f, 6>(
+    vec2f(-1.0, -1.0), vec2f(1.0, -1.0), vec2f(-1.0, 1.0),
+    vec2f(-1.0, 1.0), vec2f(1.0, -1.0), vec2f(1.0, 1.0)
+  );
+  var uvs = array<vec2f, 6>(
+    vec2f(0.0, 1.0), vec2f(1.0, 1.0), vec2f(0.0, 0.0),
+    vec2f(0.0, 0.0), vec2f(1.0, 1.0), vec2f(1.0, 0.0)
+  );
+  var output: VertexOutput;
+  output.position = vec4f(positions[index], 0.0, 1.0);
+  output.uv = uvs[index];
+  return output;
+}
+
+@fragment
+fn fragmentMain(input: VertexOutput) -> @location(0) vec4f {
+  return textureSample(sceneTexture, sceneSampler, input.uv);
+}
+`;
+
+export const LAYER_UNIFORM_BYTE_SIZE = 192;
 export const GRAPHIC_UNIFORM_BYTE_SIZE = 64;
 export const TEXT_UNIFORM_BYTE_SIZE = 112;
 
@@ -264,6 +347,8 @@ export interface LayerUniformOptions {
   cornerRadiusFraction?: number;
   colorAdjustment?: ColorAdjustment;
   transition?: CompositorLayer["transition"];
+  visualEffects?: VisualEffectSettings;
+  output?: { width: number; height: number };
 }
 
 export function packLayerUniform(
@@ -274,6 +359,8 @@ export function packLayerUniform(
 ): Float32Array {
   const adjustment = options.colorAdjustment ?? DEFAULT_ADJUSTMENT;
   const transition = options.transition;
+  const effects = options.visualEffects;
+  const output = options.output ?? { width: 1, height: 1 };
   const direction = transition ? { left: 0, right: 1, up: 2, down: 3 }[transition.direction] : 0;
   return new Float32Array([
     transform.x,
@@ -293,8 +380,8 @@ export function packLayerUniform(
     adjustment.saturation,
     adjustment.temperature,
     adjustment.tint,
-    0,
-    0,
+    adjustment.highlights ?? 0,
+    adjustment.shadows ?? 0,
     0,
     transition?.kind === "wipe" ? 1 : transition?.kind === "blur" ? 2 : 0,
     transition?.progress ?? 0,
@@ -304,14 +391,37 @@ export function packLayerUniform(
     0,
     0,
     0,
+    (effects?.blurPx ?? 0) / Math.max(1, Math.min(output.width, output.height)),
+    effects?.vignetteAmount ?? 0,
+    effects?.vignetteSoftness ?? 0.5,
+    effects?.grainAmount ?? 0,
+    effects?.grainSize ?? 1,
+    effects?.chromaTolerance ?? 0,
+    effects?.shadowBlur
+      ? effects.shadowBlur / Math.max(1, Math.min(output.width, output.height))
+      : 0,
+    0,
+    ...(effects?.chromaColor ?? [0, 1, 0, 1]),
+    ...(effects?.shadowColor ?? [0, 0, 0, 0]),
+    (effects?.shadowX ?? 0) / Math.max(1, Math.abs(transform.scaleX) * output.width),
+    (effects?.shadowY ?? 0) / Math.max(1, Math.abs(transform.scaleY) * output.height),
+    effects?.shadowBlur
+      ? effects.shadowBlur / Math.max(1, Math.min(output.width, output.height))
+      : 0,
+    0,
   ]);
 }
 
 export interface CompositorLayer {
+  id?: string;
   frame: VideoFrame;
   transform: Transform;
   cornerRadiusPx?: number;
   colorAdjustment?: ColorAdjustment;
+  visualEffects?: VisualEffectSettings;
+  blendMode?: string;
+  groupDepth?: number;
+  masked?: boolean;
   transition?: {
     kind: "wipe" | "blur";
     progress: number;
@@ -323,6 +433,7 @@ export interface CompositorLayer {
 }
 
 export interface CompositorGraphicLayer {
+  id?: string;
   kind: "solid";
   transform: Transform;
   color: readonly [number, number, number, number];
@@ -332,6 +443,7 @@ export interface CompositorGraphicLayer {
 }
 
 export interface CompositorTextLayer {
+  id?: string;
   text: string;
   originX: number;
   originY: number;
@@ -391,9 +503,32 @@ export interface WebGpuCompositorOptions {
 }
 
 type DrawItem =
-  | { kind: "media"; order: number; layer: CompositorLayer }
-  | { kind: "graphic"; order: number; graphic: CompositorGraphicLayer }
-  | { kind: "text"; order: number; glyph: TextGlyphDraw };
+  | { id: string; kind: "media"; order: number; layer: CompositorLayer }
+  | { id: string; kind: "graphic"; order: number; graphic: CompositorGraphicLayer }
+  | { id: string; kind: "text"; order: number; glyph: TextGlyphDraw };
+
+function graphLayer(item: DrawItem): RenderGraphLayer {
+  if (item.kind !== "media") {
+    return {
+      id: item.id,
+      kind: item.kind,
+      painterOrder: item.order,
+      effectCount: 0,
+      masked: false,
+      groupDepth: 0,
+      blendMode: "normal",
+    };
+  }
+  return {
+    id: item.id,
+    kind: item.kind,
+    painterOrder: item.order,
+    effectCount: item.layer.visualEffects || item.layer.colorAdjustment ? 1 : 0,
+    masked: item.layer.masked ?? false,
+    groupDepth: item.layer.groupDepth ?? 0,
+    blendMode: item.layer.blendMode ?? "normal",
+  };
+}
 
 interface TextGlyphDraw {
   atlas: AtlasGlyph;
@@ -719,6 +854,8 @@ export class WebGpuCompositor implements PreviewCompositor {
   #pipeline: GPURenderPipeline | null = null;
   #graphicPipeline: GPURenderPipeline | null = null;
   #textPipeline: GPURenderPipeline | null = null;
+  #outputPipeline: GPURenderPipeline | null = null;
+  readonly #texturePool = new BoundedRenderTexturePool(4);
   #glyphAtlas: WebGpuGlyphAtlas | null = null;
   #sampler: GPUSampler | null = null;
   #format: GPUTextureFormat | null = null;
@@ -756,6 +893,7 @@ export class WebGpuCompositor implements PreviewCompositor {
         this.#pipeline = null;
         this.#graphicPipeline = null;
         this.#textPipeline = null;
+        this.#outputPipeline = null;
       }
       this.#reportError(new Error(`WebGPU validation failed: ${event.error.message}`));
     };
@@ -812,6 +950,18 @@ export class WebGpuCompositor implements PreviewCompositor {
           },
         ],
       });
+      const outputModule = device.createShaderModule({ code: OUTPUT_SHADER });
+      const outputLayout = device.createBindGroupLayout({
+        label: "cinesim-preview-output-layout",
+        entries: [
+          {
+            binding: 0,
+            visibility: GPUShaderStage.FRAGMENT,
+            texture: { sampleType: "float", viewDimension: "2d" },
+          },
+          { binding: 1, visibility: GPUShaderStage.FRAGMENT, sampler: { type: "filtering" } },
+        ],
+      });
       this.#pipeline = await device.createRenderPipelineAsync({
         label: "cinesim-preview-pipeline",
         layout: device.createPipelineLayout({ bindGroupLayouts: [videoLayout] }),
@@ -841,6 +991,13 @@ export class WebGpuCompositor implements PreviewCompositor {
         },
         primitive: { topology: "triangle-list" },
       });
+      this.#outputPipeline = await device.createRenderPipelineAsync({
+        label: "cinesim-preview-output-pipeline",
+        layout: device.createPipelineLayout({ bindGroupLayouts: [outputLayout] }),
+        vertex: { module: outputModule, entryPoint: "vertexMain" },
+        fragment: { module: outputModule, entryPoint: "fragmentMain", targets: [{ format }] },
+        primitive: { topology: "triangle-list" },
+      });
       if (this.#textRendering === "production") {
         const { WebGpuGlyphAtlas } = await import("./glyph-atlas");
         this.#glyphAtlas = await WebGpuGlyphAtlas.create(device);
@@ -848,6 +1005,7 @@ export class WebGpuCompositor implements PreviewCompositor {
     } catch (error) {
       device.removeEventListener("uncapturederror", deviceErrorListener);
       if (this.#device === device) {
+        this.#texturePool.destroy();
         context.unconfigure();
         this.#device = null;
         this.#context = null;
@@ -857,6 +1015,7 @@ export class WebGpuCompositor implements PreviewCompositor {
         this.#pipeline = null;
         this.#graphicPipeline = null;
         this.#textPipeline = null;
+        this.#outputPipeline = null;
         this.#glyphAtlas?.destroy();
         this.#glyphAtlas = null;
       }
@@ -873,10 +1032,12 @@ export class WebGpuCompositor implements PreviewCompositor {
       device.removeEventListener("uncapturederror", deviceErrorListener);
       this.#deviceErrorListener = null;
       this.#deviceLostCount += 1;
+      this.#texturePool.destroy();
       this.#device = null;
       this.#pipeline = null;
       this.#graphicPipeline = null;
       this.#textPipeline = null;
+      this.#outputPipeline = null;
       this.#glyphAtlas = null;
       if (!this.#destroyed && info.reason !== "destroyed")
         void this.initialize().catch((error: unknown) => this.#reportError(error));
@@ -962,6 +1123,8 @@ export class WebGpuCompositor implements PreviewCompositor {
         cornerRadiusFraction: relativeRadius(layer.cornerRadiusPx ?? 0, layer.transform, output),
         ...(layer.colorAdjustment === undefined ? {} : { colorAdjustment: layer.colorAdjustment }),
         ...(layer.transition === undefined ? {} : { transition: layer.transition }),
+        ...(layer.visualEffects === undefined ? {} : { visualEffects: layer.visualEffects }),
+        output,
       }),
     );
     pass.setPipeline(this.#pipeline!);
@@ -1014,18 +1177,21 @@ export class WebGpuCompositor implements PreviewCompositor {
   ): void {
     const items: DrawItem[] = [
       ...layers.map((layer, index) => ({
+        id: layer.id ?? `media:${index}`,
         kind: "media" as const,
         order: layer.order ?? index,
         layer,
       })),
       ...graphics.map((graphic, index) => ({
+        id: graphic.id ?? `graphic:${index}`,
         kind: "graphic" as const,
         order: graphic.order ?? layers.length + index,
         graphic,
       })),
       ...(this.#glyphAtlas
-        ? text.flatMap((layer) =>
-            textGlyphs(this.#glyphAtlas!, layer, output).map((glyph) => ({
+        ? text.flatMap((layer, textIndex) =>
+            textGlyphs(this.#glyphAtlas!, layer, output).map((glyph, glyphIndex) => ({
+              id: `${layer.id ?? `text:${textIndex}`}:glyph:${glyphIndex}`,
               kind: "text" as const,
               order: glyph.order,
               glyph,
@@ -1033,11 +1199,30 @@ export class WebGpuCompositor implements PreviewCompositor {
           )
         : []),
     ];
-    for (const item of items.sort((left, right) => left.order - right.order)) {
+    const byId = new Map(items.map((item) => [item.id, item]));
+    const graph = buildRenderGraph(items.map(graphLayer));
+    for (const id of graph.painterOrder) {
+      const item = byId.get(id)!;
       if (item.kind === "graphic") this.#drawGraphic(pass, item.graphic, output, transientBuffers);
       else if (item.kind === "text") this.#drawText(pass, item.glyph, transientBuffers);
       else this.#drawMedia(pass, item.layer, output, transientBuffers);
     }
+  }
+
+  #drawOutput(pass: GPURenderPassEncoder, texture: GPUTexture): void {
+    pass.setPipeline(this.#outputPipeline!);
+    pass.setBindGroup(
+      0,
+      this.#device!.createBindGroup({
+        label: "cinesim-preview-output-bind-group",
+        layout: this.#outputPipeline!.getBindGroupLayout(0),
+        entries: [
+          { binding: 0, resource: texture.createView() },
+          { binding: 1, resource: this.#sampler! },
+        ],
+      }),
+    );
+    pass.draw(6);
   }
 
   render(
@@ -1053,6 +1238,7 @@ export class WebGpuCompositor implements PreviewCompositor {
       !this.#pipeline ||
       !this.#graphicPipeline ||
       !this.#textPipeline ||
+      !this.#outputPipeline ||
       !this.#sampler ||
       !this.#format
     ) {
@@ -1066,10 +1252,16 @@ export class WebGpuCompositor implements PreviewCompositor {
     try {
       this.resize();
       const encoder = this.#device.createCommandEncoder();
+      const intermediate = this.#texturePool.acquire(
+        this.#device,
+        Math.max(1, Math.round(output.width)),
+        Math.max(1, Math.round(output.height)),
+        this.#format,
+      );
       const pass = encoder.beginRenderPass({
         colorAttachments: [
           {
-            view: this.#context.getCurrentTexture().createView(),
+            view: intermediate.createView(),
             clearValue: { r: background[0], g: background[1], b: background[2], a: background[3] },
             loadOp: "clear",
             storeOp: "store",
@@ -1078,6 +1270,18 @@ export class WebGpuCompositor implements PreviewCompositor {
       });
       this.#drawItems(pass, layers, graphics, text, output, transientBuffers);
       pass.end();
+      const outputPass = encoder.beginRenderPass({
+        colorAttachments: [
+          {
+            view: this.#context.getCurrentTexture().createView(),
+            clearValue: { r: 0, g: 0, b: 0, a: 0 },
+            loadOp: "clear",
+            storeOp: "store",
+          },
+        ],
+      });
+      this.#drawOutput(outputPass, intermediate);
+      outputPass.end();
       this.#device.queue.submit([encoder.finish()]);
       submitted = true;
       void this.#device.queue.onSubmittedWorkDone().then(
@@ -1112,6 +1316,7 @@ export class WebGpuCompositor implements PreviewCompositor {
   destroy(): void {
     this.#destroyed = true;
     this.#glyphAtlas?.destroy();
+    this.#texturePool.destroy();
     if (this.#device && this.#deviceErrorListener)
       this.#device.removeEventListener("uncapturederror", this.#deviceErrorListener);
     this.#context?.unconfigure();
@@ -1121,6 +1326,7 @@ export class WebGpuCompositor implements PreviewCompositor {
     this.#pipeline = null;
     this.#graphicPipeline = null;
     this.#textPipeline = null;
+    this.#outputPipeline = null;
     this.#glyphAtlas = null;
     this.#sampler = null;
     this.#format = null;

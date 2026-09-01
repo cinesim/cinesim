@@ -32,7 +32,7 @@ function preferredProvider(
 }
 
 interface AgentTurnContextInput {
-  workspace: "media" | "cut" | "edit";
+  workspace: "media" | "cut" | "edit" | "effects";
   activeSequenceId: string | null;
   playheadUs: number;
   selectedAssetIds: readonly string[];

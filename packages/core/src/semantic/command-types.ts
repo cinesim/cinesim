@@ -114,6 +114,14 @@ export type SemanticEditorCommand =
       updates: Array<{ property: string; value: IrValue }>;
       scope?: EditScope;
     }
+  | {
+      type: "keyframe.set";
+      nodeId: string;
+      property: string;
+      index: number;
+      atUs?: TimeUs;
+      value?: IrValue;
+    }
   | { type: "clip.slip"; clipId: string; sourceStartUs: TimeUs }
   | { type: "clip.duplicate"; clipId: string; timelineStartUs?: TimeUs; trackId?: string }
   | { type: "clip.link"; clipId: string; linkedClipId: string }
@@ -143,6 +151,7 @@ export type AssetCommand = Extract<
 >;
 export type ClipCommand = Extract<SemanticEditorCommand, { type: `clip.${string}` }>;
 export type CaptionCommand = Extract<SemanticEditorCommand, { type: `caption.${string}` }>;
+export type KeyframeCommand = Extract<SemanticEditorCommand, { type: `keyframe.${string}` }>;
 export type PropertyCommand = Extract<SemanticEditorCommand, { type: `property.${string}` }>;
 export type NoteCommand = Extract<SemanticEditorCommand, { type: `note.${string}` }>;
 export type SequenceCommand = Extract<SemanticEditorCommand, { type: `sequence.${string}` }>;

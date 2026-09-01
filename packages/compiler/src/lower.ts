@@ -5,6 +5,7 @@ import {
   type IrCaptionTrack,
   type IrClip,
   type IrComposition,
+  type IrAdjustmentLayer,
   type IrEffect,
   type IrSceneNode,
   type IrTrack,
@@ -42,6 +43,7 @@ function lowerEffect(node: BoundNode): IrEffect {
         .filter(([name]) => name !== "enabled")
         .map(([name, property]) => [name, property.value]),
     ),
+    ...(node.animations.length === 0 ? {} : { animations: node.animations.map(runtimeAnimation) }),
     children: node.children.filter((child) => !EFFECT_BUILTINS.has(child.kind)).map(lowerSceneNode),
   };
 }
@@ -130,6 +132,7 @@ function lowerClip(node: BoundNode, trackId: string): IrClip {
     },
     ...(content === undefined ? {} : { content }),
     effects: node.children.filter((child) => EFFECT_BUILTINS.has(child.kind)).map(lowerEffect),
+    ...(node.animations.length === 0 ? {} : { animations: node.animations.map(runtimeAnimation) }),
   };
 }
 
@@ -145,6 +148,31 @@ function lowerTrack(node: BoundNode): IrTrack {
     clips: node.children
       .filter((child) => child.kind === "clip")
       .map((clip) => lowerClip(clip, node.id)),
+    adjustments: node.children
+      .filter((child) => child.kind === "adjustmentlayer")
+      .map((child): IrAdjustmentLayer => {
+        const scope = stringValue(child, "scope", "below");
+        if (scope !== "below" && scope !== "tracks")
+          fail("ADJUSTMENT_SCOPE", `Invalid adjustment scope ${scope}.`, child.origin);
+        const targetTrackIds = stringValue(child, "tracks", "")
+          .split(",")
+          .map((entry) => entry.trim())
+          .filter(Boolean);
+        return {
+          id: child.id,
+          trackId: node.id,
+          timelineStartUs: timeValue(child, "start"),
+          durationUs: timeValue(child, "duration"),
+          scope,
+          depth: numberValue(child, "depth", 1),
+          targetTrackIds,
+          enabled: booleanValue(child, "enabled", true),
+          animations: child.animations.map(runtimeAnimation),
+          effects: child.children
+            .filter((effect) => EFFECT_BUILTINS.has(effect.kind))
+            .map(lowerEffect),
+        };
+      }),
     effects: node.children.filter((child) => EFFECT_BUILTINS.has(child.kind)).map(lowerEffect),
   };
 }

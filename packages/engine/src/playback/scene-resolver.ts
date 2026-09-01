@@ -23,6 +23,22 @@ export interface ColorAdjustment {
   saturation: number;
   temperature: number;
   tint: number;
+  highlights?: number;
+  shadows?: number;
+}
+
+export interface VisualEffectSettings {
+  blurPx: number;
+  chromaColor: readonly [number, number, number, number];
+  chromaTolerance: number;
+  vignetteAmount: number;
+  vignetteSoftness: number;
+  grainAmount: number;
+  grainSize: number;
+  shadowColor: readonly [number, number, number, number];
+  shadowX: number;
+  shadowY: number;
+  shadowBlur: number;
 }
 
 export interface ResolvedLayer {
@@ -35,6 +51,7 @@ export interface ResolvedLayer {
   transform: Transform;
   cornerRadiusPx: number;
   colorAdjustment: ColorAdjustment;
+  visualEffects?: VisualEffectSettings;
   transition?: {
     kind: "wipe" | "blur";
     progress: number;
@@ -115,6 +132,22 @@ const DEFAULT_COLOR_ADJUSTMENT: ColorAdjustment = {
   saturation: 1,
   temperature: 0,
   tint: 0,
+  highlights: 0,
+  shadows: 0,
+};
+
+const DEFAULT_VISUAL_EFFECTS: VisualEffectSettings = {
+  blurPx: 0,
+  chromaColor: [0, 1, 0, 1],
+  chromaTolerance: 0,
+  vignetteAmount: 0,
+  vignetteSoftness: 0.5,
+  grainAmount: 0,
+  grainSize: 1,
+  shadowColor: [0, 0, 0, 0],
+  shadowX: 0,
+  shadowY: 0,
+  shadowBlur: 0,
 };
 
 function numeric(value: IrValue | undefined, fallback: number): number {
@@ -196,8 +229,42 @@ function colorAdjustment(effects: readonly IrEffect[]): ColorAdjustment {
     adjustment.saturation = numeric(effect.props.saturation, adjustment.saturation);
     adjustment.temperature = numeric(effect.props.temperature, adjustment.temperature);
     adjustment.tint = numeric(effect.props.tint, adjustment.tint);
+    adjustment.highlights = numeric(effect.props.highlights, adjustment.highlights ?? 0);
+    adjustment.shadows = numeric(effect.props.shadows, adjustment.shadows ?? 0);
   }
   return adjustment;
+}
+
+function applyVisualEffect(result: VisualEffectSettings, effect: IrEffect): void {
+  switch (effect.kind) {
+    case "blur":
+      result.blurPx = Math.max(0, numeric(effect.props.radius, 0));
+      break;
+    case "chromakey":
+      result.chromaColor = parseColor(stringValue(effect.props.color, "#00ff00"));
+      result.chromaTolerance = Math.max(0, numeric(effect.props.tolerance, 0));
+      break;
+    case "vignette":
+      result.vignetteAmount = Math.max(0, numeric(effect.props.amount, 0));
+      result.vignetteSoftness = Math.max(0.001, numeric(effect.props.softness, 0.5));
+      break;
+    case "grain":
+      result.grainAmount = Math.max(0, numeric(effect.props.amount, 0));
+      result.grainSize = Math.max(0.1, numeric(effect.props.size, 1));
+      break;
+    case "shadow":
+      result.shadowColor = parseColor(stringValue(effect.props.color, "#00000080"));
+      result.shadowX = numeric(effect.props.x, 0);
+      result.shadowY = numeric(effect.props.y, 0);
+      result.shadowBlur = Math.max(0, numeric(effect.props.blur, 0));
+      break;
+  }
+}
+
+function visualEffects(effects: readonly IrEffect[]): VisualEffectSettings {
+  const result = { ...DEFAULT_VISUAL_EFFECTS };
+  for (const effect of effects) if (effect.enabled) applyVisualEffect(result, effect);
+  return result;
 }
 
 function clipOpacity(clip: IrClip, timelineTimeUs: number): number {
@@ -382,6 +449,7 @@ function resolveMediaNode(
     ),
     cornerRadiusPx: numeric(node.props.radius, numeric(node.props.cornerRadius, 0)),
     colorAdjustment: colorAdjustment(layout.effects),
+    visualEffects: visualEffects(layout.effects),
     order: output.drawOrder.value++,
   });
 }
@@ -681,6 +749,7 @@ function appendPlanMediaLayer(
     transform: directTransform(clip.transform, layer.opacity, composition),
     cornerRadiusPx: clip.transform.cornerRadius,
     colorAdjustment: colorAdjustment(layer.effects),
+    visualEffects: visualEffects(layer.effects),
     ...(transition ? { transition } : {}),
     order: drawOrder.value++,
   });
@@ -821,6 +890,7 @@ export function findUpcomingLayers(
                     ),
                     cornerRadiusPx: clip.transform.cornerRadius,
                     colorAdjustment: colorAdjustment([...track.effects, ...clip.effects]),
+                    visualEffects: visualEffects([...track.effects, ...clip.effects]),
                     order: 0,
                   },
                 ]

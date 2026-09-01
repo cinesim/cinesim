@@ -73,6 +73,14 @@ Audio is deliberately separate. An `<audiocrossfade>` references adjacent clips 
 and chooses linear or equal-power gain curves, so a hard picture cut may use a smooth audio edit or
 a picture transition may retain a hard audio cut.
 
+### Adjustment layers
+
+An `<adjustmentlayer>` is time bounded and belongs to a visual track. With `scope="below"`, its
+positive integer `depth` selects that many lower visual tracks. With `scope="tracks"`, its
+comma-separated `tracks` list names explicit lower visual tracks. Audio tracks, unknown targets,
+and targets above the adjustment are rejected. Enabled grade, blur, vignette, chroma-key, shadow,
+and grain children execute in canonical order through the shared bounded WebGPU render plan.
+
 ## Timing
 
 All semantic timing is integer microseconds. Source helpers such as `seconds()` and `milliseconds()`

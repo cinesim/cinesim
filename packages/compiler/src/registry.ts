@@ -243,6 +243,7 @@ export const BUILTIN_REGISTRY: Readonly<Record<string, BuiltinSchema>> = {
     },
     allowedChildren: [
       "clip",
+      "adjustmentlayer",
       "colorgrade",
       "blur",
       "shadow",
@@ -252,6 +253,29 @@ export const BUILTIN_REGISTRY: Readonly<Record<string, BuiltinSchema>> = {
       "grain",
       "ducker",
     ],
+  },
+  adjustmentlayer: {
+    name: "adjustmentlayer",
+    category: "temporal",
+    properties: {
+      id,
+      start: required(property("start", "time", "timing", "number", { animatable: false })),
+      duration: required(property("duration", "time", "timing", "number", { animatable: false })),
+      scope: property("scope", "string", "structure", "select", {
+        animatable: false,
+        defaultValue: value({ kind: "string", value: "below" }),
+        options: ["below", "tracks"],
+      }),
+      depth: property("depth", "number", "structure", "number", {
+        animatable: false,
+        defaultValue: value({ kind: "number", value: 1 }),
+      }),
+      tracks: property("tracks", "string", "structure", "text", { animatable: false }),
+      enabled: property("enabled", "boolean", "structure", "toggle", {
+        defaultValue: value({ kind: "boolean", value: true }),
+      }),
+    },
+    allowedChildren: ["animate", "colorgrade", "blur", "shadow", "chromakey", "vignette", "grain"],
   },
   captiontrack: {
     name: "captiontrack",
@@ -627,6 +651,7 @@ export const TEMPORAL_BUILTINS = new Set([
   "composition",
   "timeline",
   "track",
+  "adjustmentlayer",
   "captiontrack",
   "cue",
   "captionword",

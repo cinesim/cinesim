@@ -247,6 +247,43 @@ function propertyReplacement(
   );
 }
 
+function keyframeReplacements(
+  patch: Extract<SemanticPatch, { type: "keyframe.set" }>,
+  sourceMap: IrEditMap,
+): SourceReplacement[] {
+  const animation = sourceMap.nodes[patch.nodeId]?.animations.find(
+    (candidate) => candidate.property === patch.property,
+  );
+  const keyframe = animation?.keyframes[patch.index];
+  if (!keyframe)
+    throw new Error(`No editable keyframe ${patch.nodeId}.${patch.property}[${patch.index}].`);
+  const replacements: SourceReplacement[] = [];
+  if (patch.atUs !== undefined) {
+    const value = { kind: "time" as const, valueUs: patch.atUs };
+    replacements.push(
+      replacement(
+        keyframe.at.source,
+        keyframe.at.source.start.offset,
+        keyframe.at.source.end.offset,
+        replacementText(keyframe.at, value),
+      ),
+    );
+  }
+  if (patch.value !== undefined) {
+    if (patch.value.kind !== keyframe.value.expected)
+      throw new Error(`Expected ${keyframe.value.expected}, received ${patch.value.kind}.`);
+    replacements.push(
+      replacement(
+        keyframe.value.source,
+        keyframe.value.source.start.offset,
+        keyframe.value.source.end.offset,
+        replacementText(keyframe.value, patch.value),
+      ),
+    );
+  }
+  return replacements;
+}
+
 function deferredMoveProperties(
   patches: readonly SemanticPatch[],
   movedNodeIds: ReadonlySet<string>,
@@ -369,6 +406,8 @@ function replacementsForPatch(patch: SemanticPatch, context: PlanningContext): S
         : [propertyReplacement(patch, context.sourceMap)];
     case "property.remove":
       return [removePropertyReplacement(patch, context)];
+    case "keyframe.set":
+      return keyframeReplacements(patch, context.sourceMap);
     case "node.insert":
       return [
         insertionReplacement(

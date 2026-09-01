@@ -3,7 +3,7 @@ import { DEFAULT_TRANSFORM } from "../../core/test/project-fixtures";
 import { WebGpuCompositor } from "../src";
 
 const originalDescriptors = new Map(
-  ["navigator", "window", "GPUShaderStage", "GPUBufferUsage"].map((key) => [
+  ["navigator", "window", "GPUShaderStage", "GPUBufferUsage", "GPUTextureUsage"].map((key) => [
     key,
     Object.getOwnPropertyDescriptor(globalThis, key),
   ]),
@@ -46,6 +46,7 @@ describe("WebGpuCompositor resource ownership", () => {
         finish: () => ({}),
       }),
       createBuffer: () => ({ destroy: () => undefined }),
+      createTexture: () => ({ createView: () => ({}), destroy: () => undefined }),
       createBindGroup: () => ({}),
       importExternalTexture: () => ({}),
       destroy: () => undefined,
@@ -79,6 +80,7 @@ describe("WebGpuCompositor resource ownership", () => {
       window: { configurable: true, value: { devicePixelRatio: 1 } },
       GPUShaderStage: { configurable: true, value: { FRAGMENT: 1, VERTEX: 2 } },
       GPUBufferUsage: { configurable: true, value: { UNIFORM: 1, COPY_DST: 2 } },
+      GPUTextureUsage: { configurable: true, value: { RENDER_ATTACHMENT: 1, TEXTURE_BINDING: 2 } },
     });
     const compositor = new WebGpuCompositor(canvas as unknown as HTMLCanvasElement, {
       autoResize: false,
@@ -136,6 +138,7 @@ describe("WebGpuCompositor resource ownership", () => {
             bufferDestroys += 1;
           },
         }),
+        createTexture: () => ({ createView: () => ({}), destroy: () => undefined }),
         createBindGroup: () => ({}),
         importExternalTexture: () => ({}),
         destroy: () => undefined,
@@ -165,6 +168,10 @@ describe("WebGpuCompositor resource ownership", () => {
         window: { configurable: true, value: { devicePixelRatio: 1 } },
         GPUShaderStage: { configurable: true, value: { FRAGMENT: 1, VERTEX: 2 } },
         GPUBufferUsage: { configurable: true, value: { UNIFORM: 1, COPY_DST: 2 } },
+        GPUTextureUsage: {
+          configurable: true,
+          value: { RENDER_ATTACHMENT: 1, TEXTURE_BINDING: 2 },
+        },
       });
       const compositor = new WebGpuCompositor(canvas as unknown as HTMLCanvasElement, {
         onError: (error) => reported.push(error),

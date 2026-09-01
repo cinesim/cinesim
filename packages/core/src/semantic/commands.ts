@@ -7,6 +7,7 @@ import { createCommandContext } from "./command-helpers";
 import type {
   AssetCommand,
   CaptionCommand,
+  KeyframeCommand,
   ClipCommand,
   NoteCommand,
   PropertyCommand,
@@ -20,6 +21,7 @@ import { planPropertyCommand } from "./property-command";
 import { planNoteCommand } from "./note-commands";
 import { planSequenceCommand } from "./sequence-commands";
 import { planTrackCommand } from "./track-commands";
+import { planKeyframeCommand } from "./keyframe-commands";
 
 export type { SemanticCommandPlan, SemanticEditorCommand } from "./command-types";
 
@@ -44,6 +46,8 @@ export function planSemanticCommand(
       return planClipCommand(context, command as ClipCommand);
     case "caption":
       return planCaptionCommand(context, command as CaptionCommand);
+    case "keyframe":
+      return planKeyframeCommand(context, command as KeyframeCommand);
     case "sequence":
       return planSequenceCommand(context, command as SequenceCommand);
     default:

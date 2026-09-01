@@ -15,7 +15,7 @@ describe("language reference", () => {
     });
     expect(LANGUAGE_REFERENCE.find(({ id }) => id === "element:blur")?.capability).toMatchObject({
       compiler: "supported",
-      preview: "unsupported",
+      preview: "supported",
       export: "unsupported",
     });
     expect(LANGUAGE_REFERENCE.find(({ id }) => id === "element:captiontrack")?.capability).toEqual({

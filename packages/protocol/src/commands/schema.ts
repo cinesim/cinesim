@@ -201,6 +201,19 @@ const semanticOnlyCommandSchema = z.discriminatedUnion("type", [
       { message: "Property batch contains duplicate properties" },
     ),
   z
+    .object({
+      type: z.literal("keyframe.set"),
+      nodeId: z.string().min(1).max(512),
+      property: z.string().min(1).max(120),
+      index: z.number().int().nonnegative().safe(),
+      atUs: timeUsSchema.optional(),
+      value: irValueSchema.optional(),
+    })
+    .strict()
+    .refine((command) => command.atUs !== undefined || command.value !== undefined, {
+      message: "Keyframe edit must change time or value",
+    }),
+  z
     .object({ type: z.literal("clip.slip"), clipId: clipIdSchema, sourceStartUs: timeUsSchema })
     .strict(),
   z

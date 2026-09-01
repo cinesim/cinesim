@@ -247,6 +247,10 @@ export function Timeline({ project, timeline, selectedRanges = [] }: TimelinePro
               <TimelineTrackRow
                 key={track.id}
                 track={track}
+                adjustments={
+                  timeline.tracks.find((projection) => projection.id === track.id)?.adjustments ??
+                  []
+                }
                 assets={assets}
                 clipEditability={clipEditability}
                 derived={derived}

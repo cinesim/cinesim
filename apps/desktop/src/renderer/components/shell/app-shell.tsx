@@ -298,7 +298,7 @@ function ProjectPanelToggles({
   projectVisible: boolean;
   sidebarOpen: boolean;
 }) {
-  if (!projectVisible || projectSection !== "edit") return null;
+  if (!projectVisible || (projectSection !== "edit" && projectSection !== "effects")) return null;
   return (
     <div
       className={cn(

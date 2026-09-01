@@ -712,10 +712,12 @@ export class PlaybackRuntime {
         const frame = await this.#source(descriptor).getFrame(layer.sourceTimeUs);
         return frame
           ? {
+              id: layer.nodeId,
               frame,
               transform: layer.transform,
               cornerRadiusPx: layer.cornerRadiusPx,
               colorAdjustment: layer.colorAdjustment,
+              ...(layer.visualEffects ? { visualEffects: layer.visualEffects } : {}),
               ...(layer.transition ? { transition: layer.transition } : {}),
               order: layer.order,
             }
@@ -753,10 +755,12 @@ export class PlaybackRuntime {
           const frame = await cursor.frameAt(layer.sourceTimeUs);
           return frame
             ? {
+                id: layer.nodeId,
                 frame,
                 transform: layer.transform,
                 cornerRadiusPx: layer.cornerRadiusPx,
                 colorAdjustment: layer.colorAdjustment,
+                ...(layer.visualEffects ? { visualEffects: layer.visualEffects } : {}),
                 ...(layer.transition ? { transition: layer.transition } : {}),
                 order: layer.order,
               }

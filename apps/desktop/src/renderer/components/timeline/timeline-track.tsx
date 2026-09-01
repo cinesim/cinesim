@@ -14,6 +14,7 @@ import {
   VolumeX,
 } from "@cinesim/ui";
 import type { DerivedMediaSnapshot } from "../../../shared/contracts";
+import type { IrAdjustmentLayer } from "@cinesim/ir";
 import { timelineSnapCandidates, type TimelineDropProposal } from "../../lib/timeline-geometry";
 import { useRendererStore } from "../../store/renderer-store-context";
 import { useEditorDnd } from "../workspace/editor-dnd-context";
@@ -25,6 +26,7 @@ import { TimelineWaveform } from "./timeline-waveform";
 
 export function TimelineTrackRow({
   track,
+  adjustments,
   assets,
   clipEditability,
   derived,
@@ -39,6 +41,7 @@ export function TimelineTrackRow({
   paletteId,
 }: {
   track: Track;
+  adjustments: readonly IrAdjustmentLayer[];
   assets: Map<string, Asset>;
   clipEditability: Map<string, { editable: boolean; generated: boolean }>;
   derived: DerivedMediaSnapshot | null;
@@ -98,6 +101,17 @@ export function TimelineTrackRow({
           snappingEnabled={snappingEnabled}
           snapCandidatesUs={[...timelineSnapCandidates(project, clip.id), playheadUs]}
           paletteId={paletteId}
+        />
+      ))}
+      {adjustments.map((adjustment) => (
+        <div
+          key={adjustment.id}
+          className="pointer-events-none absolute top-1 z-30 h-2 rounded-sm border border-violet-300/80 bg-violet-500/75 shadow-sm"
+          style={{
+            left: adjustment.timelineStartUs * pixelsPerUs + 1,
+            width: Math.max(8, adjustment.durationUs * pixelsPerUs - 2),
+          }}
+          title={`${adjustment.id} · ${adjustment.scope === "below" ? `${adjustment.depth} track(s) below` : adjustment.targetTrackIds.join(", ")}`}
         />
       ))}
       {trackProposal && (

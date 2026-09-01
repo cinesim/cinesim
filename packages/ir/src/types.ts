@@ -85,7 +85,21 @@ export interface IrEffect {
     | "ducker";
   enabled: boolean;
   props: Record<string, IrValue>;
+  animations?: IrAnimation[];
   children: IrSceneNode[];
+}
+
+export interface IrAdjustmentLayer {
+  id: string;
+  trackId: string;
+  timelineStartUs: IrTimeUs;
+  durationUs: IrTimeUs;
+  scope: "below" | "tracks";
+  depth: number;
+  targetTrackIds: string[];
+  enabled: boolean;
+  animations: IrAnimation[];
+  effects: IrEffect[];
 }
 
 export interface IrSceneNode {
@@ -150,6 +164,7 @@ export interface IrClip {
   audio: IrAudioProperties;
   content?: IrSceneNode;
   effects: IrEffect[];
+  animations?: IrAnimation[];
 }
 
 export interface IrTrack {
@@ -159,6 +174,7 @@ export interface IrTrack {
   muted: boolean;
   locked: boolean;
   clips: IrClip[];
+  adjustments?: IrAdjustmentLayer[];
   effects: IrEffect[];
 }
 
@@ -346,6 +362,14 @@ export type SemanticPatch =
       scope: EditScope;
     }
   | { type: "property.remove"; nodeId: string; property: string }
+  | {
+      type: "keyframe.set";
+      nodeId: string;
+      property: string;
+      index: number;
+      atUs?: IrTimeUs;
+      value?: IrValue;
+    }
   | { type: "node.insert"; parentId: string; node: IrNodeTemplate; anchor?: string }
   | { type: "node.remove"; nodeId: string }
   | { type: "node.move"; nodeId: string; parentId: string; anchor?: string }
@@ -378,6 +402,7 @@ export interface TimelineTrackProjection {
   muted: boolean;
   locked: boolean;
   clips: TimelineClipProjection[];
+  adjustments: IrAdjustmentLayer[];
 }
 
 export interface TimelineProjection {
@@ -430,6 +455,12 @@ export interface RenderPlan {
   background: string;
   layers: RenderLayer[];
   transitions: RenderTransition[];
+  adjustments: Array<{
+    id: string;
+    trackId: string;
+    targetTrackIds: string[];
+    effects: IrEffect[];
+  }>;
   captions: Array<{
     track: IrCaptionTrack;
     cue: IrCaptionCue;

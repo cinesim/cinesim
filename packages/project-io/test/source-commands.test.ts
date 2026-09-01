@@ -34,6 +34,38 @@ afterEach(async () => {
 });
 
 describe("source-backed semantic commands", () => {
+  it("commits a keyframe gesture as one validated source transaction", async () => {
+    const { directory, service } = await setup();
+    const mainPath = join(directory, "main.jsx");
+    const original = await readFile(mainPath, "utf8");
+    const animated = original.replace(
+      '<track id="track_video_1" kind="video" name="Video 1" muted={false} locked={false} />',
+      '<track id="track_video_1" kind="video" name="Video 1" muted={false} locked={false}><clip id="clip_keyed" asset={asset("asset_camera")} media="video" start={seconds(0)} in={seconds(0)} duration={seconds(4)} x={px(0)}><animate property="x"><key at={seconds(0)} value={px(0)} /><key at={seconds(2)} value={px(50)} /></animate></clip></track>',
+    );
+    await writeFile(mainPath, animated);
+    await service.acceptExternal(await service.repository.load());
+    const result = await service.execute({
+      type: "keyframe.set",
+      nodeId: "clip_keyed",
+      property: "x",
+      index: 1,
+      atUs: timeUs(3_000_000),
+      value: { kind: "length", unit: "px", value: 100 },
+    });
+    const clip = result.snapshot.compilation.ir.compositions[0]!.timeline.tracks.flatMap(
+      (track) => track.clips,
+    ).find(({ id }) => id === "clip_keyed");
+    expect(clip?.animations?.[0]?.keyframes[1]).toMatchObject({
+      at: 3_000_000,
+      value: { value: 100 },
+    });
+    expect(result.snapshot.sources["main.jsx"]).toContain(
+      "<key at={microseconds(3000000)} value={px(100)} />",
+    );
+    const undone = await service.undo();
+    expect(undone.sources["main.jsx"]).toContain("<key at={seconds(2)} value={px(50)} />");
+  });
+
   it("records accepted filesystem generations in global undo and restores complete source sets", async () => {
     const { directory, service } = await setup();
     const mainPath = join(directory, "main.jsx");

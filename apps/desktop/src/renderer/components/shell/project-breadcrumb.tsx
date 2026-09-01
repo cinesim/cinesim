@@ -18,7 +18,8 @@ export function ProjectBreadcrumb() {
   const activeSequence =
     session.project.sequences.find((sequence) => sequence.id === activeSequenceId) ??
     session.project.sequences.find((sequence) => sequence.id === session.project.activeSequenceId);
-  const timelineVisible = projectSection === "cut" || projectSection === "edit";
+  const timelineVisible =
+    projectSection === "cut" || projectSection === "edit" || projectSection === "effects";
   const switchableProjects = recentProjects
     .filter((project) => project.directory !== session.directory)
     .slice(0, 8);

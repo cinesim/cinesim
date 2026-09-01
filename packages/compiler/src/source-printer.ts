@@ -1,5 +1,6 @@
 import type {
   IrAnimation,
+  IrAdjustmentLayer,
   IrCaptionCue,
   IrCaptionTrack,
   IrClip,
@@ -162,12 +163,36 @@ function effectSource(effect: IrEffect, indent: string): string {
       id: effect.id,
       kind: effect.kind,
       props: { enabled: { kind: "boolean", value: effect.enabled }, ...effect.props },
-      animations: [],
+      animations: effect.animations ?? [],
       effects: [],
       children: effect.children,
     },
     indent,
   );
+}
+
+function adjustmentSource(adjustment: IrAdjustmentLayer, indent: string): string {
+  const attributes = [
+    `id=${JSON.stringify(adjustment.id)}`,
+    `start={microseconds(${adjustment.timelineStartUs})}`,
+    `duration={microseconds(${adjustment.durationUs})}`,
+    `scope=${JSON.stringify(adjustment.scope)}`,
+    `depth={${adjustment.depth}}`,
+    ...(adjustment.targetTrackIds.length === 0
+      ? []
+      : [`tracks=${JSON.stringify(adjustment.targetTrackIds.join(", "))}`]),
+    `enabled={${adjustment.enabled}}`,
+  ];
+  const children = [
+    ...adjustment.animations.map((animation) => animationSource(animation, `${indent}  `)),
+    ...adjustment.effects.map((effect) => effectSource(effect, `${indent}  `)),
+  ];
+  if (children.length === 0) return `${indent}<adjustmentlayer ${attributes.join(" ")} />`;
+  return [
+    `${indent}<adjustmentlayer ${attributes.join(" ")}>`,
+    ...children,
+    `${indent}</adjustmentlayer>`,
+  ].join("\n");
 }
 
 function clipSource(clip: IrClip, indent: string): string {
@@ -207,6 +232,7 @@ function clipSource(clip: IrClip, indent: string): string {
     `muted={${clip.audio.muted}}`,
   ];
   const children = [
+    ...(clip.animations ?? []).map((animation) => animationSource(animation, `${indent}  `)),
     ...(clip.content === undefined ? [] : [sceneSource(clip.content, `${indent}  `)]),
     ...clip.effects.map((effect) => effectSource(effect, `${indent}  `)),
   ];
@@ -218,6 +244,7 @@ function trackSource(track: IrTrack, indent: string): string {
   const opening = `<track id=${JSON.stringify(track.id)} kind=${JSON.stringify(track.kind)} name=${JSON.stringify(track.name)} muted={${track.muted}} locked={${track.locked}}`;
   const children = [
     ...track.clips.map((clip) => clipSource(clip, `${indent}  `)),
+    ...(track.adjustments ?? []).map((adjustment) => adjustmentSource(adjustment, `${indent}  `)),
     ...track.effects.map((effect) => effectSource(effect, `${indent}  `)),
   ];
   if (children.length === 0) return `${indent}${opening} />`;

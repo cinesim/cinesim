@@ -31,6 +31,7 @@ const previewSupported = new Set([
   "composition",
   "timeline",
   "track",
+  "adjustmentlayer",
   "clip",
   "video",
   "audio",
@@ -41,6 +42,11 @@ const previewSupported = new Set([
   "rect",
   "ellipse",
   "colorgrade",
+  "blur",
+  "shadow",
+  "chromakey",
+  "vignette",
+  "grain",
   "ducker",
   "text",
   "span",
@@ -171,6 +177,18 @@ const recipes: LanguageReferenceEntry[] = [
     example:
       '<captiontrack id="captiontrack_main" name="English" fontSize={px(64)} placement="bottom"><cue id="cue_intro" start={seconds(1)} duration={seconds(2)} text="Welcome." /></captiontrack>',
     tags: ["captions", "subtitles", "transcript", "speaker", "timed text"],
+    capability: { compiler: "supported", preview: "supported", export: "unsupported" },
+  },
+  {
+    id: "recipe:adjustment-look",
+    kind: "recipe",
+    title: "Time-bounded adjustment look",
+    summary:
+      "Apply a deterministic effect chain to a bounded number of visual tracks below, or to explicit lower visual tracks.",
+    syntax: "<adjustmentlayer> containing visual effects under an overlay or video track",
+    example:
+      '<adjustmentlayer id="look_night" start={seconds(2)} duration={seconds(5)} scope="below" depth={2}><colorgrade id="look_night/grade" exposure={-0.2} saturation={0.8} /><vignette id="look_night/edge" amount={0.35} softness={0.4} /></adjustmentlayer>',
+    tags: ["adjustment", "effects", "grade", "blur", "vignette", "chroma key", "shadow", "grain"],
     capability: { compiler: "supported", preview: "supported", export: "unsupported" },
   },
   {

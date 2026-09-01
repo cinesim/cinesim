@@ -54,6 +54,14 @@ class ProgramValidator {
       throw new Error(`Ducker ${effect.id} must be directly attached to an audio clip or track.`);
     }
     Object.values(effect.props).forEach((value) => this.referenceValue(value));
+    for (const animation of effect.animations ?? []) {
+      if (effect.props[animation.property] === undefined)
+        throw new Error(`Effect ${effect.id} animation targets an unknown property.`);
+      for (const keyframe of animation.keyframes) {
+        assertTime(keyframe.at, `${effect.id}.${animation.property}.keyframe`);
+        this.referenceValue(keyframe.value);
+      }
+    }
     effect.children.forEach((child) => this.visitScene(child));
   }
 
@@ -86,6 +94,10 @@ class ProgramValidator {
       this.referenceValue({ kind: "resource", assetId: clip.assetId });
     }
     if (clip.content) this.visitScene(clip.content);
+    for (const animation of clip.animations ?? []) {
+      for (const keyframe of animation.keyframes)
+        assertTime(keyframe.at, `${clip.id}.${animation.property}.keyframe`);
+    }
     clip.effects.forEach((effect) =>
       this.visitEffect(effect, track.kind === "audio" && clip.mediaKind === "audio"),
     );
@@ -104,7 +116,47 @@ class ProgramValidator {
   validateTrack(track: IrTrack, clips: Map<string, ClipLinkRecord>): void {
     this.claim(track.id, "track");
     for (const clip of track.clips) clips.set(clip.id, this.validateClip(clip, track));
+    for (const adjustment of track.adjustments ?? []) {
+      this.claim(adjustment.id, "adjustment layer");
+      if (adjustment.trackId !== track.id)
+        throw new Error(`Adjustment layer ${adjustment.id} has the wrong trackId.`);
+      assertTime(adjustment.timelineStartUs, `${adjustment.id}.timelineStartUs`);
+      assertTime(adjustment.durationUs, `${adjustment.id}.durationUs`);
+      if (adjustment.durationUs <= 0)
+        throw new Error(`Adjustment layer ${adjustment.id} duration must be positive.`);
+      if (!Number.isSafeInteger(adjustment.depth) || adjustment.depth <= 0)
+        throw new Error(`Adjustment layer ${adjustment.id} depth must be a positive integer.`);
+      adjustment.effects.forEach((effect) => this.visitEffect(effect));
+    }
     track.effects.forEach((effect) => this.visitEffect(effect, track.kind === "audio"));
+  }
+
+  validateAdjustmentTargets(
+    adjustment: NonNullable<IrTrack["adjustments"]>[number],
+    ownerIndex: number,
+    byId: ReadonlyMap<string, { track: IrTrack; index: number }>,
+  ): void {
+    for (const targetId of adjustment.targetTrackIds) {
+      const target = byId.get(targetId);
+      if (!target || target.track.kind === "audio" || target.index <= ownerIndex)
+        throw new Error(
+          `Adjustment layer ${adjustment.id} target ${targetId} must be a visual track below it.`,
+        );
+    }
+  }
+
+  validateAdjustments(composition: IrComposition): void {
+    const tracks = composition.timeline.tracks;
+    const byId = new Map(tracks.map((track, index) => [track.id, { track, index }]));
+    for (const [ownerIndex, owner] of tracks.entries()) {
+      if (owner.kind === "audio" && (owner.adjustments?.length ?? 0) > 0)
+        throw new Error(`Audio track ${owner.id} cannot contain adjustment layers.`);
+      for (const adjustment of owner.adjustments ?? []) {
+        if (adjustment.scope === "tracks" && adjustment.targetTrackIds.length === 0)
+          throw new Error(`Adjustment layer ${adjustment.id} requires explicit target tracks.`);
+        this.validateAdjustmentTargets(adjustment, ownerIndex, byId);
+      }
+    }
   }
 
   validateDucker(effect: IrEffect, target: IrTrack, tracks: ReadonlyMap<string, IrTrack>): void {
@@ -164,6 +216,7 @@ class ProgramValidator {
     for (const track of composition.timeline.tracks) this.validateTrack(track, clips);
     for (const track of composition.timeline.captionTracks) this.validateCaptionTrack(track);
     this.validateClipLinks(clips);
+    this.validateAdjustments(composition);
     this.validateDuckers(composition);
     this.validateEditorialMetadata(composition.timeline, clips);
   }

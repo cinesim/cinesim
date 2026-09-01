@@ -14,7 +14,7 @@ import type {
 import type { TranscriptSnapshot } from "../../shared/transcript";
 
 export type Destination = "home" | "project" | "settings";
-export type ProjectSection = "media" | "cut" | "edit";
+export type ProjectSection = "media" | "cut" | "edit" | "effects";
 export type SettingsSection =
   | "general"
   | "media"
