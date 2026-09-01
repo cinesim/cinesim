@@ -63,6 +63,7 @@ function program(): IrProgram {
           notes: [],
           markers: [],
           transitions: [],
+          audioTransitions: [],
           tracks: [
             {
               id: "track_video",

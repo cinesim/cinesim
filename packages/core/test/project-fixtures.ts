@@ -157,6 +157,7 @@ export function projectToIr(
         })),
         markers: [],
         transitions: [],
+        audioTransitions: [],
         tracks: sequence.tracks.map((track) => ({
           id: track.id,
           kind: track.kind,

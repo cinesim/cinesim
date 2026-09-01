@@ -210,7 +210,17 @@ export interface IrTransition {
   toClipId: string;
   kind: "cut" | "dissolve" | "dip" | "wipe" | "slide" | "push" | "zoom" | "blur";
   durationUs: IrTimeUs;
+  easing: string;
   props: Record<string, IrValue>;
+}
+
+export interface IrAudioTransition {
+  id: string;
+  fromClipId: string;
+  toClipId: string;
+  durationUs: IrTimeUs;
+  easing: string;
+  curve: "linear" | "equal-power";
 }
 
 export interface IrTimeline {
@@ -220,6 +230,7 @@ export interface IrTimeline {
   notes: IrTimelineNote[];
   markers: IrMarker[];
   transitions: IrTransition[];
+  audioTransitions: IrAudioTransition[];
 }
 
 export interface IrComposition {
@@ -381,6 +392,18 @@ export interface TimelineProjection {
   notes: IrTimelineNote[];
   markers: IrMarker[];
   transitions: IrTransition[];
+  audioTransitions: IrAudioTransition[];
+}
+
+export interface RenderTransition {
+  id: string;
+  fromClipId: string;
+  toClipId: string;
+  kind: IrTransition["kind"];
+  startUs: IrTimeUs;
+  durationUs: IrTimeUs;
+  progress: number;
+  props: Record<string, IrValue>;
 }
 
 export interface RenderLayer {
@@ -392,6 +415,13 @@ export interface RenderLayer {
   transform: IrTransform;
   content?: EvaluatedIrNode;
   effects: IrEffect[];
+  transition?: {
+    id: string;
+    kind: IrTransition["kind"];
+    role: "from" | "to";
+    progress: number;
+    props: Record<string, IrValue>;
+  };
 }
 
 export interface RenderPlan {
@@ -399,6 +429,7 @@ export interface RenderPlan {
   playheadUs: IrTimeUs;
   background: string;
   layers: RenderLayer[];
+  transitions: RenderTransition[];
   captions: Array<{
     track: IrCaptionTrack;
     cue: IrCaptionCue;

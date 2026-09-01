@@ -121,7 +121,8 @@ describe("WebGPU compositor uniforms", () => {
 
     expect(uniform.byteLength).toBe(LAYER_UNIFORM_BYTE_SIZE);
     expect([...uniform]).toEqual([
-      0.25, 0.5, 0.75, 0.375, 0.5, 0, 0, 0, 1, 1, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0,
+      0.25, 0.5, 0.75, 0.375, 0.5, 0, 0, 0, 1, 1, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+      0,
     ]);
   });
 
@@ -141,6 +142,44 @@ describe("WebGPU compositor uniforms", () => {
     );
 
     expect(uniform[6]).toBeCloseTo(-Math.PI / 2);
+  });
+
+  it("packs executable wipe and blur parameters into aligned uniforms", () => {
+    const transform = {
+      x: 0,
+      y: 0,
+      scaleX: 1,
+      scaleY: 1,
+      rotation: 0,
+      opacity: 1,
+      fit: "contain" as const,
+    };
+    const wipe = packLayerUniform(transform, 1, 1, {
+      transition: {
+        kind: "wipe",
+        progress: 0.4,
+        direction: "up",
+        softness: 0.03,
+        intensity: 0,
+      },
+    });
+    const blur = packLayerUniform(transform, 1, 1, {
+      transition: {
+        kind: "blur",
+        progress: 0.6,
+        direction: "left",
+        softness: 0,
+        intensity: 0.75,
+      },
+    });
+
+    expect(wipe[20]).toBe(1);
+    expect(wipe[21]).toBeCloseTo(0.4);
+    expect(wipe[22]).toBe(2);
+    expect(wipe[23]).toBeCloseTo(0.03);
+    expect(blur[20]).toBe(2);
+    expect(blur[21]).toBeCloseTo(0.6);
+    expect(blur[24]).toBeCloseTo(0.75);
   });
 });
 

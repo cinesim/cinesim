@@ -271,6 +271,12 @@ export function Timeline({ project, timeline, selectedRanges = [] }: TimelinePro
                 onSeek={(atUs) => void transport.seekTimeline(timeUs(atUs))}
               />
             ))}
+            <TransitionOverlays
+              timeline={timeline}
+              pixelsPerUs={pixelsPerUs}
+              trackHeight={trackHeight}
+              onSeek={(atUs) => void transport.seekTimeline(timeUs(atUs))}
+            />
             {proposal?.snapPointUs !== undefined && snapGuideColor && (
               <div
                 aria-hidden="true"
@@ -304,6 +310,51 @@ export function Timeline({ project, timeline, selectedRanges = [] }: TimelinePro
       </div>
     </section>
   );
+}
+
+function TransitionOverlays({
+  timeline,
+  pixelsPerUs,
+  trackHeight,
+  onSeek,
+}: {
+  timeline: TimelineProjection;
+  pixelsPerUs: number;
+  trackHeight: number;
+  onSeek: (atUs: number) => void;
+}) {
+  const clips = new Map(
+    timeline.tracks.flatMap((track, trackIndex) =>
+      track.clips.map((clip) => [clip.id, { clip, trackIndex }] as const),
+    ),
+  );
+  const transitions = [
+    ...timeline.transitions.map((transition) => ({ ...transition, audio: false })),
+    ...timeline.audioTransitions.map((transition) => ({
+      ...transition,
+      kind: "audio",
+      audio: true,
+    })),
+  ];
+  return transitions.flatMap((transition) => {
+    const target = clips.get(transition.toClipId);
+    if (!target) return [];
+    const label = transition.audio ? "Audio crossfade" : transition.kind;
+    return [
+      <button
+        key={transition.id}
+        type="button"
+        className="absolute z-[24] grid size-4 -translate-x-1/2 -translate-y-1/2 rotate-45 place-items-center rounded-[2px] border border-white/70 bg-violet-600 shadow-sm"
+        style={{
+          left: target.clip.startUs * pixelsPerUs,
+          top: 24 + target.trackIndex * trackHeight + trackHeight / 2,
+        }}
+        title={`${label} · ${(transition.durationUs / 1_000_000).toFixed(2)}s`}
+        aria-label={`${label} at ${(target.clip.startUs / 1_000_000).toFixed(2)} seconds`}
+        onClick={() => onSeek(target.clip.startUs)}
+      />,
+    ];
+  });
 }
 
 function CaptionTrackHeader({ track, height }: { track: IrCaptionTrack; height: number }) {

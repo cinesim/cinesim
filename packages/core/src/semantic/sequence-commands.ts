@@ -119,6 +119,7 @@ function createSequence(
       notes: [],
       markers: [],
       transitions: [],
+      audioTransitions: [],
     },
   };
   context.program.compositions.push(composition);

@@ -251,6 +251,35 @@ describe("compiler", () => {
     expect(source).toContain('<captionword id="captionword_generated"');
   });
 
+  it("lowers visual transitions and independent audio crossfades with typed parameters", async () => {
+    const source = `export const main = <composition id="sequence_main" width={1920} height={1080} fps={30}><timeline id="timeline_main"><track id="track_video" kind="video" name="Video"><clip id="clip_from" asset={asset("asset_camera")} media="video" start={seconds(0)} in={seconds(0)} duration={seconds(3)} /><clip id="clip_to" asset={asset("asset_camera")} media="video" start={seconds(3)} in={seconds(2)} duration={seconds(3)} /></track><track id="track_audio" kind="audio" name="Audio"><clip id="clip_audio_from" asset={asset("asset_camera")} media="audio" start={seconds(0)} in={seconds(0)} duration={seconds(3)} /><clip id="clip_audio_to" asset={asset("asset_camera")} media="audio" start={seconds(3)} in={seconds(2)} duration={seconds(3)} /></track><transition id="transition_picture" from="clip_from" to="clip_to" kind="wipe" duration={seconds(1)} easing="ease-out" direction="left" softness={percent(3)} /><audiocrossfade id="transition_audio" from="clip_audio_from" to="clip_audio_to" duration={seconds(1)} curve="equal-power" /></timeline></composition>; export default main;`;
+    const result = await compileVideo("main.jsx", config, host({ "main.jsx": source }));
+    const timeline = result.ir.compositions[0]!.timeline;
+
+    expect(timeline.transitions).toEqual([
+      expect.objectContaining({
+        id: "transition_picture",
+        kind: "wipe",
+        durationUs: 1_000_000,
+        easing: "ease-out",
+        props: expect.objectContaining({
+          direction: { kind: "string", value: "left" },
+          softness: { kind: "percent", value: 3 },
+        }),
+      }),
+    ]);
+    expect(timeline.audioTransitions).toEqual([
+      {
+        id: "transition_audio",
+        fromClipId: "clip_audio_from",
+        toClipId: "clip_audio_to",
+        durationUs: 1_000_000,
+        easing: "linear",
+        curve: "equal-power",
+      },
+    ]);
+  });
+
   it("enforces component depth and source budgets", async () => {
     const tiny = { ...config, budgets: { ...config.budgets, maxSourceBytes: 10 } };
     await expect(

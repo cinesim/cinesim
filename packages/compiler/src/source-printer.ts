@@ -127,6 +127,18 @@ function captionTrackSource(track: IrCaptionTrack, indent: string): string {
   ].join("\n");
 }
 
+function transitionSource(transition: import("@cinesim/ir").IrTransition, indent: string): string {
+  const properties = propertyAttributes(transition.props);
+  return `${indent}<transition id=${JSON.stringify(transition.id)} from=${JSON.stringify(transition.fromClipId)} to=${JSON.stringify(transition.toClipId)} kind=${JSON.stringify(transition.kind)} duration={microseconds(${transition.durationUs})} easing=${JSON.stringify(transition.easing)}${properties.length ? ` ${properties.join(" ")}` : ""} />`;
+}
+
+function audioTransitionSource(
+  transition: import("@cinesim/ir").IrAudioTransition,
+  indent: string,
+): string {
+  return `${indent}<audiocrossfade id=${JSON.stringify(transition.id)} from=${JSON.stringify(transition.fromClipId)} to=${JSON.stringify(transition.toClipId)} duration={microseconds(${transition.durationUs})} easing=${JSON.stringify(transition.easing)} curve=${JSON.stringify(transition.curve)} />`;
+}
+
 function sceneSource(node: IrSceneNode, indent: string): string {
   const properties = Object.entries(node.props).map(
     ([name, value]) =>
@@ -229,9 +241,9 @@ function compositionSource(composition: IrComposition): string {
       (marker) =>
         `      <marker id=${JSON.stringify(marker.id)} at={microseconds(${marker.atUs})} name=${JSON.stringify(marker.name)}${marker.color === undefined ? "" : ` color=${JSON.stringify(marker.color)}`} />`,
     ),
-    ...composition.timeline.transitions.map(
-      (transition) =>
-        `      <transition id=${JSON.stringify(transition.id)} from=${JSON.stringify(transition.fromClipId)} to=${JSON.stringify(transition.toClipId)} kind=${JSON.stringify(transition.kind)} duration={microseconds(${transition.durationUs})} />`,
+    ...composition.timeline.transitions.map((transition) => transitionSource(transition, "      ")),
+    ...composition.timeline.audioTransitions.map((transition) =>
+      audioTransitionSource(transition, "      "),
     ),
     "    </timeline>",
     "  </composition>",
@@ -256,6 +268,6 @@ export function printNodeTemplate(template: IrNodeTemplate, indent = ""): string
     case "note":
       return `${indent}<note id=${JSON.stringify(template.note.id)} at={microseconds(${template.note.atUs})}${template.note.durationUs === undefined ? "" : ` duration={microseconds(${template.note.durationUs})}`} kind=${JSON.stringify(template.note.kind)} text=${JSON.stringify(template.note.text)} />`;
     case "transition":
-      return `${indent}<transition id=${JSON.stringify(template.transition.id)} from=${JSON.stringify(template.transition.fromClipId)} to=${JSON.stringify(template.transition.toClipId)} kind=${JSON.stringify(template.transition.kind)} duration={microseconds(${template.transition.durationUs})} />`;
+      return transitionSource(template.transition, indent);
   }
 }

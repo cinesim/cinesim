@@ -47,6 +47,8 @@ const previewSupported = new Set([
   "captiontrack",
   "cue",
   "captionword",
+  "transition",
+  "audiocrossfade",
 ]);
 
 const previewPartial = new Set(["marker"]);
@@ -169,6 +171,18 @@ const recipes: LanguageReferenceEntry[] = [
     example:
       '<captiontrack id="captiontrack_main" name="English" fontSize={px(64)} placement="bottom"><cue id="cue_intro" start={seconds(1)} duration={seconds(2)} text="Welcome." /></captiontrack>',
     tags: ["captions", "subtitles", "transcript", "speaker", "timed text"],
+    capability: { compiler: "supported", preview: "supported", export: "unsupported" },
+  },
+  {
+    id: "recipe:edit-point-transition",
+    kind: "recipe",
+    title: "Edit-point picture and audio transitions",
+    summary:
+      "Reference adjacent clips without overlapping their canonical ranges; picture and audio transitions remain independent.",
+    syntax: "<transition> and optional separate <audiocrossfade> under the timeline",
+    example:
+      '<transition id="transition_scene" from="clip_a" to="clip_b" kind="dissolve" duration={seconds(1)} easing="ease-in-out" />',
+    tags: ["transition", "dissolve", "wipe", "slide", "push", "zoom", "blur", "crossfade"],
     capability: { compiler: "supported", preview: "supported", export: "unsupported" },
   },
 ];

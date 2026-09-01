@@ -716,6 +716,7 @@ export class PlaybackRuntime {
               transform: layer.transform,
               cornerRadiusPx: layer.cornerRadiusPx,
               colorAdjustment: layer.colorAdjustment,
+              ...(layer.transition ? { transition: layer.transition } : {}),
               order: layer.order,
             }
           : null;
@@ -756,6 +757,7 @@ export class PlaybackRuntime {
                 transform: layer.transform,
                 cornerRadiusPx: layer.cornerRadiusPx,
                 colorAdjustment: layer.colorAdjustment,
+                ...(layer.transition ? { transition: layer.transition } : {}),
                 order: layer.order,
               }
             : null;

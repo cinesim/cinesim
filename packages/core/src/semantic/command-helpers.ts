@@ -57,6 +57,7 @@ export function allIds(program: IrProgram): string[] {
     ...composition.timeline.notes.map(({ id }) => id),
     ...composition.timeline.markers.map(({ id }) => id),
     ...composition.timeline.transitions.map(({ id }) => id),
+    ...composition.timeline.audioTransitions.map(({ id }) => id),
   ]);
 }
 
@@ -253,6 +254,65 @@ function referencedAssets(program: IrProgram): string[] {
   return [...referenced].sort((left, right) => left.localeCompare(right));
 }
 
+interface TransitionClipState {
+  track: IrTrack;
+  clip: IrClip;
+}
+
+function transitionClipStates(program: IrProgram): Map<string, TransitionClipState> {
+  return new Map(
+    program.compositions.flatMap((composition) =>
+      composition.timeline.tracks.flatMap((track) =>
+        track.clips.map((clip) => [clip.id, { track, clip }] as const),
+      ),
+    ),
+  );
+}
+
+function validTransitionPair(
+  from: TransitionClipState | undefined,
+  to: TransitionClipState | undefined,
+  durationUs: number,
+  kind: "visual" | "audio",
+): boolean {
+  if (!from || !to || !from.clip.enabled || !to.clip.enabled) return false;
+  if (from.track.id !== to.track.id) return false;
+  if ((from.track.kind === "audio") !== (kind === "audio")) return false;
+  if (from.clip.timelineStartUs + from.clip.durationUs !== to.clip.timelineStartUs) return false;
+  return durationUs <= from.clip.durationUs && durationUs <= to.clip.sourceStartUs;
+}
+
+function pruneInvalidTransitions(context: CommandContext): string[] {
+  const clips = transitionClipStates(context.program);
+  const removed: string[] = [];
+  for (const composition of context.program.compositions) {
+    composition.timeline.transitions = composition.timeline.transitions.filter((transition) => {
+      const keep = validTransitionPair(
+        clips.get(transition.fromClipId),
+        clips.get(transition.toClipId),
+        transition.durationUs,
+        "visual",
+      );
+      if (!keep) removed.push(transition.id);
+      return keep;
+    });
+    composition.timeline.audioTransitions = composition.timeline.audioTransitions.filter(
+      (transition) => {
+        const keep = validTransitionPair(
+          clips.get(transition.fromClipId),
+          clips.get(transition.toClipId),
+          transition.durationUs,
+          "audio",
+        );
+        if (!keep) removed.push(transition.id);
+        return keep;
+      },
+    );
+  }
+  for (const id of removed) context.patches.push({ type: "node.remove", nodeId: id });
+  return removed;
+}
+
 export function finishCommand(
   context: CommandContext,
   command: SemanticEditorCommand,
@@ -265,6 +325,7 @@ export function finishCommand(
   } = {},
 ): SemanticCommandPlan {
   const assets = options.assets ?? context.assets;
+  const removedTransitionIds = pruneInvalidTransitions(context);
   context.program.referencedAssetIds = referencedAssets(context.program);
   validateIrProgram(context.program, new Set(assets.map((asset) => asset.id)));
   return {
@@ -273,7 +334,7 @@ export function finishCommand(
     patches: context.patches,
     manifest: options.manifest ?? {},
     summary,
-    changedIds: [...new Set(changedIds)],
+    changedIds: [...new Set([...changedIds, ...removedTransitionIds])],
     createdIds: options.createdIds ?? [],
   };
 }

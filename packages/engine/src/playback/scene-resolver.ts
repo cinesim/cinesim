@@ -35,6 +35,13 @@ export interface ResolvedLayer {
   transform: Transform;
   cornerRadiusPx: number;
   colorAdjustment: ColorAdjustment;
+  transition?: {
+    kind: "wipe" | "blur";
+    progress: number;
+    direction: "left" | "right" | "up" | "down";
+    softness: number;
+    intensity: number;
+  };
   order: number;
 }
 
@@ -498,6 +505,7 @@ export function resolveSceneFrame(project: PlaybackProject, timelineTimeUs: Time
   for (const layer of plan.layers) {
     const resolved = clips.get(layer.clipId);
     if (!resolved) continue;
+    appendTransitionDip(layer, composition, graphics, drawOrder);
     appendPlanMediaLayer(layer, resolved, composition, assets, media, drawOrder);
     appendPlanContentLayer(layer, resolved, composition, assets, media, graphics, text, drawOrder);
   }
@@ -662,6 +670,7 @@ function appendPlanMediaLayer(
   if (layer.assetId === undefined) return;
   const asset = assets.get(layer.assetId);
   if (!asset || asset.kind === "audio") return;
+  const transition = resolvedLayerTransition(layer);
   media.push({
     asset,
     clip,
@@ -672,6 +681,52 @@ function appendPlanMediaLayer(
     transform: directTransform(clip.transform, layer.opacity, composition),
     cornerRadiusPx: clip.transform.cornerRadius,
     colorAdjustment: colorAdjustment(layer.effects),
+    ...(transition ? { transition } : {}),
+    order: drawOrder.value++,
+  });
+}
+
+function resolvedLayerTransition(layer: PlannedLayer): ResolvedLayer["transition"] {
+  const transition = layer.transition;
+  if (!transition || (transition.role !== "to" && transition.kind === "wipe")) return undefined;
+  if (transition.kind !== "wipe" && transition.kind !== "blur") return undefined;
+  const direction = stringValue(transition.props.direction, "left") as NonNullable<
+    ResolvedLayer["transition"]
+  >["direction"];
+  return {
+    kind: transition.kind,
+    progress: transition.progress,
+    direction,
+    softness: Math.max(0, numeric(transition.props.softness, 2) / 100),
+    intensity:
+      Math.max(0, numeric(transition.props.intensity, 1)) *
+      (transition.role === "from" ? transition.progress : 1 - transition.progress),
+  };
+}
+
+function appendTransitionDip(
+  layer: PlannedLayer,
+  composition: IrComposition,
+  graphics: ResolvedGraphicLayer[],
+  drawOrder: { value: number },
+): void {
+  const transition = layer.transition;
+  if (transition?.kind !== "dip" || transition.role !== "to") return;
+  graphics.push({
+    nodeId: `${transition.id}/dip`,
+    kind: "solid",
+    transform: {
+      x: 0,
+      y: 0,
+      scaleX: 1,
+      scaleY: 1,
+      rotation: 0,
+      opacity: 1,
+      fit: "fill",
+    },
+    color: parseColor(stringValue(transition.props.color, composition.background)),
+    cornerRadiusPx: 0,
+    blurPx: 0,
     order: drawOrder.value++,
   });
 }

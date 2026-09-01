@@ -288,11 +288,29 @@ function lowerTransitions(timeline: BoundNode): IrComposition["timeline"]["trans
         id: transition.id,
         fromClipId: stringValue(transition, "from"),
         toClipId: stringValue(transition, "to"),
-        kind: kind as "cut",
+        kind: kind as IrComposition["timeline"]["transitions"][number]["kind"],
         durationUs: timeValue(transition, "duration"),
-        props: {},
+        easing: stringValue(transition, "easing", "ease-in-out"),
+        props: Object.fromEntries(
+          Object.entries(transition.props)
+            .filter(([name]) => !["id", "from", "to", "kind", "duration", "easing"].includes(name))
+            .map(([name, property]) => [name, property.value]),
+        ),
       };
     });
+}
+
+function lowerAudioTransitions(timeline: BoundNode): IrComposition["timeline"]["audioTransitions"] {
+  return timeline.children
+    .filter((child) => child.kind === "audiocrossfade")
+    .map((transition) => ({
+      id: transition.id,
+      fromClipId: stringValue(transition, "from"),
+      toClipId: stringValue(transition, "to"),
+      durationUs: timeValue(transition, "duration"),
+      easing: stringValue(transition, "easing", "linear"),
+      curve: stringValue(transition, "curve", "equal-power") as "linear" | "equal-power",
+    }));
 }
 
 function lowerComposition(node: BoundNode): IrComposition {
@@ -357,6 +375,7 @@ function lowerComposition(node: BoundNode): IrComposition {
       notes,
       markers,
       transitions: lowerTransitions(timeline),
+      audioTransitions: lowerAudioTransitions(timeline),
     },
   };
 }

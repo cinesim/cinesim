@@ -9,6 +9,8 @@ struct LayerUniforms {
   uvScaleAndOffset: vec4f,
   colorAdjustOne: vec4f,
   colorAdjustTwo: vec4f,
+  transitionOne: vec4f,
+  transitionTwo: vec4f,
 }
 
 @group(0) @binding(0) var videoTexture: texture_external;
@@ -53,10 +55,44 @@ fn roundedAlpha(uv: vec2f, radius: f32) -> f32 {
   return 1.0 - smoothstep(-0.002, 0.002, distance);
 }
 
+fn transitionCoordinate(uv: vec2f, direction: f32) -> f32 {
+  if (direction < 0.5) { return uv.x; }
+  if (direction < 1.5) { return 1.0 - uv.x; }
+  if (direction < 2.5) { return uv.y; }
+  return 1.0 - uv.y;
+}
+
+fn transitionAlpha(uv: vec2f) -> f32 {
+  if (layer.transitionOne.x < 0.5) { return 1.0; }
+  if (layer.transitionOne.x < 1.5) {
+    let coordinate = transitionCoordinate(uv, layer.transitionOne.z);
+    let softness = max(0.0001, layer.transitionOne.w);
+    return 1.0 - smoothstep(
+      layer.transitionOne.y - softness,
+      layer.transitionOne.y + softness,
+      coordinate
+    );
+  }
+  return 1.0;
+}
+
+fn transitionSample(uv: vec2f) -> vec4f {
+  if (layer.transitionOne.x < 1.5) {
+    return textureSampleBaseClampToEdge(videoTexture, videoSampler, uv);
+  }
+  let radius = layer.transitionTwo.x * 0.004;
+  var result = textureSampleBaseClampToEdge(videoTexture, videoSampler, uv) * 0.4;
+  result += textureSampleBaseClampToEdge(videoTexture, videoSampler, uv + vec2f(radius, 0.0)) * 0.15;
+  result += textureSampleBaseClampToEdge(videoTexture, videoSampler, uv - vec2f(radius, 0.0)) * 0.15;
+  result += textureSampleBaseClampToEdge(videoTexture, videoSampler, uv + vec2f(0.0, radius)) * 0.15;
+  result += textureSampleBaseClampToEdge(videoTexture, videoSampler, uv - vec2f(0.0, radius)) * 0.15;
+  return result;
+}
+
 @fragment
 fn fragmentMain(input: VertexOutput) -> @location(0) vec4f {
   let uv = input.uv * layer.uvScaleAndOffset.xy + layer.uvScaleAndOffset.zw;
-  let sampled = textureSampleBaseClampToEdge(videoTexture, videoSampler, uv);
+  let sampled = transitionSample(uv);
   let exposure = layer.colorAdjustOne.x;
   let contrast = layer.colorAdjustOne.y;
   let saturation = layer.colorAdjustOne.z;
@@ -67,7 +103,7 @@ fn fragmentMain(input: VertexOutput) -> @location(0) vec4f {
   let luma = dot(rgb, vec3f(0.2126, 0.7152, 0.0722));
   rgb = mix(vec3f(luma), rgb, saturation);
   rgb += vec3f(temperature * 0.08, tint * 0.06, -temperature * 0.08);
-  let alpha = sampled.a * layer.opacityAndRadius.x * roundedAlpha(input.uv, layer.opacityAndRadius.y);
+  let alpha = sampled.a * layer.opacityAndRadius.x * roundedAlpha(input.uv, layer.opacityAndRadius.y) * transitionAlpha(input.uv);
   return vec4f(rgb, alpha);
 }
 `;
@@ -204,7 +240,7 @@ fn fragmentMain(input: VertexOutput) -> @location(0) vec4f {
 }
 `;
 
-export const LAYER_UNIFORM_BYTE_SIZE = 80;
+export const LAYER_UNIFORM_BYTE_SIZE = 112;
 export const GRAPHIC_UNIFORM_BYTE_SIZE = 64;
 export const TEXT_UNIFORM_BYTE_SIZE = 112;
 
@@ -227,6 +263,7 @@ export interface LayerUniformOptions {
   uvOffsetY?: number;
   cornerRadiusFraction?: number;
   colorAdjustment?: ColorAdjustment;
+  transition?: CompositorLayer["transition"];
 }
 
 export function packLayerUniform(
@@ -236,6 +273,8 @@ export function packLayerUniform(
   options: LayerUniformOptions = {},
 ): Float32Array {
   const adjustment = options.colorAdjustment ?? DEFAULT_ADJUSTMENT;
+  const transition = options.transition;
+  const direction = transition ? { left: 0, right: 1, up: 2, down: 3 }[transition.direction] : 0;
   return new Float32Array([
     transform.x,
     -transform.y,
@@ -257,6 +296,14 @@ export function packLayerUniform(
     0,
     0,
     0,
+    transition?.kind === "wipe" ? 1 : transition?.kind === "blur" ? 2 : 0,
+    transition?.progress ?? 0,
+    direction,
+    transition?.softness ?? 0,
+    transition?.intensity ?? 0,
+    0,
+    0,
+    0,
   ]);
 }
 
@@ -265,6 +312,13 @@ export interface CompositorLayer {
   transform: Transform;
   cornerRadiusPx?: number;
   colorAdjustment?: ColorAdjustment;
+  transition?: {
+    kind: "wipe" | "blur";
+    progress: number;
+    direction: "left" | "right" | "up" | "down";
+    softness: number;
+    intensity: number;
+  };
   order?: number;
 }
 
@@ -907,6 +961,7 @@ export class WebGpuCompositor implements PreviewCompositor {
         uvOffsetY: (1 - fit.uvScaleY) / 2,
         cornerRadiusFraction: relativeRadius(layer.cornerRadiusPx ?? 0, layer.transform, output),
         ...(layer.colorAdjustment === undefined ? {} : { colorAdjustment: layer.colorAdjustment }),
+        ...(layer.transition === undefined ? {} : { transition: layer.transition }),
       }),
     );
     pass.setPipeline(this.#pipeline!);

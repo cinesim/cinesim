@@ -13,8 +13,13 @@ import type {
 
 interface ClipLinkRecord {
   trackId: string;
+  trackKind: IrTrack["kind"];
   assetId?: string;
   linkedClipId?: string;
+  timelineStartUs: number;
+  sourceStartUs: number;
+  durationUs: number;
+  enabled: boolean;
 }
 
 function assertTime(value: number, name: string): void {
@@ -86,8 +91,13 @@ class ProgramValidator {
     );
     return {
       trackId: track.id,
+      trackKind: track.kind,
       ...(clip.assetId === undefined ? {} : { assetId: clip.assetId }),
       ...(clip.linkedClipId === undefined ? {} : { linkedClipId: clip.linkedClipId }),
+      timelineStartUs: clip.timelineStartUs,
+      sourceStartUs: clip.sourceStartUs,
+      durationUs: clip.durationUs,
+      enabled: clip.enabled,
     };
   }
 
@@ -218,13 +228,67 @@ class ProgramValidator {
       this.claim(marker.id, "marker");
       assertTime(marker.atUs, `${marker.id}.atUs`);
     }
-    for (const transition of timeline.transitions) {
-      this.claim(transition.id, "transition");
-      assertTime(transition.durationUs, `${transition.id}.durationUs`);
-      if (!clips.has(transition.fromClipId) || !clips.has(transition.toClipId)) {
-        throw new Error(`Transition ${transition.id} references a missing clip.`);
-      }
-    }
+    timeline.transitions.forEach((transition) => this.validateVisualTransition(transition, clips));
+    timeline.audioTransitions.forEach((transition) =>
+      this.validateAudioTransition(transition, clips),
+    );
+  }
+
+  validateTransitionClips(
+    id: string,
+    fromClipId: string,
+    toClipId: string,
+    durationUs: number,
+    clips: ReadonlyMap<string, ClipLinkRecord>,
+  ): { from: ClipLinkRecord; to: ClipLinkRecord } {
+    assertTime(durationUs, `${id}.durationUs`);
+    const from = clips.get(fromClipId);
+    const to = clips.get(toClipId);
+    if (!from || !to) throw new Error(`Transition ${id} references a missing clip.`);
+    if (!from.enabled || !to.enabled || from.trackId !== to.trackId)
+      throw new Error(`Transition ${id} requires enabled clips on the same track.`);
+    if (from.timelineStartUs + from.durationUs !== to.timelineStartUs)
+      throw new Error(`Transition ${id} requires adjacent clips at one edit point.`);
+    if (durationUs > from.durationUs || durationUs > to.sourceStartUs)
+      throw new Error(`Transition ${id} does not have sufficient source handles.`);
+    return { from, to };
+  }
+
+  validateVisualTransition(
+    transition: IrTimeline["transitions"][number],
+    clips: ReadonlyMap<string, ClipLinkRecord>,
+  ): void {
+    this.claim(transition.id, "transition");
+    const { from, to } = this.validateTransitionClips(
+      transition.id,
+      transition.fromClipId,
+      transition.toClipId,
+      transition.durationUs,
+      clips,
+    );
+    if (from.trackKind === "audio" || to.trackKind === "audio")
+      throw new Error(`Visual transition ${transition.id} requires visual clips.`);
+    if (transition.kind !== "cut" && transition.durationUs === 0)
+      throw new Error(`Transition ${transition.id} duration must be positive.`);
+    Object.values(transition.props).forEach((value) => this.referenceValue(value));
+  }
+
+  validateAudioTransition(
+    transition: IrTimeline["audioTransitions"][number],
+    clips: ReadonlyMap<string, ClipLinkRecord>,
+  ): void {
+    this.claim(transition.id, "audio transition");
+    const { from, to } = this.validateTransitionClips(
+      transition.id,
+      transition.fromClipId,
+      transition.toClipId,
+      transition.durationUs,
+      clips,
+    );
+    if (from.trackKind !== "audio" || to.trackKind !== "audio")
+      throw new Error(`Audio crossfade ${transition.id} requires audio clips.`);
+    if (transition.durationUs === 0)
+      throw new Error(`Audio crossfade ${transition.id} duration must be positive.`);
   }
 
   validate(program: IrProgram): void {

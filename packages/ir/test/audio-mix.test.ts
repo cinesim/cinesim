@@ -103,6 +103,7 @@ function fixture(): {
       notes: [],
       markers: [],
       transitions: [],
+      audioTransitions: [],
     },
   };
   return {

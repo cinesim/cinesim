@@ -15,6 +15,65 @@ const asset: Asset = {
 };
 
 describe("timeline visual layer order", () => {
+  it("projects edit-point wipe and dip transitions into compositor layers", () => {
+    const longAsset = { ...asset, durationUs: timeUs(5_000_000) };
+    let project = applyCommand(createProject({ name: "Transitions" }), {
+      type: "asset.import",
+      asset: longAsset,
+    }).project;
+    const trackId = project.sequences[0]!.tracks[0]!.id;
+    project = applyCommand(project, {
+      type: "clip.add",
+      trackId,
+      assetId: longAsset.id,
+      timelineStartUs: timeUs(0),
+      sourceStartUs: timeUs(0),
+      sourceEndUs: timeUs(2_000_000),
+    }).project;
+    project = applyCommand(project, {
+      type: "clip.add",
+      trackId,
+      assetId: longAsset.id,
+      timelineStartUs: timeUs(2_000_000),
+      sourceStartUs: timeUs(1_000_000),
+      sourceEndUs: timeUs(3_000_000),
+    }).project;
+    const program = projectToIr(project, DEFAULT_SETTINGS);
+    const [from, to] = program.compositions[0]!.timeline.tracks[0]!.clips;
+    program.compositions[0]!.timeline.transitions.push({
+      id: "transition_edit",
+      fromClipId: from!.id,
+      toClipId: to!.id,
+      kind: "wipe",
+      durationUs: irTimeUs(1_000_000),
+      easing: "linear",
+      props: {
+        direction: { kind: "string", value: "left" },
+        softness: { kind: "percent", value: 3 },
+      },
+    });
+
+    const wipe = resolveSceneFrame({ program, assets: project.assets }, timeUs(1_500_000));
+    expect(wipe.media).toHaveLength(2);
+    expect(wipe.media[1]).toMatchObject({
+      sourceTimeUs: 500_000,
+      transition: { kind: "wipe", progress: 0.5, direction: "left", softness: 0.03 },
+    });
+
+    program.compositions[0]!.timeline.transitions[0]!.kind = "dip";
+    program.compositions[0]!.timeline.transitions[0]!.props.color = {
+      kind: "color",
+      value: "#102030",
+    };
+    const dip = resolveSceneFrame({ program, assets: project.assets }, timeUs(1_500_000));
+    expect(dip.graphics).toEqual([
+      expect.objectContaining({
+        nodeId: "transition_edit/dip",
+        color: [16 / 255, 32 / 255, 48 / 255, 1],
+      }),
+    ]);
+  });
+
   it("projects active caption cues as shaped text with style, safe placement, and typed animation", () => {
     const project = createProject({ name: "Caption preview" });
     const program = projectToIr(project, DEFAULT_SETTINGS);

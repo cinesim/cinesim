@@ -219,7 +219,7 @@ export const BUILTIN_REGISTRY: Readonly<Record<string, BuiltinSchema>> = {
     name: "timeline",
     category: "temporal",
     properties: { id },
-    allowedChildren: ["track", "captiontrack", "note", "marker", "transition"],
+    allowedChildren: ["track", "captiontrack", "note", "marker", "transition", "audiocrossfade"],
   },
   track: {
     name: "track",
@@ -410,6 +410,44 @@ export const BUILTIN_REGISTRY: Readonly<Record<string, BuiltinSchema>> = {
         }),
       ),
       duration: required(property("duration", "time", "timing", "number", { animatable: false })),
+      easing: property("easing", "string", "timing", "select", {
+        animatable: false,
+        defaultValue: value({ kind: "string", value: "ease-in-out" }),
+        options: ["linear", "ease-in", "ease-out", "ease-in-out"],
+      }),
+      direction: property("direction", "string", "effect", "select", {
+        defaultValue: value({ kind: "string", value: "left" }),
+        options: ["left", "right", "up", "down"],
+      }),
+      color: property("color", "color", "effect", "color", {
+        defaultValue: value({ kind: "color", value: "#000000" }),
+      }),
+      softness: property("softness", "percent", "effect", "slider", {
+        defaultValue: value({ kind: "percent", value: 2 }),
+      }),
+      intensity: property("intensity", "number", "effect", "slider", {
+        defaultValue: value({ kind: "number", value: 1 }),
+      }),
+    },
+  },
+  audiocrossfade: {
+    name: "audiocrossfade",
+    category: "temporal",
+    properties: {
+      id,
+      from: required(property("from", "string", "structure", "text", { animatable: false })),
+      to: required(property("to", "string", "structure", "text", { animatable: false })),
+      duration: required(property("duration", "time", "timing", "number", { animatable: false })),
+      easing: property("easing", "string", "timing", "select", {
+        animatable: false,
+        defaultValue: value({ kind: "string", value: "linear" }),
+        options: ["linear", "ease-in", "ease-out", "ease-in-out"],
+      }),
+      curve: property("curve", "string", "audio", "select", {
+        animatable: false,
+        defaultValue: value({ kind: "string", value: "equal-power" }),
+        options: ["linear", "equal-power"],
+      }),
     },
   },
   video: {
@@ -592,6 +630,7 @@ export const TEMPORAL_BUILTINS = new Set([
   "captiontrack",
   "cue",
   "captionword",
+  "audiocrossfade",
   "clip",
   "note",
   "marker",

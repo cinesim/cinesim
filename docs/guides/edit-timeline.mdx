@@ -64,6 +64,35 @@ attach a direct effect to a music clip or audio track in JSX:
 The sidechain must name a different audio track. Cinesim ramps down before an active sidechain clip
 and releases afterward, so the same timeline always produces the same automation.
 
+## Author transitions
+
+Transitions are explicit timeline children in canonical JSX. They reference the stable IDs on both
+sides of an edit instead of overlapping the clips:
+
+```jsx
+<transition
+  id="transition_scene"
+  from="clip_scene_a"
+  to="clip_scene_b"
+  kind="wipe"
+  duration={seconds(1)}
+  easing="ease-in-out"
+  direction="left"
+  softness={percent(3)}
+/>
+<audiocrossfade
+  id="transition_dialogue"
+  from="clip_audio_a"
+  to="clip_audio_b"
+  duration={milliseconds(400)}
+  curve="equal-power"
+/>
+```
+
+The incoming clip needs at least the transition duration before its selected source `in` point.
+Transition diamonds appear at their edit points in the full timeline. Picture and audio transitions
+remain independent canonical elements.
+
 ## Manage tracks
 
 Add video, overlay, or audio tracks and rename, mute, lock, or reorder them. Index `0` is the
