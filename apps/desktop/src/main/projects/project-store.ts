@@ -1,6 +1,6 @@
 import { rm } from "node:fs/promises";
 import { BUILTIN_REGISTRY } from "@cinesim/compiler";
-import { projectViewFromIr, settingsSchema } from "@cinesim/core";
+import { PROJECT_SETTING_DEFINITIONS, projectViewFromIr, settingsSchema } from "@cinesim/core";
 import type {
   CloudProjectId,
   Project,
@@ -35,18 +35,6 @@ import { stageManagedOriginal } from "./managed-originals";
 
 const log = createCinesimLogger({ service: "desktop-commands" });
 
-const SETTINGS_KEYS: Record<keyof Omit<ProjectSettings, "version">, string> = {
-  autosave: "autosave",
-  previewQuality: "preview_quality",
-  backgroundColor: "background_color",
-  defaultFilmstripIntervalSeconds: "filmstrip_interval_seconds",
-  proxyGeneration: "proxy_generation",
-  proxyProfile: "proxy_profile",
-  proxyMaxLongEdge: "proxy_max_long_edge",
-  proxyFrameRateCap: "proxy_frame_rate_cap",
-  proxyQuality: "proxy_quality",
-};
-
 export class DesktopProjectStore {
   readonly derivedMedia = new DerivedMediaStore();
   readonly transcripts: TranscriptStore;
@@ -55,6 +43,7 @@ export class DesktopProjectStore {
   #snapshot: SourceProjectSnapshot | null = null;
   #watcher: SourceProjectWatcher | null = null;
   #diagnostics: IrDiagnostic[] = [];
+  #diskValid = true;
   readonly #listeners = new Set<(session: DesktopProjectSession) => void>();
   #revision = 0;
   #operationQueue: Promise<unknown> = Promise.resolve();
@@ -121,6 +110,7 @@ export class DesktopProjectStore {
       this.#commands = commands;
       this.#snapshot = snapshot;
       this.#diagnostics = [];
+      this.#diskValid = true;
       this.#revision = 1;
       this.#attachWatcher();
       await this.#publishDependentProject();
@@ -152,6 +142,7 @@ export class DesktopProjectStore {
         this.#commands = commands;
         this.#snapshot = snapshot;
         this.#diagnostics = [];
+        this.#diskValid = true;
         this.#revision += 1;
         this.#attachWatcher();
         const derivedStartedAt = performance.now();
@@ -210,13 +201,11 @@ export class DesktopProjectStore {
         ...update,
       });
       let manifestSource = current.manifestSource;
-      for (const [key, tomlKey] of Object.entries(SETTINGS_KEYS) as Array<
-        [keyof typeof SETTINGS_KEYS, string]
-      >) {
+      for (const { key } of PROJECT_SETTING_DEFINITIONS) {
         if (settings[key] === current.manifest.settings[key]) continue;
         manifestSource = patchManifestSetting(
           manifestSource,
-          tomlKey,
+          key,
           settings[key],
           sourceRevision(manifestSource),
         );
@@ -249,6 +238,7 @@ export class DesktopProjectStore {
         this.#snapshot = result.snapshot;
         this.#watcher?.acceptPublished(result.snapshot);
         this.#diagnostics = [];
+        this.#diskValid = true;
         const project = this.#requireProject();
         this.derivedMedia.updateProject(project);
         this.#revision += 1;
@@ -314,6 +304,7 @@ export class DesktopProjectStore {
     this.#snapshot = direction === "undo" ? await commands.undo() : await commands.redo();
     this.#watcher?.acceptPublished(this.#snapshot);
     this.#diagnostics = [];
+    this.#diskValid = true;
     const project = this.#requireProject();
     this.derivedMedia.updateProject(project);
     this.#revision += 1;
@@ -373,6 +364,7 @@ export class DesktopProjectStore {
       this.#commands = null;
       this.#snapshot = null;
       this.#diagnostics = [];
+      this.#diskValid = true;
       this.#revision += 1;
     });
   }
@@ -397,6 +389,8 @@ export class DesktopProjectStore {
       diagnostics: structuredClone(
         this.#diagnostics.length > 0 ? this.#diagnostics : snapshot.compilation.diagnostics,
       ),
+      diskValid: this.#diskValid,
+      candidateDiagnostics: structuredClone(this.#diagnostics),
       settings: structuredClone(snapshot.manifest.settings),
       generation: snapshot.generation,
       revision: this.#revision,
@@ -442,9 +436,10 @@ export class DesktopProjectStore {
     this.#watcher = new SourceProjectWatcher(commands.repository, this.#requireSnapshot(), {
       accepted: (snapshot) => {
         void this.#serialize(async () => {
-          commands.acceptExternal(snapshot);
+          await commands.acceptExternal(snapshot);
           this.#snapshot = snapshot;
           this.#diagnostics = [];
+          this.#diskValid = true;
           this.#revision += 1;
           const project = this.#requireProject();
           this.derivedMedia.updateProject(project);
@@ -454,6 +449,7 @@ export class DesktopProjectStore {
       },
       diagnostics: (diagnostics) => {
         this.#diagnostics = diagnostics;
+        this.#diskValid = diagnostics.length === 0;
         this.#revision += 1;
         this.#notify();
       },

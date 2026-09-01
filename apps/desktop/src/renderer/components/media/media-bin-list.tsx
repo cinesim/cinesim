@@ -5,7 +5,7 @@ import type { Asset, AssetId, Sequence } from "@cinesim/core";
 import type { CloudTransferSnapshot } from "../../../shared/contracts";
 import { formatDuration } from "../../lib/format";
 import { LibraryList, LibraryListRow } from "../shared/library-card";
-import { assetSourceMetadataLabel } from "./asset-source-metadata";
+import { assetCompatibilityLabel, assetSourceMetadataLabel } from "./asset-source-metadata";
 import { assetStoragePresentation } from "./media-bin-model";
 import { MediaSkimSurface } from "./media-skim-surface";
 
@@ -108,7 +108,10 @@ export function MediaBinList({
               {formatDuration(asset.durationUs)}
             </span>
             <span className={cn(CELL_CLASS_NAME, "tabular-nums")}>
-              {assetSourceMetadataLabel(asset) ?? "—"}
+              <span title={assetCompatibilityLabel(asset) ?? undefined}>
+                {assetSourceMetadataLabel(asset) ?? "—"}
+                {assetCompatibilityLabel(asset) ? " · ⚠" : ""}
+              </span>
             </span>
             <span className={cn(CELL_CLASS_NAME, "truncate text-muted")}>{storage.label}</span>
           </LibraryListRow>

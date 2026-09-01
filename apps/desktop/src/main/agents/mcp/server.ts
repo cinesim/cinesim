@@ -159,6 +159,17 @@ export class AgentMcpServer {
       editMap: () => this.projectStore.session().editMap,
       directory: () => session.projectDirectory,
       projectRevision: () => this.projectStore.session().revision,
+      projectStatus: async () => {
+        const current = this.projectStore.session();
+        return {
+          acceptedGeneration: current.generation,
+          diskValid: current.diskValid,
+          candidateDiagnostics: current.candidateDiagnostics.slice(0, 20),
+          diagnosticsTruncated: current.candidateDiagnostics.length > 20,
+          lastValidComposition: current.project.activeSequenceId,
+          backgroundJobs: this.projectStore.derivedMedia.snapshot().jobs,
+        };
+      },
       perform: async (tool, operation) => {
         const eventId = await this.hooks.onToolStarted(session.sessionId, tool.name, tool.detail);
         try {

@@ -111,7 +111,7 @@ async function confirmSessionAutoEdit(provider?: AgentProviderKind): Promise<voi
     title: "Allow automatic edits?",
     message: `Let ${provider ? (provider === "claude" ? "Claude Code" : "Codex") : "this agent"} edit the open project without individual approvals?`,
     detail:
-      "Automatic edits still use validated Cinesim commands and remain undoable, but individual changes will not ask first.",
+      "Automatic edits can change canonical project files in the project-local sandbox. Valid generations enter project undo history, but individual file changes will not ask first.",
     confirmLabel: "Enable auto-edit",
   });
 }

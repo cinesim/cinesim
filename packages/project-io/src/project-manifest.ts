@@ -1,5 +1,10 @@
 import { createHash } from "node:crypto";
-import { DEFAULT_SETTINGS, settingsSchema } from "@cinesim/core";
+import {
+  DEFAULT_SETTINGS,
+  PROJECT_SETTING_DEFINITIONS,
+  projectSettingDefinition,
+  settingsSchema,
+} from "@cinesim/core";
 import type { ProjectSettings } from "@cinesim/core";
 import { parse, stringify } from "smol-toml";
 
@@ -14,7 +19,6 @@ export interface ProjectManifest {
     cloudProjectId?: string;
   };
   settings: ProjectSettings;
-  compiler: { strict: boolean };
 }
 
 function record(value: unknown, name: string): Record<string, unknown> {
@@ -26,12 +30,6 @@ function record(value: unknown, name: string): Record<string, unknown> {
 function requiredString(value: unknown, name: string): string {
   if (typeof value !== "string" || value.trim() === "")
     throw new Error(`${name} must be a non-empty string.`);
-  return value;
-}
-
-function optionalBoolean(value: unknown, name: string, fallback: boolean): boolean {
-  if (value === undefined) return fallback;
-  if (typeof value !== "boolean") throw new Error(`${name} must be a boolean.`);
   return value;
 }
 
@@ -49,20 +47,19 @@ function validateEntry(entry: string): string {
   return normalized;
 }
 
-function parseSettings(input: unknown): ProjectSettings {
-  const value = input === undefined ? {} : record(input, "settings");
-  return settingsSchema.parse({
-    autosave: value.autosave ?? DEFAULT_SETTINGS.autosave,
-    previewQuality: value.preview_quality ?? DEFAULT_SETTINGS.previewQuality,
-    backgroundColor: value.background_color ?? DEFAULT_SETTINGS.backgroundColor,
-    defaultFilmstripIntervalSeconds:
-      value.filmstrip_interval_seconds ?? DEFAULT_SETTINGS.defaultFilmstripIntervalSeconds,
-    proxyGeneration: value.proxy_generation ?? DEFAULT_SETTINGS.proxyGeneration,
-    proxyProfile: value.proxy_profile ?? DEFAULT_SETTINGS.proxyProfile,
-    proxyMaxLongEdge: value.proxy_max_long_edge ?? DEFAULT_SETTINGS.proxyMaxLongEdge,
-    proxyFrameRateCap: value.proxy_frame_rate_cap ?? DEFAULT_SETTINGS.proxyFrameRateCap,
-    proxyQuality: value.proxy_quality ?? DEFAULT_SETTINGS.proxyQuality,
-  });
+function parseSettings(input: unknown, compilerInput: unknown): ProjectSettings {
+  const tables = {
+    settings: input === undefined ? {} : record(input, "settings"),
+    compiler: compilerInput === undefined ? {} : record(compilerInput, "compiler"),
+  };
+  return settingsSchema.parse(
+    Object.fromEntries(
+      PROJECT_SETTING_DEFINITIONS.map((definition) => [
+        definition.key,
+        tables[definition.table][definition.tomlKey] ?? DEFAULT_SETTINGS[definition.key],
+      ]),
+    ),
+  );
 }
 
 export function parseProjectManifest(source: string): ProjectManifest {
@@ -102,12 +99,21 @@ export function parseProjectManifest(source: string): ProjectManifest {
       activeCompositionId,
       ...(cloudProjectId === undefined ? {} : { cloudProjectId }),
     },
-    settings: parseSettings(input.settings),
-    compiler: { strict: optionalBoolean(compiler.strict, "compiler.strict", true) },
+    settings: parseSettings(input.settings, compiler),
   };
 }
 
 function manifestShape(manifest: ProjectManifest): Record<string, unknown> {
+  const settings = Object.fromEntries(
+    PROJECT_SETTING_DEFINITIONS.filter((definition) => definition.table === "settings").map(
+      (definition) => [definition.tomlKey, manifest.settings[definition.key]],
+    ),
+  );
+  const compiler = Object.fromEntries(
+    PROJECT_SETTING_DEFINITIONS.filter((definition) => definition.table === "compiler").map(
+      (definition) => [definition.tomlKey, manifest.settings[definition.key]],
+    ),
+  );
   return {
     format_version: 3,
     language_version: 1,
@@ -120,18 +126,8 @@ function manifestShape(manifest: ProjectManifest): Record<string, unknown> {
         ? {}
         : { cloud_project_id: manifest.project.cloudProjectId }),
     },
-    settings: {
-      autosave: manifest.settings.autosave,
-      preview_quality: manifest.settings.previewQuality,
-      background_color: manifest.settings.backgroundColor,
-      filmstrip_interval_seconds: manifest.settings.defaultFilmstripIntervalSeconds,
-      proxy_generation: manifest.settings.proxyGeneration,
-      proxy_profile: manifest.settings.proxyProfile,
-      proxy_max_long_edge: manifest.settings.proxyMaxLongEdge,
-      proxy_frame_rate_cap: manifest.settings.proxyFrameRateCap,
-      proxy_quality: manifest.settings.proxyQuality,
-    },
-    compiler: { strict: manifest.compiler.strict },
+    settings,
+    compiler,
   };
 }
 
@@ -193,24 +189,14 @@ function replaceTableKey(source: string, table: string, key: string, value: unkn
 
 export function patchManifestSetting(
   source: string,
-  key: string,
+  key: keyof ProjectSettings,
   value: unknown,
   expectedRevision: string,
 ): string {
   assertRevision(source, expectedRevision);
-  const allowed = new Set([
-    "autosave",
-    "preview_quality",
-    "background_color",
-    "filmstrip_interval_seconds",
-    "proxy_generation",
-    "proxy_profile",
-    "proxy_max_long_edge",
-    "proxy_frame_rate_cap",
-    "proxy_quality",
-  ]);
-  if (!allowed.has(key)) throw new Error(`Unsupported Cinesim setting key: ${key}`);
-  const next = replaceTableKey(source, "settings", key, value);
+  const definition = projectSettingDefinition(key);
+  definition.schema.parse(value);
+  const next = replaceTableKey(source, definition.table, definition.tomlKey, value);
   parseProjectManifest(next);
   return next;
 }

@@ -40,6 +40,12 @@ function catalogServer(onOperation: () => void = () => undefined): McpServer {
     program: () => projectToIr(project),
     editMap: () => ({ version: 2, entry: "main.jsx", sources: [], nodes: {} }),
     directory: () => "/project",
+    projectStatus: async () => ({
+      acceptedGeneration: "a".repeat(64),
+      diskValid: true,
+      candidateDiagnostics: [],
+      lastValidComposition: project.activeSequenceId,
+    }),
     perform: async (_tool, operation) => {
       onOperation();
       return textResult(await operation());

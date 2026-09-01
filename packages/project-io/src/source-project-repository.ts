@@ -115,7 +115,7 @@ function compilerConfig(manifest: ProjectManifest, assets: readonly Asset[]): Co
     entry: manifest.project.entry,
     output: ".video/compiler",
     sourceMaps: true,
-    strict: manifest.compiler.strict,
+    strict: manifest.settings.compilerStrict,
     assetIds: assets.map((asset) => asset.id),
     budgets: DEFAULT_COMPILER_BUDGETS,
   };
@@ -248,7 +248,6 @@ export class SourceProjectRepository {
         ...(options.cloudProjectId === undefined ? {} : { cloudProjectId: options.cloudProjectId }),
       },
       settings: options.settings ?? DEFAULT_SETTINGS,
-      compiler: { strict: true },
     };
     const assetManifest: AssetManifest = { formatVersion: 1, assets: [] };
     await repository.paths.ensureDirectory(".codex");
@@ -455,7 +454,7 @@ export class SourceProjectRepository {
   }
 
   async updateSetting(
-    key: string,
+    key: keyof ProjectSettings,
     value: unknown,
     expectedGeneration: string,
   ): Promise<SourceProjectSnapshot> {

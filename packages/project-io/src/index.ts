@@ -1,5 +1,6 @@
 export * from "./file-system";
 export * from "./asset-manifest";
+export * from "./accepted-history";
 export * from "./project-manifest";
 export * from "./project-guidance";
 export * from "./project-paths";

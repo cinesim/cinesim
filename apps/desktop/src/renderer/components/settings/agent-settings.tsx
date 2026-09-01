@@ -213,7 +213,7 @@ export function AgentSettings() {
             </SettingRow>
             <SettingRow
               title="Editing approvals"
-              detail="Supervised mode asks before every canonical timeline change."
+              detail="Supervised mode asks before provider file and shell operations that require approval."
             >
               <Select
                 className="w-full"

@@ -16,6 +16,7 @@ import {
 /** MCP is an inspection/perception/service adapter, never a canonical project writer. */
 export const CINESIM_MCP_TOOL_NAMES = [
   "project_inspect",
+  "project_status",
   "assets_list",
   "asset_inspect",
   "timeline_inspect",
@@ -31,6 +32,7 @@ export interface CinesimMcpToolRuntime {
   editMap(): IrEditMap;
   directory(): string;
   projectRevision?(): number | undefined;
+  projectStatus(): Promise<Record<string, unknown>>;
   perform<T extends Record<string, unknown>>(
     tool: { name: CinesimMcpToolName; detail: string; mutating: boolean },
     operation: () => Promise<T> | T,
@@ -47,6 +49,16 @@ export function registerCinesimMcpTools(server: McpServer, runtime: CinesimMcpTo
     operation: () => Promise<T> | T,
   ) => runtime.perform({ name, detail, mutating: false }, operation);
 
+  server.registerTool(
+    "project_status",
+    {
+      title: "Get compiler and project status",
+      description:
+        "Report the accepted generation, disk validity, bounded candidate diagnostics, last valid composition, and background work.",
+      annotations: readOnly,
+    },
+    () => perform("project_status", "Inspect compiler status", () => runtime.projectStatus()),
+  );
   server.registerTool(
     "project_inspect",
     {

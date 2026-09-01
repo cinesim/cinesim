@@ -1,6 +1,7 @@
 export * from "./ids";
 export * from "./project/project-view";
 export * from "./project/schema";
+export * from "./project/settings";
 export * from "./project/selectors";
 export * from "./project/types";
 export * from "./serialization/stable-json";

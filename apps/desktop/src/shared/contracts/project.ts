@@ -13,6 +13,8 @@ export interface DesktopProjectSession {
   editMap: IrEditMap;
   propertySchemas: Readonly<Record<string, BuiltinSchema>>;
   diagnostics: IrDiagnostic[];
+  diskValid: boolean;
+  candidateDiagnostics: IrDiagnostic[];
   settings: ProjectSettings;
   generation: string;
   revision: number;

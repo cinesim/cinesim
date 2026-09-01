@@ -27,6 +27,107 @@ function optionalNumber(value: unknown, name: string): number | undefined {
   return value;
 }
 
+function optionalString(value: unknown, name: string): string | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== "string" || value.trim() === "")
+    throw new Error(`${name} must be a non-empty string.`);
+  return value;
+}
+
+function parsedStringProperty(key: string, value: unknown, name: string): Record<string, unknown> {
+  const parsed = optionalString(value, name);
+  return parsed === undefined ? {} : { [key]: parsed };
+}
+
+function parsedNumberProperty(key: string, value: unknown, name: string): Record<string, unknown> {
+  const parsed = optionalNumber(value, name);
+  return parsed === undefined ? {} : { [key]: parsed };
+}
+
+type Technical = NonNullable<Asset["technical"]>;
+type TechnicalVideo = NonNullable<Technical["video"]>;
+type TechnicalAudio = NonNullable<Technical["audio"]>;
+
+function parseColor(value: unknown, name: string): TechnicalVideo["color"] {
+  const color = record(value, name);
+  return {
+    ...parsedStringProperty("primaries", color.primaries, `${name}.primaries`),
+    ...parsedStringProperty("transfer", color.transfer, `${name}.transfer`),
+    ...parsedStringProperty("matrix", color.matrix, `${name}.matrix`),
+    ...(color.full_range === undefined ? {} : { fullRange: color.full_range }),
+    ...parsedNumberProperty("bitDepth", color.bit_depth, `${name}.bit_depth`),
+    hdr: color.hdr,
+    uncertain: color.uncertain,
+  } as TechnicalVideo["color"];
+}
+
+function parseVideo(value: unknown, name: string): TechnicalVideo {
+  const video = record(value, name);
+  const frameRate = record(video.frame_rate, `${name}.frame_rate`);
+  const pixelAspectRatio = record(video.pixel_aspect_ratio, `${name}.pixel_aspect_ratio`);
+  return {
+    ...parsedStringProperty("codec", video.codec, `${name}.codec`),
+    ...parsedStringProperty("codecParameters", video.codec_parameters, `${name}.codec_parameters`),
+    ...parsedStringProperty(
+      "internalCodecId",
+      video.internal_codec_id,
+      `${name}.internal_codec_id`,
+    ),
+    decoderAvailability: video.decoder_availability,
+    codedWidth: video.coded_width,
+    codedHeight: video.coded_height,
+    displayWidth: video.display_width,
+    displayHeight: video.display_height,
+    rotationDegrees: video.rotation_degrees,
+    pixelAspectRatio: {
+      numerator: pixelAspectRatio.numerator,
+      denominator: pixelAspectRatio.denominator,
+    },
+    frameRate: {
+      mode: frameRate.mode,
+      nominal: frameRate.nominal,
+      minimum: frameRate.minimum,
+      maximum: frameRate.maximum,
+      average: frameRate.average,
+      probedFrames: frameRate.probed_frames,
+    },
+    color: parseColor(video.color, `${name}.color`),
+  } as TechnicalVideo;
+}
+
+function parseAudio(value: unknown, name: string): TechnicalAudio {
+  const audio = record(value, name);
+  return {
+    ...parsedStringProperty("codec", audio.codec, `${name}.codec`),
+    ...parsedStringProperty("codecParameters", audio.codec_parameters, `${name}.codec_parameters`),
+    ...parsedStringProperty(
+      "internalCodecId",
+      audio.internal_codec_id,
+      `${name}.internal_codec_id`,
+    ),
+    decoderAvailability: audio.decoder_availability,
+    sampleRate: audio.sample_rate,
+    channels: audio.channels,
+    channelLayout: audio.channel_layout,
+  } as TechnicalAudio;
+}
+
+function parseTechnical(input: unknown, name: string): Asset["technical"] {
+  if (input === undefined) return undefined;
+  const technical = record(input, name);
+  return {
+    containerMimeType: requiredString(technical.container_mime_type, `${name}.container_mime_type`),
+    durationSeconds: technical.duration_seconds,
+    compatibility: technical.compatibility,
+    ...(technical.video === undefined
+      ? {}
+      : { video: parseVideo(technical.video, `${name}.video`) }),
+    ...(technical.audio === undefined
+      ? {}
+      : { audio: parseAudio(technical.audio, `${name}.audio`) }),
+  } as Asset["technical"];
+}
+
 function parseAsset(id: string, input: unknown): Asset {
   if (!/^asset_[a-zA-Z0-9][a-zA-Z0-9_-]*$/u.test(id))
     throw new Error(`Invalid stable asset table key: ${id}`);
@@ -47,6 +148,16 @@ function parseAsset(id: string, input: unknown): Asset {
       ? {}
       : { frameRate: value.frame_rate }),
     ...(value.has_audio === undefined ? {} : { hasAudio: value.has_audio }),
+    ...(value.technical === undefined
+      ? {}
+      : { technical: parseTechnical(value.technical, `assets.${id}.technical`) }),
+    ...(value.input_color === undefined
+      ? {}
+      : {
+          inputColor: {
+            policy: record(value.input_color, `assets.${id}.input_color`).policy,
+          },
+        }),
     source:
       source.kind === "local"
         ? { kind: "local", path: requiredString(source.path, `assets.${id}.source.path`) }
@@ -71,10 +182,73 @@ function assetShape(asset: Asset): Record<string, unknown> {
     ...(asset.height === undefined ? {} : { height: asset.height }),
     ...(asset.frameRate === undefined ? {} : { frame_rate: asset.frameRate }),
     ...(asset.hasAudio === undefined ? {} : { has_audio: asset.hasAudio }),
+    ...(asset.inputColor === undefined ? {} : { input_color: { policy: asset.inputColor.policy } }),
+    ...(asset.technical === undefined ? {} : { technical: technicalShape(asset.technical) }),
     source:
       asset.source.kind === "local"
         ? { kind: "local", path: asset.source.path }
         : { kind: "cloud", cloud_asset_id: asset.source.cloudAssetId },
+  };
+}
+
+function colorShape(color: TechnicalVideo["color"]): Record<string, unknown> {
+  return {
+    ...(color.primaries ? { primaries: color.primaries } : {}),
+    ...(color.transfer ? { transfer: color.transfer } : {}),
+    ...(color.matrix ? { matrix: color.matrix } : {}),
+    ...(color.fullRange === undefined ? {} : { full_range: color.fullRange }),
+    ...(color.bitDepth === undefined ? {} : { bit_depth: color.bitDepth }),
+    hdr: color.hdr,
+    uncertain: color.uncertain,
+  };
+}
+
+function videoShape(video: TechnicalVideo): Record<string, unknown> {
+  return {
+    ...(video.codec ? { codec: video.codec } : {}),
+    ...(video.codecParameters ? { codec_parameters: video.codecParameters } : {}),
+    ...(video.internalCodecId ? { internal_codec_id: video.internalCodecId } : {}),
+    decoder_availability: video.decoderAvailability,
+    coded_width: video.codedWidth,
+    coded_height: video.codedHeight,
+    display_width: video.displayWidth,
+    display_height: video.displayHeight,
+    rotation_degrees: video.rotationDegrees,
+    pixel_aspect_ratio: {
+      numerator: video.pixelAspectRatio.numerator,
+      denominator: video.pixelAspectRatio.denominator,
+    },
+    frame_rate: {
+      mode: video.frameRate.mode,
+      nominal: video.frameRate.nominal,
+      minimum: video.frameRate.minimum,
+      maximum: video.frameRate.maximum,
+      average: video.frameRate.average,
+      probed_frames: video.frameRate.probedFrames,
+    },
+    color: colorShape(video.color),
+  };
+}
+
+function audioShape(audio: TechnicalAudio): Record<string, unknown> {
+  return {
+    ...(audio.codec ? { codec: audio.codec } : {}),
+    ...(audio.codecParameters ? { codec_parameters: audio.codecParameters } : {}),
+    ...(audio.internalCodecId ? { internal_codec_id: audio.internalCodecId } : {}),
+    decoder_availability: audio.decoderAvailability,
+    sample_rate: audio.sampleRate,
+    channels: audio.channels,
+    channel_layout: audio.channelLayout,
+  };
+}
+
+function technicalShape(technical: Technical): Record<string, unknown> {
+  return {
+    container_mime_type: technical.containerMimeType,
+    duration_seconds: technical.durationSeconds,
+    compatibility: technical.compatibility,
+    ...(technical.video ? { video: videoShape(technical.video) } : {}),
+    ...(technical.audio ? { audio: audioShape(technical.audio) } : {}),
   };
 }
 
@@ -121,34 +295,18 @@ function tableRange(source: string, header: string): { start: number; end: numbe
 }
 
 function assetBlock(asset: Asset, newline: string): string {
-  const fields = [
-    `[assets.${asset.id}]`,
-    `kind = ${literal(asset.kind)}`,
-    `name = ${literal(asset.name)}`,
-    `duration_us = ${asset.durationUs}`,
-    ...(asset.width === undefined ? [] : [`width = ${asset.width}`]),
-    ...(asset.height === undefined ? [] : [`height = ${asset.height}`]),
-    ...(asset.frameRate === undefined ? [] : [`frame_rate = ${asset.frameRate}`]),
-    ...(asset.hasAudio === undefined ? [] : [`has_audio = ${asset.hasAudio}`]),
-    "",
-    `[assets.${asset.id}.source]`,
-    `kind = ${literal(asset.source.kind)}`,
-    ...(asset.source.kind === "local"
-      ? [`path = ${literal(asset.source.path)}`]
-      : [`cloud_asset_id = ${literal(asset.source.cloudAssetId)}`]),
-    "",
-  ];
-  return fields.join(newline);
+  const serialized = serializeAssetManifest({ formatVersion: 1, assets: [asset] });
+  const root = serialized.indexOf(`[assets.${asset.id}]`);
+  return serialized.slice(root).replaceAll("\n", newline);
 }
 
 function assetRanges(source: string): Array<{ id: string; start: number; end: number }> {
   const headers = [...source.matchAll(/^\[assets\.(asset_[a-zA-Z0-9_-]+)\][ \t]*(?:\r?\n|$)/gmu)];
-  return headers.map((match) => {
-    const id = match[1]!;
-    const sourceRange = tableRange(source, `assets.${id}.source`);
-    if (!sourceRange) throw new Error(`Asset ${id} is missing its source table.`);
-    return { id, start: match.index!, end: sourceRange.end };
-  });
+  return headers.map((match, index) => ({
+    id: match[1]!,
+    start: match.index!,
+    end: headers[index + 1]?.index ?? source.length,
+  }));
 }
 
 export function patchAssetManifestAdd(

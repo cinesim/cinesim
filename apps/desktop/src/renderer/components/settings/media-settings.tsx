@@ -38,6 +38,20 @@ export function MediaSettings() {
       </Notice>
       <div className="divide-y divide-border rounded-xl border border-border bg-panel">
         <SettingRow
+          title="Filmstrip sampling"
+          detail="Default seconds between disposable visual samples."
+        >
+          <Input
+            type="number"
+            min={0.1}
+            step={0.1}
+            value={settings.defaultFilmstripIntervalSeconds}
+            onChange={(event) =>
+              void update({ defaultFilmstripIntervalSeconds: Number(event.target.value) })
+            }
+          />
+        </SettingRow>
+        <SettingRow
           title="Automatic proxying"
           detail="Create edit proxies in the background after media is imported."
         >
@@ -111,6 +125,53 @@ export function MediaSettings() {
             </SettingRow>
           </>
         )}
+        <SettingRow
+          title="Working color space"
+          detail="Grades and effects are evaluated in a defined linear Rec.709 space."
+        >
+          <Select value={settings.workingColorSpace} disabled>
+            <option value="linear-rec709">Linear Rec.709</option>
+          </Select>
+        </SettingRow>
+        <SettingRow
+          title="Output color"
+          detail="The dependable first preview and export target is Rec.709 SDR."
+        >
+          <Select value={settings.outputColorSpace} disabled>
+            <option value="rec709-sdr">Rec.709 SDR</option>
+          </Select>
+        </SettingRow>
+        <SettingRow
+          title="HDR tone mapping"
+          detail="Automatically map detected HDR sources to SDR, or disable the transform explicitly."
+        >
+          <Select
+            value={settings.toneMapping}
+            onChange={(event) =>
+              void update({ toneMapping: event.target.value as typeof settings.toneMapping })
+            }
+          >
+            <option value="automatic">Automatic</option>
+            <option value="off">Off</option>
+          </Select>
+        </SettingRow>
+        <SettingRow
+          title="Uncertain color metadata"
+          detail="Warn by default instead of silently interpreting uncertain footage as SDR."
+        >
+          <Select
+            value={settings.uncertainColorHandling}
+            onChange={(event) =>
+              void update({
+                uncertainColorHandling: event.target
+                  .value as typeof settings.uncertainColorHandling,
+              })
+            }
+          >
+            <option value="warn">Warn</option>
+            <option value="assume-rec709">Assume Rec.709</option>
+          </Select>
+        </SettingRow>
       </div>
     </>
   );

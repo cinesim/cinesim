@@ -9,6 +9,7 @@ import {
   patchAssetManifestRemove,
   patchAssetManifestSource,
 } from "./asset-manifest";
+import { AcceptedProjectHistory, type AcceptedProjectState } from "./accepted-history";
 import { patchManifestProjectKey, sourceRevision } from "./project-manifest";
 import {
   SourceProjectConflictError,
@@ -16,18 +17,13 @@ import {
   type SourceProjectSnapshot,
 } from "./source-project-repository";
 
-interface SourceHistoryEntry {
-  before: SourceProjectSnapshot;
-  after: SourceProjectSnapshot;
-}
-
 export interface SourceCommandResult extends SemanticCommandPlan {
   snapshot: SourceProjectSnapshot;
 }
 
 function changedSources(
   current: SourceProjectSnapshot,
-  target: SourceProjectSnapshot,
+  target: Pick<AcceptedProjectState, "sources">,
 ): Record<string, string | null> {
   const paths = new Set([...Object.keys(current.sources), ...Object.keys(target.sources)]);
   return Object.fromEntries(
@@ -87,21 +83,21 @@ function patchDocumentsForCommand(
 }
 
 export class SourceCommandService {
-  readonly #undo: SourceHistoryEntry[] = [];
-  readonly #redo: SourceHistoryEntry[] = [];
   #snapshot: SourceProjectSnapshot;
 
   private constructor(
     readonly repository: SourceProjectRepository,
     snapshot: SourceProjectSnapshot,
-    private readonly historyLimit = 100,
+    private readonly history: AcceptedProjectHistory,
   ) {
     this.#snapshot = snapshot;
   }
 
   static async open(directory: string, historyLimit = 100): Promise<SourceCommandService> {
     const repository = await SourceProjectRepository.open(directory);
-    return new SourceCommandService(repository, await repository.load(), historyLimit);
+    const snapshot = await repository.load();
+    const history = await AcceptedProjectHistory.open(repository, snapshot, historyLimit);
+    return new SourceCommandService(repository, snapshot, history);
   }
 
   get snapshot(): SourceProjectSnapshot {
@@ -109,24 +105,23 @@ export class SourceCommandService {
   }
 
   get canUndo(): boolean {
-    return this.#undo.length > 0;
+    return this.history.canUndo;
   }
 
   get canRedo(): boolean {
-    return this.#redo.length > 0;
+    return this.history.canRedo;
   }
 
   async refresh(): Promise<SourceProjectSnapshot> {
-    this.#snapshot = await this.repository.load();
+    const snapshot = await this.repository.load();
+    await this.acceptExternal(snapshot);
     return this.#snapshot;
   }
 
   /** Records a watcher-validated generation in the same project-wide history as UI commands. */
-  acceptExternal(snapshot: SourceProjectSnapshot): void {
+  async acceptExternal(snapshot: SourceProjectSnapshot): Promise<void> {
     if (snapshot.generation === this.#snapshot.generation) return;
-    this.#undo.push({ before: this.#snapshot, after: snapshot });
-    if (this.#undo.length > this.historyLimit) this.#undo.shift();
-    this.#redo.length = 0;
+    await this.history.append(snapshot);
     this.#snapshot = snapshot;
   }
 
@@ -156,51 +151,40 @@ export class SourceCommandService {
       expectedProgram: plan.program,
     });
     this.#snapshot = after;
-    this.#undo.push({ before, after });
-    if (this.#undo.length > this.historyLimit) this.#undo.shift();
-    this.#redo.length = 0;
+    await this.history.append(after);
     return { ...plan, snapshot: after };
   }
 
   async undo(): Promise<SourceProjectSnapshot> {
-    const transaction = this.#undo.at(-1);
-    if (!transaction) throw new Error("Nothing to undo.");
-    if (this.#snapshot.generation !== transaction.after.generation) {
-      throw new SourceProjectConflictError(transaction.after.generation, this.#snapshot.generation);
-    }
+    const target = await this.history.destination("undo");
     const snapshot = await this.repository.commit({
       expectedGeneration: this.#snapshot.generation,
-      ...(this.#snapshot.manifestSource === transaction.before.manifestSource
+      ...(this.#snapshot.manifestSource === target.manifestSource
         ? {}
-        : { manifestSource: transaction.before.manifestSource }),
-      ...(this.#snapshot.assetManifestSource === transaction.before.assetManifestSource
+        : { manifestSource: target.manifestSource }),
+      ...(this.#snapshot.assetManifestSource === target.assetManifestSource
         ? {}
-        : { assetManifestSource: transaction.before.assetManifestSource }),
-      sources: changedSources(this.#snapshot, transaction.before),
-      expectedProgram: transaction.before.compilation.ir,
+        : { assetManifestSource: target.assetManifestSource }),
+      sources: changedSources(this.#snapshot, target),
     });
-    this.#undo.pop();
-    this.#redo.push(transaction);
+    await this.history.acceptMove("undo", snapshot);
     this.#snapshot = snapshot;
     return snapshot;
   }
 
   async redo(): Promise<SourceProjectSnapshot> {
-    const transaction = this.#redo.at(-1);
-    if (!transaction) throw new Error("Nothing to redo.");
+    const target = await this.history.destination("redo");
     const snapshot = await this.repository.commit({
       expectedGeneration: this.#snapshot.generation,
-      ...(this.#snapshot.manifestSource === transaction.after.manifestSource
+      ...(this.#snapshot.manifestSource === target.manifestSource
         ? {}
-        : { manifestSource: transaction.after.manifestSource }),
-      ...(this.#snapshot.assetManifestSource === transaction.after.assetManifestSource
+        : { manifestSource: target.manifestSource }),
+      ...(this.#snapshot.assetManifestSource === target.assetManifestSource
         ? {}
-        : { assetManifestSource: transaction.after.assetManifestSource }),
-      sources: changedSources(this.#snapshot, transaction.after),
-      expectedProgram: transaction.after.compilation.ir,
+        : { assetManifestSource: target.assetManifestSource }),
+      sources: changedSources(this.#snapshot, target),
     });
-    this.#redo.pop();
-    this.#undo.push({ ...transaction, before: this.#snapshot, after: snapshot });
+    await this.history.acceptMove("redo", snapshot);
     this.#snapshot = snapshot;
     return snapshot;
   }

@@ -1,7 +1,7 @@
 import { mkdtemp, mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { timeUs } from "@cinesim/core";
+import { DEFAULT_SETTINGS, timeUs } from "@cinesim/core";
 import { afterEach, describe, expect, it } from "vite-plus/test";
 import {
   parseAssetManifest,
@@ -44,6 +44,50 @@ const asset = {
   height: 2160,
   frameRate: 23.976,
   hasAudio: true,
+  inputColor: { policy: "source-metadata" as const },
+  technical: {
+    containerMimeType: 'video/quicktime; codecs="hvc1,mp4a.40.2"',
+    durationSeconds: 12,
+    compatibility: "supported" as const,
+    video: {
+      codec: "hevc",
+      codecParameters: "hvc1.2.4.L153.B0",
+      internalCodecId: "hvc1",
+      decoderAvailability: "supported" as const,
+      codedWidth: 3840,
+      codedHeight: 2160,
+      displayWidth: 3840,
+      displayHeight: 2160,
+      rotationDegrees: 0,
+      pixelAspectRatio: { numerator: 1, denominator: 1 },
+      frameRate: {
+        mode: "constant" as const,
+        nominal: 23.976,
+        minimum: 23.976,
+        maximum: 23.976,
+        average: 23.976,
+        probedFrames: 256,
+      },
+      color: {
+        primaries: "bt2020",
+        transfer: "hlg",
+        matrix: "bt2020-ncl",
+        fullRange: false,
+        bitDepth: 10,
+        hdr: true,
+        uncertain: false,
+      },
+    },
+    audio: {
+      codec: "aac",
+      codecParameters: "mp4a.40.2",
+      internalCodecId: "mp4a",
+      decoderAvailability: "supported" as const,
+      sampleRate: 48_000,
+      channels: 2,
+      channelLayout: "stereo",
+    },
+  },
 };
 
 function emptyManifest(): ProjectManifest {
@@ -56,18 +100,7 @@ function emptyManifest(): ProjectManifest {
       entry: "main.jsx",
       activeCompositionId: "sequence_main",
     },
-    settings: {
-      autosave: true,
-      previewQuality: "half",
-      backgroundColor: "#09090b",
-      defaultFilmstripIntervalSeconds: 5,
-      proxyGeneration: "automatic",
-      proxyProfile: "balanced",
-      proxyMaxLongEdge: 1280,
-      proxyFrameRateCap: 60,
-      proxyQuality: "medium",
-    },
-    compiler: { strict: true },
+    settings: DEFAULT_SETTINGS,
   };
 }
 
@@ -102,7 +135,7 @@ describe("project manifest", () => {
     const initial = `${serializeProjectManifest(emptyManifest())}\n# user note\n[user.custom]\nkeep = "yes"\n`;
     const withSetting = patchManifestSetting(
       initial,
-      "preview_quality",
+      "previewQuality",
       "quarter",
       sourceRevision(initial),
     );

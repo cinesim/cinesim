@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vite-plus/test";
 import { DesktopProjectStore } from "../src/main/projects/project-store";
 import { canonicalProjectSizeBytes } from "../src/main/projects/project-size";
-import { isTemporaryMediaSelection } from "../src/main/projects/media-import";
+import { inferCodecBitDepth, isTemporaryMediaSelection } from "../src/main/projects/media-import";
 
 const temporaryDirectories: string[] = [];
 const projectStores: DesktopProjectStore[] = [];
@@ -134,7 +134,25 @@ describe("DesktopProjectStore", () => {
       source: { kind: "local", path: mediaPath },
       durationUs: timeUs(1_000_000),
       hasAudio: true,
+      technical: {
+        containerMimeType: "audio/wav",
+        durationSeconds: 1,
+        compatibility: "supported",
+        audio: {
+          codec: "pcm-s16",
+          decoderAvailability: "supported",
+          sampleRate: 8_000,
+          channels: 1,
+          channelLayout: "mono",
+        },
+      },
     });
+  });
+
+  it("extracts bit depth only from codec parameter formats that carry it", () => {
+    expect(inferCodecBitDepth("vp09.02.10.10.01")).toBe(10);
+    expect(inferCodecBitDepth("av01.0.08M.08.0.110.01.01.01.0")).toBe(8);
+    expect(inferCodecBitDepth("avc1.640028")).toBeUndefined();
   });
 
   it("copies temporary picker media into disposable originals without modifying the source", async () => {

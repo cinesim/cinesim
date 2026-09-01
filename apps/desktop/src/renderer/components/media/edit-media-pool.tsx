@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { useDraggable } from "@dnd-kit/core";
-import { Cloud, Film, Plus, RotateCcw, Sparkles, X } from "@cinesim/ui";
+import { CircleAlert, Cloud, Film, Plus, RotateCcw, Sparkles, X } from "@cinesim/ui";
 import {
   Button,
   cn,
@@ -19,7 +19,7 @@ import { formatDuration } from "../../lib/format";
 import { useRendererStore } from "../../store/renderer-store-context";
 import { useEditorDnd } from "../workspace/editor-dnd-context";
 import { useEditorTransport } from "../workspace/editor-transport-context";
-import { AssetSourceMetadata } from "./asset-source-metadata";
+import { assetCompatibilityLabel, AssetSourceMetadata } from "./asset-source-metadata";
 import { MediaSkimSurface } from "./media-skim-surface";
 
 interface EditMediaPoolProps {
@@ -213,6 +213,7 @@ function DraggableAssetCard({
 }) {
   const editorDrag = useEditorDnd();
   const transport = useEditorTransport();
+  const compatibility = assetCompatibilityLabel(asset);
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
     id: `asset:${asset.id}`,
     data: { kind: "asset", assetId: asset.id },
@@ -239,6 +240,14 @@ function DraggableAssetCard({
         }
         bottomCorner={
           <div className="flex items-center gap-1">
+            {compatibility && (
+              <span
+                className="grid size-5 place-items-center rounded bg-panel/90 text-amber-400"
+                title={compatibility}
+              >
+                <CircleAlert size={11} />
+              </span>
+            )}
             {asset.source.kind === "cloud" && (
               <span
                 className="grid size-5 place-items-center rounded bg-panel/90 text-secondary"

@@ -1,5 +1,5 @@
 import { timeUs } from "@cinesim/core";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
@@ -63,6 +63,35 @@ describe("AgentMcpServer", () => {
     expect(tools.tools.map((tool) => tool.name).sort()).toEqual([...CINESIM_MCP_TOOL_NAMES].sort());
     const inspection = await client.callTool({ name: "project_inspect", arguments: {} });
     expect(inspection.isError).not.toBe(true);
+    await expect(client.callTool({ name: "project_status", arguments: {} })).resolves.toMatchObject(
+      {
+        structuredContent: {
+          acceptedGeneration: projectStore.session().generation,
+          diskValid: true,
+          candidateDiagnostics: [],
+          lastValidComposition: project.project.activeSequenceId,
+        },
+      },
+    );
+
+    const invalidCandidate = new Promise<void>((resolve) => {
+      const unsubscribe = projectStore.subscribe((session) => {
+        if (session.diskValid) return;
+        unsubscribe();
+        resolve();
+      });
+    });
+    await writeFile(join(project.directory, "main.jsx"), "export const main = <composition");
+    await invalidCandidate;
+    const invalidStatus = await client.callTool({ name: "project_status", arguments: {} });
+    expect(invalidStatus).toMatchObject({
+      structuredContent: {
+        acceptedGeneration: projectStore.session().generation,
+        diskValid: false,
+        candidateDiagnostics: [expect.objectContaining({ severity: "error" })],
+        lastValidComposition: project.project.activeSequenceId,
+      },
+    });
     const unavailableEdit = await client.callTool({
       name: "clip_add",
       arguments: {},

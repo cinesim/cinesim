@@ -16,7 +16,7 @@ import type {
   ProjectSettings,
   Transform,
 } from "../src/project/types";
-import { DEFAULT_SETTINGS } from "../src/project/types";
+import { DEFAULT_SETTINGS } from "../src/project/settings";
 import { planSemanticCommand } from "../src/semantic/commands";
 import type { SemanticCommandPlan, SemanticEditorCommand } from "../src/semantic/command-types";
 

@@ -14,7 +14,7 @@ import type { Asset, AssetId, Sequence } from "@cinesim/core";
 import type { CloudTransferSnapshot } from "../../../shared/contracts";
 import { formatDuration } from "../../lib/format";
 import { LibraryGrid } from "../shared/library-card";
-import { AssetSourceMetadata } from "./asset-source-metadata";
+import { assetCompatibilityLabel, AssetSourceMetadata } from "./asset-source-metadata";
 import { assetStoragePresentation } from "./media-bin-model";
 import type { AssetStorageStatus } from "./media-bin-model";
 import { MediaSkimSurface } from "./media-skim-surface";
@@ -114,6 +114,7 @@ export function MediaBinGrid({
           transfer,
           downloadedCloudOriginals.includes(asset.id),
         );
+        const compatibility = assetCompatibilityLabel(asset);
         return (
           <div key={asset.id} data-asset-id={asset.id}>
             <PreviewCard
@@ -127,6 +128,13 @@ export function MediaBinGrid({
                 selected ? (
                   <span className="grid size-6 place-items-center rounded-full bg-accent text-on-accent shadow-md">
                     <Check size={14} strokeWidth={3} />
+                  </span>
+                ) : compatibility ? (
+                  <span
+                    className="grid size-6 place-items-center rounded-full bg-panel/90 text-amber-400 shadow-md"
+                    title={compatibility}
+                  >
+                    <CircleAlert size={14} />
                   </span>
                 ) : undefined
               }

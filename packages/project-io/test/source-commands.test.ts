@@ -51,18 +51,20 @@ describe("source-backed semantic commands", () => {
       writeFile(mainPath, withExtra),
     ]);
     const withExtraSnapshot = await service.repository.load();
-    service.acceptExternal(withExtraSnapshot);
+    await service.acceptExternal(withExtraSnapshot);
     expect(service.canUndo).toBe(true);
     expect(Object.keys(service.snapshot.sources)).toContain("Extra.jsx");
 
     await writeFile(mainPath, originalMain.replace('name="Main timeline"', 'name="Disk edit"'));
     const withoutExtraSnapshot = await service.repository.load();
-    service.acceptExternal(withoutExtraSnapshot);
+    await service.acceptExternal(withoutExtraSnapshot);
     expect(Object.keys(service.snapshot.sources)).not.toContain("Extra.jsx");
 
-    const restored = await service.undo();
+    const reopened = await SourceCommandService.open(directory);
+    expect(reopened.canUndo).toBe(true);
+    const restored = await reopened.undo();
     expect(restored.sources["Extra.jsx"]).toBeDefined();
-    const redone = await service.redo();
+    const redone = await reopened.redo();
     expect(redone.sources["Extra.jsx"]).toBeUndefined();
     await expect(readFile(extraPath, "utf8")).rejects.toMatchObject({ code: "ENOENT" });
   });

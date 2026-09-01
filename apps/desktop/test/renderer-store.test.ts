@@ -49,6 +49,8 @@ function sessionFixture(directory = "/projects/fixture"): DesktopProjectSession 
     },
     propertySchemas: {},
     diagnostics: [],
+    diskValid: true,
+    candidateDiagnostics: [],
     settings: DEFAULT_SETTINGS,
     generation: "fixture-generation",
     revision: 0,
