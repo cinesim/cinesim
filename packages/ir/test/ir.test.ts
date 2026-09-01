@@ -174,12 +174,27 @@ describe("semantic ir", () => {
       id: "adjustment_grade",
       targetTrackIds: ["track_video"],
     });
-    expect(plan.layers[0]!.effects.at(-1)?.id).toBe("adjustment_grade/color");
-    expect(plan.layers[0]!.effects.at(-1)?.props.exposure).toEqual({
+    expect(plan.layers[0]!.effects).toEqual([]);
+    expect(plan.adjustments[0]!.effects[0]!.props.exposure).toEqual({
       kind: "number",
       value: 0.5,
     });
     expect(projectTimeline(ir).tracks[0]!.adjustments[0]?.id).toBe("adjustment_grade");
+    ir.compositions[0]!.timeline.tracks[0]!.adjustments!.push({
+      id: "adjustment_conflict",
+      trackId: "track_adjustments",
+      timelineStartUs: irTimeUs(200_000),
+      durationUs: irTimeUs(100_000),
+      scope: "tracks",
+      depth: 1,
+      targetTrackIds: ["track_video"],
+      enabled: true,
+      animations: [],
+      effects: [],
+    });
+    expect(() => validateIrProgram(ir, new Set(["asset_camera"]))).toThrow(
+      /overlap the same target/,
+    );
   });
 
   it("projects active caption cues with cue-local typed animation", () => {

@@ -22,6 +22,7 @@ describe("WebGpuCompositor resource ownership", () => {
     const pass = {
       setPipeline: () => undefined,
       setBindGroup: () => undefined,
+      setScissorRect: () => undefined,
       draw: () => undefined,
       end: () => undefined,
     };
@@ -104,6 +105,7 @@ describe("WebGpuCompositor resource ownership", () => {
       const pass = {
         setPipeline: () => undefined,
         setBindGroup: () => undefined,
+        setScissorRect: () => undefined,
         draw: () => undefined,
         end: () => {
           if (failurePoint === "pass.end") throw expected;
@@ -193,7 +195,7 @@ describe("WebGpuCompositor resource ownership", () => {
       ]);
 
       expect(frameCloses).toBe(1);
-      expect(bufferDestroys).toBe(1);
+      expect(bufferDestroys).toBe(failurePoint === "pass.end" ? 0 : 2);
       expect(reported).toEqual([expected]);
       expect(compositor.metrics.submittedFrames).toBe(0);
       compositor.destroy();

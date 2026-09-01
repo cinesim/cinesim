@@ -18,10 +18,23 @@ export interface RenderGraphNode {
   textureSlot?: number;
 }
 
+export interface RenderGraphAdjustment {
+  id: string;
+  targetLayerIds: string[];
+  painterOrder: number;
+  effectCount: number;
+}
+
 export interface RenderGraph {
   nodes: RenderGraphNode[];
   painterOrder: string[];
   intermediateTextureCount: number;
+}
+
+interface CompositeUnit {
+  nodeId: string;
+  operationId: string;
+  painterOrder: number;
 }
 
 const MAX_GRAPH_LAYERS = 2048;
@@ -70,11 +83,74 @@ function terminalNodeId(layer: RenderGraphLayer): string {
   return `${layer.id}:source`;
 }
 
-export function buildRenderGraph(layers: readonly RenderGraphLayer[]): RenderGraph {
+export function buildRenderGraph(
+  layers: readonly RenderGraphLayer[],
+  adjustments: readonly RenderGraphAdjustment[] = [],
+): RenderGraph {
   const ordered = checkedLayers(layers);
   const nodes = ordered.flatMap(layerNodes);
-  const inputs = ordered.map(terminalNodeId);
-  nodes.push({ id: "scene:composite", kind: "composite", inputs, textureSlot: 3 });
+  const byId = new Map(ordered.map((layer) => [layer.id, layer]));
+  const claimed = new Set<string>();
+  const operationIds = new Set(ordered.map((layer) => layer.id));
+  const adjustmentUnits: CompositeUnit[] = [];
+  for (const adjustment of adjustments) {
+    if (!adjustment.id || operationIds.has(adjustment.id))
+      throw new Error(`Duplicate render-graph operation: ${adjustment.id}`);
+    operationIds.add(adjustment.id);
+    const targetLayers = adjustment.targetLayerIds
+      .map((id) => {
+        const layer = byId.get(id);
+        if (!layer || claimed.has(id)) throw new Error(`Invalid adjustment render target: ${id}`);
+        claimed.add(id);
+        return layer;
+      })
+      .sort(
+        (left, right) => left.painterOrder - right.painterOrder || left.id.localeCompare(right.id),
+      );
+    if (targetLayers.length === 0)
+      throw new Error(`Adjustment render group has no targets: ${adjustment.id}`);
+    const groupId = `${adjustment.id}:group`;
+    nodes.push({
+      id: groupId,
+      kind: "group",
+      inputs: targetLayers.map(terminalNodeId),
+      layerId: adjustment.id,
+      textureSlot: 2,
+    });
+    let nodeId = groupId;
+    if (adjustment.effectCount > 0)
+      nodes.push({
+        id: (nodeId = `${adjustment.id}:effects`),
+        kind: "effects",
+        inputs: [groupId],
+        layerId: adjustment.id,
+        textureSlot: 0,
+      });
+    adjustmentUnits.push({
+      nodeId,
+      operationId: adjustment.id,
+      painterOrder: adjustment.painterOrder,
+    });
+  }
+  const units: CompositeUnit[] = [
+    ...ordered
+      .filter((layer) => !claimed.has(layer.id))
+      .map((layer) => ({
+        nodeId: terminalNodeId(layer),
+        operationId: layer.id,
+        painterOrder: layer.painterOrder,
+      })),
+    ...adjustmentUnits,
+  ].sort(
+    (left, right) =>
+      left.painterOrder - right.painterOrder || left.operationId.localeCompare(right.operationId),
+  );
+  nodes.push({
+    id: "scene:composite",
+    kind: "composite",
+    inputs: units.map(({ nodeId }) => nodeId),
+    textureSlot: 3,
+  });
   nodes.push({ id: "scene:output", kind: "output", inputs: ["scene:composite"] });
   if (nodes.length > MAX_GRAPH_NODES)
     throw new Error(`Render graph exceeds the ${MAX_GRAPH_NODES}-node limit.`);
@@ -82,5 +158,9 @@ export function buildRenderGraph(layers: readonly RenderGraphLayer[]): RenderGra
     MAX_INTERMEDIATE_TEXTURES,
     Math.max(1, ...nodes.flatMap((node) => node.textureSlot ?? -1).map((slot) => slot + 1)),
   );
-  return { nodes, painterOrder: ordered.map((layer) => layer.id), intermediateTextureCount };
+  return {
+    nodes,
+    painterOrder: units.map(({ operationId }) => operationId),
+    intermediateTextureCount,
+  };
 }

@@ -52,6 +52,9 @@ export interface ResolvedLayer {
   cornerRadiusPx: number;
   colorAdjustment: ColorAdjustment;
   visualEffects?: VisualEffectSettings;
+  blendMode: string;
+  groupDepth: number;
+  maskRect?: Box;
   transition?: {
     kind: "wipe" | "blur";
     progress: number;
@@ -69,6 +72,10 @@ export interface ResolvedGraphicLayer {
   color: readonly [number, number, number, number];
   cornerRadiusPx: number;
   blurPx: number;
+  trackId?: string;
+  blendMode?: string;
+  groupDepth?: number;
+  maskRect?: Box;
   order: number;
 }
 
@@ -93,6 +100,10 @@ export interface ResolvedTextLayer {
   opacity: number;
   scale: number;
   rotation: number;
+  trackId?: string;
+  blendMode?: string;
+  groupDepth?: number;
+  maskRect?: Box;
   emphasis?: {
     start: number;
     end: number;
@@ -107,13 +118,22 @@ export interface ResolvedScene {
   graphics: ResolvedGraphicLayer[];
   text: ResolvedTextLayer[];
   background: readonly [number, number, number, number];
+  adjustments: ResolvedAdjustmentGroup[];
 }
 
-interface Box {
+export interface Box {
   x: number;
   y: number;
   width: number;
   height: number;
+}
+
+export interface ResolvedAdjustmentGroup {
+  id: string;
+  targetTrackIds: string[];
+  belowTrackIds: string[];
+  colorAdjustment: ColorAdjustment;
+  visualEffects: VisualEffectSettings;
 }
 
 interface LayoutContext {
@@ -124,6 +144,8 @@ interface LayoutContext {
   opacity: number;
   available: Box;
   effects: readonly IrEffect[];
+  groupDepth: number;
+  maskRect?: Box;
 }
 
 const DEFAULT_COLOR_ADJUSTMENT: ColorAdjustment = {
@@ -294,6 +316,8 @@ interface NodeLayout {
   nodeY: number;
   opacity: number;
   effects: readonly IrEffect[];
+  groupDepth: number;
+  maskRect?: Box;
 }
 
 function nodeLayout(node: EvaluatedIrNode, context: LayoutContext): NodeLayout {
@@ -305,6 +329,8 @@ function nodeLayout(node: EvaluatedIrNode, context: LayoutContext): NodeLayout {
     nodeY: context.originY + numeric(node.props.y, 0) * context.scaleY,
     opacity: context.opacity * numeric(node.props.opacity, 1),
     effects: [...context.effects, ...node.effects],
+    groupDepth: context.groupDepth,
+    ...(context.maskRect ? { maskRect: context.maskRect } : {}),
   };
 }
 
@@ -328,7 +354,11 @@ function contentBox(
   );
 }
 
-function childLayoutContext(layout: NodeLayout, available: Box): LayoutContext {
+function childLayoutContext(
+  layout: NodeLayout,
+  available: Box,
+  kind: EvaluatedIrNode["kind"] = "group",
+): LayoutContext {
   return {
     originX: layout.nodeX,
     originY: layout.nodeY,
@@ -337,6 +367,12 @@ function childLayoutContext(layout: NodeLayout, available: Box): LayoutContext {
     opacity: layout.opacity,
     available,
     effects: layout.effects,
+    groupDepth: layout.groupDepth + (kind === "mask" ? 0 : 1),
+    ...(kind === "mask"
+      ? { maskRect: available }
+      : layout.maskRect
+        ? { maskRect: layout.maskRect }
+        : {}),
   };
 }
 
@@ -349,7 +385,7 @@ function resolveStack(
 ): void {
   const gap = numeric(node.props.gap, 0) * layout.scaleY;
   const horizontal = stringValue(node.props.direction, "vertical") === "horizontal";
-  const childContext = childLayoutContext(layout, available);
+  const childContext = childLayoutContext(layout, available, node.kind);
   let cursor = 0;
   for (const child of node.children) {
     const box = {
@@ -371,11 +407,12 @@ function resolveContainer(
   node: EvaluatedIrNode,
   context: LayoutContext,
   layout: NodeLayout,
+  forcedBox: Box | undefined,
   output: ContentOutput,
 ): void {
-  const available = contentBox(node, context, layout);
+  const available = contentBox(node, context, layout, forcedBox);
   if (node.kind === "stack") return resolveStack(node, context, layout, available, output);
-  const childContext = childLayoutContext(layout, available);
+  const childContext = childLayoutContext(layout, available, node.kind);
   node.children.forEach((child) => resolveContent(child, childContext, undefined, output));
 }
 
@@ -450,6 +487,9 @@ function resolveMediaNode(
     cornerRadiusPx: numeric(node.props.radius, numeric(node.props.cornerRadius, 0)),
     colorAdjustment: colorAdjustment(layout.effects),
     visualEffects: visualEffects(layout.effects),
+    blendMode: stringValue(node.props.blendMode, output.clip.transform.blendMode),
+    groupDepth: layout.groupDepth,
+    ...(layout.maskRect ? { maskRect: layout.maskRect } : {}),
     order: output.drawOrder.value++,
   });
 }
@@ -477,6 +517,10 @@ function resolveShape(
         ? Math.min(box.width, box.height) / 2
         : numeric(node.props.radius, numeric(node.props.cornerRadius, 0)),
     blurPx: numeric(node.props.blur, 0),
+    trackId: output.track.id,
+    blendMode: stringValue(node.props.blendMode, output.clip.transform.blendMode),
+    groupDepth: layout.groupDepth,
+    ...(layout.maskRect ? { maskRect: layout.maskRect } : {}),
     order: output.drawOrder.value++,
   });
 }
@@ -511,6 +555,10 @@ function resolveText(
     opacity: layout.opacity,
     scale: 1,
     rotation: outer.rotation,
+    trackId: output.track.id,
+    blendMode: stringValue(node.props.blendMode, outer.blendMode),
+    groupDepth: layout.groupDepth,
+    ...(layout.maskRect ? { maskRect: layout.maskRect } : {}),
     order: output.drawOrder.value++,
   });
 }
@@ -523,7 +571,7 @@ function resolveContent(
 ): void {
   const layout = nodeLayout(node, context);
   if (node.kind === "group" || node.kind === "mask" || node.kind === "stack") {
-    return resolveContainer(node, context, layout, output);
+    return resolveContainer(node, context, layout, forcedBox, output);
   }
   if (node.kind === "grid") return resolveGrid(node, context, layout, forcedBox, output);
   const box = contentBox(node, context, layout, forcedBox);
@@ -578,7 +626,24 @@ export function resolveSceneFrame(project: PlaybackProject, timelineTimeUs: Time
     appendPlanContentLayer(layer, resolved, composition, assets, media, graphics, text, drawOrder);
   }
   appendPlanCaptions(plan.captions, composition, graphics, text, drawOrder);
-  return { media, graphics, text, background: parseColor(plan.background) };
+  return {
+    media,
+    graphics,
+    text,
+    background: parseColor(plan.background),
+    adjustments: plan.adjustments.map((adjustment) => ({
+      id: adjustment.id,
+      targetTrackIds: adjustment.targetTrackIds,
+      belowTrackIds: composition.timeline.tracks
+        .slice(
+          composition.timeline.tracks.findIndex((track) => track.id === adjustment.trackId) + 1,
+        )
+        .filter((track) => track.kind !== "audio")
+        .map((track) => track.id),
+      colorAdjustment: colorAdjustment(adjustment.effects),
+      visualEffects: visualEffects(adjustment.effects),
+    })),
+  };
 }
 
 type PlannedLayer = ReturnType<typeof createRenderPlan>["layers"][number];
@@ -750,6 +815,8 @@ function appendPlanMediaLayer(
     cornerRadiusPx: clip.transform.cornerRadius,
     colorAdjustment: colorAdjustment(layer.effects),
     visualEffects: visualEffects(layer.effects),
+    blendMode: clip.transform.blendMode,
+    groupDepth: 0,
     ...(transition ? { transition } : {}),
     order: drawOrder.value++,
   });
@@ -796,6 +863,9 @@ function appendTransitionDip(
     color: parseColor(stringValue(transition.props.color, composition.background)),
     cornerRadiusPx: 0,
     blurPx: 0,
+    trackId: layer.trackId,
+    blendMode: "normal",
+    groupDepth: 0,
     order: drawOrder.value++,
   });
 }
@@ -821,6 +891,7 @@ function appendPlanContentLayer(
       opacity: layer.opacity,
       available: { x: 0, y: 0, width: composition.width, height: composition.height },
       effects: layer.effects,
+      groupDepth: 0,
     },
     undefined,
     {
@@ -891,6 +962,8 @@ export function findUpcomingLayers(
                     cornerRadiusPx: clip.transform.cornerRadius,
                     colorAdjustment: colorAdjustment([...track.effects, ...clip.effects]),
                     visualEffects: visualEffects([...track.effects, ...clip.effects]),
+                    blendMode: clip.transform.blendMode,
+                    groupDepth: 0,
                     order: 0,
                   },
                 ]

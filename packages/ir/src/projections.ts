@@ -357,12 +357,6 @@ export function createRenderPlan(
   const layers = baseRenderLayers(composition, playheadUs);
   const transitions = renderTransitions(composition, layers, playheadUs);
   const adjustments = activeAdjustments(composition, playheadUs);
-  for (const adjustment of adjustments) {
-    for (const layer of layers) {
-      if (adjustment.targetTrackIds.includes(layer.trackId))
-        layer.effects.push(...adjustment.effects);
-    }
-  }
   const captions = composition.timeline.captionTracks.flatMap((track) =>
     track.cues
       .filter((cue) => playheadUs >= cue.startUs && playheadUs < cue.startUs + cue.durationUs)

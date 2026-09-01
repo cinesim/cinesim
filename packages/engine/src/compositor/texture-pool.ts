@@ -1,4 +1,5 @@
 interface TextureEntry {
+  slot: string;
   texture: GPUTexture;
   width: number;
   height: number;
@@ -13,9 +14,19 @@ export class BoundedRenderTexturePool {
       throw new Error("Invalid texture-pool bound.");
   }
 
-  acquire(device: GPUDevice, width: number, height: number, format: GPUTextureFormat): GPUTexture {
+  acquire(
+    device: GPUDevice,
+    width: number,
+    height: number,
+    format: GPUTextureFormat,
+    slot = "default",
+  ): GPUTexture {
     const reusable = this.#entries.find(
-      (entry) => entry.width === width && entry.height === height && entry.format === format,
+      (entry) =>
+        entry.slot === slot &&
+        entry.width === width &&
+        entry.height === height &&
+        entry.format === format,
     );
     if (reusable) return reusable.texture;
     if (this.#entries.length >= this.maximum) {
@@ -27,7 +38,7 @@ export class BoundedRenderTexturePool {
       format,
       usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
     });
-    this.#entries.push({ texture, width, height, format });
+    this.#entries.push({ texture, width, height, format, slot });
     return texture;
   }
 

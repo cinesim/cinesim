@@ -10,6 +10,7 @@ import {
   filmstripSampleTimes,
   nearestSampleIndex,
   pointerSourceTimeUs,
+  packCompositeUniform,
   packLayerUniform,
   PlaybackRuntime,
   resolveScene,
@@ -104,6 +105,15 @@ describe("timeline runtime primitives", () => {
 });
 
 describe("WebGPU compositor uniforms", () => {
+  it("maps canonical blend modes to stable render-graph uniforms", () => {
+    expect(
+      ["normal", "multiply", "screen", "overlay", "darken", "lighten"].map(
+        (mode) => packCompositeUniform(mode)[0],
+      ),
+    ).toEqual([0, 1, 2, 3, 4, 5]);
+    expect(packCompositeUniform("unknown")[0]).toBe(0);
+  });
+
   it("packs aligned transform, crop, and color-adjustment uniforms", () => {
     const uniform = packLayerUniform(
       {

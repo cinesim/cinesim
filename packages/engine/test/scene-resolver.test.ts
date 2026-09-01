@@ -348,6 +348,16 @@ describe("timeline visual layer order", () => {
         },
       ],
     };
+    const grid = content.children[1]!;
+    const firstSpeaker = grid.children[0]!;
+    grid.children[0] = {
+      id: "speaker_mask",
+      kind: "mask",
+      props: visualDefaults,
+      animations: [],
+      effects: [],
+      children: [firstSpeaker],
+    };
     clip.content = content;
 
     const resolved = resolveSceneFrame({ program: ir, assets }, timeUs(500_000));
@@ -361,6 +371,12 @@ describe("timeline visual layer order", () => {
       fit: "cover",
     });
     expect(resolved.media[0]!.cornerRadiusPx).toBe(24);
+    expect(resolved.media[0]!.maskRect).toMatchObject({
+      x: 72,
+      y: 72,
+      width: expect.closeTo(578.67, 1),
+      height: 415,
+    });
     expect(resolved.graphics.find((graphic) => graphic.nodeId === "background")?.order).toBe(0);
     expect(resolved.media[0]!.order).toBe(1);
     expect(resolved.media[0]!.colorAdjustment).toMatchObject({

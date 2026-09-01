@@ -22,6 +22,44 @@ interface ClipLinkRecord {
   enabled: boolean;
 }
 
+interface AdjustmentRecord {
+  id: string;
+  startUs: number;
+  endUs: number;
+  targetIds: string[];
+}
+
+function adjustmentRecords(composition: IrComposition): AdjustmentRecord[] {
+  const tracks = composition.timeline.tracks;
+  return tracks.flatMap((track, ownerIndex) =>
+    (track.adjustments ?? []).map((adjustment) => ({
+      id: adjustment.id,
+      startUs: adjustment.timelineStartUs,
+      endUs: adjustment.timelineStartUs + adjustment.durationUs,
+      targetIds:
+        adjustment.scope === "tracks"
+          ? adjustment.targetTrackIds
+          : tracks
+              .slice(ownerIndex + 1)
+              .filter((candidate) => candidate.kind !== "audio")
+              .slice(0, adjustment.depth)
+              .map((candidate) => candidate.id),
+    })),
+  );
+}
+
+function validateAdjustmentOverlap(composition: IrComposition): void {
+  const records = adjustmentRecords(composition);
+  for (const [index, left] of records.entries()) {
+    for (const right of records.slice(index + 1)) {
+      const timeOverlaps = left.startUs < right.endUs && right.startUs < left.endUs;
+      const targetOverlaps = left.targetIds.some((id) => right.targetIds.includes(id));
+      if (timeOverlaps && targetOverlaps)
+        throw new Error(`Adjustment layers ${left.id} and ${right.id} overlap the same target.`);
+    }
+  }
+}
+
 function assertTime(value: number, name: string): void {
   if (!Number.isSafeInteger(value) || value < 0) {
     throw new Error(`${name} must be non-negative integer microseconds.`);
@@ -157,6 +195,7 @@ class ProgramValidator {
         this.validateAdjustmentTargets(adjustment, ownerIndex, byId);
       }
     }
+    validateAdjustmentOverlap(composition);
   }
 
   validateDucker(effect: IrEffect, target: IrTrack, tracks: ReadonlyMap<string, IrTrack>): void {

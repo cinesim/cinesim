@@ -49,6 +49,36 @@ describe("bounded render graph", () => {
     };
     expect(() => buildRenderGraph([layer, layer])).toThrow(/Duplicate render-graph layer/);
   });
+
+  it("plans a scoped adjustment as one bounded painter operation", () => {
+    const layer = (id: string, painterOrder: number) => ({
+      id,
+      kind: "media" as const,
+      painterOrder,
+      effectCount: 0,
+      masked: false,
+      groupDepth: 0,
+      blendMode: "normal",
+    });
+    const graph = buildRenderGraph(
+      [layer("background", 0), layer("subject", 1), layer("foreground", 3)],
+      [
+        {
+          id: "grade:scene",
+          targetLayerIds: ["subject", "background"],
+          painterOrder: 2,
+          effectCount: 1,
+        },
+      ],
+    );
+    expect(graph.painterOrder).toEqual(["grade:scene", "foreground"]);
+    expect(graph.nodes.find((node) => node.id === "grade:scene:group")?.inputs).toEqual([
+      "background:source",
+      "subject:source",
+    ]);
+    expect(graph.nodes.at(-2)?.inputs).toEqual(["grade:scene:effects", "foreground:source"]);
+    expect(graph.intermediateTextureCount).toBe(4);
+  });
 });
 
 describe("render texture pool", () => {
@@ -68,7 +98,7 @@ describe("render texture pool", () => {
     const pool = new BoundedRenderTexturePool(2);
     const first = pool.acquire(device, 100, 100, "rgba8unorm");
     expect(pool.acquire(device, 100, 100, "rgba8unorm")).toBe(first);
-    pool.acquire(device, 200, 100, "rgba8unorm");
+    expect(pool.acquire(device, 100, 100, "rgba8unorm", "second")).not.toBe(first);
     pool.acquire(device, 300, 100, "rgba8unorm");
     expect(pool.size).toBe(2);
     expect(destroyed).toEqual([0]);

@@ -6,6 +6,7 @@ import type {
   CompositorColor,
   CompositorGraphicLayer,
   CompositorLayer,
+  CompositorAdjustmentGroup,
   CompositorTextLayer,
   PreviewCompositor,
 } from "../compositor/webgpu-compositor";
@@ -96,6 +97,7 @@ interface DecodedSceneFrame {
   graphics: readonly CompositorGraphicLayer[];
   text: readonly CompositorTextLayer[];
   background?: CompositorColor;
+  adjustments?: readonly CompositorAdjustmentGroup[];
 }
 
 export type ShuttleDirection = -1 | 0 | 1;
@@ -340,6 +342,7 @@ export class PlaybackRuntime {
         decoded.graphics,
         decoded.background,
         decoded.text,
+        decoded.adjustments,
       );
       this.#renderedSinceSnapshot += 1;
       this.#mode = request.mode;
@@ -657,6 +660,7 @@ export class PlaybackRuntime {
       decoded.graphics,
       decoded.background,
       decoded.text,
+      decoded.adjustments,
     );
     this.#renderedSinceSnapshot += 1;
     this.#playbackFramesPresented += 1;
@@ -713,11 +717,15 @@ export class PlaybackRuntime {
         return frame
           ? {
               id: layer.nodeId,
+              trackId: layer.track.id,
               frame,
               transform: layer.transform,
               cornerRadiusPx: layer.cornerRadiusPx,
               colorAdjustment: layer.colorAdjustment,
               ...(layer.visualEffects ? { visualEffects: layer.visualEffects } : {}),
+              blendMode: layer.blendMode,
+              groupDepth: layer.groupDepth,
+              ...(layer.maskRect ? { maskRect: layer.maskRect } : {}),
               ...(layer.transition ? { transition: layer.transition } : {}),
               order: layer.order,
             }
@@ -732,6 +740,7 @@ export class PlaybackRuntime {
       graphics: scene.graphics,
       text: scene.text,
       background: scene.background,
+      adjustments: scene.adjustments,
     };
   }
 
@@ -756,11 +765,15 @@ export class PlaybackRuntime {
           return frame
             ? {
                 id: layer.nodeId,
+                trackId: layer.track.id,
                 frame,
                 transform: layer.transform,
                 cornerRadiusPx: layer.cornerRadiusPx,
                 colorAdjustment: layer.colorAdjustment,
                 ...(layer.visualEffects ? { visualEffects: layer.visualEffects } : {}),
+                blendMode: layer.blendMode,
+                groupDepth: layer.groupDepth,
+                ...(layer.maskRect ? { maskRect: layer.maskRect } : {}),
                 ...(layer.transition ? { transition: layer.transition } : {}),
                 order: layer.order,
               }
@@ -782,6 +795,7 @@ export class PlaybackRuntime {
       graphics: scene.graphics,
       text: scene.text,
       background: scene.background,
+      adjustments: scene.adjustments,
     };
   }
 
