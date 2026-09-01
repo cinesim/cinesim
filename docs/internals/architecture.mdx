@@ -14,7 +14,7 @@ apps/api          Hono server: Better Auth, cloud media control plane
 apps/web          Next.js marketing site and documentation
 packages/core     Deterministic project model, commands, history, serialization
 packages/engine   Mediabunny sources, playback clock, Web Audio, WebGPU
-packages/mcp-tools Canonical MCP tool catalog, schemas, and command translations
+packages/mcp-tools Read-only inspection/perception and disposable-service MCP catalog
 packages/project-io Symlink-safe project paths, transactions, writer locks
 packages/protocol Zod contracts, dispatcher, queries, events, errors
 packages/ui       Base UI + CVA primitives
@@ -58,8 +58,9 @@ clarity remains the acceptance criterion.
 ## Project state
 
 `cinesim.toml` is the stable entry point. It contains format/language versions, project identity,
-settings, compiler policy, and the stable asset catalog. Compositions, timelines, tracks, clips,
-graphics, effects, and animation live in reachable `.js`/`.jsx` source modules. The compiler parses
+settings, compiler policy, and project notes. `assets.toml` owns the stable asset catalog, technical
+metadata, input-color interpretation, and deliberate asset notes. Compositions, timelines, tracks,
+clips, graphics, effects, and animation live in reachable `.js`/`.jsx` source modules. The compiler parses
 a bounded deterministic subset and never executes it. The generated `.video/` tree holds only
 disposable or recoverable runtime state and is ignored as a unit.
 
@@ -73,10 +74,11 @@ serializes processes, content-derived generations reject stale writers, every pr
 is recompiled and compared with the validated expected IR before publication, and opening a project
 deterministically recovers an interrupted publication.
 
-Undo and redo store bounded source transactions per committed command. A gesture keeps an ephemeral
-projection override while the pointer moves and publishes one source transaction on release. An
-accepted external source save clears local command history so undo can never overwrite a newer
-text-editor revision.
+Undo and redo store a bounded, deduplicated journal of accepted full canonical generations. A
+gesture keeps an ephemeral projection override while the pointer moves and publishes one source
+transaction on release. Valid quiet external saves append through the same history; invalid disk
+candidates never enter it. Restores atomically cover the project manifest, asset manifest, and every
+reachable source module.
 
 ## Authoring and command pathways
 
@@ -150,7 +152,8 @@ intermediate textures. `GPUDevice.importExternalTexture({ source: videoFrame })`
 picture without CPU readback; decoded frames close after submission. Canvas resize is explicit and
 device loss triggers reinitialization.
 
-Canvas2D is limited to filmstrip and thumbnail generation, where a CPU-readable image is the point.
+Canvas2D is limited to disposable perception artifacts such as thumbnails, filmstrips, and bounded
+visual-analysis metrics, where a CPU-readable image is the point. It never composes normal preview.
 
 Explicit export requests drive exact accepted-IR frame times through this same compositor. A hidden
 renderer canvas feeds Mediabunny `CanvasSource` H.264 and a bounded deterministic audio mixer feeds

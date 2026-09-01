@@ -2,6 +2,7 @@ import { Film, Input, Notice, Select } from "@cinesim/ui";
 import { sessionFromLifecycle } from "../../store/renderer-store";
 import { useRendererStore } from "../../store/renderer-store-context";
 import { SettingRow, SettingsHeading } from "./settings-layout";
+import { projectSettingPresentation } from "./project-setting-presentation";
 
 const PROXY_PRESETS = {
   "space-saver": { proxyMaxLongEdge: 960, proxyFrameRateCap: 30, proxyQuality: "low" },
@@ -37,10 +38,7 @@ export function MediaSettings() {
         editing, and the original is moved to Trash only after both upload and proxy finish.
       </Notice>
       <div className="divide-y divide-border rounded-xl border border-border bg-panel">
-        <SettingRow
-          title="Filmstrip sampling"
-          detail="Default seconds between disposable visual samples."
-        >
+        <SettingRow {...projectSettingPresentation("defaultFilmstripIntervalSeconds")}>
           <Input
             type="number"
             min={0.1}
@@ -51,10 +49,7 @@ export function MediaSettings() {
             }
           />
         </SettingRow>
-        <SettingRow
-          title="Automatic proxying"
-          detail="Create edit proxies in the background after media is imported."
-        >
+        <SettingRow {...projectSettingPresentation("proxyGeneration")}>
           <Select
             value={settings.proxyGeneration}
             onChange={(event) =>
@@ -65,10 +60,7 @@ export function MediaSettings() {
             <option value="manual">Manual</option>
           </Select>
         </SettingRow>
-        <SettingRow
-          title="Proxy profile"
-          detail="Controls proxy resolution, frame rate, and quality."
-        >
+        <SettingRow {...projectSettingPresentation("proxyProfile")}>
           <Select
             value={settings.proxyProfile}
             onChange={(event) =>
@@ -83,10 +75,7 @@ export function MediaSettings() {
         </SettingRow>
         {settings.proxyProfile === "custom" && (
           <>
-            <SettingRow
-              title="Maximum long edge"
-              detail="The largest proxy width or height in pixels."
-            >
+            <SettingRow {...projectSettingPresentation("proxyMaxLongEdge")}>
               <Input
                 type="number"
                 min={320}
@@ -95,7 +84,7 @@ export function MediaSettings() {
                 onChange={(event) => void update({ proxyMaxLongEdge: Number(event.target.value) })}
               />
             </SettingRow>
-            <SettingRow title="Frame-rate cap" detail="Preserves lower source frame rates.">
+            <SettingRow {...projectSettingPresentation("proxyFrameRateCap")}>
               <Select
                 value={settings.proxyFrameRateCap}
                 onChange={(event) =>
@@ -106,10 +95,7 @@ export function MediaSettings() {
                 <option value={60}>60 fps</option>
               </Select>
             </SettingRow>
-            <SettingRow
-              title="Encoding quality"
-              detail="Higher quality uses more local cache space."
-            >
+            <SettingRow {...projectSettingPresentation("proxyQuality")}>
               <Select
                 value={settings.proxyQuality}
                 onChange={(event) =>
@@ -125,26 +111,17 @@ export function MediaSettings() {
             </SettingRow>
           </>
         )}
-        <SettingRow
-          title="Working color space"
-          detail="Grades and effects are evaluated in a defined linear Rec.709 space."
-        >
+        <SettingRow {...projectSettingPresentation("workingColorSpace")}>
           <Select value={settings.workingColorSpace} disabled>
             <option value="linear-rec709">Linear Rec.709</option>
           </Select>
         </SettingRow>
-        <SettingRow
-          title="Output color"
-          detail="The dependable first preview and export target is Rec.709 SDR."
-        >
+        <SettingRow {...projectSettingPresentation("outputColorSpace")}>
           <Select value={settings.outputColorSpace} disabled>
             <option value="rec709-sdr">Rec.709 SDR</option>
           </Select>
         </SettingRow>
-        <SettingRow
-          title="HDR tone mapping"
-          detail="Automatically map detected HDR sources to SDR, or disable the transform explicitly."
-        >
+        <SettingRow {...projectSettingPresentation("toneMapping")}>
           <Select
             value={settings.toneMapping}
             onChange={(event) =>
@@ -155,10 +132,7 @@ export function MediaSettings() {
             <option value="off">Off</option>
           </Select>
         </SettingRow>
-        <SettingRow
-          title="Uncertain color metadata"
-          detail="Warn by default instead of silently interpreting uncertain footage as SDR."
-        >
+        <SettingRow {...projectSettingPresentation("uncertainColorHandling")}>
           <Select
             value={settings.uncertainColorHandling}
             onChange={(event) =>

@@ -32,10 +32,6 @@ export class AgentTurnCoordinator {
     };
   }
 
-  async restore(session: AgentSessionSnapshot, checkpoint: AgentCheckpoint): Promise<void> {
-    await this.#store(session.projectDirectory).restore(checkpoint.beforeRef);
-  }
-
   removeProject(projectDirectory: string): void {
     this.#stores.delete(projectDirectory);
   }

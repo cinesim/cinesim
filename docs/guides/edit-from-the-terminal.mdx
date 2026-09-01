@@ -89,13 +89,15 @@ Commands validate before writing, so a bad edit costs you an error rather than a
 - Deleting an asset removes its clips but never the source file.
 - The last sequence cannot be deleted.
 
-## A caveat on concurrent edits
+## Concurrent edits
 
-There is no cross-process lock yet. Running CLI edits against a project that is open in the desktop
-app can produce writes the app does not know about. For now, close the project in the app first, or
-treat the CLI as the only writer for that session.
+Desktop and CLI command publication share a project-scoped lock and reject stale generations.
+Direct text-editor saves are watched as complete quiet candidates: valid compiles enter the live
+editor and project history, while invalid source keeps the last accepted preview and reports precise
+diagnostics. You do not need to close the project before inspecting or editing it, but a stale CLI
+command may ask you to refresh and retry rather than overwriting newer source.
 
 ## Next
 
 - [CLI reference](../reference/cli.mdx) — every command.
-- [Work with an agent](./work-with-agents.mdx) — the same commands, driven by a model.
+- [Work with an agent](./work-with-agents.mdx) — direct source editing with MCP inspection and perception.

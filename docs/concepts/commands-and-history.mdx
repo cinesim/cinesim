@@ -1,11 +1,15 @@
 ---
-title: Commands and history
-description: Every edit is a validated command, which is what lets the app, the CLI, and agents share one project.
+title: Compile acceptance and history
+description: UI commands and direct source edits converge on one accepted project history.
 ---
 
-Cinesim has exactly one way to change a project: submit a command. The desktop app, the CLI, and the
-MCP server are all adapters over the same command layer — none of them has a private path to your
-files.
+Cinesim has one acceptance boundary with two deliberate authoring inputs. Desktop gestures and CLI
+operations submit validated semantic commands. People, coding agents, and text editors may directly
+edit `cinesim.toml`, `assets.toml`, and reachable JavaScript/JSX source. Both paths must produce a
+fully parsed, bound, validated, compiled canonical generation before the editor accepts them.
+
+MCP is not a third authoring path. It provides project/language inspection, transcripts, exact
+frames, the disposable visual index, and export services, but exposes no canonical mutation tool.
 
 ## One pathway
 
@@ -13,13 +17,10 @@ A command is validated before anything is written. It checks IDs exist, that a p
 compatible with its track, that timing is in range, and that project rules hold. Invalid commands
 fail with a structured error and change nothing.
 
-This is why an edit made by an agent is indistinguishable from an edit you made by hand: they are
-the same command, with the same validation, producing the same canonical bytes. There is no
-agent-only file format and no agent-only escape hatch.
-
-It also sets the ceiling on what any tool can do. An agent connected to your project cannot write
-canonical files directly, cannot bypass a lock, and cannot invent an edit the app itself could not
-perform.
+Direct saves are watched as debounced complete generations. A valid generation becomes live and
+appears in the same history as a UI command. An invalid candidate remains on disk for repair while
+preview, inspection, exact-frame sampling, and export retain the last accepted IR and expose bounded
+candidate diagnostics. There is no agent-only format, history, or restore control.
 
 ## One gesture, one undo step
 
@@ -29,7 +30,9 @@ So a completed drag becomes a single command in history, not a trail of pointer 
 you back to the state before the gesture, which is what you actually want. Panel resizes and
 selection changes never enter history at all — they are interface state, not project state.
 
-Undo and redo work by restoring immutable snapshots of the project taken at each committed command.
+Undo and redo restore bounded, content-deduplicated snapshots of the full canonical file set. The
+journal survives reopen. Guidance/provider files and everything under `.video/` are deliberately
+outside project history.
 
 ## Safe by default on removal
 
@@ -43,14 +46,15 @@ never the default:
 
 ## Determinism
 
-Canonical files are written the same way every time: unordered collections sorted, track order
-preserved, integers rather than floats, no timestamps. Writes go to a temporary file and are then
-atomically renamed, so a crash mid-save cannot leave a half-written project.
+Canonical serializer output is deterministic: unordered collections sorted, track order preserved,
+integers rather than floats, pretty printing, explicit versions, and no timestamps. UI/CLI writes
+use a project-scoped lock, revision checks, journaled temporary files, and atomic publication, so a
+crash or stale writer cannot silently overwrite a newer generation.
 
 Unknown schema versions are rejected outright rather than opened optimistically. A project written
 by a future version of Cinesim will refuse to load until a migration exists.
 
 ## Next
 
-- [Edit from the terminal](../guides/edit-from-the-terminal.mdx) — driving commands yourself.
-- [Work with an agent](../guides/work-with-agents.mdx) — letting a coding agent drive them.
+- [Edit from the terminal](../guides/edit-from-the-terminal.mdx) — validated CLI commands and direct source.
+- [Work with an agent](../guides/work-with-agents.mdx) — direct source plus inspection/perception services.

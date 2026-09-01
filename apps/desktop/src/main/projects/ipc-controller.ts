@@ -3,12 +3,14 @@ import { lstat, readFile, realpath, stat } from "node:fs/promises";
 import { parse, resolve } from "node:path";
 import { app, dialog, shell } from "electron";
 import { cloudProjectIdSchema, projectIdSchema, settingsSchema } from "@cinesim/core";
-import type { AssetId, ProjectId } from "@cinesim/core";
+import type { Asset, AssetId, ProjectId } from "@cinesim/core";
 import { parseProjectManifest } from "@cinesim/project-io";
 import type {
   CreateProjectLocation,
   ProjectOpenTargetId,
   RecentProjectDetails,
+  MediaDecoderProbeResult,
+  PreparedMediaImport,
 } from "../../shared/contracts";
 import type { AgentManager } from "../agents/manager";
 import type { DesktopAccountService } from "../account/service";
@@ -17,11 +19,19 @@ import type { DesktopAppStateStore } from "../state/app-state-store";
 import { requireUserIntent } from "../app/user-intent";
 import { canonicalProjectSizeBytes } from "./project-size";
 import { availableProjectOpenTargets, launchProjectOpenTarget } from "./project-open-targets";
-import { isTemporaryMediaSelection } from "./media-import";
+import {
+  applyMediaDecoderProbe,
+  inspectMediaForImport,
+  isTemporaryMediaSelection,
+} from "./media-import";
 import type { DesktopProjectStore } from "./project-store";
 
 export class ProjectIpcController {
   #createLocation: CreateProjectLocation | null = null;
+  #preparedMediaImport: {
+    token: string;
+    assets: Array<{ asset: Asset; managedCopy: boolean }>;
+  } | null = null;
 
   constructor(
     private readonly store: DesktopProjectStore,
@@ -160,7 +170,7 @@ export class ProjectIpcController {
     return this.appState.snapshot();
   }
 
-  async importMedia() {
+  async prepareMediaImport(): Promise<PreparedMediaImport | null> {
     if (!this.store.project) throw new Error("Open a project before importing media");
     const selection = await dialog.showOpenDialog({
       title: "Import media",
@@ -174,20 +184,49 @@ export class ProjectIpcController {
     });
     if (selection.canceled) return null;
 
+    const existingIds = this.store.session().project.assets.map(({ id }) => id);
+    const assets: Array<{ asset: Asset; managedCopy: boolean }> = [];
+    const probes = [];
+    for (const filePath of selection.filePaths) {
+      const managedCopy = await isTemporaryMediaSelection(filePath);
+      const inspected = await inspectMediaForImport(filePath, existingIds);
+      existingIds.push(inspected.asset.id);
+      assets.push({ asset: inspected.asset, managedCopy });
+      probes.push(inspected.probe);
+    }
+    const token = randomUUID();
+    this.#preparedMediaImport = { token, assets };
+    return { token, probes };
+  }
+
+  async commitMediaImport(token: string, results: MediaDecoderProbeResult[]) {
+    const prepared = this.#preparedMediaImport;
+    if (!prepared || prepared.token !== token)
+      throw new Error("Choose media before completing the import");
+    this.#preparedMediaImport = null;
+    const byAssetId = new Map(results.map((result) => [result.assetId, result]));
+    const expectedIds = new Set(prepared.assets.map(({ asset }) => asset.id));
+    if (
+      results.length !== prepared.assets.length ||
+      byAssetId.size !== prepared.assets.length ||
+      results.some(({ assetId }) => !expectedIds.has(assetId))
+    )
+      throw new Error("Decoder results do not match the prepared media import");
+
     let session = this.store.session();
     const importedAssetIds: string[] = [];
     const managedSourceAssetIds: string[] = [];
-    for (const filePath of selection.filePaths) {
-      const before = new Set(session.project.assets.map(({ id }) => id));
-      const managedCopy = await isTemporaryMediaSelection(filePath);
-      session = await this.store.inspectAndImportMedia(filePath, { managedCopy });
-      const newAssetIds = session.project.assets
-        .filter(({ id }) => !before.has(id))
-        .map(({ id }) => id);
-      importedAssetIds.push(...newAssetIds);
-      if (managedCopy) managedSourceAssetIds.push(...newAssetIds);
+    for (const preparedAsset of prepared.assets) {
+      const result = byAssetId.get(preparedAsset.asset.id);
+      if (!result) throw new Error("Decoder results do not match the prepared media import");
+      const asset = applyMediaDecoderProbe(preparedAsset.asset, result);
+      session = await this.store.importInspectedMedia(asset, {
+        managedCopy: preparedAsset.managedCopy,
+      });
+      importedAssetIds.push(asset.id);
+      if (preparedAsset.managedCopy) managedSourceAssetIds.push(asset.id);
     }
-    if (this.store.project.cloudProjectId && importedAssetIds.length > 0)
+    if (this.store.project?.cloudProjectId && importedAssetIds.length > 0)
       await this.cloudMedia.queue(importedAssetIds, managedSourceAssetIds);
     return session;
   }

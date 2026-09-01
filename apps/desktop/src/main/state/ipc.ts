@@ -40,4 +40,8 @@ export function registerAppStateIpc(
     await appState.setTranscriptionSettings(settings);
     return appState.snapshot();
   });
+  registerIpcHandler(appContracts.setNewProjectSettings, async ({ settings }) => {
+    await appState.setNewProjectSettings(settings);
+    return appState.snapshot();
+  });
 }

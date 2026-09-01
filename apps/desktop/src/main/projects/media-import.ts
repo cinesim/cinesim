@@ -9,6 +9,11 @@ import type {
   AssetVideoMetadata,
   DecoderAvailability,
 } from "@cinesim/core";
+import type {
+  MediaDecoderConfigProbe,
+  MediaDecoderProbe,
+  MediaDecoderProbeResult,
+} from "../../shared/contracts";
 import { ALL_FORMATS, FilePathSource, Input } from "mediabunny";
 import type { InputAudioTrack, InputVideoTrack } from "mediabunny";
 
@@ -130,7 +135,7 @@ async function inspectAudio(audio: InputAudioTrack): Promise<AssetAudioMetadata>
   };
 }
 
-function compatibility(
+export function mediaCompatibility(
   kind: Asset["kind"],
   video: AssetVideoMetadata | undefined,
   audio: AssetAudioMetadata | undefined,
@@ -142,6 +147,39 @@ function compatibility(
   if (statuses.includes("unsupported")) return "partial";
   if (statuses.includes("unknown")) return "unknown";
   return "supported";
+}
+
+function boundedDescription(value: AllowSharedBufferSource | undefined): Uint8Array | undefined {
+  if (value === undefined) return undefined;
+  const bytes = ArrayBuffer.isView(value)
+    ? new Uint8Array(value.buffer, value.byteOffset, value.byteLength)
+    : new Uint8Array(value);
+  if (bytes.byteLength > 1024 * 1024) return undefined;
+  const copy = new Uint8Array(bytes.byteLength);
+  copy.set(bytes);
+  return copy;
+}
+
+function videoProbeConfig(config: VideoDecoderConfig | null): MediaDecoderConfigProbe | undefined {
+  if (!config) return undefined;
+  const description = boundedDescription(config.description);
+  return {
+    codec: config.codec,
+    ...(description ? { description } : {}),
+    ...(config.codedWidth === undefined ? {} : { codedWidth: config.codedWidth }),
+    ...(config.codedHeight === undefined ? {} : { codedHeight: config.codedHeight }),
+  };
+}
+
+function audioProbeConfig(config: AudioDecoderConfig | null): MediaDecoderConfigProbe | undefined {
+  if (!config) return undefined;
+  const description = boundedDescription(config.description);
+  return {
+    codec: config.codec,
+    ...(description ? { description } : {}),
+    sampleRate: config.sampleRate,
+    numberOfChannels: config.numberOfChannels,
+  };
 }
 
 export async function isTemporaryMediaSelection(
@@ -162,7 +200,81 @@ export async function isTemporaryMediaSelection(
   );
 }
 
-export async function inspectMedia(filePath: string, existingIds: string[]): Promise<Asset> {
+export interface InspectedMedia {
+  asset: Asset;
+  probe: MediaDecoderProbe;
+}
+
+interface AssetInspection {
+  filePath: string;
+  existingIds: string[];
+  durationSeconds: number;
+  containerMimeType: string;
+  video?: AssetVideoMetadata;
+  audio?: AssetAudioMetadata;
+}
+
+function inspectedAsset(input: AssetInspection): Asset {
+  const kind = input.video ? "video" : input.audio ? "audio" : "image";
+  return {
+    id: nextId("asset", input.existingIds),
+    kind,
+    name: basename(input.filePath),
+    source: { kind: "local", path: input.filePath },
+    durationUs: timeUs(Math.max(1, secondsToTimeUs(timeSeconds(input.durationSeconds)))),
+    ...(input.video
+      ? {
+          width: input.video.displayWidth,
+          height: input.video.displayHeight,
+          frameRate: input.video.frameRate.nominal,
+        }
+      : {}),
+    hasAudio: Boolean(input.audio),
+    technical: {
+      containerMimeType: input.containerMimeType,
+      durationSeconds: input.durationSeconds,
+      compatibility: mediaCompatibility(kind, input.video, input.audio),
+      ...(input.video ? { video: input.video } : {}),
+      ...(input.audio ? { audio: input.audio } : {}),
+    },
+    ...(input.video ? { inputColor: { policy: "source-metadata" } } : {}),
+  };
+}
+
+function decoderProbe(
+  assetId: Asset["id"],
+  video: AssetVideoMetadata | undefined,
+  audio: AssetAudioMetadata | undefined,
+  videoConfig: VideoDecoderConfig | null,
+  audioConfig: AudioDecoderConfig | null,
+): MediaDecoderProbe {
+  const normalizedVideoConfig = videoProbeConfig(videoConfig);
+  const normalizedAudioConfig = audioProbeConfig(audioConfig);
+  return {
+    assetId,
+    ...(video
+      ? {
+          video: {
+            availability: video.decoderAvailability,
+            ...(normalizedVideoConfig ? { config: normalizedVideoConfig } : {}),
+          },
+        }
+      : {}),
+    ...(audio
+      ? {
+          audio: {
+            availability: audio.decoderAvailability,
+            ...(normalizedAudioConfig ? { config: normalizedAudioConfig } : {}),
+          },
+        }
+      : {}),
+  };
+}
+
+export async function inspectMediaForImport(
+  filePath: string,
+  existingIds: string[],
+): Promise<InspectedMedia> {
   const input = new Input({ source: new FilePathSource(filePath), formats: ALL_FORMATS });
   try {
     if (!(await input.canRead())) throw new Error("Unsupported media file");
@@ -172,35 +284,56 @@ export async function inspectMedia(filePath: string, existingIds: string[]): Pro
       input.computeDuration(),
       input.getMimeType(),
     ]);
-    const kind = video ? "video" : audio ? "audio" : "image";
     const [videoMetadata, audioMetadata] = await Promise.all([
       video ? inspectVideo(video) : undefined,
       audio ? inspectAudio(audio) : undefined,
     ]);
+    const asset = inspectedAsset({
+      filePath,
+      existingIds,
+      durationSeconds,
+      containerMimeType,
+      ...(videoMetadata ? { video: videoMetadata } : {}),
+      ...(audioMetadata ? { audio: audioMetadata } : {}),
+    });
+    const [videoConfig, audioConfig] = await Promise.all([
+      video?.getDecoderConfig() ?? null,
+      audio?.getDecoderConfig() ?? null,
+    ]);
     return {
-      id: nextId("asset", existingIds),
-      kind,
-      name: basename(filePath),
-      source: { kind: "local", path: filePath },
-      durationUs: timeUs(Math.max(1, secondsToTimeUs(timeSeconds(durationSeconds)))),
-      ...(videoMetadata
-        ? {
-            width: videoMetadata.displayWidth,
-            height: videoMetadata.displayHeight,
-            frameRate: videoMetadata.frameRate.nominal,
-          }
-        : {}),
-      hasAudio: Boolean(audio),
-      technical: {
-        containerMimeType,
-        durationSeconds,
-        compatibility: compatibility(kind, videoMetadata, audioMetadata),
-        ...(videoMetadata ? { video: videoMetadata } : {}),
-        ...(audioMetadata ? { audio: audioMetadata } : {}),
-      },
-      ...(videoMetadata ? { inputColor: { policy: "source-metadata" } } : {}),
+      asset,
+      probe: decoderProbe(asset.id, videoMetadata, audioMetadata, videoConfig, audioConfig),
     };
   } finally {
     input.dispose();
   }
+}
+
+export async function inspectMedia(filePath: string, existingIds: string[]): Promise<Asset> {
+  return (await inspectMediaForImport(filePath, existingIds)).asset;
+}
+
+export function applyMediaDecoderProbe(asset: Asset, result: MediaDecoderProbeResult): Asset {
+  if (result.assetId !== asset.id || !asset.technical) return asset;
+  const video = asset.technical.video
+    ? {
+        ...asset.technical.video,
+        decoderAvailability: result.video ?? asset.technical.video.decoderAvailability,
+      }
+    : undefined;
+  const audio = asset.technical.audio
+    ? {
+        ...asset.technical.audio,
+        decoderAvailability: result.audio ?? asset.technical.audio.decoderAvailability,
+      }
+    : undefined;
+  return {
+    ...asset,
+    technical: {
+      ...asset.technical,
+      compatibility: mediaCompatibility(asset.kind, video, audio),
+      ...(video ? { video } : {}),
+      ...(audio ? { audio } : {}),
+    },
+  };
 }

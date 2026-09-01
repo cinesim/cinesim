@@ -61,6 +61,11 @@ same transform.
 Account-scoped transcription preferences remain in desktop application state, not in the project
 manifest, and therefore do not enter project history.
 
+The desktop also keeps a device-wide application default for every project setting. **Use current
+settings** copies the open project's validated settings into that default, and **Reset defaults**
+restores the values in the table above. Project creation copies the current application default
+into the new `cinesim.toml`; changing it never changes an existing project or its history.
+
 Export settings are also intentionally absent from hidden application or project state. Every UI or
 MCP render request names one of the advertised presets, an accepted timeline, an optional exact
 microsecond range, and a bounded MP4 file name. The initial presets are H.264/AAC Rec.709 SDR at a

@@ -1,6 +1,11 @@
 import { rm } from "node:fs/promises";
 import { BUILTIN_REGISTRY } from "@cinesim/compiler";
-import { PROJECT_SETTING_DEFINITIONS, projectViewFromIr, settingsSchema } from "@cinesim/core";
+import {
+  DEFAULT_SETTINGS,
+  PROJECT_SETTING_DEFINITIONS,
+  projectViewFromIr,
+  settingsSchema,
+} from "@cinesim/core";
 import type {
   CloudProjectId,
   Project,
@@ -63,6 +68,7 @@ export class DesktopProjectStore {
   #revision = 0;
   #operationQueue: Promise<unknown> = Promise.resolve();
   #defaultAgentInstructions: () => string = () => "";
+  #defaultProjectSettings: () => ProjectSettings = () => DEFAULT_SETTINGS;
 
   constructor(
     accountService: DesktopAccountService | null = null,
@@ -96,6 +102,10 @@ export class DesktopProjectStore {
 
   setDefaultAgentInstructions(provider: () => string): void {
     this.#defaultAgentInstructions = provider;
+  }
+
+  setDefaultProjectSettings(provider: () => ProjectSettings): void {
+    this.#defaultProjectSettings = provider;
   }
 
   get directory(): string | null {
@@ -146,6 +156,7 @@ export class DesktopProjectStore {
         id: projectId,
         name,
         agentInstructions: this.#defaultAgentInstructions(),
+        settings: settingsSchema.parse(this.#defaultProjectSettings()),
         ...(typeof input === "string" || input.cloudProjectId === undefined
           ? {}
           : { cloudProjectId: input.cloudProjectId }),
@@ -409,12 +420,21 @@ export class DesktopProjectStore {
       filePath,
       project.assets.map((candidate) => candidate.id),
     );
+    return this.importInspectedMedia(asset, options);
+  }
+
+  async importInspectedMedia(
+    inspectedAsset: Project["assets"][number],
+    options: { managedCopy?: boolean } = {},
+  ): Promise<DesktopProjectSession> {
+    let asset = inspectedAsset;
     let managedPath: string | null = null;
     if (options.managedCopy) {
+      if (asset.source.kind !== "local") throw new Error("Only local media can be managed");
       managedPath = await stageManagedOriginal({
         repository: this.#requireCommands().repository,
         projectDirectory: this.#requireDirectory(),
-        sourcePath: filePath,
+        sourcePath: asset.source.path,
         assetId: asset.id,
       });
       asset = { ...asset, source: { kind: "local", path: managedPath } };

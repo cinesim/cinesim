@@ -9,7 +9,7 @@ export const metadata: Metadata = {
 
 const principles = [
   ["Local", "Where the work lives", "Ordinary folders on your disk"],
-  ["One model", "Editor, CLI, and agents", "Every tool speaks the same edits"],
+  ["One model", "Editor, CLI, and agents", "Every tool reads the same project"],
   ["Readable", "Project format", "Deterministic files you can diff"],
   ["Undoable", "Every gesture", "One intentional, reversible edit"],
 ];
@@ -21,15 +21,15 @@ const faqs = [
   ],
   [
     "Where do my project files live?",
-    "In an ordinary folder on your disk. A project is a cinesim.toml manifest plus deterministic JavaScript/JSX-shaped video source. Generated media stays in .video and is disposable.",
+    "In an ordinary folder on your disk. Canonical state is cinesim.toml, assets.toml, and deterministic JavaScript/JSX-shaped video source. Generated media stays in .video and is disposable.",
   ],
   [
     "How do agents fit in?",
-    "Local Codex or Claude Code sessions connect through a scoped bridge. Every change arrives as a reviewable edit: inspect the diff, undo it, or restore a checkpoint.",
+    "Local Codex or Claude Code sessions use the same project files and managed guidance as external agents. Valid source generations appear in the editor and ordinary top-bar undo history.",
   ],
   [
     "Do I need an account?",
-    "No. The editor is useful offline, signed out, and working from a plain folder. Cloud storage is planned and optional.",
+    "No. The editor is useful offline, signed out, and working from a plain folder. Private cloud projects and storage are optional account features.",
   ],
   [
     "Is Cinesim available yet?",
@@ -188,7 +188,7 @@ export default function HomePage() {
               <h3>An agent that respects the project.</h3>
               <p>
                 Use local Codex or Claude Code sessions through a scoped bridge — supervise the
-                edit, inspect the diff, restore a checkpoint.
+                edit, inspect accepted changes, and use the same project-wide undo history.
               </p>
               <Link className="link-arrow" href="/docs/guides/agents">
                 See agent workflows <span>↗</span>

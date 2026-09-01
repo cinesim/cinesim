@@ -46,35 +46,6 @@ export class AgentCheckpointStore {
     });
   }
 
-  restore(ref: string): Promise<void> {
-    return this.#serialize(async () => {
-      const { gitDirectory, indexPath } = await this.#prepare();
-      const environment = {
-        ...process.env,
-        GIT_DIR: gitDirectory,
-        GIT_WORK_TREE: this.projectDirectory,
-        GIT_INDEX_FILE: indexPath,
-      };
-      try {
-        const currentFiles = await this.#canonicalFiles();
-        await this.#git(["read-tree", ref], environment);
-        const targetFiles = new Set(
-          (await this.#git(["ls-tree", "-r", "--name-only", ref], environment))
-            .split("\n")
-            .filter(Boolean),
-        );
-        await Promise.all(
-          currentFiles
-            .filter((path) => !targetFiles.has(path))
-            .map((path) => rm(join(this.projectDirectory, path), { force: true })),
-        );
-        await this.#git(["checkout-index", "-a", "-f"], environment);
-      } finally {
-        await rm(indexPath, { force: true });
-      }
-    });
-  }
-
   async diffSummary(beforeRef: string, afterRef: string): Promise<string> {
     const { gitDirectory } = await this.#prepare();
     const output = await this.#git(

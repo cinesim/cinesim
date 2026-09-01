@@ -53,7 +53,7 @@ is elsewhere:
 vp run cli --project ~/films/documentary-cut project inspect --json
 vp run cli --project ~/films/documentary-cut timeline inspect --json
 vp run cli --project ~/films/documentary-cut clip split clip_123 --at 4.2s
-CINESIM_PROJECT=~/films/documentary-cut vp run mcp
+vp run mcp --project ~/films/documentary-cut
 ```
 
 ## Project format
@@ -62,10 +62,14 @@ Projects are ordinary directories. Canonical state is Git-friendly and generated
 
 ```text
 my-project/
-├── cinesim.toml              # identity, settings, and stable asset catalog
+├── cinesim.toml              # identity, settings, policies, and project notes
+├── assets.toml               # stable asset catalog, metadata, and asset notes
 ├── main.jsx                  # compositions, tracks, clips, and graphics
 ├── components/               # optional reusable source modules
-├── AGENTS.md
+├── AGENTS.md                 # managed guidance plus project custom instructions
+├── CLAUDE.md                 # imports AGENTS.md
+├── .mcp.json                 # merged Claude project MCP entry
+├── .codex/config.toml        # merged Codex project MCP entry
 ├── script.md                 # optional user content
 ├── research/                 # optional user content
 └── .video/                   # ignored, generated/local only
@@ -76,6 +80,9 @@ my-project/
     ├── waveforms/
     ├── filmstrips/
     ├── frames/
+    ├── transcripts/
+    ├── visual-index/
+    ├── exports/
     └── runtime/
 ```
 

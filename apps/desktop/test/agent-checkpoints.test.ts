@@ -14,7 +14,7 @@ afterEach(async () => {
 });
 
 describe("AgentCheckpointStore", () => {
-  it("captures, diffs, and restores the manifest and reachable source without a worktree", async () => {
+  it("captures and summarizes full canonical changes without exposing restore semantics", async () => {
     const directory = await mkdtemp(join(tmpdir(), "cinesim-agent-checkpoint-"));
     temporaryDirectories.push(directory);
     await SourceProjectRepository.create(directory, {
@@ -38,8 +38,7 @@ describe("AgentCheckpointStore", () => {
     await store.capture(after);
 
     expect(await store.diffSummary(before, after)).toContain("main.jsx");
-    await store.restore(before);
-    await expect(readFile(mainPath, "utf8")).resolves.not.toContain("Extra");
-    await expect(readFile(join(directory, "Extra.jsx"), "utf8")).rejects.toThrow();
+    await expect(readFile(mainPath, "utf8")).resolves.toContain("Extra");
+    await expect(readFile(join(directory, "Extra.jsx"), "utf8")).resolves.toContain("extra");
   });
 });

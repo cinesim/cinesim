@@ -4,6 +4,7 @@ import { invokeChannels } from "../../shared/contracts/channels";
 import {
   parseCutLayoutState,
   parseEditorLayoutState,
+  parseNewProjectSettings,
   parseTranscriptionSettings,
 } from "../state/app-state-store";
 import { defineInvokeContract } from "./ipc-contract";
@@ -80,6 +81,20 @@ export const appContracts = {
           const result = parseTranscriptionSettings(settings);
           if (result) return { settings: result };
           context.addIssue({ code: "custom", message: "Invalid transcription settings" });
+          return z.NEVER;
+        }),
+    ]),
+  ),
+  setNewProjectSettings: stateResult(
+    invokeChannels.appState.setNewProjectSettings,
+    z.tuple([
+      z
+        .object({ settings: z.unknown() })
+        .strict()
+        .transform(({ settings }, context) => {
+          const result = parseNewProjectSettings(settings);
+          if (result) return { settings: result };
+          context.addIssue({ code: "custom", message: "Invalid new-project settings" });
           return z.NEVER;
         }),
     ]),

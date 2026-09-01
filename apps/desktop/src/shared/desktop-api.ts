@@ -209,6 +209,7 @@ export interface DesktopAppStateApi {
   setEditorLayout(layout: EditorLayoutState): Promise<DesktopAppState>;
   setCutLayout(layout: CutLayoutState): Promise<DesktopAppState>;
   setTranscriptionSettings(settings: TranscriptionSettings): Promise<DesktopAppState>;
+  setNewProjectSettings(settings: ProjectSettings): Promise<DesktopAppState>;
 }
 
 export interface DesktopAgentApi {

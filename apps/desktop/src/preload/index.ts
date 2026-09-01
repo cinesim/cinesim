@@ -3,6 +3,8 @@ import type { AccountSnapshot, DesktopApi } from "../shared/contracts";
 import { eventChannels, invokeChannels } from "../shared/contracts/channels";
 import type { DesktopIpcResult } from "../shared/contracts/ipc";
 import { unwrapDesktopIpcResult } from "../shared/contracts/ipc";
+import { probeMediaDecoders } from "../shared/media-decoder-probe";
+import type { PreparedMediaImport } from "../shared/contracts";
 
 async function invoke<TResult>(channel: string, ...arguments_: unknown[]): Promise<TResult> {
   const result = (await ipcRenderer.invoke(channel, ...arguments_)) as DesktopIpcResult<TResult>;
@@ -72,7 +74,15 @@ const api: DesktopApi = {
     open: () => invoke(invokeChannels.project.open),
     openRecent: (directory) => invoke(invokeChannels.project.openRecent, { directory }),
     revealAsset: (assetId) => invoke(invokeChannels.project.revealAsset, { assetId }),
-    importMedia: () => invoke(invokeChannels.project.importMedia),
+    importMedia: async () => {
+      const prepared = await invoke<PreparedMediaImport | null>(invokeChannels.project.importMedia);
+      if (!prepared) return null;
+      const results = await probeMediaDecoders(prepared.probes);
+      return invoke(invokeChannels.project.importMediaCommit, {
+        token: prepared.token,
+        results,
+      });
+    },
     execute: (command, expectedGeneration) =>
       invoke(invokeChannels.project.execute, { command, expectedGeneration }),
     undo: () => invoke(invokeChannels.project.undo),
@@ -175,6 +185,8 @@ const api: DesktopApi = {
     setCutLayout: (layout) => invoke(invokeChannels.appState.setCutLayout, { layout }),
     setTranscriptionSettings: (settings) =>
       invoke(invokeChannels.appState.setTranscriptionSettings, { settings }),
+    setNewProjectSettings: (settings) =>
+      invoke(invokeChannels.appState.setNewProjectSettings, { settings }),
   },
   agents: {
     getSettings: () => invoke(invokeChannels.agents.settingsGet),

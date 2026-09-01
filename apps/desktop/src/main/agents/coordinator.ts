@@ -473,7 +473,7 @@ export class AgentCoordinator implements AgentToolHooks {
         title:
           checkpoint.summary === "No canonical project changes"
             ? "No project changes"
-            : "Turn checkpoint",
+            : "Turn changes",
         detail: checkpoint.summary,
         turnId,
         status: "completed",
@@ -481,7 +481,7 @@ export class AgentCoordinator implements AgentToolHooks {
     } catch (error) {
       this.#appendEvent(session, {
         kind: "error",
-        title: "Checkpoint failed",
+        title: "Change summary failed",
         detail: messageFrom(error),
         turnId,
       });

@@ -28,6 +28,7 @@ export const invokeChannels = {
     setInspectorOpen: "app-state:set-inspector-open",
     setMediaPoolOpen: "app-state:set-media-pool-open",
     setNotesOpen: "app-state:set-notes-open",
+    setNewProjectSettings: "app-state:set-new-project-settings",
     setTranscriptionSettings: "app-state:set-transcription-settings",
   },
   cloud: {
@@ -77,6 +78,7 @@ export const invokeChannels = {
     execute: "command:execute",
     forget: "project:forget",
     importMedia: "media:import",
+    importMediaCommit: "media:import-commit",
     open: "project:open",
     openRecent: "project:open-recent",
     revealAsset: "project:reveal-asset",

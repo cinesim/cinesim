@@ -45,7 +45,10 @@ export function registerProjectIpc(
   registerIpcHandler(projectContracts.openWith, ({ target }) => controller.openWith(target));
   registerIpcHandler(projectContracts.forget, ({ directory }) => controller.forget(directory));
   registerIpcHandler(projectContracts.trash, ({ directory }) => controller.trash(directory));
-  registerIpcHandler(projectContracts.importMedia, () => controller.importMedia());
+  registerIpcHandler(projectContracts.importMedia, () => controller.prepareMediaImport());
+  registerIpcHandler(projectContracts.importMediaCommit, ({ token, results }) =>
+    controller.commitMediaImport(token, results),
+  );
   registerIpcHandler(projectContracts.execute, ({ command, expectedGeneration }) =>
     store.execute(command, expectedGeneration),
   );

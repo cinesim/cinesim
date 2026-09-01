@@ -4,8 +4,9 @@ description: A local-first video editor where the desktop app, the CLI, and codi
 ---
 
 Cinesim is a nonlinear video editor that keeps your project on your own disk as ordinary files. The
-desktop app, the `cinesim` CLI, and any coding agent you connect all make edits through the same
-validated command layer — so there is one project state, and every tool sees it.
+desktop app, the `cinesim` CLI, and any coding agent you connect converge on the same compile-
+accepted project state. UI/CLI commands are validated before publication; direct source saves must
+parse, bind, validate, and compile before every tool sees them.
 
 ## Start here
 
@@ -25,8 +26,8 @@ validated command layer — so there is one project state, and every tool sees i
 ## Find your way around
 
 **[Concepts](/docs/concepts/projects)** explain the model: what a project is, how the timeline is
-structured, and why every edit is a command. Read these once and the rest of the docs will make
-sense.
+structured, and how commands and direct source edits enter one accepted history. Read these once and
+the rest of the docs will make sense.
 
 **[Guides](/docs/guides/import-media)** are task-shaped. They assume you have a project open and
 want to get something specific done.

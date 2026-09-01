@@ -14,6 +14,9 @@ documentary-cut/
 ├── main.jsx
 ├── components/             optional relative source modules
 ├── AGENTS.md
+├── CLAUDE.md
+├── .mcp.json
+├── .codex/config.toml
 ├── .gitignore
 └── .video/
     ├── cache/
@@ -30,14 +33,15 @@ documentary-cut/
     └── waveforms/
 ```
 
-| Path                                          | Contents                                                                                             | Canonical |
-| --------------------------------------------- | ---------------------------------------------------------------------------------------------------- | --------- |
-| `cinesim.toml`                                | Format/language versions, identity, active composition, settings, compiler policy, and project notes | Yes       |
-| `assets.toml`                                 | Asset catalog, technical metadata, input-color policy, and deliberate asset notes                    | Yes       |
-| `main.jsx` and reachable `.js`/`.jsx` modules | Compositions, timelines, tracks, clips, captions, graphics, effects, and animation                   | Yes       |
-| `AGENTS.md`                                   | Deterministically managed project guidance plus custom instructions                                  | No        |
-| `.gitignore`                                  | Excludes `.video/`                                                                                   | No        |
-| `.video/`                                     | Generated media, compiler artifacts, and runtime state                                               | No        |
+| Path                                           | Contents                                                                                             | Canonical |
+| ---------------------------------------------- | ---------------------------------------------------------------------------------------------------- | --------- |
+| `cinesim.toml`                                 | Format/language versions, identity, active composition, settings, compiler policy, and project notes | Yes       |
+| `assets.toml`                                  | Asset catalog, technical metadata, input-color policy, and deliberate asset notes                    | Yes       |
+| `main.jsx` and reachable `.js`/`.jsx` modules  | Compositions, timelines, tracks, clips, captions, graphics, effects, and animation                   | Yes       |
+| `AGENTS.md`                                    | Deterministically managed project guidance plus custom instructions                                  | No        |
+| `CLAUDE.md`, `.mcp.json`, `.codex/config.toml` | Deterministically merged provider integration that points at the project-scoped MCP server           | No        |
+| `.gitignore`                                   | Excludes `.video/`                                                                                   | No        |
+| `.video/`                                      | Generated media, compiler artifacts, and runtime state                                               | No        |
 
 There is no JSON timeline. Timeline structure exists once in source and compiles to deterministic
 semantic IR in memory. Source imports must be relative, stay
@@ -77,7 +81,7 @@ strict = true
 The asset manifest is the deterministic media catalog:
 
 ```toml
-format_version = 3
+format_version = 1
 
 [assets.asset_interview]
 kind = "video"

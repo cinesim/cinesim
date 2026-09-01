@@ -1,4 +1,4 @@
-import { timeUs } from "@cinesim/core";
+import { DEFAULT_SETTINGS, timeUs } from "@cinesim/core";
 import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -50,6 +50,24 @@ afterEach(async () => {
 });
 
 describe("DesktopProjectStore", () => {
+  it("copies application defaults into each newly created project", async () => {
+    const parentDirectory = await mkdtemp(join(tmpdir(), "cinesim-project-defaults-test-"));
+    temporaryDirectories.push(parentDirectory);
+    const store = createProjectStore();
+    store.setDefaultProjectSettings(() => ({
+      ...DEFAULT_SETTINGS,
+      autosave: false,
+      previewQuality: "quarter",
+    }));
+
+    const created = await store.create(parentDirectory, "Defaults fixture");
+
+    expect(created.settings).toMatchObject({ autosave: false, previewQuality: "quarter" });
+    await expect(readFile(join(created.directory, "cinesim.toml"), "utf8")).resolves.toContain(
+      'preview_quality = "quarter"',
+    );
+  });
+
   it("uses one managed guidance block and regenerates project custom instructions", async () => {
     const parentDirectory = await mkdtemp(join(tmpdir(), "cinesim-guidance-test-"));
     temporaryDirectories.push(parentDirectory);

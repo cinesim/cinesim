@@ -15,16 +15,20 @@ Cinesim creates an ordinary directory:
 
 ```text
 documentary-cut/
-├── cinesim.toml          identity, settings, and asset catalog
+├── cinesim.toml          identity, settings, policies, and project notes
+├── assets.toml           asset catalog, technical metadata, and asset notes
 ├── main.jsx              compositions, tracks, clips, and graphics
 ├── components/           optional reusable video source
-├── AGENTS.md             creative direction for agents; yours to edit
+├── AGENTS.md             managed guidance plus your custom suffix
+├── CLAUDE.md             imports AGENTS.md
+├── .mcp.json             Claude project MCP entry
+├── .codex/config.toml    Codex project MCP entry
 ├── .gitignore            excludes .video/
 └── .video/               generated media; safe to delete
 ```
 
-Everything except `.video/` is worth committing to Git. See [Projects](../concepts/projects.mdx)
-for what each file holds.
+Commit the canonical files, agent integration files, and ordinary project documents. `.video/` is
+disposable and ignored. See [Projects](../concepts/projects.mdx) for what each file holds.
 
 ## 2. Import footage
 

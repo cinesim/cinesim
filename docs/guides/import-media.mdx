@@ -18,8 +18,10 @@ to make it editable.
 The deterministic asset record includes container and codec parameters, coded and display geometry,
 rotation, pixel aspect ratio, frame-rate mode, audio layout, bit depth, decoder observations, and
 embedded color/HDR metadata. Missing or uncertain values remain `unknown`; Cinesim does not invent
-precision. A source that the Chromium runtime is known not to decode is reported before guaranteed-
-failing proxy work is queued.
+precision. During the same import, the sandboxed preload checks the exact bounded track decoder
+configs against the active Chromium WebCodecs runtime, then main validates and commits the result
+with the asset. A source that runtime is known not to decode is reported before guaranteed-failing
+proxy work is queued; source paths and decoder authority remain in main.
 
 ## What happens to your files
 

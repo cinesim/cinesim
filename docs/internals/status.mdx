@@ -46,8 +46,9 @@ source and timeline modes, display scales, grids, safe-area guides, fullscreen, 
 transport shortcuts; Metrics and Agents sidebars; settings.
 
 **Local agents.** Claude Code and Codex sessions with normalized transcripts, per-session model and
-effort controls, approval modes, a session-scoped MCP endpoint, and Git-object turn checkpoints with
-diff and restore.
+effort controls, approval modes, direct project-local file/shell capabilities, managed shared
+guidance, and an authenticated project-scoped MCP endpoint. Read-only change summaries remain in
+chat; accepted source generations enter only ordinary top-bar project history.
 
 Verification currently passing: whole-repository TypeScript check, Vite+ format and lint with no
 warnings, the automated test suite, production builds for main, preload, renderer, API, and web, and
@@ -91,5 +92,4 @@ renderer application chunk is around 1.5 MB minified; lazy route and vendor spli
 
 1. Exercise playback across representative operating systems, codec profiles, and GPU drivers,
    then capture interactive playback and Web Audio metrics.
-2. Tune proxy profiles from those measurements, and add exact-frame jobs to the existing bounded
-   worker and storage path.
+2. Tune proxy and color policies from those measurements and expand the verified codec/GPU matrix.

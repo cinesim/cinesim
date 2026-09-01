@@ -44,6 +44,17 @@ describe("desktop IPC contracts", () => {
     expect(revealAsset?.request.parse([{ assetId: "asset_fixture" }])).toEqual([
       { assetId: "asset_fixture" },
     ]);
+    const importCommit = allInvokeContracts.find(
+      (contract) => contract.channel === "media:import-commit",
+    );
+    expect(() =>
+      importCommit?.request.parse([
+        {
+          token: crypto.randomUUID(),
+          results: [{ assetId: "asset_fixture", video: "maybe" }],
+        },
+      ]),
+    ).toThrow();
   });
 
   it("preserves structured error identity for renderer code", () => {
