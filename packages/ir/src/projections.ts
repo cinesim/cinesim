@@ -54,6 +54,7 @@ export function projectTimeline(
           enabled: clip.enabled,
           fadeInUs: clip.fades.inUs,
           fadeOutUs: clip.fades.outUs,
+          audio: clip.audio,
           transform: clip.transform,
           editable: structural?.safeToMove ?? false,
           generated: structural?.kind === "generated",

@@ -93,6 +93,13 @@ const editorCommandShapeSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("clip.trimStart"), clipId: clipIdSchema, atUs: timeUsSchema }),
   z.object({ type: z.literal("clip.trimEnd"), clipId: clipIdSchema, atUs: timeUsSchema }),
   z.object({
+    type: z.literal("clip.splitEdit"),
+    clipId: clipIdSchema,
+    component: z.enum(["audio", "video"]),
+    edge: z.enum(["start", "end"]),
+    atUs: timeUsSchema,
+  }),
+  z.object({
     type: z.literal("clip.setFade"),
     clipId: clipIdSchema,
     edge: z.enum(["in", "out"]),

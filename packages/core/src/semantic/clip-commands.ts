@@ -230,6 +230,65 @@ function trimClip(
   ]);
 }
 
+function splitEditClip(
+  context: CommandContext,
+  command: Extract<ClipCommand, { type: "clip.splitEdit" }>,
+): SemanticCommandPlan {
+  const selected = findClip(context.program, command.clipId);
+  const linked = linkedLocation(context.program, selected.clip);
+  if (!linked) throw new CommandError("INVALID_CLIP_LINK", "Split edits require linked A/V clips");
+  const target = [selected, linked].find(({ clip }) => clip.mediaKind === command.component);
+  if (!target)
+    throw new CommandError(
+      "INVALID_MEDIA_COMPONENT",
+      `Linked media has no ${command.component} component`,
+    );
+  assertUnlocked(target.track);
+  assertTime(command.atUs, "atUs");
+  const asset = target.clip.assetId
+    ? context.assetsById.get(target.clip.assetId as Asset["id"])
+    : undefined;
+  if (!asset) throw new CommandError("ASSET_NOT_FOUND", "Split edit requires a media asset");
+  const delta = command.atUs - target.clip.timelineStartUs;
+  const duration =
+    command.edge === "start"
+      ? target.clip.durationUs - delta
+      : command.atUs - target.clip.timelineStartUs;
+  const sourceStart =
+    command.edge === "start"
+      ? target.clip.sourceStartUs + Math.round(delta * target.clip.playbackRate)
+      : target.clip.sourceStartUs;
+  const sourceEnd = sourceStart + Math.round(duration * target.clip.playbackRate);
+  if (duration <= 0 || sourceStart < 0 || sourceEnd > asset.durationUs)
+    throw new CommandError("INVALID_SOURCE_RANGE", "Split edit exceeds available source handles");
+  const candidate = {
+    ...target.clip,
+    timelineStartUs: irTimeUs(
+      command.edge === "start" ? command.atUs : target.clip.timelineStartUs,
+    ),
+    sourceStartUs: irTimeUs(sourceStart),
+    durationUs: irTimeUs(duration),
+  };
+  assertNoOverlap(target.track, candidate, new Set([target.clip.id]));
+  const fadeIn = Math.min(target.clip.fades.inUs, duration);
+  setClipRange(
+    target.clip,
+    {
+      ...(command.edge === "start" ? { start: command.atUs, sourceStart } : {}),
+      duration,
+      fadeIn,
+      fadeOut: Math.min(target.clip.fades.outUs, Math.max(0, duration - fadeIn)),
+    },
+    context.patches,
+  );
+  return finishCommand(
+    context,
+    command,
+    `Created ${command.component} ${command.edge} split edit`,
+    [selected.composition.id, target.track.id, target.clip.id, linked.clip.id],
+  );
+}
+
 function slipClip(
   context: CommandContext,
   command: Extract<ClipCommand, { type: "clip.slip" }>,
@@ -430,6 +489,8 @@ export function planClipCommand(
     case "clip.trimStart":
     case "clip.trimEnd":
       return trimClip(context, command);
+    case "clip.splitEdit":
+      return splitEditClip(context, command);
     case "clip.slip":
       return slipClip(context, command);
     case "clip.setFade":

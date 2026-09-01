@@ -13,9 +13,6 @@ interface ClipLinkRecord {
   trackId: string;
   assetId?: string;
   linkedClipId?: string;
-  start: number;
-  duration: number;
-  source: number;
 }
 
 function assertTime(value: number, name: string): void {
@@ -84,9 +81,6 @@ class ProgramValidator {
       trackId: track.id,
       ...(clip.assetId === undefined ? {} : { assetId: clip.assetId }),
       ...(clip.linkedClipId === undefined ? {} : { linkedClipId: clip.linkedClipId }),
-      start: clip.timelineStartUs,
-      duration: clip.durationUs,
-      source: clip.sourceStartUs,
     };
   }
 
@@ -100,14 +94,9 @@ class ProgramValidator {
     for (const [id, clip] of clips) {
       if (!clip.linkedClipId) continue;
       const linked = clips.get(clip.linkedClipId);
-      const reciprocalAndEquivalent =
-        linked?.linkedClipId === id &&
-        linked.assetId === clip.assetId &&
-        linked.start === clip.start &&
-        linked.duration === clip.duration &&
-        linked.source === clip.source;
-      if (!reciprocalAndEquivalent) {
-        throw new Error(`Clip link is not reciprocal and range-equivalent: ${id}`);
+      const reciprocalSameAsset = linked?.linkedClipId === id && linked.assetId === clip.assetId;
+      if (!reciprocalSameAsset) {
+        throw new Error(`Clip link is not reciprocal and asset-equivalent: ${id}`);
       }
     }
   }

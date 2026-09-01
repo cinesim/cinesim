@@ -119,7 +119,7 @@ function clipToIr(clip: Clip, trackId: string): IrClip {
     loop: false,
     fades: { inUs: irTimeUs(clip.fadeInUs ?? 0), outUs: irTimeUs(clip.fadeOutUs ?? 0) },
     transform: transformToIr(clip.transform),
-    audio: { gainDb: 0, pan: 0, muted: false },
+    audio: { gainDb: clip.gainDb ?? 0, pan: clip.pan ?? 0, muted: clip.muted ?? false },
     effects: [],
   };
 }

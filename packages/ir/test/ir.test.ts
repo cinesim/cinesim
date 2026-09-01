@@ -124,4 +124,33 @@ describe("semantic ir", () => {
     ir.compositions[0]!.timeline.tracks[0]!.clips[0]!.linkedClipId = "clip_missing";
     expect(() => validateIrProgram(ir, new Set(["asset_camera"]))).toThrow(/reciprocal/);
   });
+
+  it("preserves reciprocal A/V links when split-edit ranges differ", () => {
+    const ir = program();
+    const video = ir.compositions[0]!.timeline.tracks[0]!.clips[0]!;
+    const { content: _content, ...audioFields } = structuredClone(video);
+    video.linkedClipId = "clip_audio";
+    ir.compositions[0]!.timeline.tracks.push({
+      id: "track_audio",
+      kind: "audio",
+      name: "Audio",
+      muted: false,
+      locked: false,
+      effects: [],
+      clips: [
+        {
+          ...audioFields,
+          id: "clip_audio",
+          trackId: "track_audio",
+          mediaKind: "audio",
+          linkedClipId: video.id,
+          timelineStartUs: irTimeUs(1_000_000),
+          sourceStartUs: irTimeUs(1_000_000),
+          durationUs: irTimeUs(4_000_000),
+        },
+      ],
+    });
+
+    expect(() => validateIrProgram(ir, new Set(["asset_camera"]))).not.toThrow();
+  });
 });

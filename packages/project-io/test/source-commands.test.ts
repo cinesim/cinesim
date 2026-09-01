@@ -124,6 +124,70 @@ describe("source-backed semantic commands", () => {
     ).toHaveLength(4);
   });
 
+  it("commits linked audio split edits atomically and preserves independent mixing properties", async () => {
+    const { service } = await setup();
+    const added = await service.execute({
+      type: "clip.add",
+      trackId: "track_video_1",
+      audioTrackId: "track_audio_1",
+      assetId: "asset_camera",
+      timelineStartUs: timeUs(2_000_000),
+      sourceStartUs: timeUs(2_000_000),
+      sourceEndUs: timeUs(8_000_000),
+    });
+    const [videoId, audioId] = added.createdIds;
+    const split = await service.execute({
+      type: "clip.splitEdit",
+      clipId: videoId! as `clip_${string}`,
+      component: "audio",
+      edge: "start",
+      atUs: timeUs(1_000_000),
+    });
+    const clips = split.snapshot.compilation.ir.compositions[0]!.timeline.tracks.flatMap(
+      ({ clips }) => clips,
+    );
+    expect(clips.find(({ id }) => id === audioId)).toMatchObject({
+      linkedClipId: videoId,
+      timelineStartUs: 1_000_000,
+      sourceStartUs: 1_000_000,
+      durationUs: 7_000_000,
+    });
+    expect(clips.find(({ id }) => id === videoId)).toMatchObject({
+      linkedClipId: audioId,
+      timelineStartUs: 2_000_000,
+      durationUs: 6_000_000,
+    });
+    const mixed = await service.execute({
+      type: "property.setMany",
+      nodeId: audioId!,
+      updates: [
+        { property: "gain", value: { kind: "decibels", value: -4.5 } },
+        { property: "pan", value: { kind: "number", value: -0.25 } },
+      ],
+    });
+    expect(
+      mixed.snapshot.compilation.ir.compositions[0]!.timeline.tracks.flatMap(
+        ({ clips }) => clips,
+      ).find(({ id }) => id === audioId)?.audio,
+    ).toMatchObject({ gainDb: -4.5, pan: -0.25 });
+    const undone = await service.undo();
+    expect(
+      undone.compilation.ir.compositions[0]!.timeline.tracks.flatMap(({ clips }) => clips).find(
+        ({ id }) => id === audioId,
+      )?.audio,
+    ).toMatchObject({ gainDb: 0, pan: 0 });
+    const splitUndone = await service.undo();
+    expect(
+      splitUndone.compilation.ir.compositions[0]!.timeline.tracks.flatMap(
+        ({ clips }) => clips,
+      ).find(({ id }) => id === audioId),
+    ).toMatchObject({
+      timelineStartUs: 2_000_000,
+      sourceStartUs: 2_000_000,
+      durationUs: 6_000_000,
+    });
+  });
+
   it("uses property bindings for minimal inspector edits and rejects stale sessions", async () => {
     const { service } = await setup();
     const before = service.snapshot.sources["main.jsx"]!;

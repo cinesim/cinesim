@@ -30,6 +30,9 @@ function clipFromIr(clip: IrClip): Clip {
     playbackRate: clip.playbackRate,
     ...(clip.fades.inUs === 0 ? {} : { fadeInUs: timeUs(clip.fades.inUs) }),
     ...(clip.fades.outUs === 0 ? {} : { fadeOutUs: timeUs(clip.fades.outUs) }),
+    ...(clip.audio.gainDb === 0 ? {} : { gainDb: clip.audio.gainDb }),
+    ...(clip.audio.pan === 0 ? {} : { pan: clip.audio.pan }),
+    ...(clip.audio.muted ? { muted: true } : {}),
     transform: transformFromIr(clip.transform),
   };
 }

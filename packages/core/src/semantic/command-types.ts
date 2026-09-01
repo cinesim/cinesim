@@ -60,6 +60,13 @@ export type EditorCommand =
   | { type: "clip.move"; clipId: ClipId; timelineStartUs: TimeUs; trackId?: TrackId }
   | { type: "clip.trimStart"; clipId: ClipId; atUs: TimeUs }
   | { type: "clip.trimEnd"; clipId: ClipId; atUs: TimeUs }
+  | {
+      type: "clip.splitEdit";
+      clipId: ClipId;
+      component: "audio" | "video";
+      edge: "start" | "end";
+      atUs: TimeUs;
+    }
   | { type: "clip.setFade"; clipId: ClipId; edge: "in" | "out"; durationUs: TimeUs }
   | { type: "clip.split"; clipId: ClipId; atUs: TimeUs };
 

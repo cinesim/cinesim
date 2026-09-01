@@ -320,6 +320,9 @@ function projectFromTimelineProjection(project: Project, timeline: TimelineProje
         sourceEndUs: timeUs(clip.sourceEndUs),
         ...(clip.fadeInUs === 0 ? {} : { fadeInUs: timeUs(clip.fadeInUs) }),
         ...(clip.fadeOutUs === 0 ? {} : { fadeOutUs: timeUs(clip.fadeOutUs) }),
+        ...(clip.audio.gainDb === 0 ? {} : { gainDb: clip.audio.gainDb }),
+        ...(clip.audio.pan === 0 ? {} : { pan: clip.audio.pan }),
+        ...(clip.audio.muted ? { muted: true } : {}),
         transform: {
           x: clip.transform.x,
           y: clip.transform.y,

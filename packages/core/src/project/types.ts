@@ -178,6 +178,9 @@ export interface Clip {
   fadeInUs?: TimeUs;
   /** Linear fade to silence/transparent at the clip's timeline end. */
   fadeOutUs?: TimeUs;
+  gainDb?: number;
+  pan?: number;
+  muted?: boolean;
   transform: Transform;
 }
 

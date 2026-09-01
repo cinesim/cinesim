@@ -325,6 +325,7 @@ export interface TimelineClipProjection {
   enabled: boolean;
   fadeInUs: IrTimeUs;
   fadeOutUs: IrTimeUs;
+  audio: IrAudioProperties;
   transform: IrTransform;
   editable: boolean;
   generated: boolean;
