@@ -4,13 +4,15 @@ import { createInterface } from "node:readline";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { createCinesimLogger } from "@cinesim/logging";
-import { projectViewFromIr } from "@cinesim/core";
+import { projectViewFromIr, sequenceDurationUs } from "@cinesim/core";
 import type { Project } from "@cinesim/core";
 import { searchLanguageReference } from "@cinesim/compiler";
 import { localDerivedFile, registerCinesimMcpTools } from "@cinesim/mcp-tools";
 import type { CinesimMcpToolRuntime } from "@cinesim/mcp-tools";
 import {
   parseProjectManifest,
+  derivedFrameArtifactBaseName,
+  normalizeDerivedFrameTime,
   ProjectPaths,
   sourceFingerprintForPath,
   SourceProjectRepository,
@@ -318,6 +320,43 @@ export async function runMcpServer(projectDirectory: string): Promise<void> {
     },
     visualIndexObservationRange: (assetId, observationId) =>
       visualIndexFor(project()).observationRange(assetId, observationId),
+    frameGet: async (target, atUs, quality) => {
+      const current = project();
+      let normalizedTimeUs;
+      if (target.kind === "asset") {
+        const asset = current.assets.find(({ id }) => id === target.assetId);
+        if (!asset) throw new Error(`Unknown asset: ${target.assetId}`);
+        normalizedTimeUs = normalizeDerivedFrameTime(
+          atUs,
+          asset.durationUs,
+          asset.technical?.video?.frameRate.nominal || asset.frameRate || 30,
+        );
+      } else {
+        const sequence = current.sequences.find(({ id }) => id === target.sequenceId);
+        if (!sequence) throw new Error(`Unknown timeline: ${target.sequenceId}`);
+        normalizedTimeUs = normalizeDerivedFrameTime(
+          atUs,
+          sequenceDurationUs(sequence),
+          sequence.frameRate,
+        );
+      }
+      const base = derivedFrameArtifactBaseName(target, normalizedTimeUs, quality);
+      const path = await projectPaths.assertSafeDerivedFile(`.video/frames/${base}.png`);
+      const metadataPath = await projectPaths.assertSafeDerivedFile(`.video/frames/${base}.json`);
+      const availability = await localDerivedFile(path);
+      return {
+        target,
+        requestedTimeUs: atUs,
+        normalizedTimeUs,
+        quality,
+        path,
+        metadataPath,
+        exists: availability.exists,
+        cached: availability.exists,
+        derived: true,
+        generationAvailable: false,
+      };
+    },
     perform: async (tool, operation) => {
       try {
         if (tool.name === "project_status") return textResult(await operation());

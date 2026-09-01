@@ -67,13 +67,20 @@ do not edit source, compile the project, or affect undo history.
 
 ## Media artifacts
 
-| Tool            | Purpose                                                                           |
-| --------------- | --------------------------------------------------------------------------------- |
-| `filmstrip_get` | Report the bounded derived contact-sheet artifact for an asset                    |
-| `frame_get`     | Resolve an asset time or observation midpoint and report its exact-frame artifact |
+| Tool            | Purpose                                                                                                |
+| --------------- | ------------------------------------------------------------------------------------------------------ |
+| `filmstrip_get` | Report the bounded derived contact-sheet artifact for an asset                                         |
+| `frame_get`     | Generate or reuse an exact asset, observation-midpoint, or accepted-timeline frame and return its path |
 
-Exact-frame generation is still being connected to the bounded media worker; current calls report
-availability rather than fabricating a frame.
+`frame_get` accepts exactly one of `assetId` or `sequenceId`, an integer `atUs` (or an observation
+ID for an asset), and `low`, `medium`, or `high` quality. Requested times normalize to the exact
+source or composition frame. The quality tiers cap the long edge at 640, 1280, and 1920 pixels;
+the service returns requested, normalized, and rendered timestamps, dimensions, byte size, and
+stable PNG/metadata paths under `.video/frames/`. Asset samples decode through bounded
+Mediabunny/WebCodecs work. Timeline samples use the accepted IR and normal WebGPU playback
+compositor. A desktop-closed adapter can report an already cached frame but cannot generate one.
+Generated frames are disposable, fingerprinted, capped at 16 MiB, and absent from canonical
+history.
 
 ## What is not exposed
 

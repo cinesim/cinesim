@@ -1,4 +1,5 @@
 import type { Asset, Project, ProjectSettings } from "@cinesim/core";
+import type { IrProgram } from "@cinesim/ir";
 import { DEFAULT_SETTINGS, timeUs } from "@cinesim/core";
 import type {
   DerivedArtifactKind,
@@ -11,6 +12,7 @@ import { DEFAULT_TRANSCRIPTION_SETTINGS } from "../../shared/contracts";
 import type { TranscriptSnapshot } from "../../shared/transcript";
 import type { DerivedWorkerRequest, DerivedWorkerResponse } from "./derived-worker-api";
 import { waveformByteLength, waveformPeakCount } from "../../shared/waveform-format";
+import { FrameJobCoordinator, type TimelineRenderer } from "./frame-job-coordinator";
 
 interface ActiveJob {
   jobId: string;
@@ -23,10 +25,34 @@ interface ActiveJob {
 const WORKER_INACTIVITY_TIMEOUT_MS = 120_000;
 const TRANSCRIPT_PROGRESS_STEPS = 20;
 
+export interface MediaJobCoordinatorOptions {
+  settings?: ProjectSettings;
+  onTranscriptSnapshot?: (snapshot: TranscriptSnapshot) => void;
+  transcriptionSettings?: TranscriptionSettings;
+  acceptedGeneration?: string;
+  program?: IrProgram | null;
+  timelineRenderer?: TimelineRenderer;
+}
+
 type WorkerResponse<Type extends DerivedWorkerResponse["type"]> = Extract<
   DerivedWorkerResponse,
   { type: Type }
 >;
+
+function workerPressureControl(
+  kind: ActiveJob["kind"],
+  action: "pause" | "resume",
+):
+  | "perception-pause"
+  | "perception-resume"
+  | "proxy-pause"
+  | "proxy-resume"
+  | "transcript-pause"
+  | "transcript-resume" {
+  if (kind === "proxy") return `proxy-${action}`;
+  if (kind === "transcript") return `transcript-${action}`;
+  return `perception-${action}`;
+}
 
 function queuedPerceptionAsset(
   project: Project,
@@ -86,6 +112,9 @@ export class MediaJobCoordinator {
   #resumeTimer: ReturnType<typeof setTimeout> | null = null;
   #workerInactivityTimer: ReturnType<typeof setTimeout> | null = null;
   #messageQueue: Promise<void> = Promise.resolve();
+  #acceptedGeneration: string;
+  #program: IrProgram | null;
+  readonly #frames: FrameJobCoordinator;
   #foregroundPressure: "idle" | "hover-skimming" | "seeking" | "playing" | "dragging" = "idle";
   readonly #onSnapshot: (snapshot: DerivedMediaSnapshot) => void;
   readonly #onTranscriptSnapshot: (snapshot: TranscriptSnapshot) => void;
@@ -94,20 +123,28 @@ export class MediaJobCoordinator {
     project: Project,
     projectScope: DerivedProjectScope,
     onSnapshot: (snapshot: DerivedMediaSnapshot) => void,
-    settings: ProjectSettings = DEFAULT_SETTINGS,
-    onTranscriptSnapshot: (snapshot: TranscriptSnapshot) => void = () => undefined,
-    transcriptionSettings: TranscriptionSettings = DEFAULT_TRANSCRIPTION_SETTINGS,
+    options: MediaJobCoordinatorOptions = {},
   ) {
     this.#project = project;
-    this.#settings = settings;
+    this.#settings = options.settings ?? DEFAULT_SETTINGS;
     this.#projectScope = projectScope;
     this.#onSnapshot = onSnapshot;
-    this.#onTranscriptSnapshot = onTranscriptSnapshot;
-    this.#transcriptionSettings = transcriptionSettings;
+    this.#onTranscriptSnapshot = options.onTranscriptSnapshot ?? (() => undefined);
+    this.#transcriptionSettings = options.transcriptionSettings ?? DEFAULT_TRANSCRIPTION_SETTINGS;
+    this.#acceptedGeneration = options.acceptedGeneration ?? "";
+    this.#program = options.program ?? null;
+    this.#frames = new FrameJobCoordinator({
+      project,
+      projectScope,
+      acceptedGeneration: this.#acceptedGeneration,
+      program: this.#program,
+      ...(options.timelineRenderer ? { timelineRenderer: options.timelineRenderer } : {}),
+    });
   }
 
   async start(): Promise<void> {
     if (this.#destroyed || this.#worker) return;
+    this.#frames.start();
     this.#createWorker();
     this.#unsubscribe = window.cinesim.derived.onChanged((snapshot) => {
       this.#acceptSnapshot(snapshot);
@@ -160,9 +197,17 @@ export class MediaJobCoordinator {
     }
   }
 
-  async updateProject(project: Project, settings: ProjectSettings = this.#settings): Promise<void> {
+  async updateProject(
+    project: Project,
+    settings: ProjectSettings = this.#settings,
+    acceptedGeneration = this.#acceptedGeneration,
+    program: IrProgram | null = this.#program,
+  ): Promise<void> {
     this.#project = project;
     this.#settings = settings;
+    this.#acceptedGeneration = acceptedGeneration;
+    this.#program = program;
+    this.#frames.update(project, program, acceptedGeneration);
     if (this.#destroyed) return;
     const mediaIds = project.assets
       .filter((asset) => asset.kind === "video" || asset.kind === "audio")
@@ -201,6 +246,7 @@ export class MediaJobCoordinator {
   async destroy(): Promise<void> {
     if (this.#destroyed) return;
     this.#destroyed = true;
+    this.#frames.destroy();
     if (this.#resumeTimer) clearTimeout(this.#resumeTimer);
     this.#clearWorkerInactivityTimer();
     this.#unsubscribe?.();
@@ -230,6 +276,7 @@ export class MediaJobCoordinator {
     pressure: "idle" | "hover-skimming" | "seeking" | "playing" | "dragging",
   ): void {
     this.#foregroundPressure = pressure;
+    this.#frames.setForegroundPressure(pressure);
     const active = this.#active;
     if (!active || !this.#worker) {
       if (pressure === "idle") void this.#schedule();
@@ -242,12 +289,7 @@ export class MediaJobCoordinator {
     if (pressure !== "idle") {
       this.#clearWorkerInactivityTimer();
       this.#worker.postMessage({
-        type:
-          active.kind === "proxy"
-            ? "proxy-pause"
-            : active.kind === "transcript"
-              ? "transcript-pause"
-              : "perception-pause",
+        type: workerPressureControl(active.kind, "pause"),
         jobId: active.jobId,
       } satisfies DerivedWorkerRequest);
       return;
@@ -255,12 +297,7 @@ export class MediaJobCoordinator {
     this.#resumeTimer = setTimeout(() => {
       if (this.#active?.jobId === active.jobId) {
         this.#worker?.postMessage({
-          type:
-            active.kind === "proxy"
-              ? "proxy-resume"
-              : active.kind === "transcript"
-                ? "transcript-resume"
-                : "perception-resume",
+          type: workerPressureControl(active.kind, "resume"),
           jobId: active.jobId,
         } satisfies DerivedWorkerRequest);
         this.#armWorkerInactivityTimer(active.jobId);
@@ -716,6 +753,8 @@ export class MediaJobCoordinator {
         return this.#publishWaveform(active, message);
       case "perception-complete":
         return this.#completePerception(active, message);
+      case "frame-complete":
+        return;
     }
   }
 

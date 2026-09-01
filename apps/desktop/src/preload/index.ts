@@ -104,6 +104,12 @@ const api: DesktopApi = {
       invoke(invokeChannels.derived.performance, { scope, observation }),
     onChanged: (callback) => subscribe(eventChannels.derivedChanged, callback),
   },
+  frames: {
+    complete: (scope, completion) => invoke(invokeChannels.frames.complete, { scope, completion }),
+    fail: (scope, failure) => invoke(invokeChannels.frames.fail, { scope, failure }),
+    onRequested: (callback) => subscribe(eventChannels.frameRequested, callback),
+    onCanceled: (callback) => subscribe(eventChannels.frameCanceled, callback),
+  },
   transcripts: {
     get: (scope, assetIds) => invoke(invokeChannels.transcripts.get, { scope, assetIds }),
     requestJobs: (scope, assetIds) =>

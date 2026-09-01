@@ -55,6 +55,10 @@ export const invokeChannels = {
     writeFinalize: "derived:write:finalize",
     writeProgress: "derived:write:progress",
   },
+  frames: {
+    complete: "frames:complete",
+    fail: "frames:fail",
+  },
   project: {
     chooseCreateLocation: "project:choose-create-location",
     create: "project:create",
@@ -101,6 +105,8 @@ export const eventChannels = {
   authError: "cinesim-auth:error",
   cloudTransfersChanged: "cloud:transfers-changed",
   derivedChanged: "derived:changed",
+  frameCanceled: "frames:canceled",
+  frameRequested: "frames:requested",
   projectChanged: "project:changed",
   transcriptsChanged: "transcripts:changed",
   visualIndexChanged: "visual-index:changed",

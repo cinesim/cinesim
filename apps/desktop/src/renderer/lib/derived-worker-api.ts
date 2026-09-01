@@ -13,6 +13,16 @@ export interface CancelDerivedRequest {
   jobId: string;
 }
 
+export interface GenerateFrameRequest {
+  type: "frame";
+  jobId: string;
+  assetId: string;
+  projectScope: DerivedProjectScope;
+  atUs: TimeUs;
+  width: number;
+  height: number;
+}
+
 export interface GenerateProxyRequest {
   type: "proxy";
   jobId: string;
@@ -68,6 +78,7 @@ export interface SetTranscriptPausedRequest {
 export type DerivedWorkerRequest =
   | GenerateDerivedRequest
   | GenerateProxyRequest
+  | GenerateFrameRequest
   | CancelDerivedRequest
   | ProxyChunkAck
   | SetProxyPausedRequest
@@ -138,6 +149,14 @@ export type DerivedWorkerResponse =
       sourceEndUs: TimeUs;
       data: ArrayBuffer;
     }
-  | { type: "transcript-complete"; jobId: string };
+  | { type: "transcript-complete"; jobId: string }
+  | {
+      type: "frame-complete";
+      jobId: string;
+      frame: ArrayBuffer;
+      renderedTimeUs: TimeUs;
+      width: number;
+      height: number;
+    };
 import type { TimeUs } from "@cinesim/core";
 import type { DerivedProjectScope, DerivedWorkerStage } from "../../shared/contracts";

@@ -42,9 +42,8 @@ export function useScreenplayVisuals(
       setError(null);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : String(reason));
-    } finally {
-      setLoading(false);
     }
+    setLoading(false);
   }, [assetIds, scope]);
 
   useEffect(() => {

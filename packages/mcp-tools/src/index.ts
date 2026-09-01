@@ -90,6 +90,11 @@ export interface CinesimMcpToolRuntime {
     assetId: string,
     observationId: string,
   ): Promise<{ sourceInUs: number; sourceOutUs: number }>;
+  frameGet(
+    target: { kind: "asset"; assetId: string } | { kind: "timeline"; sequenceId: string },
+    atUs: number,
+    quality: "low" | "medium" | "high",
+  ): Promise<Record<string, unknown>>;
   perform<T extends Record<string, unknown>>(
     tool: { name: CinesimMcpToolName; detail: string; mutating: boolean },
     operation: () => Promise<T> | T,
@@ -451,41 +456,57 @@ export function registerCinesimMcpTools(server: McpServer, runtime: CinesimMcpTo
   server.registerTool(
     "frame_get",
     {
-      title: "Get a derived exact frame",
+      title: "Generate or get a derived exact frame",
       description:
-        "Return the local path and availability of an exact disposable frame sample; an observation ID selects the midpoint of its range.",
+        "Generate a bounded asset or accepted-timeline frame and return its stable local path and exact timing metadata; an observation ID selects an asset-range midpoint.",
       inputSchema: {
-        assetId: assetIdSchema,
+        assetId: assetIdSchema.optional(),
+        sequenceId: z
+          .string()
+          .regex(/^sequence_[a-zA-Z0-9][a-zA-Z0-9_-]*$/u)
+          .max(128)
+          .optional(),
         atUs: timeUsSchema.optional(),
         observationId: z
           .string()
           .regex(/^observation_[a-zA-Z0-9][a-zA-Z0-9_-]*$/u)
           .max(128)
           .optional(),
+        quality: z.enum(["low", "medium", "high"]).default("medium"),
       },
-      annotations: readOnly,
+      annotations: { idempotentHint: true },
     },
-    ({ assetId, atUs, observationId }) =>
-      perform("frame_get", `Find a frame for ${assetId}`, async () => {
-        const observationRange = observationId
-          ? await runtime.visualIndexObservationRange(assetId, observationId)
-          : null;
-        const selectedTime =
-          atUs ??
-          (observationRange
-            ? Math.floor((observationRange.sourceInUs + observationRange.sourceOutUs) / 2)
-            : undefined);
-        if (selectedTime === undefined) throw new Error("frame_get requires atUs or observationId");
-        return {
-          assetId,
-          atUs: selectedTime,
-          ...(observationId ? { observationId } : {}),
-          ...(await runtime.derivedFile(
-            join(".video", "frames", `${assetId}-${selectedTime}.png`),
-          )),
-          derived: true,
-        };
-      }),
+    ({ assetId, sequenceId, atUs, observationId, quality }) =>
+      perform(
+        "frame_get",
+        `Generate an exact frame`,
+        async () => {
+          if ((!assetId && !sequenceId) || (assetId && sequenceId))
+            throw new Error("frame_get requires exactly one of assetId or sequenceId");
+          if (observationId && !assetId)
+            throw new Error("observationId can only select an asset frame");
+          const observationRange = observationId
+            ? await runtime.visualIndexObservationRange(assetId!, observationId)
+            : null;
+          const selectedTime =
+            atUs ??
+            (observationRange
+              ? Math.floor((observationRange.sourceInUs + observationRange.sourceOutUs) / 2)
+              : undefined);
+          if (selectedTime === undefined)
+            throw new Error("frame_get requires atUs or observationId");
+          return {
+            ...(await runtime.frameGet(
+              assetId ? { kind: "asset", assetId } : { kind: "timeline", sequenceId: sequenceId! },
+              selectedTime,
+              quality,
+            )),
+            atUs: selectedTime,
+            ...(observationId ? { observationId } : {}),
+          };
+        },
+        true,
+      ),
   );
 }
 

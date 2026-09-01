@@ -25,6 +25,8 @@ import type { DesktopProjectSession } from "../../shared/contracts";
 import type { DesktopAccountService } from "../account/service";
 import { DerivedMediaStore } from "../derived-media/service";
 import { TranscriptStore } from "../transcripts/service";
+import { FrameService } from "../frames/service";
+import type { FrameRenderRequest } from "../../shared/contracts";
 import { publishDependentProject } from "./dependent-project";
 import { inspectMedia } from "./media-import";
 import {
@@ -38,6 +40,7 @@ const log = createCinesimLogger({ service: "desktop-commands" });
 
 export class DesktopProjectStore {
   readonly derivedMedia = new DerivedMediaStore();
+  readonly frames: FrameService;
   readonly transcripts: TranscriptStore;
   readonly visualIndex: VisualIndexStore;
   #directory: string | null = null;
@@ -54,7 +57,14 @@ export class DesktopProjectStore {
   constructor(
     accountService: DesktopAccountService | null = null,
     onVisualIndexChanged: () => void = () => undefined,
+    dispatchFrame: (request: FrameRenderRequest) => boolean = () => false,
+    cancelFrame: (requestId: string) => void = () => undefined,
   ) {
+    this.frames = new FrameService(
+      dispatchFrame,
+      (assetId) => this.derivedMedia.sourceFingerprint(assetId),
+      cancelFrame,
+    );
     this.transcripts = new TranscriptStore(accountService, (assetId) =>
       this.derivedMedia.sourceFingerprint(assetId),
     );
@@ -165,11 +175,13 @@ export class DesktopProjectStore {
         const derivedStartedAt = performance.now();
         await publishDependentProject({
           derivedMedia: this.derivedMedia,
+          frames: this.frames,
           transcripts: this.transcripts,
           visualIndex: this.visualIndex,
           directory,
           project: this.#requireProject(),
           settings: snapshot.manifest.settings,
+          acceptedGeneration: snapshot.generation,
           preparedDerived,
         });
         const session = this.session();
@@ -260,6 +272,7 @@ export class DesktopProjectStore {
         this.#diskValid = true;
         const project = this.#requireProject();
         this.derivedMedia.updateProject(project);
+        this.#refreshFrameProject();
         this.#revision += 1;
         await this.transcripts
           .updateProject(project)
@@ -331,6 +344,7 @@ export class DesktopProjectStore {
     this.#diskValid = true;
     const project = this.#requireProject();
     this.derivedMedia.updateProject(project);
+    this.#refreshFrameProject();
     this.#revision += 1;
     await this.transcripts
       .updateProject(project)
@@ -396,6 +410,7 @@ export class DesktopProjectStore {
       await this.derivedMedia.clearProject();
       await this.transcripts.clearProject();
       this.visualIndex.clearProject();
+      this.frames.clearProject();
     });
   }
 
@@ -453,11 +468,13 @@ export class DesktopProjectStore {
   async #publishDependentProject(): Promise<void> {
     await publishDependentProject({
       derivedMedia: this.derivedMedia,
+      frames: this.frames,
       transcripts: this.transcripts,
       visualIndex: this.visualIndex,
       directory: this.#requireDirectory(),
       project: this.#requireProject(),
       settings: this.#requireSnapshot().manifest.settings,
+      acceptedGeneration: this.#requireSnapshot().generation,
     });
   }
 
@@ -475,6 +492,7 @@ export class DesktopProjectStore {
           this.#revision += 1;
           const project = this.#requireProject();
           this.derivedMedia.updateProject(project);
+          this.#refreshFrameProject();
           await this.transcripts.updateProject(project).catch(() => undefined);
           await this.visualIndex.updateProject(project).catch(() => undefined);
           this.#notify();
@@ -495,6 +513,15 @@ export class DesktopProjectStore {
     if (!this.#snapshot || !this.#directory) return;
     const session = this.session();
     for (const listener of this.#listeners) listener(session);
+  }
+
+  #refreshFrameProject(): void {
+    this.frames.setProject({
+      directory: this.#requireDirectory(),
+      project: this.#requireProject(),
+      acceptedGeneration: this.#requireSnapshot().generation,
+      scope: this.derivedMedia.scope(),
+    });
   }
 
   #serialize<T>(operation: () => Promise<T>): Promise<T> {

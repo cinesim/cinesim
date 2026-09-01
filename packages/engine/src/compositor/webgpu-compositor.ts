@@ -234,6 +234,7 @@ export interface PreviewCompositor {
 
 export interface WebGpuCompositorOptions {
   onError?: (error: Error) => void;
+  autoResize?: boolean;
 }
 
 type DrawItem =
@@ -304,6 +305,7 @@ function packGraphicUniform(
 export class WebGpuCompositor implements PreviewCompositor {
   readonly #canvas: HTMLCanvasElement;
   readonly #onError: (error: Error) => void;
+  readonly #autoResize: boolean;
   #context: GPUCanvasContext | null = null;
   #device: GPUDevice | null = null;
   #pipeline: GPURenderPipeline | null = null;
@@ -319,6 +321,7 @@ export class WebGpuCompositor implements PreviewCompositor {
   constructor(canvas: HTMLCanvasElement, options: WebGpuCompositorOptions = {}) {
     this.#canvas = canvas;
     this.#onError = options.onError ?? (() => undefined);
+    this.#autoResize = options.autoResize ?? true;
   }
 
   async initialize(): Promise<void> {
@@ -433,11 +436,30 @@ export class WebGpuCompositor implements PreviewCompositor {
   }
 
   resize(): void {
+    if (!this.#autoResize) return;
     const ratio = window.devicePixelRatio || 1;
     const width = Math.max(1, Math.round(this.#canvas.clientWidth * ratio));
     const height = Math.max(1, Math.round(this.#canvas.clientHeight * ratio));
     if (this.#canvas.width !== width) this.#canvas.width = width;
     if (this.#canvas.height !== height) this.#canvas.height = height;
+  }
+
+  setOutputSize(width: number, height: number): void {
+    if (this.#autoResize) throw new Error("Manual output size requires autoResize: false");
+    this.#canvas.width = Math.max(1, Math.round(width));
+    this.#canvas.height = Math.max(1, Math.round(height));
+  }
+
+  async capturePng(): Promise<ArrayBuffer> {
+    if (!this.#device || this.#destroyed) throw new Error("WebGPU compositor is unavailable");
+    await this.#device.queue.onSubmittedWorkDone();
+    const blob = await new Promise<Blob>((resolve, reject) => {
+      this.#canvas.toBlob((value) => {
+        if (value) resolve(value);
+        else reject(new Error("WebGPU frame could not be encoded"));
+      }, "image/png");
+    });
+    return blob.arrayBuffer();
   }
 
   #drawGraphic(

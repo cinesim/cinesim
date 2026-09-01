@@ -28,6 +28,11 @@ import type {
   DerivedWorkerActivity,
   FinalizeDerivedWrite,
 } from "./contracts/derived-media";
+import type {
+  FrameRenderCompletion,
+  FrameRenderFailure,
+  FrameRenderRequest,
+} from "./contracts/frames";
 import type { ElectronHealthSnapshot } from "./contracts/health";
 import type {
   CreateProjectLocation,
@@ -121,6 +126,13 @@ export interface DesktopTranscriptApi {
   onChanged(callback: (snapshot: TranscriptSnapshot) => void): () => void;
 }
 
+export interface DesktopFrameApi {
+  complete(scope: DerivedProjectScope, completion: FrameRenderCompletion): Promise<void>;
+  fail(scope: DerivedProjectScope, failure: FrameRenderFailure): Promise<void>;
+  onRequested(callback: (request: FrameRenderRequest) => void): () => void;
+  onCanceled(callback: (request: { requestId: string }) => void): () => void;
+}
+
 export interface DesktopVisualIndexApi {
   status(scope: DerivedProjectScope, assetIds?: string[]): Promise<VisualIndexAssetStatus[]>;
   get(
@@ -193,6 +205,7 @@ export interface DesktopApi {
   appState: DesktopAppStateApi;
   cloud: DesktopCloudApi;
   derived: DesktopDerivedApi;
+  frames: DesktopFrameApi;
   health: { get(): Promise<ElectronHealthSnapshot> };
   project: DesktopProjectApi;
   transcripts: DesktopTranscriptApi;

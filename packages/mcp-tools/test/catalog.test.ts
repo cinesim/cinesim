@@ -74,6 +74,15 @@ function catalogServer(onOperation: () => void = () => undefined): McpServer {
     visualIndexDelete: async (assetId, selector) => ({ assetId, selector }),
     visualIndexClear: async (assetIds) => ({ assetIds }),
     visualIndexObservationRange: async () => ({ sourceInUs: 0, sourceOutUs: 1_000_000 }),
+    frameGet: async (target, atUs, quality) => ({
+      target,
+      requestedTimeUs: atUs,
+      normalizedTimeUs: atUs,
+      quality,
+      path: "/project/.video/frames/frame.png",
+      cached: false,
+      derived: true,
+    }),
     perform: async (_tool, operation) => {
       onOperation();
       return textResult(await operation());
@@ -136,8 +145,9 @@ describe("Cinesim inspection and perception MCP catalog", () => {
     ).resolves.toMatchObject({
       structuredContent: {
         atUs: 500_000,
+        normalizedTimeUs: 500_000,
         observationId: "observation_opening",
-        path: "/project/.video/frames/asset_fixture-500000.png",
+        path: "/project/.video/frames/frame.png",
       },
     });
     await client.close();

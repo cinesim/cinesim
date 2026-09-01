@@ -349,6 +349,9 @@ export class AgentMcpServer {
       }),
       visualIndexObservationRange: (assetId, observationId) =>
         this.projectStore.visualIndex.observationRange(assetId, observationId),
+      frameGet: async (target, atUs, quality) => ({
+        ...(await this.projectStore.frames.get(target, atUs, quality)),
+      }),
       perform: async (tool, operation) => {
         if (session.external) return jsonResult(await operation());
         const eventId = await this.hooks.onToolStarted(session.sessionId, tool.name, tool.detail);

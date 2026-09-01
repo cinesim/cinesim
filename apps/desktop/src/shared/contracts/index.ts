@@ -6,5 +6,6 @@ export * from "./app-state";
 export * from "./cloud";
 export * from "./derived-media";
 export * from "./events";
+export * from "./frames";
 export * from "./health";
 export * from "./project";

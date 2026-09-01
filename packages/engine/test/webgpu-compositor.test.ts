@@ -17,6 +17,81 @@ afterEach(() => {
 });
 
 describe("WebGpuCompositor resource ownership", () => {
+  it("captures a manually sized WebGPU output only after submitted work completes", async () => {
+    let submittedWorkSettled = false;
+    const pass = {
+      setPipeline: () => undefined,
+      setBindGroup: () => undefined,
+      draw: () => undefined,
+      end: () => undefined,
+    };
+    const device = {
+      lost: new Promise<GPUDeviceLostInfo>(() => undefined),
+      queue: {
+        writeBuffer: () => undefined,
+        submit: () => undefined,
+        onSubmittedWorkDone: async () => {
+          submittedWorkSettled = true;
+        },
+      },
+      addEventListener: () => undefined,
+      removeEventListener: () => undefined,
+      createSampler: () => ({}),
+      createShaderModule: () => ({}),
+      createBindGroupLayout: () => ({}),
+      createPipelineLayout: () => ({}),
+      createRenderPipelineAsync: async () => ({ getBindGroupLayout: () => ({}) }),
+      createCommandEncoder: () => ({
+        beginRenderPass: () => pass,
+        finish: () => ({}),
+      }),
+      createBuffer: () => ({ destroy: () => undefined }),
+      createBindGroup: () => ({}),
+      importExternalTexture: () => ({}),
+      destroy: () => undefined,
+    };
+    const context = {
+      configure: () => undefined,
+      unconfigure: () => undefined,
+      getCurrentTexture: () => ({ createView: () => ({}) }),
+    };
+    const canvas = {
+      width: 1,
+      height: 1,
+      clientWidth: 0,
+      clientHeight: 0,
+      getContext: () => context,
+      toBlob: (callback: BlobCallback) => {
+        expect(submittedWorkSettled).toBe(true);
+        callback(new Blob([new Uint8Array([1, 2, 3])], { type: "image/png" }));
+      },
+    };
+    Object.defineProperties(globalThis, {
+      navigator: {
+        configurable: true,
+        value: {
+          gpu: {
+            requestAdapter: async () => ({ requestDevice: async () => device }),
+            getPreferredCanvasFormat: () => "bgra8unorm",
+          },
+        },
+      },
+      window: { configurable: true, value: { devicePixelRatio: 1 } },
+      GPUShaderStage: { configurable: true, value: { FRAGMENT: 1, VERTEX: 2 } },
+      GPUBufferUsage: { configurable: true, value: { UNIFORM: 1, COPY_DST: 2 } },
+    });
+    const compositor = new WebGpuCompositor(canvas as unknown as HTMLCanvasElement, {
+      autoResize: false,
+    });
+    compositor.setOutputSize(1280, 720);
+    await compositor.initialize();
+    compositor.render([], { width: 1920, height: 1080 });
+
+    await expect(compositor.capturePng()).resolves.toEqual(new Uint8Array([1, 2, 3]).buffer);
+    expect(canvas).toMatchObject({ width: 1280, height: 720 });
+    compositor.destroy();
+  });
+
   for (const failurePoint of ["pass.end", "encoder.finish", "queue.submit"] as const) {
     it(`closes frames and destroys transient buffers when ${failurePoint} fails`, async () => {
       let frameCloses = 0;

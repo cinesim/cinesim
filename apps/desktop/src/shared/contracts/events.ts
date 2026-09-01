@@ -3,6 +3,7 @@ import type { AgentProjectDelta } from "./agents";
 import type { CloudTransferSnapshot } from "./cloud";
 import type { DerivedMediaSnapshot } from "./derived-media";
 import type { DesktopProjectSession } from "./project";
+import type { FrameRenderRequest } from "./frames";
 import { eventChannels } from "./channels";
 
 export interface DesktopEventContract<TPayload> {
@@ -21,6 +22,8 @@ export const desktopEvents = {
   authError: event<void>(eventChannels.authError),
   cloudTransfersChanged: event<CloudTransferSnapshot[]>(eventChannels.cloudTransfersChanged),
   derivedChanged: event<DerivedMediaSnapshot>(eventChannels.derivedChanged),
+  frameCanceled: event<{ requestId: string }>(eventChannels.frameCanceled),
+  frameRequested: event<FrameRenderRequest>(eventChannels.frameRequested),
   projectChanged: event<DesktopProjectSession>(eventChannels.projectChanged),
   transcriptsChanged: event<TranscriptSnapshot>(eventChannels.transcriptsChanged),
   visualIndexChanged: event<void>(eventChannels.visualIndexChanged),

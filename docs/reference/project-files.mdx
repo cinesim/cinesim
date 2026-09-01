@@ -10,6 +10,7 @@ For the model behind this layout, see [Projects](../concepts/projects.mdx).
 ```text
 documentary-cut/
 ├── cinesim.toml
+├── assets.toml
 ├── main.jsx
 ├── components/             optional relative source modules
 ├── AGENTS.md
@@ -29,14 +30,15 @@ documentary-cut/
 
 | Path                                          | Contents                                                                                             | Canonical |
 | --------------------------------------------- | ---------------------------------------------------------------------------------------------------- | --------- |
-| `cinesim.toml`                                | Format/language versions, identity, active composition, settings, compiler policy, and asset catalog | Yes       |
+| `cinesim.toml`                                | Format/language versions, identity, active composition, settings, compiler policy, and project notes | Yes       |
+| `assets.toml`                                 | Asset catalog, technical metadata, input-color policy, and deliberate asset notes                    | Yes       |
 | `main.jsx` and reachable `.js`/`.jsx` modules | Compositions, timelines, tracks, clips, graphics, effects, and animation                             | Yes       |
-| `AGENTS.md`                                   | Project guidance for connected agents                                                                | Yes       |
-| `.gitignore`                                  | Excludes `.video/`                                                                                   | Yes       |
+| `AGENTS.md`                                   | Deterministically managed project guidance plus custom instructions                                  | No        |
+| `.gitignore`                                  | Excludes `.video/`                                                                                   | No        |
 | `.video/`                                     | Generated media, compiler artifacts, and runtime state                                               | No        |
 
-There is no separate asset file or JSON timeline. Timeline structure exists once in
-source and compiles to deterministic semantic IR in memory. Source imports must be relative, stay
+There is no JSON timeline. Timeline structure exists once in source and compiles to deterministic
+semantic IR in memory. Source imports must be relative, stay
 inside the real project root, and may not resolve packages or symlink escapes.
 
 ## `cinesim.toml`
@@ -44,7 +46,7 @@ inside the real project root, and may not resolve packages or symlink escapes.
 The manifest is the non-video-source authority:
 
 ```toml
-format_version = 2
+format_version = 3
 language_version = 1
 
 [project]
@@ -66,6 +68,14 @@ proxy_quality = "medium"
 
 [compiler]
 strict = true
+```
+
+## `assets.toml`
+
+The asset manifest is the deterministic media catalog:
+
+```toml
+format_version = 3
 
 [assets.asset_interview]
 kind = "video"
@@ -81,9 +91,9 @@ kind = "local"
 path = "/Volumes/Footage/interview.mov"
 ```
 
-Asset table keys are stable IDs used by source expressions such as
-`asset("asset_interview")`. Cinesim patches owned keys and asset blocks with expected revisions, so
-comments and unknown tables survive unrelated edits.
+Asset table keys are stable IDs used by source expressions such as `asset("asset_interview")`.
+Cinesim patches owned keys and asset blocks with expected revisions, so comments and unknown tables
+survive unrelated edits.
 
 ## Video source
 
@@ -122,4 +132,5 @@ referenced in place by the manifest; no project-level `media/` or `exports/` dir
 
 ## Version control
 
-Commit `cinesim.toml`, video source, and ordinary project documents. Do not commit `.video/`.
+Commit `cinesim.toml`, `assets.toml`, reachable video source, and ordinary project documents. Do
+not commit `.video/`.

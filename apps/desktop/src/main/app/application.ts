@@ -20,6 +20,7 @@ import { registerCloudIpc } from "../cloud/ipc";
 import { CloudMediaManager } from "../cloud/manager";
 import { registerTranscriptIpc } from "../transcripts/ipc";
 import { registerVisualIndexIpc } from "../visual-index/ipc";
+import { registerFrameIpc } from "../frames/ipc";
 import type { DevelopmentConfiguration } from "./development-configuration";
 import { configureIpcSecurity } from "./secure-ipc";
 import { desktopEvents } from "../../shared/contracts/events";
@@ -40,9 +41,16 @@ export class DesktopApplication implements ApplicationLifecycle {
     private readonly development: DevelopmentConfiguration,
     private readonly windows: EditorWindowRegistry,
   ) {
-    this.projectStore = new DesktopProjectStore(accountService, () => {
-      this.windows.broadcast(desktopEvents.visualIndexChanged);
-    });
+    this.projectStore = new DesktopProjectStore(
+      accountService,
+      () => this.windows.broadcast(desktopEvents.visualIndexChanged),
+      (request) => {
+        if (this.windows.size === 0) return false;
+        this.windows.sendPrimary(desktopEvents.frameRequested, request);
+        return true;
+      },
+      (requestId) => this.windows.sendPrimary(desktopEvents.frameCanceled, { requestId }),
+    );
     configureIpcSecurity({ developmentUrl: development.rendererUrl });
   }
 
@@ -162,6 +170,7 @@ export class DesktopApplication implements ApplicationLifecycle {
   ): void {
     registerProjectIpc(this.projectStore, appState, agents, this.accountService, cloudMedia);
     registerDerivedMediaIpc(this.projectStore.derivedMedia);
+    registerFrameIpc(this.projectStore.frames);
     registerTranscriptIpc(this.projectStore.transcripts);
     registerVisualIndexIpc(this.projectStore);
     registerAppStateIpc(appState, this.projectStore);
