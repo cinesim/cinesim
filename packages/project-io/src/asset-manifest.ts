@@ -1,6 +1,11 @@
 import { assetSchema } from "@cinesim/core";
 import type { Asset } from "@cinesim/core";
 import { parse, stringify } from "smol-toml";
+import {
+  editorialNotesShape,
+  parseEditorialNotes,
+  patchEditorialNoteSource,
+} from "./editorial-notes";
 import { sourceRevision, StaleSourceRevisionError } from "./project-manifest";
 
 export interface AssetManifest {
@@ -128,48 +133,49 @@ function parseTechnical(input: unknown, name: string): Asset["technical"] {
   } as Asset["technical"];
 }
 
+function parseAssetSource(value: unknown, name: string): Asset["source"] {
+  const source = record(value, name);
+  if (source.kind === "local")
+    return { kind: "local", path: requiredString(source.path, `${name}.path`) };
+  if (source.kind === "cloud") {
+    return {
+      kind: "cloud",
+      cloudAssetId: requiredString(
+        source.cloud_asset_id,
+        `${name}.cloud_asset_id`,
+      ) as `cloud_asset_${string}`,
+    };
+  }
+  throw new Error(`${name}.kind must be local or cloud.`);
+}
+
+function parseInputColor(value: unknown, name: string): Asset["inputColor"] {
+  if (value === undefined) return undefined;
+  return { policy: record(value, name).policy } as Asset["inputColor"];
+}
+
 function parseAsset(id: string, input: unknown): Asset {
   if (!/^asset_[a-zA-Z0-9][a-zA-Z0-9_-]*$/u.test(id))
     throw new Error(`Invalid stable asset table key: ${id}`);
   const value = record(input, `assets.${id}`);
-  const source = record(value.source, `assets.${id}.source`);
+  const notes = parseEditorialNotes(value.notes, `assets.${id}.notes`);
   return assetSchema.parse({
     id,
     kind: value.kind,
     name: value.name,
     durationUs: value.duration_us,
-    ...(optionalNumber(value.width, `assets.${id}.width`) === undefined
-      ? {}
-      : { width: value.width }),
-    ...(optionalNumber(value.height, `assets.${id}.height`) === undefined
-      ? {}
-      : { height: value.height }),
-    ...(optionalNumber(value.frame_rate, `assets.${id}.frame_rate`) === undefined
-      ? {}
-      : { frameRate: value.frame_rate }),
+    ...parsedNumberProperty("width", value.width, `assets.${id}.width`),
+    ...parsedNumberProperty("height", value.height, `assets.${id}.height`),
+    ...parsedNumberProperty("frameRate", value.frame_rate, `assets.${id}.frame_rate`),
     ...(value.has_audio === undefined ? {} : { hasAudio: value.has_audio }),
     ...(value.technical === undefined
       ? {}
       : { technical: parseTechnical(value.technical, `assets.${id}.technical`) }),
     ...(value.input_color === undefined
       ? {}
-      : {
-          inputColor: {
-            policy: record(value.input_color, `assets.${id}.input_color`).policy,
-          },
-        }),
-    source:
-      source.kind === "local"
-        ? { kind: "local", path: requiredString(source.path, `assets.${id}.source.path`) }
-        : source.kind === "cloud"
-          ? {
-              kind: "cloud",
-              cloudAssetId: requiredString(
-                source.cloud_asset_id,
-                `assets.${id}.source.cloud_asset_id`,
-              ),
-            }
-          : source,
+      : { inputColor: parseInputColor(value.input_color, `assets.${id}.input_color`) }),
+    ...(notes.length === 0 ? {} : { notes }),
+    source: parseAssetSource(value.source, `assets.${id}.source`),
   }) as Asset;
 }
 
@@ -184,6 +190,9 @@ function assetShape(asset: Asset): Record<string, unknown> {
     ...(asset.hasAudio === undefined ? {} : { has_audio: asset.hasAudio }),
     ...(asset.inputColor === undefined ? {} : { input_color: { policy: asset.inputColor.policy } }),
     ...(asset.technical === undefined ? {} : { technical: technicalShape(asset.technical) }),
+    ...(asset.notes === undefined || asset.notes.length === 0
+      ? {}
+      : { notes: editorialNotesShape(asset.notes) }),
     source:
       asset.source.kind === "local"
         ? { kind: "local", path: asset.source.path }
@@ -273,6 +282,22 @@ export function serializeAssetManifest(manifest: AssetManifest): string {
   const source = `${stringify({ format_version: 1, assets })}\n`;
   parseAssetManifest(source);
   return source;
+}
+
+export function patchAssetNote(
+  source: string,
+  assetId: string,
+  noteId: string,
+  note: import("@cinesim/core").EditorialNote | null,
+  expectedRevision: string,
+): string {
+  assertRevision(source, expectedRevision);
+  const manifest = parseAssetManifest(source);
+  if (!manifest.assets.some(({ id }) => id === assetId))
+    throw new Error(`Asset not found: ${assetId}`);
+  const next = patchEditorialNoteSource(source, `assets.${assetId}.notes`, noteId, note);
+  parseAssetManifest(next);
+  return next;
 }
 
 function assertRevision(source: string, expectedRevision: string): void {

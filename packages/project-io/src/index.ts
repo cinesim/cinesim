@@ -1,4 +1,5 @@
 export * from "./file-system";
+export * from "./editorial-notes";
 export * from "./asset-manifest";
 export * from "./accepted-history";
 export * from "./project-manifest";

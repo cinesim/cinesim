@@ -295,6 +295,13 @@ function projectFromTimelineProjection(project: Project, timeline: TimelineProje
     width: timeline.width,
     height: timeline.height,
     frameRate: timeline.frameRate,
+    notes: timeline.notes.map((note) => ({
+      id: note.id,
+      kind: note.kind,
+      text: note.text,
+      atUs: timeUs(note.atUs),
+      ...(note.durationUs === undefined ? {} : { durationUs: timeUs(note.durationUs) }),
+    })),
     tracks: timeline.tracks.map((track): Track => ({
       id: track.id as Track["id"],
       kind: track.kind,

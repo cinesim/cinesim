@@ -74,6 +74,7 @@ export function projectTimeline(
     frameRate: composition.frameRate,
     durationUs,
     tracks,
+    notes: composition.timeline.notes,
     markers: composition.timeline.markers,
     transitions: composition.timeline.transitions,
   };

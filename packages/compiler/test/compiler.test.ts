@@ -130,6 +130,21 @@ describe("compiler", () => {
     });
   });
 
+  it("lowers structured non-rendering timeline notes", async () => {
+    const source = `export const main = <composition id="sequence_main" width={1920} height={1080} fps={30}><timeline id="timeline_main"><note id="note_scene" at={seconds(2)} duration={seconds(3)} kind="scene" text="Move into the kitchen" /></timeline></composition>; export default main;`;
+    const result = await compileVideo("main.jsx", config, host({ "main.jsx": source }));
+    expect(result.ir.compositions[0]?.timeline.notes).toEqual([
+      {
+        id: "note_scene",
+        atUs: 2_000_000,
+        durationUs: 3_000_000,
+        kind: "scene",
+        text: "Move into the kitchen",
+      },
+    ]);
+    expect(result.sourceMap.nodes.note_scene?.structural.nodeKind).toBe("note");
+  });
+
   it("enforces component depth and source budgets", async () => {
     const tiny = { ...config, budgets: { ...config.budgets, maxSourceBytes: 10 } };
     await expect(

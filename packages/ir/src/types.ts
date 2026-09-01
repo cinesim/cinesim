@@ -169,6 +169,14 @@ export interface IrMarker {
   color?: string;
 }
 
+export interface IrTimelineNote {
+  id: string;
+  atUs: IrTimeUs;
+  durationUs?: IrTimeUs;
+  kind: "story-intent" | "scene" | "continuity" | "edit-task" | "review-feedback" | "general";
+  text: string;
+}
+
 export interface IrTransition {
   id: string;
   fromClipId: string;
@@ -181,6 +189,7 @@ export interface IrTransition {
 export interface IrTimeline {
   id: string;
   tracks: IrTrack[];
+  notes: IrTimelineNote[];
   markers: IrMarker[];
   transitions: IrTransition[];
 }
@@ -284,6 +293,7 @@ export type IrNodeTemplate =
   | { kind: "track"; track: IrTrack }
   | { kind: "clip"; clip: IrClip }
   | { kind: "marker"; marker: IrMarker }
+  | { kind: "note"; note: IrTimelineNote }
   | { kind: "transition"; transition: IrTransition }
   | { kind: "scene"; node: IrSceneNode };
 
@@ -337,6 +347,7 @@ export interface TimelineProjection {
   frameRate: number;
   durationUs: IrTimeUs;
   tracks: TimelineTrackProjection[];
+  notes: IrTimelineNote[];
   markers: IrMarker[];
   transitions: IrTransition[];
 }

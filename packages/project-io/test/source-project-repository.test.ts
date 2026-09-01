@@ -101,6 +101,7 @@ function emptyManifest(): ProjectManifest {
       activeCompositionId: "sequence_main",
     },
     settings: DEFAULT_SETTINGS,
+    notes: [],
   };
 }
 
@@ -132,7 +133,12 @@ describe("project manifest", () => {
   });
 
   it("serializes deterministically and preserves comments/unknown tables during targeted edits", () => {
-    const initial = `${serializeProjectManifest(emptyManifest())}\n# user note\n[user.custom]\nkeep = "yes"\n`;
+    const manifest = emptyManifest();
+    manifest.notes = [
+      { id: "note_story", kind: "story-intent", text: "Keep the opening intimate" },
+    ];
+    const initial = `${serializeProjectManifest(manifest)}\n# user note\n[user.custom]\nkeep = "yes"\n`;
+    expect(parseProjectManifest(initial).notes).toEqual(manifest.notes);
     const withSetting = patchManifestSetting(
       initial,
       "previewQuality",
@@ -142,8 +148,12 @@ describe("project manifest", () => {
     expect(withSetting).toContain("# user note");
     expect(withSetting).toContain('[user.custom]\nkeep = "yes"');
     const emptyAssets = serializeAssetManifest({ formatVersion: 1, assets: [] });
-    const withAsset = patchAssetManifestAdd(emptyAssets, asset, sourceRevision(emptyAssets));
-    expect(parseAssetManifest(withAsset).assets).toEqual([asset]);
+    const notedAsset = {
+      ...asset,
+      notes: [{ id: "note_asset", kind: "continuity" as const, text: "Watch eyeline" }],
+    };
+    const withAsset = patchAssetManifestAdd(emptyAssets, notedAsset, sourceRevision(emptyAssets));
+    expect(parseAssetManifest(withAsset).assets).toEqual([notedAsset]);
     expect(withAsset).toContain("/Volumes/Footage with spaces/α.mov");
     const relinked = patchAssetManifestSource(
       withAsset,

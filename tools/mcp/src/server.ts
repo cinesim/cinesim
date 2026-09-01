@@ -203,6 +203,7 @@ export async function runMcpServer(projectDirectory: string): Promise<void> {
     projectViewFromIr(current.compilation.ir, {
       name: current.manifest.project.name,
       assets: current.assets,
+      notes: current.manifest.notes,
       ...(current.manifest.project.cloudProjectId
         ? { cloudProjectId: current.manifest.project.cloudProjectId as Project["cloudProjectId"] }
         : {}),

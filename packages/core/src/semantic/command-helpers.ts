@@ -12,7 +12,7 @@ import {
 } from "@cinesim/ir";
 import { CommandError } from "./command-types";
 import { nextId } from "../ids";
-import type { Asset, Transform } from "../project/types";
+import type { Asset, EditorialNote, Transform } from "../project/types";
 import type { CommandContext, SemanticCommandPlan, SemanticEditorCommand } from "./command-types";
 
 export interface ClipLocation {
@@ -28,11 +28,16 @@ export interface TrackLocation {
   index: number;
 }
 
-export function createCommandContext(program: IrProgram, assets: readonly Asset[]): CommandContext {
+export function createCommandContext(
+  program: IrProgram,
+  assets: readonly Asset[],
+  projectNotes: readonly EditorialNote[] = [],
+): CommandContext {
   return {
     program: structuredClone(program),
     assets,
     assetsById: new Map(assets.map((asset) => [asset.id, asset])),
+    projectNotes,
     patches: [],
   };
 }
@@ -45,6 +50,9 @@ export function allIds(program: IrProgram): string[] {
       track.id,
       ...track.clips.map((clip) => clip.id),
     ]),
+    ...composition.timeline.notes.map(({ id }) => id),
+    ...composition.timeline.markers.map(({ id }) => id),
+    ...composition.timeline.transitions.map(({ id }) => id),
   ]);
 }
 

@@ -4,6 +4,7 @@ import type {
   IrEffect,
   IrProgram,
   IrSceneNode,
+  IrTimeline,
   IrTrack,
   IrValue,
 } from "./types";
@@ -126,11 +127,24 @@ class ProgramValidator {
     const clips = new Map<string, ClipLinkRecord>();
     for (const track of composition.timeline.tracks) this.validateTrack(track, clips);
     this.validateClipLinks(clips);
-    for (const marker of composition.timeline.markers) {
+    this.validateEditorialMetadata(composition.timeline, clips);
+  }
+
+  validateEditorialMetadata(
+    timeline: IrTimeline,
+    clips: ReadonlyMap<string, ClipLinkRecord>,
+  ): void {
+    for (const note of timeline.notes) {
+      this.claim(note.id, "note");
+      assertTime(note.atUs, `${note.id}.atUs`);
+      if (note.durationUs !== undefined) assertTime(note.durationUs, `${note.id}.durationUs`);
+      if (!note.text.trim()) throw new Error(`Timeline note ${note.id} must contain text.`);
+    }
+    for (const marker of timeline.markers) {
       this.claim(marker.id, "marker");
       assertTime(marker.atUs, `${marker.id}.atUs`);
     }
-    for (const transition of composition.timeline.transitions) {
+    for (const transition of timeline.transitions) {
       this.claim(transition.id, "transition");
       assertTime(transition.durationUs, `${transition.id}.durationUs`);
       if (!clips.has(transition.fromClipId) || !clips.has(transition.toClipId)) {

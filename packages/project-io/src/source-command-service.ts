@@ -8,9 +8,10 @@ import {
   patchAssetManifestAdd,
   patchAssetManifestRemove,
   patchAssetManifestSource,
+  patchAssetNote,
 } from "./asset-manifest";
 import { AcceptedProjectHistory, type AcceptedProjectState } from "./accepted-history";
-import { patchManifestProjectKey, sourceRevision } from "./project-manifest";
+import { patchManifestProjectKey, patchProjectNote, sourceRevision } from "./project-manifest";
 import {
   SourceProjectConflictError,
   SourceProjectRepository,
@@ -33,52 +34,82 @@ function changedSources(
   );
 }
 
+function editorialNote(command: Extract<SemanticEditorCommand, { type: "note.upsert" }>) {
+  const { atUs: _atUs, durationUs: _durationUs, ...note } = command.note;
+  return note;
+}
+
+function isNoteCommand(
+  command: SemanticEditorCommand,
+): command is Extract<SemanticEditorCommand, { type: `note.${string}` }> {
+  return command.type === "note.upsert" || command.type === "note.remove";
+}
+
+function patchAssetDocument(source: string, command: SemanticEditorCommand): string | undefined {
+  if (command.type === "asset.import")
+    return patchAssetManifestAdd(source, command.asset, sourceRevision(source));
+  if (command.type === "asset.setSource")
+    return patchAssetManifestSource(
+      source,
+      command.assetId,
+      command.source,
+      sourceRevision(source),
+    );
+  if (command.type === "asset.remove") {
+    let next = source;
+    for (const assetId of command.assetIds)
+      next = patchAssetManifestRemove(next, assetId, sourceRevision(next));
+    return next;
+  }
+  if (!isNoteCommand(command) || command.target !== "asset") return undefined;
+  if (!command.assetId) throw new Error("Asset note command is missing assetId");
+  return patchAssetNote(
+    source,
+    command.assetId,
+    command.type === "note.upsert" ? command.note.id : command.noteId,
+    command.type === "note.upsert" ? editorialNote(command) : null,
+    sourceRevision(source),
+  );
+}
+
+function patchProjectDocument(
+  source: string,
+  command: SemanticEditorCommand,
+  plan: SemanticCommandPlan,
+): string | undefined {
+  let next = source;
+  let changed = false;
+  if (isNoteCommand(command) && command.target === "project") {
+    next = patchProjectNote(
+      next,
+      command.type === "note.upsert" ? command.note.id : command.noteId,
+      command.type === "note.upsert" ? editorialNote(command) : null,
+      sourceRevision(next),
+    );
+    changed = true;
+  }
+  if (plan.manifest.activeCompositionId !== undefined) {
+    next = patchManifestProjectKey(
+      next,
+      "active_composition",
+      plan.manifest.activeCompositionId,
+      sourceRevision(next),
+    );
+    changed = true;
+  }
+  return changed ? next : undefined;
+}
+
 function patchDocumentsForCommand(
   snapshot: SourceProjectSnapshot,
   command: SemanticEditorCommand,
   plan: SemanticCommandPlan,
 ): { manifestSource?: string; assetManifestSource?: string } {
-  let manifestSource = snapshot.manifestSource;
-  let assetManifestSource = snapshot.assetManifestSource;
-  let manifestChanged = false;
-  let assetsChanged = false;
-  if (command.type === "asset.import") {
-    assetManifestSource = patchAssetManifestAdd(
-      assetManifestSource,
-      command.asset,
-      sourceRevision(assetManifestSource),
-    );
-    assetsChanged = true;
-  } else if (command.type === "asset.setSource") {
-    assetManifestSource = patchAssetManifestSource(
-      assetManifestSource,
-      command.assetId,
-      command.source,
-      sourceRevision(assetManifestSource),
-    );
-    assetsChanged = true;
-  } else if (command.type === "asset.remove") {
-    for (const assetId of command.assetIds) {
-      assetManifestSource = patchAssetManifestRemove(
-        assetManifestSource,
-        assetId,
-        sourceRevision(assetManifestSource),
-      );
-      assetsChanged = true;
-    }
-  }
-  if (plan.manifest.activeCompositionId !== undefined) {
-    manifestSource = patchManifestProjectKey(
-      manifestSource,
-      "active_composition",
-      plan.manifest.activeCompositionId,
-      sourceRevision(manifestSource),
-    );
-    manifestChanged = true;
-  }
+  const manifestSource = patchProjectDocument(snapshot.manifestSource, command, plan);
+  const assetManifestSource = patchAssetDocument(snapshot.assetManifestSource, command);
   return {
-    ...(manifestChanged ? { manifestSource } : {}),
-    ...(assetsChanged ? { assetManifestSource } : {}),
+    ...(manifestSource ? { manifestSource } : {}),
+    ...(assetManifestSource ? { assetManifestSource } : {}),
   };
 }
 
@@ -133,7 +164,12 @@ export class SourceCommandService {
       throw new SourceProjectConflictError(expectedGeneration, this.#snapshot.generation);
     }
     const before = this.#snapshot;
-    const plan = planSemanticCommand(before.compilation.ir, before.assets, command);
+    const plan = planSemanticCommand(
+      before.compilation.ir,
+      before.assets,
+      command,
+      before.manifest.notes,
+    );
     const sourcePlan = planSemanticSourceEdits(
       plan.patches,
       before.compilation.sourceMap,

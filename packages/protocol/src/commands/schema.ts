@@ -8,6 +8,7 @@ import {
   trackIdSchema,
   timeUsSchema,
   transformSchema,
+  editorialNoteSchema,
 } from "@cinesim/core";
 import type { SemanticEditorCommand } from "@cinesim/core";
 import type { IrValue } from "@cinesim/ir";
@@ -119,6 +120,47 @@ export const irValueSchema = z.discriminatedUnion("kind", [
 ]) as unknown as z.ZodType<IrValue>;
 
 const semanticOnlyCommandSchema = z.discriminatedUnion("type", [
+  z
+    .object({
+      type: z.literal("note.upsert"),
+      target: z.enum(["project", "asset", "timeline"]),
+      assetId: assetIdSchema.optional(),
+      sequenceId: sequenceIdSchema.optional(),
+      note: editorialNoteSchema.extend({
+        atUs: timeUsSchema.optional(),
+        durationUs: timeUsSchema.optional(),
+      }),
+    })
+    .strict()
+    .refine(
+      (command) =>
+        (command.target === "project" && !command.assetId && !command.sequenceId) ||
+        (command.target === "asset" && Boolean(command.assetId) && !command.sequenceId) ||
+        (command.target === "timeline" && Boolean(command.sequenceId) && !command.assetId),
+      { message: "Note target identifiers do not match the target kind" },
+    )
+    .refine((command) => command.target !== "timeline" || command.note.atUs !== undefined, {
+      message: "Timeline notes require atUs",
+    }),
+  z
+    .object({
+      type: z.literal("note.remove"),
+      target: z.enum(["project", "asset", "timeline"]),
+      assetId: assetIdSchema.optional(),
+      sequenceId: sequenceIdSchema.optional(),
+      noteId: z
+        .string()
+        .regex(/^note_[a-zA-Z0-9][a-zA-Z0-9_-]*$/u)
+        .max(128),
+    })
+    .strict()
+    .refine(
+      (command) =>
+        (command.target === "project" && !command.assetId && !command.sequenceId) ||
+        (command.target === "asset" && Boolean(command.assetId) && !command.sequenceId) ||
+        (command.target === "timeline" && Boolean(command.sequenceId) && !command.assetId),
+      { message: "Note target identifiers do not match the target kind" },
+    ),
   z
     .object({
       type: z.literal("property.set"),

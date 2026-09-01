@@ -73,6 +73,7 @@ export class DiskProjectStore {
     this.project = projectViewFromIr(snapshot.compilation.ir, {
       name: snapshot.manifest.project.name,
       assets: snapshot.assets,
+      notes: snapshot.manifest.notes,
       ...(snapshot.manifest.project.cloudProjectId === undefined
         ? {}
         : {

@@ -1,7 +1,10 @@
 import type { AssetId, Project } from "@cinesim/core";
 import { projectTimeline, type IrEditMap, type IrProgram } from "@cinesim/ir";
 
-export function inspectProject(program: IrProgram, project: Pick<Project, "name" | "assets">) {
+export function inspectProject(
+  program: IrProgram,
+  project: Pick<Project, "name" | "assets" | "notes">,
+) {
   const timeline = projectTimeline(program);
   return {
     version: program.version,
@@ -10,6 +13,7 @@ export function inspectProject(program: IrProgram, project: Pick<Project, "name"
     activeCompositionId: program.activeCompositionId,
     durationUs: timeline.durationUs,
     assetCount: project.assets.length,
+    projectNoteCount: project.notes.length,
     compositionCount: program.compositions.length,
     trackCount: timeline.tracks.length,
     clipCount: timeline.tracks.reduce((count, track) => count + track.clips.length, 0),
@@ -28,6 +32,7 @@ export function inspectTimeline(program: IrProgram, editMap?: IrEditMap) {
       durationUs: timeline.durationUs,
     },
     tracks: timeline.tracks,
+    notes: timeline.notes,
     markers: timeline.markers,
     transitions: timeline.transitions,
   };

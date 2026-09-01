@@ -258,6 +258,7 @@ export class SourceProjectRepository {
         ...(options.cloudProjectId === undefined ? {} : { cloudProjectId: options.cloudProjectId }),
       },
       settings: options.settings ?? DEFAULT_SETTINGS,
+      notes: [],
     };
     const assetManifest: AssetManifest = { formatVersion: 1, assets: [] };
     await repository.paths.ensureDirectory(".codex");

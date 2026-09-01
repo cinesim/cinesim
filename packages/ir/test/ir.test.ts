@@ -59,6 +59,7 @@ function program(): IrProgram {
         background: "#000000",
         timeline: {
           id: "timeline_main",
+          notes: [],
           markers: [],
           transitions: [],
           tracks: [

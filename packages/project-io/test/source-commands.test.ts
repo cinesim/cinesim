@@ -372,4 +372,67 @@ export default main;
     ]);
     expect(removed.snapshot.sources["main.jsx"]).not.toContain('id="sequence_main"');
   });
+
+  it("persists project, asset, and timeline notes through one validated history", async () => {
+    const { service } = await setup();
+    const projectNote = await service.execute({
+      type: "note.upsert",
+      target: "project",
+      note: { id: "note_intent", kind: "story-intent", text: "Open quietly" },
+    });
+    expect(projectNote.snapshot.manifest.notes).toEqual([
+      { id: "note_intent", kind: "story-intent", text: "Open quietly" },
+    ]);
+
+    const assetNote = await service.execute({
+      type: "note.upsert",
+      target: "asset",
+      assetId: "asset_camera",
+      note: { id: "note_eyeline", kind: "continuity", text: "Watch the eyeline" },
+    });
+    expect(assetNote.snapshot.assets[0]?.notes).toEqual([
+      { id: "note_eyeline", kind: "continuity", text: "Watch the eyeline" },
+    ]);
+
+    const timelineNote = await service.execute({
+      type: "note.upsert",
+      target: "timeline",
+      sequenceId: "sequence_main",
+      note: {
+        id: "note_scene",
+        kind: "scene",
+        text: "Kitchen",
+        atUs: timeUs(2_000_000),
+        durationUs: timeUs(3_000_000),
+      },
+    });
+    expect(timelineNote.snapshot.compilation.ir.compositions[0]?.timeline.notes).toEqual([
+      expect.objectContaining({ id: "note_scene", atUs: 2_000_000, text: "Kitchen" }),
+    ]);
+    expect(timelineNote.snapshot.sources["main.jsx"]).toContain('<note id="note_scene"');
+
+    const updated = await service.execute({
+      type: "note.upsert",
+      target: "timeline",
+      sequenceId: "sequence_main",
+      note: {
+        id: "note_scene",
+        kind: "edit-task",
+        text: "Tighten the entrance",
+        atUs: timeUs(2_500_000),
+      },
+    });
+    expect(updated.snapshot.compilation.ir.compositions[0]?.timeline.notes[0]).toMatchObject({
+      kind: "edit-task",
+      text: "Tighten the entrance",
+      atUs: 2_500_000,
+    });
+    const removed = await service.execute({
+      type: "note.remove",
+      target: "project",
+      noteId: "note_intent",
+    });
+    expect(removed.snapshot.manifest.notes).toEqual([]);
+    expect((await service.undo()).manifest.notes).toHaveLength(1);
+  });
 });

@@ -21,6 +21,7 @@ export const CINESIM_MCP_TOOL_NAMES = [
   "assets_list",
   "asset_inspect",
   "timeline_inspect",
+  "notes_inspect",
   "language_search",
   "transcript_get",
   "timeline_transcript_get",
@@ -169,6 +170,42 @@ export function registerCinesimMcpTools(server: McpServer, runtime: CinesimMcpTo
       perform("timeline_inspect", "Inspect active timeline", () =>
         inspectTimeline(runtime.program(), runtime.editMap()),
       ),
+  );
+  server.registerTool(
+    "notes_inspect",
+    {
+      title: "Inspect canonical notes",
+      description:
+        "Read bounded structured project, asset, or timeline notes. Change notes by editing TOML/JSX directly.",
+      inputSchema: {
+        target: z.enum(["project", "asset", "timeline"]).default("project"),
+        assetId: assetIdSchema.optional(),
+        sequenceId: z
+          .string()
+          .regex(/^sequence_[a-zA-Z0-9][a-zA-Z0-9_-]*$/u)
+          .optional(),
+        limit: z.number().int().min(1).max(1_000).default(200),
+      },
+      annotations: readOnly,
+    },
+    ({ target, assetId, sequenceId, limit }) =>
+      perform("notes_inspect", `Inspect ${target} notes`, () => {
+        const project = runtime.project();
+        const notes =
+          target === "project"
+            ? project.notes
+            : target === "asset"
+              ? project.assets.find(({ id }) => id === assetId)?.notes
+              : project.sequences.find(({ id }) => id === sequenceId)?.notes;
+        if (!notes) throw new Error(`Unknown or incomplete ${target} note target`);
+        return {
+          target,
+          ...(assetId ? { assetId } : {}),
+          ...(sequenceId ? { sequenceId } : {}),
+          notes: notes.slice(0, limit),
+          truncated: notes.length > limit,
+        };
+      }),
   );
   server.registerTool(
     "language_search",

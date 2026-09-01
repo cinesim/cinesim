@@ -1,6 +1,11 @@
 import type { EditScope, IrProgram, IrValue, SemanticPatch } from "@cinesim/ir";
 import type { AssetId, ClipId, SequenceId, TrackId } from "../ids";
-import type { Asset, AssetSource, TimeUs, Track, Transform } from "../project/types";
+import type { Asset, AssetSource, EditorialNote, TimeUs, Track, Transform } from "../project/types";
+
+export interface EditableNote extends EditorialNote {
+  atUs?: TimeUs;
+  durationUs?: TimeUs;
+}
 
 export interface TimelineRange {
   startUs: TimeUs;
@@ -71,6 +76,20 @@ export class CommandError extends Error {
 export type SemanticEditorCommand =
   | EditorCommand
   | {
+      type: "note.upsert";
+      target: "project" | "asset" | "timeline";
+      assetId?: AssetId;
+      sequenceId?: SequenceId;
+      note: EditableNote;
+    }
+  | {
+      type: "note.remove";
+      target: "project" | "asset" | "timeline";
+      assetId?: AssetId;
+      sequenceId?: SequenceId;
+      noteId: string;
+    }
+  | {
       type: "property.set";
       nodeId: string;
       property: string;
@@ -102,6 +121,7 @@ export interface CommandContext {
   program: IrProgram;
   assets: readonly Asset[];
   assetsById: ReadonlyMap<string, Asset>;
+  projectNotes: readonly EditorialNote[];
   patches: SemanticPatch[];
 }
 
@@ -111,5 +131,6 @@ export type AssetCommand = Extract<
 >;
 export type ClipCommand = Extract<SemanticEditorCommand, { type: `clip.${string}` }>;
 export type PropertyCommand = Extract<SemanticEditorCommand, { type: `property.${string}` }>;
+export type NoteCommand = Extract<SemanticEditorCommand, { type: `note.${string}` }>;
 export type SequenceCommand = Extract<SemanticEditorCommand, { type: `sequence.${string}` }>;
 export type TrackCommand = Extract<SemanticEditorCommand, { type: `track.${string}` }>;

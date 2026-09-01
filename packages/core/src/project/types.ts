@@ -124,6 +124,28 @@ export interface AssetInputColorInterpretation {
   policy: "source-metadata" | "assume-rec709";
 }
 
+export const EDITORIAL_NOTE_KINDS = [
+  "story-intent",
+  "scene",
+  "continuity",
+  "edit-task",
+  "review-feedback",
+  "general",
+] as const;
+
+export type EditorialNoteKind = (typeof EDITORIAL_NOTE_KINDS)[number];
+
+export interface EditorialNote {
+  id: string;
+  kind: EditorialNoteKind;
+  text: string;
+}
+
+export interface TimelineNote extends EditorialNote {
+  atUs: TimeUs;
+  durationUs?: TimeUs;
+}
+
 export interface Asset {
   id: AssetId;
   kind: "video" | "audio" | "image";
@@ -136,6 +158,7 @@ export interface Asset {
   hasAudio?: boolean;
   technical?: AssetTechnicalMetadata;
   inputColor?: AssetInputColorInterpretation;
+  notes?: EditorialNote[];
 }
 
 export interface Clip {
@@ -194,6 +217,7 @@ export interface Sequence {
   height: number;
   frameRate: number;
   tracks: Track[];
+  notes: TimelineNote[];
 }
 
 export interface Project {
@@ -203,6 +227,7 @@ export interface Project {
   activeSequenceId: SequenceId;
   assets: Asset[];
   sequences: Sequence[];
+  notes: EditorialNote[];
 }
 
 export interface ProjectSettings {

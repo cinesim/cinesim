@@ -50,6 +50,7 @@ export function createProject(options: CreateProjectOptions): Project {
     name: options.name.trim() || "Untitled project",
     activeSequenceId: sequenceId,
     assets: [],
+    notes: [],
     sequences: [
       {
         id: sequenceId,
@@ -57,6 +58,7 @@ export function createProject(options: CreateProjectOptions): Project {
         width: options.width ?? 1920,
         height: options.height ?? 1080,
         frameRate: options.frameRate ?? 30,
+        notes: [],
         tracks: [
           {
             id: videoTrackId,
@@ -147,6 +149,11 @@ export function projectToIr(
       background: settings.backgroundColor,
       timeline: {
         id: `timeline_${sequence.id.replace(/^sequence_/u, "")}`,
+        notes: sequence.notes.map(({ atUs, durationUs, ...note }) => ({
+          ...note,
+          atUs: irTimeUs(atUs),
+          ...(durationUs === undefined ? {} : { durationUs: irTimeUs(durationUs) }),
+        })),
         markers: [],
         transitions: [],
         tracks: sequence.tracks.map((track) => ({

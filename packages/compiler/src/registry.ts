@@ -219,7 +219,7 @@ export const BUILTIN_REGISTRY: Readonly<Record<string, BuiltinSchema>> = {
     name: "timeline",
     category: "temporal",
     properties: { id },
-    allowedChildren: ["track", "marker", "transition"],
+    allowedChildren: ["track", "note", "marker", "transition"],
   },
   track: {
     name: "track",
@@ -261,6 +261,29 @@ export const BUILTIN_REGISTRY: Readonly<Record<string, BuiltinSchema>> = {
       at: required(property("at", "time", "timing", "number", { animatable: false })),
       name: required(property("name", "string", "structure", "text", { animatable: false })),
       color: property("color", "color", "appearance", "color"),
+    },
+  },
+  note: {
+    name: "note",
+    category: "temporal",
+    properties: {
+      id,
+      at: required(property("at", "time", "timing", "number", { animatable: false })),
+      duration: property("duration", "time", "timing", "number", { animatable: false }),
+      kind: required(
+        property("kind", "string", "structure", "select", {
+          animatable: false,
+          options: [
+            "story-intent",
+            "scene",
+            "continuity",
+            "edit-task",
+            "review-feedback",
+            "general",
+          ],
+        }),
+      ),
+      text: required(property("text", "string", "structure", "text", { animatable: false })),
     },
   },
   transition: {
@@ -448,6 +471,7 @@ export const TEMPORAL_BUILTINS = new Set([
   "timeline",
   "track",
   "clip",
+  "note",
   "marker",
   "transition",
 ]);

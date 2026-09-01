@@ -182,6 +182,31 @@ function lowerComposition(node: BoundNode): IrComposition {
         ? { color: stringValue(marker, "color") }
         : {}),
     }));
+  const notes: IrComposition["timeline"]["notes"] = timeline.children
+    .filter((child) => child.kind === "note")
+    .map((note) => {
+      const kind = stringValue(note, "kind");
+      if (
+        ![
+          "story-intent",
+          "scene",
+          "continuity",
+          "edit-task",
+          "review-feedback",
+          "general",
+        ].includes(kind)
+      )
+        fail("NOTE_KIND", `Invalid note kind ${kind}.`, note.origin);
+      return {
+        id: note.id,
+        atUs: timeValue(note, "at"),
+        ...(propertyValue(note, "duration") === undefined
+          ? {}
+          : { durationUs: timeValue(note, "duration") }),
+        kind: kind as IrComposition["timeline"]["notes"][number]["kind"],
+        text: stringValue(note, "text"),
+      };
+    });
   const fps =
     propertyValue(node, "fps") === undefined
       ? numberValue(node, "frameRate", 0)
@@ -196,6 +221,7 @@ function lowerComposition(node: BoundNode): IrComposition {
     timeline: {
       id: timeline.id,
       tracks: timeline.children.filter((child) => child.kind === "track").map(lowerTrack),
+      notes,
       markers,
       transitions: lowerTransitions(timeline),
     },

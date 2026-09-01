@@ -5,8 +5,13 @@ import {
   projectSettingDefinition,
   settingsSchema,
 } from "@cinesim/core";
-import type { ProjectSettings } from "@cinesim/core";
+import type { EditorialNote, ProjectSettings } from "@cinesim/core";
 import { parse, stringify } from "smol-toml";
+import {
+  editorialNotesShape,
+  parseEditorialNotes,
+  patchEditorialNoteSource,
+} from "./editorial-notes";
 
 export interface ProjectManifest {
   formatVersion: 3;
@@ -19,6 +24,7 @@ export interface ProjectManifest {
     cloudProjectId?: string;
   };
   settings: ProjectSettings;
+  notes: EditorialNote[];
 }
 
 function record(value: unknown, name: string): Record<string, unknown> {
@@ -100,6 +106,7 @@ export function parseProjectManifest(source: string): ProjectManifest {
       ...(cloudProjectId === undefined ? {} : { cloudProjectId }),
     },
     settings: parseSettings(input.settings, compiler),
+    notes: parseEditorialNotes(input.notes, "notes"),
   };
 }
 
@@ -128,6 +135,7 @@ function manifestShape(manifest: ProjectManifest): Record<string, unknown> {
     },
     settings,
     compiler,
+    ...(manifest.notes.length === 0 ? {} : { notes: editorialNotesShape(manifest.notes) }),
   };
 }
 
@@ -209,6 +217,18 @@ export function patchManifestProjectKey(
 ): string {
   assertRevision(source, expectedRevision);
   const next = replaceTableKey(source, "project", key, value);
+  parseProjectManifest(next);
+  return next;
+}
+
+export function patchProjectNote(
+  source: string,
+  noteId: string,
+  note: EditorialNote | null,
+  expectedRevision: string,
+): string {
+  assertRevision(source, expectedRevision);
+  const next = patchEditorialNoteSource(source, "notes", noteId, note);
   parseProjectManifest(next);
   return next;
 }

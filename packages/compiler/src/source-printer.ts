@@ -172,6 +172,10 @@ function compositionSource(composition: IrComposition): string {
     `  <composition id=${JSON.stringify(composition.id)} name=${JSON.stringify(composition.name)} width={${composition.width}} height={${composition.height}} fps={${composition.frameRate}} background=${JSON.stringify(composition.background)}>`,
     `    <timeline id=${JSON.stringify(composition.timeline.id)}>`,
     ...tracks,
+    ...composition.timeline.notes.map(
+      (note) =>
+        `      <note id=${JSON.stringify(note.id)} at={microseconds(${note.atUs})}${note.durationUs === undefined ? "" : ` duration={microseconds(${note.durationUs})}`} kind=${JSON.stringify(note.kind)} text=${JSON.stringify(note.text)} />`,
+    ),
     ...composition.timeline.markers.map(
       (marker) =>
         `      <marker id=${JSON.stringify(marker.id)} at={microseconds(${marker.atUs})} name=${JSON.stringify(marker.name)}${marker.color === undefined ? "" : ` color=${JSON.stringify(marker.color)}`} />`,
@@ -193,6 +197,9 @@ export function printNodeTemplate(template: IrNodeTemplate, indent = ""): string
   if (template.kind === "scene") return sceneSource(template.node, indent);
   if (template.kind === "marker") {
     return `${indent}<marker id=${JSON.stringify(template.marker.id)} at={microseconds(${template.marker.atUs})} name=${JSON.stringify(template.marker.name)}${template.marker.color === undefined ? "" : ` color=${JSON.stringify(template.marker.color)}`} />`;
+  }
+  if (template.kind === "note") {
+    return `${indent}<note id=${JSON.stringify(template.note.id)} at={microseconds(${template.note.atUs})}${template.note.durationUs === undefined ? "" : ` duration={microseconds(${template.note.durationUs})}`} kind=${JSON.stringify(template.note.kind)} text=${JSON.stringify(template.note.text)} />`;
   }
   return `${indent}<transition id=${JSON.stringify(template.transition.id)} from=${JSON.stringify(template.transition.fromClipId)} to=${JSON.stringify(template.transition.toClipId)} kind=${JSON.stringify(template.transition.kind)} duration={microseconds(${template.transition.durationUs})} />`;
 }

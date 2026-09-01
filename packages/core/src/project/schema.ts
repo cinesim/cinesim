@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { assetIdSchema } from "../ids";
-import { timeUs } from "./types";
+import { EDITORIAL_NOTE_KINDS, timeUs } from "./types";
 import type { CloudAssetId, CloudProjectId } from "./types";
 import { projectSettingsSchema } from "./settings";
 
@@ -89,6 +89,17 @@ export const assetTechnicalMetadataSchema = z.object({
   audio: audioMetadataSchema.optional(),
 });
 
+export const editorialNoteSchema = z
+  .object({
+    id: z
+      .string()
+      .regex(/^note_[a-zA-Z0-9][a-zA-Z0-9_-]*$/u)
+      .max(128),
+    kind: z.enum(EDITORIAL_NOTE_KINDS),
+    text: z.string().trim().min(1).max(20_000),
+  })
+  .strict();
+
 export const assetSchema = z.object({
   id: assetIdSchema,
   kind: z.enum(["video", "audio", "image"]),
@@ -101,6 +112,7 @@ export const assetSchema = z.object({
   hasAudio: z.boolean().optional(),
   technical: assetTechnicalMetadataSchema.optional(),
   inputColor: z.object({ policy: z.enum(["source-metadata", "assume-rec709"]) }).optional(),
+  notes: z.array(editorialNoteSchema).max(1_000).optional(),
 });
 
 export const settingsSchema = projectSettingsSchema;
