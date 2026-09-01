@@ -6,4 +6,6 @@ export * from "./project-guidance";
 export * from "./project-paths";
 export * from "./source-command-service";
 export * from "./source-project-repository";
+export * from "./source-fingerprint";
 export * from "./source-watcher";
+export * from "./visual-index";

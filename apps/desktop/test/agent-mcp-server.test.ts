@@ -69,6 +69,34 @@ describe("AgentMcpServer", () => {
     await expect(externalClient.listTools()).resolves.toMatchObject({
       tools: expect.arrayContaining([expect.objectContaining({ name: "project_status" })]),
     });
+    const generationBeforeVisualIndex = projectStore.session().generation;
+    await expect(
+      externalClient.callTool({
+        name: "visual_index_upsert",
+        arguments: {
+          assetId: "asset_fixture",
+          observations: [
+            {
+              id: "observation_fixture",
+              sourceInUs: 0,
+              sourceOutUs: 1_000_000,
+              description: "Fixture image",
+            },
+          ],
+        },
+      }),
+    ).resolves.toMatchObject({
+      structuredContent: { asset: { state: "current", observationCount: 1 } },
+    });
+    await expect(
+      externalClient.callTool({
+        name: "visual_index_get",
+        arguments: { assetId: "asset_fixture", fromUs: 0, limit: 10 },
+      }),
+    ).resolves.toMatchObject({
+      structuredContent: { observations: [{ id: "observation_fixture" }] },
+    });
+    expect(projectStore.session().generation).toBe(generationBeforeVisualIndex);
     await externalClient.close();
     const credential = server.registerSession({
       sessionId: "session-1",

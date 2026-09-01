@@ -245,6 +245,7 @@ export class AgentMcpServer {
       projectRevision: () => this.projectStore.session().revision,
       projectStatus: async () => {
         const current = this.projectStore.session();
+        const visualIndexes = await this.projectStore.visualIndex.status();
         return {
           acceptedGeneration: current.generation,
           diskValid: current.diskValid,
@@ -252,24 +253,31 @@ export class AgentMcpServer {
           diagnosticsTruncated: current.candidateDiagnostics.length > 20,
           lastValidComposition: current.project.activeSequenceId,
           backgroundJobs: this.projectStore.derivedMedia.snapshot().jobs,
+          visualIndexes,
         };
       },
       languageSearch: async (query, limit) =>
         searchLanguageReference(query, limit) as unknown as Record<string, unknown>[],
-      transcriptGet: async (assetId, fromUs, toUs, limit) => {
+      transcriptGet: async (assetId, fromUs, toUs, limit, observationId) => {
+        const observationRange = observationId
+          ? await this.projectStore.visualIndex.observationRange(assetId, observationId)
+          : null;
+        const selectedFromUs = observationRange?.sourceInUs ?? fromUs;
+        const selectedToUs = observationRange?.sourceOutUs ?? toUs;
         const snapshot = await this.projectStore.transcripts.snapshot(
           this.projectStore.derivedMedia.scope(),
           [assetId],
         );
         const record = snapshot.assets[assetId as `asset_${string}`];
-        const endUs = rangeEnd(fromUs, toUs);
+        const endUs = rangeEnd(selectedFromUs, selectedToUs);
         const matching = (record?.artifact?.words ?? []).filter(
-          (word) => word.sourceEndUs > fromUs && word.sourceStartUs < endUs,
+          (word) => word.sourceEndUs > selectedFromUs && word.sourceStartUs < endUs,
         );
         return {
           assetId,
           state: record?.state ?? "missing",
           ...(record?.failureCode ? { failureCode: record.failureCode } : {}),
+          ...(observationId ? { observationId } : {}),
           ...(record?.artifact
             ? {
                 language: record.artifact.language,
@@ -318,6 +326,29 @@ export class AgentMcpServer {
               : await this.projectStore.transcripts.cancelJobs(scope, assetIds);
         return transcriptStates(snapshot);
       },
+      visualIndexStatus: async (assetIds) => ({
+        assets: await this.projectStore.visualIndex.status(assetIds),
+      }),
+      visualIndexGet: async (assetId, fromUs, toUs, limit) =>
+        this.projectStore.visualIndex.get(assetId, {
+          fromUs,
+          ...(toUs === undefined ? {} : { toUs }),
+          limit,
+        }),
+      visualIndexGenerate: async (action, assetIds) => ({
+        assets: await this.projectStore.visualIndex.generate(assetIds, action === "regenerate"),
+      }),
+      visualIndexUpsert: async (assetId, observations) => ({
+        asset: await this.projectStore.visualIndex.upsert(assetId, observations),
+      }),
+      visualIndexDelete: async (assetId, selector) => ({
+        asset: await this.projectStore.visualIndex.delete(assetId, selector),
+      }),
+      visualIndexClear: async (assetIds) => ({
+        assets: await this.projectStore.visualIndex.clear(assetIds),
+      }),
+      visualIndexObservationRange: (assetId, observationId) =>
+        this.projectStore.visualIndex.observationRange(assetId, observationId),
       perform: async (tool, operation) => {
         if (session.external) return jsonResult(await operation());
         const eventId = await this.hooks.onToolStarted(session.sessionId, tool.name, tool.detail);

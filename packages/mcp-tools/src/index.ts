@@ -27,6 +27,13 @@ export const CINESIM_MCP_TOOL_NAMES = [
   "transcript_generate",
   "transcript_regenerate",
   "transcript_cancel",
+  "visual_index_status",
+  "visual_index_get",
+  "visual_index_generate",
+  "visual_index_regenerate",
+  "visual_index_upsert",
+  "visual_index_delete",
+  "visual_index_clear",
   "filmstrip_get",
   "frame_get",
 ] as const;
@@ -46,6 +53,7 @@ export interface CinesimMcpToolRuntime {
     fromUs: number,
     toUs: number | undefined,
     limit: number,
+    observationId?: string,
   ): Promise<Record<string, unknown>>;
   timelineTranscriptGet(
     sequenceId: string | undefined,
@@ -57,6 +65,30 @@ export interface CinesimMcpToolRuntime {
     action: "generate" | "regenerate" | "cancel",
     assetIds: string[],
   ): Promise<Record<string, unknown>>;
+  visualIndexStatus(assetIds?: string[]): Promise<Record<string, unknown>>;
+  visualIndexGet(
+    assetId: string,
+    fromUs: number,
+    toUs: number | undefined,
+    limit: number,
+  ): Promise<Record<string, unknown>>;
+  visualIndexGenerate(
+    action: "generate" | "regenerate",
+    assetIds: string[],
+  ): Promise<Record<string, unknown>>;
+  visualIndexUpsert(
+    assetId: string,
+    observations: Record<string, unknown>[],
+  ): Promise<Record<string, unknown>>;
+  visualIndexDelete(
+    assetId: string,
+    selector: { observationIds?: string[]; fromUs?: number; toUs?: number },
+  ): Promise<Record<string, unknown>>;
+  visualIndexClear(assetIds: string[]): Promise<Record<string, unknown>>;
+  visualIndexObservationRange(
+    assetId: string,
+    observationId: string,
+  ): Promise<{ sourceInUs: number; sourceOutUs: number }>;
   perform<T extends Record<string, unknown>>(
     tool: { name: CinesimMcpToolName; detail: string; mutating: boolean },
     operation: () => Promise<T> | T,
@@ -166,13 +198,21 @@ export function registerCinesimMcpTools(server: McpServer, runtime: CinesimMcpTo
     {
       title: "Read an asset transcript",
       description:
-        "Return a bounded source-time word projection from a disposable transcript artifact.",
-      inputSchema: { assetId: assetIdSchema, ...transcriptRangeSchema },
+        "Return a bounded source-time word projection from a disposable transcript artifact; an observation ID selects its exact visual-index range.",
+      inputSchema: {
+        assetId: assetIdSchema,
+        observationId: z
+          .string()
+          .regex(/^observation_[a-zA-Z0-9][a-zA-Z0-9_-]*$/u)
+          .max(128)
+          .optional(),
+        ...transcriptRangeSchema,
+      },
       annotations: readOnly,
     },
-    ({ assetId, fromUs, toUs, limit }) =>
+    ({ assetId, observationId, fromUs, toUs, limit }) =>
       perform("transcript_get", `Read transcript for ${assetId}`, () =>
-        runtime.transcriptGet(assetId, fromUs, toUs, limit),
+        runtime.transcriptGet(assetId, fromUs, toUs, limit, observationId),
       ),
   );
   server.registerTool(
@@ -217,6 +257,145 @@ export function registerCinesimMcpTools(server: McpServer, runtime: CinesimMcpTo
   transcriptJobs("transcript_generate", "generate");
   transcriptJobs("transcript_regenerate", "regenerate");
   transcriptJobs("transcript_cancel", "cancel");
+  const optionalAssetIds = z.array(assetIdSchema).min(1).max(100).optional();
+  server.registerTool(
+    "visual_index_status",
+    {
+      title: "Inspect visual-index coverage",
+      description:
+        "Report freshness, generator compatibility, observation counts, and covered source ranges for disposable visual indexes.",
+      inputSchema: { assetIds: optionalAssetIds },
+      annotations: readOnly,
+    },
+    ({ assetIds }) =>
+      perform("visual_index_status", "Inspect visual-index coverage", () =>
+        runtime.visualIndexStatus(assetIds),
+      ),
+  );
+  server.registerTool(
+    "visual_index_get",
+    {
+      title: "Read visual observations",
+      description:
+        "Return bounded timestamped descriptions from a validated disposable visual index.",
+      inputSchema: { assetId: assetIdSchema, ...transcriptRangeSchema },
+      annotations: readOnly,
+    },
+    ({ assetId, fromUs, toUs, limit }) =>
+      perform("visual_index_get", `Read visual index for ${assetId}`, () =>
+        runtime.visualIndexGet(assetId, fromUs, toUs, limit),
+      ),
+  );
+  const visualIndexGeneration = (
+    name: "visual_index_generate" | "visual_index_regenerate",
+    action: "generate" | "regenerate",
+  ) =>
+    server.registerTool(
+      name,
+      {
+        title: `${action[0]!.toUpperCase()}${action.slice(1)} visual indexes`,
+        description: `${action} versioned disposable visual-index artifacts without changing canonical project files.`,
+        inputSchema: { assetIds: z.array(assetIdSchema).min(1).max(100) },
+        annotations: { readOnlyHint: false, idempotentHint: action === "generate" },
+      },
+      ({ assetIds }) =>
+        perform(
+          name,
+          `${action} visual indexes for ${assetIds.length} assets`,
+          () => runtime.visualIndexGenerate(action, assetIds),
+          true,
+        ),
+    );
+  visualIndexGeneration("visual_index_generate", "generate");
+  visualIndexGeneration("visual_index_regenerate", "regenerate");
+  const observationSchema = z
+    .object({
+      id: z
+        .string()
+        .regex(/^observation_[a-zA-Z0-9][a-zA-Z0-9_-]*$/u)
+        .max(128),
+      sourceInUs: timeUsSchema,
+      sourceOutUs: timeUsSchema,
+      description: z.string().trim().min(1).max(2_000),
+      people: z.array(z.string().trim().min(1).max(200)).max(50).optional(),
+      setting: z.string().trim().min(1).max(500).optional(),
+      shotType: z.string().trim().min(1).max(100).optional(),
+      tags: z.array(z.string().trim().min(1).max(200)).max(50).optional(),
+      continuity: z.string().trim().min(1).max(1_000).optional(),
+      confidence: z.number().min(0).max(1).optional(),
+      provenance: z.string().trim().min(1).max(200).optional(),
+    })
+    .strict();
+  server.registerTool(
+    "visual_index_upsert",
+    {
+      title: "Add or correct visual observations",
+      description:
+        "Upsert bounded timestamped observations in disposable perception state by artifact-local stable ID.",
+      inputSchema: {
+        assetId: assetIdSchema,
+        observations: z.array(observationSchema).min(1).max(500),
+      },
+      annotations: { readOnlyHint: false, idempotentHint: true },
+    },
+    ({ assetId, observations }) =>
+      perform(
+        "visual_index_upsert",
+        `Upsert ${observations.length} observations for ${assetId}`,
+        () => runtime.visualIndexUpsert(assetId, observations),
+        true,
+      ),
+  );
+  server.registerTool(
+    "visual_index_delete",
+    {
+      title: "Delete visual observations",
+      description: "Delete disposable observations by stable ID and/or intersecting source range.",
+      inputSchema: {
+        assetId: assetIdSchema,
+        observationIds: z
+          .array(
+            z
+              .string()
+              .regex(/^observation_[a-zA-Z0-9][a-zA-Z0-9_-]*$/u)
+              .max(128),
+          )
+          .max(500)
+          .optional(),
+        fromUs: timeUsSchema.optional(),
+        toUs: timeUsSchema.optional(),
+      },
+      annotations: { readOnlyHint: false, idempotentHint: true },
+    },
+    ({ assetId, observationIds, fromUs, toUs }) =>
+      perform(
+        "visual_index_delete",
+        `Delete visual observations for ${assetId}`,
+        () =>
+          runtime.visualIndexDelete(assetId, {
+            ...(observationIds ? { observationIds } : {}),
+            ...(fromUs === undefined ? {} : { fromUs }),
+            ...(toUs === undefined ? {} : { toUs }),
+          }),
+        true,
+      ),
+  );
+  server.registerTool(
+    "visual_index_clear",
+    {
+      title: "Clear visual indexes",
+      description: "Discard disposable visual-index artifacts for selected assets.",
+      inputSchema: { assetIds: z.array(assetIdSchema).min(1).max(100) },
+      annotations: { readOnlyHint: false, idempotentHint: true },
+    },
+    ({ assetIds }) =>
+      perform(
+        "visual_index_clear",
+        `Clear visual indexes for ${assetIds.length} assets`,
+        () => runtime.visualIndexClear(assetIds),
+        true,
+      ),
+  );
   server.registerTool(
     "filmstrip_get",
     {
@@ -236,17 +415,40 @@ export function registerCinesimMcpTools(server: McpServer, runtime: CinesimMcpTo
     "frame_get",
     {
       title: "Get a derived exact frame",
-      description: "Return the local path and availability of an exact disposable frame sample.",
-      inputSchema: { assetId: assetIdSchema, atUs: timeUsSchema },
+      description:
+        "Return the local path and availability of an exact disposable frame sample; an observation ID selects the midpoint of its range.",
+      inputSchema: {
+        assetId: assetIdSchema,
+        atUs: timeUsSchema.optional(),
+        observationId: z
+          .string()
+          .regex(/^observation_[a-zA-Z0-9][a-zA-Z0-9_-]*$/u)
+          .max(128)
+          .optional(),
+      },
       annotations: readOnly,
     },
-    ({ assetId, atUs }) =>
-      perform("frame_get", `Find ${assetId} frame at ${atUs}µs`, async () => ({
-        assetId,
-        atUs,
-        ...(await runtime.derivedFile(join(".video", "frames", `${assetId}-${atUs}.png`))),
-        derived: true,
-      })),
+    ({ assetId, atUs, observationId }) =>
+      perform("frame_get", `Find a frame for ${assetId}`, async () => {
+        const observationRange = observationId
+          ? await runtime.visualIndexObservationRange(assetId, observationId)
+          : null;
+        const selectedTime =
+          atUs ??
+          (observationRange
+            ? Math.floor((observationRange.sourceInUs + observationRange.sourceOutUs) / 2)
+            : undefined);
+        if (selectedTime === undefined) throw new Error("frame_get requires atUs or observationId");
+        return {
+          assetId,
+          atUs: selectedTime,
+          ...(observationId ? { observationId } : {}),
+          ...(await runtime.derivedFile(
+            join(".video", "frames", `${assetId}-${selectedTime}.png`),
+          )),
+          derived: true,
+        };
+      }),
   );
 }
 

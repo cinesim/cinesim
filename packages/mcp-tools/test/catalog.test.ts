@@ -61,6 +61,19 @@ function catalogServer(onOperation: () => void = () => undefined): McpServer {
       words: [],
     }),
     transcriptJobs: async (action, assetIds) => ({ action, assetIds }),
+    visualIndexStatus: async (assetIds) => ({ assetIds: assetIds ?? [], state: "current" }),
+    visualIndexGet: async (assetId, fromUs, toUs, limit) => ({
+      assetId,
+      fromUs,
+      toUs,
+      limit,
+      observations: [],
+    }),
+    visualIndexGenerate: async (action, assetIds) => ({ action, assetIds }),
+    visualIndexUpsert: async (assetId, observations) => ({ assetId, observations }),
+    visualIndexDelete: async (assetId, selector) => ({ assetId, selector }),
+    visualIndexClear: async (assetIds) => ({ assetIds }),
+    visualIndexObservationRange: async () => ({ sourceInUs: 0, sourceOutUs: 1_000_000 }),
     perform: async (_tool, operation) => {
       onOperation();
       return textResult(await operation());
@@ -95,6 +108,36 @@ describe("Cinesim inspection and perception MCP catalog", () => {
       structuredContent: {
         query: "cutaway",
         results: [expect.objectContaining({ id: "recipe:fixture" })],
+      },
+    });
+    await expect(
+      client.callTool({
+        name: "visual_index_upsert",
+        arguments: {
+          assetId: "asset_fixture",
+          observations: [
+            {
+              id: "observation_opening",
+              sourceInUs: 0,
+              sourceOutUs: 1_000_000,
+              description: "Opening image",
+            },
+          ],
+        },
+      }),
+    ).resolves.toMatchObject({
+      structuredContent: { observations: [expect.objectContaining({ id: "observation_opening" })] },
+    });
+    await expect(
+      client.callTool({
+        name: "frame_get",
+        arguments: { assetId: "asset_fixture", observationId: "observation_opening" },
+      }),
+    ).resolves.toMatchObject({
+      structuredContent: {
+        atUs: 500_000,
+        observationId: "observation_opening",
+        path: "/project/.video/frames/asset_fixture-500000.png",
       },
     });
     await client.close();

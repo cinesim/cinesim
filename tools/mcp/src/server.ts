@@ -12,7 +12,9 @@ import type { CinesimMcpToolRuntime } from "@cinesim/mcp-tools";
 import {
   parseProjectManifest,
   ProjectPaths,
+  sourceFingerprintForPath,
   SourceProjectRepository,
+  VisualIndexStore,
   type SourceProjectSnapshot,
 } from "@cinesim/project-io";
 
@@ -197,15 +199,32 @@ export async function runMcpServer(projectDirectory: string): Promise<void> {
     if (!current) throw new Error("Project tool context is not loaded");
     return current;
   };
-  const project = (): Project => {
-    const current = snapshot();
-    return projectViewFromIr(current.compilation.ir, {
+  const projectFromSnapshot = (current: SourceProjectSnapshot): Project =>
+    projectViewFromIr(current.compilation.ir, {
       name: current.manifest.project.name,
       assets: current.assets,
       ...(current.manifest.project.cloudProjectId
         ? { cloudProjectId: current.manifest.project.cloudProjectId as Project["cloudProjectId"] }
         : {}),
     });
+  const project = (): Project => projectFromSnapshot(snapshot());
+  const visualIndexFor = (currentProject: Project): VisualIndexStore => {
+    const store = new VisualIndexStore(async (assetId) => {
+      const asset = currentProject.assets.find(({ id }) => id === assetId);
+      if (!asset) throw new Error(`Unknown asset: ${assetId}`);
+      return asset.source.kind === "local"
+        ? sourceFingerprintForPath(asset.source.path)
+        : { size: -1, mtimeMs: -1, edgeHash: "missing" };
+    });
+    store.setProject(projectDirectory, currentProject);
+    return store;
+  };
+  const diskVisualIndexStatus = async (currentProject: Project) => {
+    try {
+      return await visualIndexFor(currentProject).status();
+    } catch (error) {
+      return { error: error instanceof Error ? error.message : String(error) };
+    }
   };
   const runtime: CinesimMcpToolRuntime = {
     project,
@@ -215,6 +234,7 @@ export async function runMcpServer(projectDirectory: string): Promise<void> {
     projectStatus: async () => {
       try {
         const loaded = await SourceProjectRepository.inspect(projectDirectory);
+        const currentProject = projectFromSnapshot(loaded);
         return {
           acceptedGeneration: loaded.generation,
           diskValid: true,
@@ -222,6 +242,7 @@ export async function runMcpServer(projectDirectory: string): Promise<void> {
           diagnosticsTruncated: false,
           lastValidComposition: loaded.manifest.project.activeCompositionId,
           backgroundJobs: null,
+          visualIndexes: await diskVisualIndexStatus(currentProject),
         };
       } catch (error) {
         return {
@@ -241,9 +262,14 @@ export async function runMcpServer(projectDirectory: string): Promise<void> {
     },
     languageSearch: async (query, limit) =>
       searchLanguageReference(query, limit) as unknown as Record<string, unknown>[],
-    transcriptGet: async (assetId, fromUs, toUs, limit) => {
+    transcriptGet: async (assetId, fromUs, toUs, limit, observationId) => {
       if (!project().assets.some((asset) => asset.id === assetId))
         throw new Error(`Unknown asset: ${assetId}`);
+      const observationRange = observationId
+        ? await visualIndexFor(project()).observationRange(assetId, observationId)
+        : null;
+      const selectedFromUs = observationRange?.sourceInUs ?? fromUs;
+      const selectedToUs = observationRange?.sourceOutUs ?? toUs;
       const path = await projectPaths.assertSafeDerivedFile(
         `.video/transcripts/${assetId}.json`,
         false,
@@ -258,7 +284,8 @@ export async function runMcpServer(projectDirectory: string): Promise<void> {
         state: "ready",
         language: artifact.language,
         sourceFingerprint: artifact.sourceFingerprint,
-        ...boundedTranscriptWords(artifact.words, fromUs, toUs, limit),
+        ...(observationId ? { observationId } : {}),
+        ...boundedTranscriptWords(artifact.words, selectedFromUs, selectedToUs, limit),
       };
     },
     timelineTranscriptGet: async () => {
@@ -267,6 +294,29 @@ export async function runMcpServer(projectDirectory: string): Promise<void> {
     transcriptJobs: async () => {
       throw new Error("Transcript jobs require the live Cinesim desktop broker");
     },
+    visualIndexStatus: async (assetIds) => ({
+      assets: await visualIndexFor(project()).status(assetIds),
+    }),
+    visualIndexGet: async (assetId, fromUs, toUs, limit) =>
+      visualIndexFor(project()).get(assetId, {
+        fromUs,
+        ...(toUs === undefined ? {} : { toUs }),
+        limit,
+      }),
+    visualIndexGenerate: async () => {
+      throw new Error("Visual-index generation requires the live Cinesim desktop broker");
+    },
+    visualIndexUpsert: async () => {
+      throw new Error("Visual-index updates require the live Cinesim desktop broker");
+    },
+    visualIndexDelete: async () => {
+      throw new Error("Visual-index updates require the live Cinesim desktop broker");
+    },
+    visualIndexClear: async () => {
+      throw new Error("Visual-index updates require the live Cinesim desktop broker");
+    },
+    visualIndexObservationRange: (assetId, observationId) =>
+      visualIndexFor(project()).observationRange(assetId, observationId),
     perform: async (tool, operation) => {
       try {
         if (tool.name === "project_status") return textResult(await operation());

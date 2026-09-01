@@ -17,6 +17,7 @@ import {
   SourceCommandService,
   SourceProjectRepository,
   SourceProjectWatcher,
+  VisualIndexStore,
   type SourceProjectSnapshot,
 } from "@cinesim/project-io";
 import { editorCommandSchema } from "@cinesim/protocol";
@@ -38,6 +39,7 @@ const log = createCinesimLogger({ service: "desktop-commands" });
 export class DesktopProjectStore {
   readonly derivedMedia = new DerivedMediaStore();
   readonly transcripts: TranscriptStore;
+  readonly visualIndex: VisualIndexStore;
   #directory: string | null = null;
   #commands: SourceCommandService | null = null;
   #snapshot: SourceProjectSnapshot | null = null;
@@ -51,6 +53,9 @@ export class DesktopProjectStore {
 
   constructor(accountService: DesktopAccountService | null = null) {
     this.transcripts = new TranscriptStore(accountService, (assetId) =>
+      this.derivedMedia.sourceFingerprint(assetId),
+    );
+    this.visualIndex = new VisualIndexStore((assetId) =>
       this.derivedMedia.sourceFingerprint(assetId),
     );
   }
@@ -156,6 +161,7 @@ export class DesktopProjectStore {
         await publishDependentProject({
           derivedMedia: this.derivedMedia,
           transcripts: this.transcripts,
+          visualIndex: this.visualIndex,
           directory,
           project: this.#requireProject(),
           settings: snapshot.manifest.settings,
@@ -255,6 +261,11 @@ export class DesktopProjectStore {
           .catch((error: unknown) =>
             log.warn({ err: error, operation: command.type }, "transcript refresh failed"),
           );
+        await this.visualIndex
+          .updateProject(project)
+          .catch((error: unknown) =>
+            log.warn({ err: error, operation: command.type }, "visual-index refresh failed"),
+          );
         await this.derivedMedia
           .pruneRemovedAssets()
           .catch((error: unknown) =>
@@ -321,6 +332,11 @@ export class DesktopProjectStore {
       .catch((error: unknown) =>
         log.warn({ err: error, operation: direction }, "transcript refresh failed"),
       );
+    await this.visualIndex
+      .updateProject(project)
+      .catch((error: unknown) =>
+        log.warn({ err: error, operation: direction }, "visual-index refresh failed"),
+      );
     await this.derivedMedia
       .pruneRemovedAssets()
       .catch((error: unknown) =>
@@ -364,16 +380,17 @@ export class DesktopProjectStore {
 
   async close(): Promise<void> {
     await this.#serialize(async () => {
-      await this.derivedMedia.clearProject();
-      await this.transcripts.clearProject();
-      this.#directory = null;
       this.#watcher?.close();
       this.#watcher = null;
+      this.#directory = null;
       this.#commands = null;
       this.#snapshot = null;
       this.#diagnostics = [];
       this.#diskValid = true;
       this.#revision += 1;
+      await this.derivedMedia.clearProject();
+      await this.transcripts.clearProject();
+      this.visualIndex.clearProject();
     });
   }
 
@@ -432,6 +449,7 @@ export class DesktopProjectStore {
     await publishDependentProject({
       derivedMedia: this.derivedMedia,
       transcripts: this.transcripts,
+      visualIndex: this.visualIndex,
       directory: this.#requireDirectory(),
       project: this.#requireProject(),
       settings: this.#requireSnapshot().manifest.settings,
@@ -444,6 +462,7 @@ export class DesktopProjectStore {
     this.#watcher = new SourceProjectWatcher(commands.repository, this.#requireSnapshot(), {
       accepted: (snapshot) => {
         void this.#serialize(async () => {
+          if (this.#commands !== commands) return;
           await commands.acceptExternal(snapshot);
           this.#snapshot = snapshot;
           this.#diagnostics = [];
@@ -452,10 +471,12 @@ export class DesktopProjectStore {
           const project = this.#requireProject();
           this.derivedMedia.updateProject(project);
           await this.transcripts.updateProject(project).catch(() => undefined);
+          await this.visualIndex.updateProject(project).catch(() => undefined);
           this.#notify();
         });
       },
       diagnostics: (diagnostics) => {
+        if (this.#commands !== commands) return;
         this.#diagnostics = diagnostics;
         this.#diskValid = diagnostics.length === 0;
         this.#revision += 1;
