@@ -77,6 +77,7 @@ export const invokeChannels = {
     importMedia: "media:import",
     open: "project:open",
     openRecent: "project:open-recent",
+    revealAsset: "project:reveal-asset",
     recentDetails: "project:recent-details",
     redo: "project:redo",
     openTargets: "project:open-targets",

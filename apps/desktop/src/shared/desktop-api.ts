@@ -87,6 +87,7 @@ export interface DesktopProjectApi {
   ): Promise<DesktopProjectSession | null>;
   open(): Promise<DesktopProjectSession | null>;
   openRecent(directory: string): Promise<DesktopProjectSession>;
+  revealAsset(assetId: string): Promise<void>;
   importMedia(): Promise<DesktopProjectSession | null>;
   execute(
     command: SemanticEditorCommand,

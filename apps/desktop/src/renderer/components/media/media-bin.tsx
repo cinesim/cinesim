@@ -2,11 +2,9 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { X } from "@cinesim/ui";
 import { Button, Kbd, SearchField } from "@cinesim/ui";
 import type { Asset, AssetId, Project, Sequence } from "@cinesim/core";
-import type { CloudTransferSnapshot } from "../../../shared/contracts";
-import type { TranscriptSnapshot } from "../../../shared/transcript";
 import { useRendererStore } from "../../store/renderer-store-context";
 import { LibraryToolbar, LibraryViewToggle, useLibraryView } from "../shared/library-card";
-import { assetNeedsEditProxy } from "./media-actions";
+import { assetNeedsEditProxy, retryableAssetId, transcriptActionFor } from "./media-actions";
 import { MediaBinContextMenu } from "./media-bin-context-menu";
 import { MediaBinDialogs } from "./media-bin-dialogs";
 import type { MediaBinDialog } from "./media-bin-dialogs";
@@ -18,26 +16,6 @@ import { useMediaBinSelection } from "./use-media-bin-selection";
 interface MediaBinProps {
   project: Project;
   onOpenTimeline: (sequenceId: string) => void;
-}
-
-type TranscriptAction = "generate" | "regenerate" | "cancel" | null;
-
-function transcriptActionFor(
-  assets: readonly Asset[],
-  transcripts: TranscriptSnapshot | null,
-): TranscriptAction {
-  if (assets.length === 0) return null;
-  const states = assets.map((asset) => transcripts?.assets[asset.id]?.state ?? "missing");
-  if (states.some((state) => state === "queued" || state === "running")) return "cancel";
-  return states.some((state) => state === "ready") ? "regenerate" : "generate";
-}
-
-function retryableAssetId(
-  asset: Asset | undefined,
-  transfer: CloudTransferSnapshot | undefined,
-): AssetId | null {
-  if (!asset || !transfer) return null;
-  return ["waiting-for-cloud", "paused", "failed"].includes(transfer.state) ? asset.id : null;
 }
 
 export function MediaBin({ project, onOpenTimeline }: MediaBinProps) {
@@ -242,6 +220,7 @@ export function MediaBin({ project, onOpenTimeline }: MediaBinProps) {
 
       <div className="min-h-0 flex-1 overflow-y-auto px-5 py-6">
         <MediaBinContextMenu
+          canRevealAsset={selectedAsset?.source.kind === "local"}
           cloudAssetId={selectedCloudAsset?.id ?? null}
           cloudOriginalDownloaded={
             selectedCloudAsset ? downloadedCloudOriginals.includes(selectedCloudAsset.id) : false
@@ -258,6 +237,10 @@ export function MediaBin({ project, onOpenTimeline }: MediaBinProps) {
           onOpenTimeline={onOpenTimeline}
           onRemoveAssets={() => setDialog({ kind: "remove-assets" })}
           onRemoveSequence={(sequenceId) => setDialog({ kind: "remove-sequence", sequenceId })}
+          onRevealAsset={() => {
+            if (selectedAsset)
+              void window.cinesim.project.revealAsset(selectedAsset.id).catch(() => undefined);
+          }}
           onRetryCloudTransfer={(assetId) => void retryCloudTransfer(assetId)}
           onSelectOnly={selection.selectOnly}
           onToggleCloudOriginal={toggleCloudOriginal}

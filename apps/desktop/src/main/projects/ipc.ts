@@ -26,6 +26,9 @@ export function registerProjectIpc(
   registerIpcHandler(projectContracts.openRecent, ({ directory }) =>
     controller.openRecent(directory),
   );
+  registerIpcHandler(projectContracts.revealAsset, ({ assetId }) =>
+    controller.revealAsset(assetId),
+  );
   registerIpcHandler(projectContracts.session, () => (store.project ? store.session() : null));
   registerIpcHandler(projectContracts.recentDetails, () => controller.recentDetails());
   registerIpcHandler(projectContracts.save, () => store.save());

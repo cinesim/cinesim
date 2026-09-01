@@ -1,6 +1,6 @@
 import { z } from "zod";
-import type { ProjectSettings, SemanticEditorCommand } from "@cinesim/core";
-import { settingsSchema } from "@cinesim/core";
+import type { AssetId, ProjectSettings, SemanticEditorCommand } from "@cinesim/core";
+import { assetIdSchema, settingsSchema } from "@cinesim/core";
 import { editorCommandSchema } from "@cinesim/protocol";
 import { PROJECT_OPEN_TARGET_IDS } from "../../shared/contracts";
 import type {
@@ -59,6 +59,11 @@ export const projectContracts = {
     invokeChannels.project.openRecent,
     z.tuple([z.object({ directory: desktopPathSchema }).strict()]),
   ),
+  revealAsset: defineInvokeContract<[{ assetId: AssetId }], void>({
+    channel: invokeChannels.project.revealAsset,
+    request: z.tuple([z.object({ assetId: assetIdSchema }).strict()]),
+    privilege: "process-launch",
+  }),
   session: defineInvokeContract<[], DesktopProjectSession | null>({
     channel: invokeChannels.project.session,
     request: emptyRequestSchema,

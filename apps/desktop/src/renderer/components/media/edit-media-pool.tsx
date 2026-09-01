@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { useDraggable } from "@dnd-kit/core";
-import { CircleAlert, Cloud, Film, Plus } from "@cinesim/ui";
+import { Film, Plus } from "@cinesim/ui";
 import {
   Button,
   Empty,
@@ -9,17 +9,16 @@ import {
   EmptyIcon,
   EmptyTitle,
   PaneHeader,
-  PreviewCard,
   SearchField,
 } from "@cinesim/ui";
 import type { Asset, Project } from "@cinesim/core";
-import { formatDuration } from "../../lib/format";
 import { useRendererStore } from "../../store/renderer-store-context";
 import { useEditorDnd } from "../workspace/editor-dnd-context";
 import { useEditorTransport } from "../workspace/editor-transport-context";
-import { assetCompatibilityLabel, AssetSourceMetadata } from "./asset-source-metadata";
-import { MediaSkimSurface } from "./media-skim-surface";
-import { MediaTranscriptBadge } from "./media-transcript-badge";
+import { assetNeedsEditProxy, retryableAssetId, transcriptActionFor } from "./media-actions";
+import { MediaAssetCard } from "./media-asset-presentation";
+import { MediaAssetContextMenu } from "./media-bin-context-menu";
+import { assetStoragePresentation } from "./media-bin-model";
 
 interface EditMediaPoolProps {
   project: Project;
@@ -92,80 +91,98 @@ function DraggableAssetCard({
 }) {
   const editorDrag = useEditorDnd();
   const transport = useEditorTransport();
-  const compatibility = assetCompatibilityLabel(asset);
+  const cloudTransfers = useRendererStore((state) => state.cloudTransfers);
+  const derivedMedia = useRendererStore((state) => state.derivedMedia);
+  const transcripts = useRendererStore((state) => state.transcripts);
+  const account = useRendererStore((state) => state.account);
+  const requestTranscripts = useRendererStore((state) => state.requestTranscripts);
+  const regenerateTranscripts = useRendererStore((state) => state.regenerateTranscripts);
+  const cancelTranscripts = useRendererStore((state) => state.cancelTranscripts);
+  const downloadedCloudOriginals = useRendererStore((state) => state.downloadedCloudOriginals);
+  const retryCloudTransfer = useRendererStore((state) => state.retryCloudTransfer);
+  const keepCloudOriginalDownloaded = useRendererStore(
+    (state) => state.keepCloudOriginalDownloaded,
+  );
+  const removeCloudOriginalDownload = useRendererStore(
+    (state) => state.removeCloudOriginalDownload,
+  );
+  const derivedScope = useRendererStore((state) =>
+    state.project.status === "ready" ? state.project.session.derivedScope : null,
+  );
+  const transfer = cloudTransfers.find((candidate) => candidate.assetId === asset.id);
+  const cloudDownloaded = downloadedCloudOriginals.includes(asset.id);
+  const storage = assetStoragePresentation(asset, transfer, cloudDownloaded);
+  const transcriptAsset = asset.kind === "audio" || (asset.kind === "video" && asset.hasAudio);
+  const transcriptAction = transcriptActionFor(transcriptAsset ? [asset] : [], transcripts);
+  const needsProxy = assetNeedsEditProxy(asset, derivedMedia?.assets[asset.id]);
+  const retryAssetId = retryableAssetId(asset, transfer);
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
     id: `asset:${asset.id}`,
     data: { kind: "asset", assetId: asset.id },
   });
+
+  function runTranscriptAction() {
+    if (transcriptAction === "cancel") void cancelTranscripts([asset.id]);
+    else if (transcriptAction === "regenerate") void regenerateTranscripts([asset.id]);
+    else if (transcriptAction === "generate") void requestTranscripts([asset.id]);
+  }
+
+  function toggleCloudOriginal() {
+    if (cloudDownloaded) void removeCloudOriginalDownload(asset.id);
+    else void keepCloudOriginalDownloaded(asset.id);
+  }
+
   return (
-    <div
-      ref={setNodeRef}
-      {...attributes}
-      {...listeners}
-      className={isDragging ? "opacity-45" : undefined}
+    <MediaAssetContextMenu
+      canRevealAsset={asset.source.kind === "local"}
+      cloudAssetId={asset.source.kind === "cloud" ? asset.id : null}
+      cloudOriginalDownloaded={cloudDownloaded}
+      hasProxyAssets={needsProxy}
+      retryAssetId={retryAssetId}
+      selectedCount={1}
+      timelineActionLabel="Add to active timeline"
+      transcriptAction={transcriptAction}
+      transcriptionAvailable={account.status === "signed-in" && account.transcription}
+      onCreateTimeline={() => void onAddAsset(asset)}
+      onGenerateProxies={() => {
+        if (derivedScope) void window.cinesim.derived.requestProxies(derivedScope, [asset.id]);
+      }}
+      onRetryCloudTransfer={(assetId) => void retryCloudTransfer(assetId)}
+      onRevealAsset={() => {
+        void window.cinesim.project.revealAsset(asset.id).catch(() => undefined);
+      }}
+      onToggleCloudOriginal={toggleCloudOriginal}
+      onTranscriptAction={runTranscriptAction}
     >
-      <PreviewCard
-        ariaLabel={`Add ${asset.name} to the active timeline`}
-        title="Double-click to add to the active timeline"
-        size="compact"
-        previewClassName="media-thumbnail"
-        preview={
-          <MediaSkimSurface
-            asset={asset}
-            disabled={editorDrag.dragging}
-            onPreviewTime={(sourceTimeUs) => transport.previewAsset(asset.id, sourceTimeUs)}
-            onPreviewEnd={() => void transport.exitAssetPreview()}
-          />
-        }
-        bottomCorner={
-          <div className="flex items-center gap-1">
-            {compatibility && (
-              <span
-                className="grid size-5 place-items-center rounded bg-panel/90 text-amber-400"
-                title={compatibility}
-              >
-                <CircleAlert size={11} />
-              </span>
-            )}
-            {asset.source.kind === "cloud" && (
-              <span
-                className="grid size-5 place-items-center rounded bg-panel/90 text-secondary"
-                title="Cloud original"
-              >
-                <Cloud size={10} />
-              </span>
-            )}
-            <span className="rounded bg-panel/90 px-1 py-0.5 text-[10px] tabular-nums text-secondary">
-              {formatDuration(asset.durationUs)}
-            </span>
-          </div>
-        }
-        action={
-          <Button
-            className="opacity-80 transition-opacity hover:opacity-100"
-            size="icon"
-            variant="ghost"
-            aria-label={`Add ${asset.name} to the active timeline`}
-            title="Add to active timeline"
-            onClick={() => void onAddAsset(asset)}
-          >
-            <Plus size={13} />
-          </Button>
-        }
-        onDoubleClick={() => void onAddAsset(asset)}
+      <div
+        ref={setNodeRef}
+        {...attributes}
+        {...listeners}
+        className={isDragging ? "opacity-45" : undefined}
       >
-        <p className="truncate text-ui-xs font-medium text-primary" title={asset.name}>
-          {asset.name}
-        </p>
-        <p className="edit-media-card-secondary mt-0.5 truncate text-[10px] text-muted tabular-nums">
-          {asset.id}
-        </p>
-        <AssetSourceMetadata
+        <MediaAssetCard
           asset={asset}
-          className="edit-media-card-secondary mt-0.5 truncate text-[10px] text-muted tabular-nums"
+          compact
+          storage={storage}
+          {...(transfer?.error ? { storageDetail: transfer.error } : {})}
+          previewDisabled={editorDrag.dragging}
+          onPreviewTime={(sourceTimeUs) => transport.previewAsset(asset.id, sourceTimeUs)}
+          onPreviewEnd={() => void transport.exitAssetPreview()}
+          action={
+            <Button
+              className="opacity-80 transition-opacity hover:opacity-100"
+              size="icon"
+              variant="ghost"
+              aria-label={`Add ${asset.name} to the active timeline`}
+              title="Add to active timeline"
+              onClick={() => void onAddAsset(asset)}
+            >
+              <Plus size={13} />
+            </Button>
+          }
+          onDoubleClick={() => void onAddAsset(asset)}
         />
-        <MediaTranscriptBadge asset={asset} className="mt-1" />
-      </PreviewCard>
-    </div>
+      </div>
+    </MediaAssetContextMenu>
   );
 }

@@ -68,6 +68,7 @@ const api: DesktopApi = {
       invoke(invokeChannels.project.create, { name, kind, locationToken }),
     open: () => invoke(invokeChannels.project.open),
     openRecent: (directory) => invoke(invokeChannels.project.openRecent, { directory }),
+    revealAsset: (assetId) => invoke(invokeChannels.project.revealAsset, { assetId }),
     importMedia: () => invoke(invokeChannels.project.importMedia),
     execute: (command, expectedGeneration) =>
       invoke(invokeChannels.project.execute, { command, expectedGeneration }),

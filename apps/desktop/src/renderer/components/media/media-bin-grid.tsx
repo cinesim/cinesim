@@ -1,24 +1,12 @@
 import type { MouseEvent, PointerEventHandler, RefObject } from "react";
-import {
-  Check,
-  CircleAlert,
-  Cloud,
-  Film,
-  HardDriveDownload,
-  LoaderCircle,
-  Pause,
-  PreviewCard,
-} from "@cinesim/ui";
+import { PreviewCard } from "@cinesim/ui";
 import { sequenceDurationUs } from "@cinesim/core";
 import type { Asset, AssetId, Sequence } from "@cinesim/core";
 import type { CloudTransferSnapshot } from "../../../shared/contracts";
 import { formatDuration } from "../../lib/format";
 import { LibraryGrid } from "../shared/library-card";
-import { assetCompatibilityLabel, AssetSourceMetadata } from "./asset-source-metadata";
 import { assetStoragePresentation } from "./media-bin-model";
-import type { AssetStorageStatus } from "./media-bin-model";
-import { MediaSkimSurface } from "./media-skim-surface";
-import { MediaTranscriptBadge } from "./media-transcript-badge";
+import { MediaAssetCard } from "./media-asset-presentation";
 
 interface MediaBinGridProps {
   assets: readonly Asset[];
@@ -36,26 +24,6 @@ interface MediaBinGridProps {
   query: string;
   selectedAssetIds: ReadonlySet<AssetId>;
   sequences: readonly Sequence[];
-}
-
-function StorageIcon({ status }: { status: AssetStorageStatus }) {
-  switch (status) {
-    case "cloud-downloaded":
-      return <HardDriveDownload size={10} />;
-    case "cloud-original":
-      return <Cloud size={10} />;
-    case "upload-failed":
-      return <CircleAlert size={10} className="text-red-400" />;
-    case "waiting-for-cloud":
-    case "paused":
-      return <Pause size={10} />;
-    case "preparing":
-    case "uploading":
-    case "waiting-for-proxy":
-      return <LoaderCircle size={10} className="animate-spin" />;
-    case "local":
-      return <Film size={10} />;
-  }
 }
 
 export function MediaBinGrid({
@@ -115,56 +83,16 @@ export function MediaBinGrid({
           transfer,
           downloadedCloudOriginals.includes(asset.id),
         );
-        const compatibility = assetCompatibilityLabel(asset);
         return (
           <div key={asset.id} data-asset-id={asset.id}>
-            <PreviewCard
-              ariaLabel={`Select ${asset.name}`}
-              title="Select, double-click to add, or right-click for actions"
+            <MediaAssetCard
+              asset={asset}
+              storage={storage}
+              {...(transfer?.error ? { storageDetail: transfer.error } : {})}
               selected={selected}
-              variant="frameless"
-              previewClassName="media-thumbnail"
-              preview={<MediaSkimSurface asset={asset} />}
-              corner={
-                selected ? (
-                  <span className="grid size-6 place-items-center rounded-full bg-accent text-on-accent shadow-md">
-                    <Check size={14} strokeWidth={3} />
-                  </span>
-                ) : compatibility ? (
-                  <span
-                    className="grid size-6 place-items-center rounded-full bg-panel/90 text-amber-400 shadow-md"
-                    title={compatibility}
-                  >
-                    <CircleAlert size={14} />
-                  </span>
-                ) : undefined
-              }
-              bottomCorner={
-                <div className="flex items-center gap-1.5">
-                  <MediaTranscriptBadge asset={asset} />
-                  <span
-                    className="flex items-center gap-1 rounded bg-panel/90 px-1.5 py-0.5 text-ui-xs text-secondary"
-                    title={transfer?.error ?? storage.label}
-                  >
-                    <StorageIcon status={storage.kind} />
-                    {storage.label}
-                  </span>
-                  <span className="rounded bg-panel/90 px-1.5 py-0.5 text-ui-xs tabular-nums text-secondary">
-                    {formatDuration(asset.durationUs)}
-                  </span>
-                </div>
-              }
               onClick={(event) => onSelectAsset(asset.id, event)}
               onDoubleClick={() => onAddAsset(asset)}
-            >
-              <p className="truncate text-ui font-medium text-primary" title={asset.name}>
-                {asset.name}
-              </p>
-              <AssetSourceMetadata
-                asset={asset}
-                className="mt-0.5 truncate text-ui-xs text-muted tabular-nums"
-              />
-            </PreviewCard>
+            />
           </div>
         );
       })}

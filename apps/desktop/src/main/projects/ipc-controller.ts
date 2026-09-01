@@ -3,7 +3,7 @@ import { lstat, readFile, realpath, stat } from "node:fs/promises";
 import { parse, resolve } from "node:path";
 import { app, dialog, shell } from "electron";
 import { cloudProjectIdSchema, projectIdSchema, settingsSchema } from "@cinesim/core";
-import type { ProjectId } from "@cinesim/core";
+import type { AssetId, ProjectId } from "@cinesim/core";
 import { parseProjectManifest } from "@cinesim/project-io";
 import type {
   CreateProjectLocation,
@@ -104,6 +104,16 @@ export class ProjectIpcController {
       }),
     );
     return Object.fromEntries(details);
+  }
+
+  async revealAsset(assetId: AssetId): Promise<void> {
+    const asset = this.store.project?.assets.find((candidate) => candidate.id === assetId);
+    if (!asset) throw new Error("Asset is not in the open project");
+    if (asset.source.kind !== "local")
+      throw new Error("Cloud assets have no local source to reveal");
+    const canonical = await realpath(asset.source.path).catch(() => null);
+    if (!canonical) throw new Error("The asset source is unavailable");
+    shell.showItemInFolder(canonical);
   }
 
   updateSettings(update: Parameters<DesktopProjectStore["updateSettings"]>[0]) {

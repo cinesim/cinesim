@@ -37,6 +37,13 @@ describe("desktop IPC contracts", () => {
       (contract) => contract.channel === "project:open-with",
     );
     expect(() => openWith?.request.parse([{ target: "untrusted-application" }])).toThrow();
+    const revealAsset = allInvokeContracts.find(
+      (contract) => contract.channel === "project:reveal-asset",
+    );
+    expect(() => revealAsset?.request.parse([{ assetId: "../../untrusted.mov" }])).toThrow();
+    expect(revealAsset?.request.parse([{ assetId: "asset_fixture" }])).toEqual([
+      { assetId: "asset_fixture" },
+    ]);
   });
 
   it("preserves structured error identity for renderer code", () => {
