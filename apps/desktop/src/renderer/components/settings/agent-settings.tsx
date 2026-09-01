@@ -17,6 +17,7 @@ import type {
   AgentProviderKind,
   AgentProviderStatus,
   AgentSettings as AgentSettingsState,
+  DesktopProjectGuidance,
 } from "../../../shared/contracts";
 import { useDelayedBusy } from "../../hooks/use-delayed-busy";
 import {
@@ -259,9 +260,11 @@ export function AgentSettings() {
         </TabsContent>
       </Tabs>
 
+      <ProjectGuidanceSettings defaultInstructions={settings.projectInstructions} />
+
       <div className="mt-7 divide-y divide-border rounded-xl border border-border bg-panel">
         <SettingRow
-          title="Project instructions"
+          title="New-project instruction default"
           detail="Default custom suffix added after Cinesim's managed AGENTS.md guidance for new projects."
         >
           <textarea
@@ -277,6 +280,75 @@ export function AgentSettings() {
         </SettingRow>
       </div>
     </>
+  );
+}
+
+function ProjectGuidanceSettings({ defaultInstructions }: { defaultInstructions: string }) {
+  const [guidance, setGuidance] = useState<DesktopProjectGuidance | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    void window.cinesim.project
+      .getAgentGuidance()
+      .then(setGuidance)
+      .catch((reason: unknown) =>
+        setError(reason instanceof Error ? reason.message : "Could not load project guidance"),
+      );
+  }, []);
+
+  async function updateProjectInstructions(customInstructions: string) {
+    try {
+      setGuidance(await window.cinesim.project.updateAgentGuidance(customInstructions));
+      setError(null);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Could not update project guidance");
+    }
+  }
+
+  if (!guidance) return null;
+  return (
+    <div className="mt-7 divide-y divide-border rounded-xl border border-border bg-panel">
+      <SettingRow
+        title="Managed project guidance"
+        detail="Versioned Cinesim instructions regenerated on project creation and open."
+      >
+        <textarea
+          className="min-h-56 w-full resize-y rounded-md border border-border bg-canvas px-3 py-2 font-mono text-ui-xs leading-5 text-secondary outline-none"
+          value={guidance.managedBlock}
+          readOnly
+          aria-label="Managed Cinesim project guidance"
+        />
+      </SettingRow>
+      {guidance.projectCustomInstructions !== null && (
+        <SettingRow
+          title="Open-project custom instructions"
+          detail="This suffix follows the managed block in AGENTS.md and is shared by internal and external agents."
+        >
+          <div className="space-y-2">
+            <textarea
+              className="min-h-28 w-full resize-y rounded-md border border-border bg-canvas px-3 py-2 text-ui text-primary outline-none focus-visible:ring-2 focus-visible:ring-focus"
+              value={guidance.projectCustomInstructions}
+              maxLength={20_000}
+              onChange={(event) =>
+                setGuidance({ ...guidance, projectCustomInstructions: event.target.value })
+              }
+              onBlur={(event) => void updateProjectInstructions(event.target.value)}
+            />
+            <button
+              className="h-8 rounded-md border border-border bg-canvas px-3 text-ui-xs text-secondary hover:bg-surface hover:text-primary"
+              onClick={() => void updateProjectInstructions(defaultInstructions)}
+            >
+              Revert to default and regenerate
+            </button>
+          </div>
+        </SettingRow>
+      )}
+      {error && (
+        <Notice className="m-3 rounded-lg bg-canvas" size="default">
+          {error}
+        </Notice>
+      )}
+    </div>
   );
 }
 

@@ -5,8 +5,12 @@ import {
   mergeClaudeMcpConfig,
   mergeCodexMcpConfig,
   mergeProjectAgents,
+  projectCustomInstructions,
+  renderProjectAgents,
+  renderManagedProjectGuidance,
   type SourceProjectRepository,
 } from "@cinesim/project-io";
+import type { DesktopProjectGuidance } from "../../shared/contracts";
 
 const PROJECT_DIRECTORY_COLLISION_LIMIT = 10_000;
 const DERIVED_FOLDERS = [
@@ -77,13 +81,20 @@ export async function createAvailableProjectDirectory(
   );
 }
 
-export async function ensureProjectLayout(repository: SourceProjectRepository): Promise<void> {
+export async function ensureProjectLayout(
+  repository: SourceProjectRepository,
+  defaultCustomInstructions = "",
+): Promise<void> {
   await repository.paths.ensureLayout(DERIVED_FOLDERS);
   await repository.paths.ensureDirectory(".codex");
   await Promise.all([
     repository.paths
       .assertSafeFile("AGENTS.md")
-      .then((path) => mergeManagedFile(path, (existing) => mergeProjectAgents(existing))),
+      .then((path) =>
+        mergeManagedFile(path, (existing) =>
+          mergeProjectAgents(existing, defaultCustomInstructions),
+        ),
+      ),
     repository.paths
       .assertSafeFile("CLAUDE.md")
       .then((path) => mergeManagedFile(path, mergeClaudeInstructions)),
@@ -97,4 +108,35 @@ export async function ensureProjectLayout(repository: SourceProjectRepository): 
       .assertSafeFile(".gitignore")
       .then((path) => writeIfMissing(path, PROJECT_GITIGNORE)),
   ]);
+}
+
+export async function projectGuidance(
+  repository: SourceProjectRepository | null,
+  defaultCustomInstructions: string,
+): Promise<DesktopProjectGuidance> {
+  let currentProjectInstructions: string | null = null;
+  if (repository) {
+    const path = await repository.paths.assertSafeFile("AGENTS.md");
+    const source = await readFile(path, "utf8").catch((error: unknown) => {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
+      throw error;
+    });
+    currentProjectInstructions =
+      source === null ? defaultCustomInstructions : projectCustomInstructions(source);
+  }
+  return {
+    managedBlock: renderManagedProjectGuidance(),
+    defaultCustomInstructions,
+    projectCustomInstructions: currentProjectInstructions,
+  };
+}
+
+export async function writeProjectGuidance(
+  repository: SourceProjectRepository,
+  customInstructions: string,
+  defaultCustomInstructions: string,
+): Promise<DesktopProjectGuidance> {
+  const path = await repository.paths.assertSafeFile("AGENTS.md");
+  await mergeManagedFile(path, () => renderProjectAgents(customInstructions));
+  return projectGuidance(repository, defaultCustomInstructions);
 }

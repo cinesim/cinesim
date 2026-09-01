@@ -66,6 +66,9 @@ const api: DesktopApi = {
     chooseCreateLocation: () => invoke(invokeChannels.project.chooseCreateLocation),
     create: (name, kind, locationToken) =>
       invoke(invokeChannels.project.create, { name, kind, locationToken }),
+    getAgentGuidance: () => invoke(invokeChannels.project.guidanceGet),
+    updateAgentGuidance: (customInstructions) =>
+      invoke(invokeChannels.project.guidanceUpdate, { customInstructions }),
     open: () => invoke(invokeChannels.project.open),
     openRecent: (directory) => invoke(invokeChannels.project.openRecent, { directory }),
     revealAsset: (assetId) => invoke(invokeChannels.project.revealAsset, { assetId }),

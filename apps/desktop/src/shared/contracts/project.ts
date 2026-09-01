@@ -22,6 +22,12 @@ export interface DesktopProjectSession {
   canRedo: boolean;
 }
 
+export interface DesktopProjectGuidance {
+  managedBlock: string;
+  defaultCustomInstructions: string;
+  projectCustomInstructions: string | null;
+}
+
 export interface CreateProjectLocation {
   token: string;
   directory: string;

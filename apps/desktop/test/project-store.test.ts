@@ -50,6 +50,40 @@ afterEach(async () => {
 });
 
 describe("DesktopProjectStore", () => {
+  it("uses one managed guidance block and regenerates project custom instructions", async () => {
+    const parentDirectory = await mkdtemp(join(tmpdir(), "cinesim-guidance-test-"));
+    temporaryDirectories.push(parentDirectory);
+    let defaultInstructions = "Keep interview pauses.";
+    const store = createProjectStore();
+    store.setDefaultAgentInstructions(() => defaultInstructions);
+    const created = await store.create(parentDirectory, "Guidance fixture");
+
+    await expect(store.agentGuidance()).resolves.toMatchObject({
+      defaultCustomInstructions: "Keep interview pauses.",
+      projectCustomInstructions: "Keep interview pauses.",
+    });
+    await store.updateAgentGuidance("Prefer direct cuts.");
+    await expect(readFile(join(created.directory, "AGENTS.md"), "utf8")).resolves.toContain(
+      "Prefer direct cuts.",
+    );
+
+    defaultInstructions = "Use the team default.";
+    await store.updateAgentGuidance(defaultInstructions);
+    await expect(store.agentGuidance()).resolves.toMatchObject({
+      defaultCustomInstructions: "Use the team default.",
+      projectCustomInstructions: "Use the team default.",
+    });
+
+    await rm(join(created.directory, "AGENTS.md"));
+    await store.close();
+    const reopened = createProjectStore();
+    reopened.setDefaultAgentInstructions(() => defaultInstructions);
+    await reopened.open(created.directory);
+    await expect(readFile(join(created.directory, "AGENTS.md"), "utf8")).resolves.toContain(
+      "Use the team default.",
+    );
+  });
+
   it("creates immutable local and cloud project kinds", async () => {
     const parentDirectory = await mkdtemp(join(tmpdir(), "cinesim-account-project-test-"));
     temporaryDirectories.push(parentDirectory);

@@ -72,6 +72,8 @@ export const invokeChannels = {
   project: {
     chooseCreateLocation: "project:choose-create-location",
     create: "project:create",
+    guidanceGet: "project:guidance:get",
+    guidanceUpdate: "project:guidance:update",
     execute: "command:execute",
     forget: "project:forget",
     importMedia: "media:import",

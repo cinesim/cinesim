@@ -30,6 +30,10 @@ ${settingsGuidance()}
 ${MANAGED_END}`;
 }
 
+export function renderManagedProjectGuidance(): string {
+  return managedGuidance();
+}
+
 function customSuffix(existing: string): string {
   const managedEnd = existing.indexOf(MANAGED_END);
   if (managedEnd >= 0)
@@ -40,6 +44,10 @@ function customSuffix(existing: string): string {
   const legacyMarker = "Add creative direction below this line.";
   const marker = existing.indexOf(legacyMarker);
   return marker >= 0 ? existing.slice(marker + legacyMarker.length).trim() : existing.trim();
+}
+
+export function projectCustomInstructions(existing: string): string {
+  return customSuffix(existing);
 }
 
 export function renderProjectAgents(customInstructions = ""): string {

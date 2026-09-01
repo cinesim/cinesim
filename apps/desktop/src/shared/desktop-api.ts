@@ -53,6 +53,7 @@ import type {
   ProjectOpenTarget,
   ProjectOpenTargetId,
   DesktopCommandResult,
+  DesktopProjectGuidance,
   RecentProjectDetails,
 } from "./contracts/project";
 
@@ -87,6 +88,8 @@ export interface DesktopProjectApi {
   ): Promise<DesktopProjectSession | null>;
   open(): Promise<DesktopProjectSession | null>;
   openRecent(directory: string): Promise<DesktopProjectSession>;
+  getAgentGuidance(): Promise<DesktopProjectGuidance>;
+  updateAgentGuidance(customInstructions: string): Promise<DesktopProjectGuidance>;
   revealAsset(assetId: string): Promise<void>;
   importMedia(): Promise<DesktopProjectSession | null>;
   execute(

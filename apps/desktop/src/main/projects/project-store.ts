@@ -38,7 +38,9 @@ import { inspectMedia } from "./media-import";
 import {
   createAvailableProjectDirectory,
   ensureProjectLayout,
+  projectGuidance,
   projectDirectorySlug,
+  writeProjectGuidance,
 } from "./project-layout";
 import { stageManagedOriginal } from "./managed-originals";
 
@@ -149,7 +151,7 @@ export class DesktopProjectStore {
           : { cloudProjectId: input.cloudProjectId }),
       });
       const commands = await SourceCommandService.open(directory);
-      await ensureProjectLayout(commands.repository);
+      await ensureProjectLayout(commands.repository, this.#defaultAgentInstructions());
       this.#directory = directory;
       this.#commands = commands;
       this.#snapshot = snapshot;
@@ -178,7 +180,7 @@ export class DesktopProjectStore {
       );
       try {
         const commands = await SourceCommandService.open(directory);
-        await ensureProjectLayout(commands.repository);
+        await ensureProjectLayout(commands.repository, this.#defaultAgentInstructions());
         const [snapshot, preparedDerived] = await Promise.all([
           Promise.resolve(commands.snapshot),
           this.derivedMedia.prepareProject(commands.repository.paths.root),
@@ -242,6 +244,20 @@ export class DesktopProjectStore {
       this.#revision += 1;
       return this.session();
     });
+  }
+
+  agentGuidance() {
+    return projectGuidance(this.#commands?.repository ?? null, this.#defaultAgentInstructions());
+  }
+
+  updateAgentGuidance(customInstructions: string) {
+    return this.#serialize(() =>
+      writeProjectGuidance(
+        this.#requireCommands().repository,
+        customInstructions,
+        this.#defaultAgentInstructions(),
+      ),
+    );
   }
 
   async updateSettings(update: Partial<ProjectSettings>): Promise<DesktopProjectSession> {

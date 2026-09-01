@@ -4,6 +4,8 @@ import {
   mergeClaudeMcpConfig,
   mergeCodexMcpConfig,
   mergeProjectAgents,
+  projectCustomInstructions,
+  renderManagedProjectGuidance,
 } from "../src";
 
 describe("managed project agent integration", () => {
@@ -14,6 +16,8 @@ describe("managed project agent integration", () => {
     expect(second).toContain("assets.toml");
     expect(second).toContain("Edit canonical files directly");
     expect(second).toContain("Keep interview pauses.");
+    expect(projectCustomInstructions(second)).toBe("Keep interview pauses.");
+    expect(renderManagedProjectGuidance()).toContain("cinesim:managed-guidance:v1:start");
   });
 
   it("adds provider integration without replacing unrelated configuration", () => {

@@ -7,6 +7,7 @@ import type {
   CreateProjectLocation,
   DesktopAppState,
   DesktopCommandResult,
+  DesktopProjectGuidance,
   DesktopProjectSession,
   ProjectOpenTarget,
   ProjectOpenTargetId,
@@ -48,6 +49,16 @@ export const projectContracts = {
         })
         .strict(),
     ]),
+    privilege: "reversible-mutation",
+  }),
+  guidanceGet: defineInvokeContract<[], DesktopProjectGuidance>({
+    channel: invokeChannels.project.guidanceGet,
+    request: emptyRequestSchema,
+    privilege: "read",
+  }),
+  guidanceUpdate: defineInvokeContract<[{ customInstructions: string }], DesktopProjectGuidance>({
+    channel: invokeChannels.project.guidanceUpdate,
+    request: z.tuple([z.object({ customInstructions: z.string().max(20_000) }).strict()]),
     privilege: "reversible-mutation",
   }),
   open: defineInvokeContract<[], DesktopProjectSession | null>({

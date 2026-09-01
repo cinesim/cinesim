@@ -22,6 +22,10 @@ export function registerProjectIpc(
   registerIpcHandler(projectContracts.create, ({ name, kind, locationToken }) =>
     controller.create(name, kind, locationToken),
   );
+  registerIpcHandler(projectContracts.guidanceGet, () => store.agentGuidance());
+  registerIpcHandler(projectContracts.guidanceUpdate, ({ customInstructions }) =>
+    store.updateAgentGuidance(customInstructions),
+  );
   registerIpcHandler(projectContracts.open, () => controller.open());
   registerIpcHandler(projectContracts.openRecent, ({ directory }) =>
     controller.openRecent(directory),
