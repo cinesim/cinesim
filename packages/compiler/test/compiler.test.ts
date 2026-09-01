@@ -119,6 +119,20 @@ describe("compiler", () => {
     ).rejects.toMatchObject({ diagnostic: expect.objectContaining({ code: "UNKNOWN_HELPER" }) });
   });
 
+  it("rejects undocumented keyframe easing", async () => {
+    await expect(
+      compileVideo(
+        "main.jsx",
+        config,
+        host({
+          "main.jsx": wrapper(
+            '<rect id="panel" opacity={0}><animate property="opacity"><key at={seconds(0)} value={0} /><key at={seconds(1)} value={1} easing="spring" /></animate></rect>',
+          ),
+        }),
+      ),
+    ).rejects.toMatchObject({ diagnostic: expect.objectContaining({ code: "KEYFRAME_EASING" }) });
+  });
+
   it("lowers deterministic audio ducking against a separate sidechain track", async () => {
     const source = `export const main = <composition id="sequence_main" width={1920} height={1080} fps={30}><timeline id="timeline_main"><track id="track_music" kind="audio" name="Music"><clip id="clip_music" asset={asset("asset_camera")} media="audio" start={seconds(0)} duration={seconds(10)}><ducker id="duck_music" sidechain="track_dialogue" reduction={db(-12)} attack={milliseconds(80)} release={milliseconds(250)} /></clip></track><track id="track_dialogue" kind="audio" name="Dialogue"><clip id="clip_dialogue" asset={asset("asset_camera")} media="audio" start={seconds(2)} duration={seconds(3)} /></track></timeline></composition>; export default main;`;
     const result = await compileVideo("main.jsx", config, host({ "main.jsx": source }));

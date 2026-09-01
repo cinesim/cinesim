@@ -121,7 +121,17 @@ export type SemanticEditorCommand =
       index: number;
       atUs?: TimeUs;
       value?: IrValue;
+      easing?: string;
     }
+  | {
+      type: "keyframe.add";
+      nodeId: string;
+      property: string;
+      atUs: TimeUs;
+      value: IrValue;
+      easing?: string;
+    }
+  | { type: "keyframe.remove"; nodeId: string; property: string; index: number }
   | { type: "clip.slip"; clipId: string; sourceStartUs: TimeUs }
   | { type: "clip.duplicate"; clipId: string; timelineStartUs?: TimeUs; trackId?: string }
   | { type: "clip.link"; clipId: string; linkedClipId: string }

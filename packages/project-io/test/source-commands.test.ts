@@ -62,8 +62,44 @@ describe("source-backed semantic commands", () => {
     expect(result.snapshot.sources["main.jsx"]).toContain(
       "<key at={microseconds(3000000)} value={px(100)} />",
     );
+    const added = await service.execute({
+      type: "keyframe.add",
+      nodeId: "clip_keyed",
+      property: "x",
+      atUs: timeUs(1_000_000),
+      value: { kind: "length", unit: "px", value: 25 },
+      easing: "ease-in",
+    });
+    expect(added.snapshot.sources["main.jsx"]).toContain(
+      '<key at={microseconds(1000000)} value={px(25)} easing="ease-in" />',
+    );
+    const initialEasing = await service.execute({
+      type: "keyframe.set",
+      nodeId: "clip_keyed",
+      property: "x",
+      index: 0,
+      easing: "hold",
+    });
+    expect(initialEasing.snapshot.sources["main.jsx"]).toContain(
+      '<key at={seconds(0)} value={px(0)} easing="hold" />',
+    );
+    const eased = await service.execute({
+      type: "keyframe.set",
+      nodeId: "clip_keyed",
+      property: "x",
+      index: 1,
+      easing: "ease-in-out",
+    });
+    expect(eased.snapshot.sources["main.jsx"]).toContain('easing="ease-in-out"');
+    const removed = await service.execute({
+      type: "keyframe.remove",
+      nodeId: "clip_keyed",
+      property: "x",
+      index: 1,
+    });
+    expect(removed.snapshot.sources["main.jsx"]).not.toContain("value={px(25)}");
     const undone = await service.undo();
-    expect(undone.sources["main.jsx"]).toContain("<key at={seconds(2)} value={px(50)} />");
+    expect(undone.sources["main.jsx"]).toContain("value={px(25)}");
   });
 
   it("records accepted filesystem generations in global undo and restores complete source sets", async () => {

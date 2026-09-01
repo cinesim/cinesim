@@ -208,11 +208,34 @@ const semanticOnlyCommandSchema = z.discriminatedUnion("type", [
       index: z.number().int().nonnegative().safe(),
       atUs: timeUsSchema.optional(),
       value: irValueSchema.optional(),
+      easing: z.enum(["linear", "hold", "ease-in", "ease-out", "ease-in-out"]).optional(),
     })
     .strict()
-    .refine((command) => command.atUs !== undefined || command.value !== undefined, {
-      message: "Keyframe edit must change time or value",
-    }),
+    .refine(
+      (command) =>
+        command.atUs !== undefined || command.value !== undefined || command.easing !== undefined,
+      {
+        message: "Keyframe edit must change time or value",
+      },
+    ),
+  z
+    .object({
+      type: z.literal("keyframe.add"),
+      nodeId: z.string().min(1).max(512),
+      property: z.string().min(1).max(120),
+      atUs: timeUsSchema,
+      value: irValueSchema,
+      easing: z.enum(["linear", "hold", "ease-in", "ease-out", "ease-in-out"]).optional(),
+    })
+    .strict(),
+  z
+    .object({
+      type: z.literal("keyframe.remove"),
+      nodeId: z.string().min(1).max(512),
+      property: z.string().min(1).max(120),
+      index: z.number().int().nonnegative().safe(),
+    })
+    .strict(),
   z
     .object({ type: z.literal("clip.slip"), clipId: clipIdSchema, sourceStartUs: timeUsSchema })
     .strict(),

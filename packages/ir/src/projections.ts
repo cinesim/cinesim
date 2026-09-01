@@ -136,17 +136,71 @@ function easingProgress(progress: number, easing: string): number {
   return progress;
 }
 
+type TransformValueApplier = (transform: IrClip["transform"], value: IrValue) => void;
+
+function lengthTransformProperty(
+  property: "x" | "y" | "width" | "height" | "cornerRadius",
+): TransformValueApplier {
+  return (transform, value) => {
+    if (value.kind === "length") transform[property] = value.value;
+  };
+}
+
+function numberTransformProperty(
+  property: "scaleX" | "scaleY" | "opacity" | "zIndex",
+): TransformValueApplier {
+  return (transform, value) => {
+    if (value.kind === "number") transform[property] = value.value;
+  };
+}
+
+function percentTransformProperty(property: "anchorX" | "anchorY"): TransformValueApplier {
+  return (transform, value) => {
+    if (value.kind === "percent") transform[property] = value.value;
+  };
+}
+
+const TRANSFORM_VALUE_APPLIERS: Readonly<Record<string, TransformValueApplier>> = {
+  x: lengthTransformProperty("x"),
+  y: lengthTransformProperty("y"),
+  width: lengthTransformProperty("width"),
+  height: lengthTransformProperty("height"),
+  cornerRadius: lengthTransformProperty("cornerRadius"),
+  anchorX: percentTransformProperty("anchorX"),
+  anchorY: percentTransformProperty("anchorY"),
+  scaleX: numberTransformProperty("scaleX"),
+  scaleY: numberTransformProperty("scaleY"),
+  opacity: numberTransformProperty("opacity"),
+  z: numberTransformProperty("zIndex"),
+  scale: (transform, value) => {
+    if (value.kind !== "number") return;
+    transform.scaleX = value.value;
+    transform.scaleY = value.value;
+  },
+  rotation: (transform, value) => {
+    if (value.kind === "angle") transform.rotation = value.value;
+  },
+  crop: (transform, value) => {
+    if (value.kind === "rectangle") transform.crop = value.values;
+  },
+  blendMode: (transform, value) => {
+    if (value.kind === "string") transform.blendMode = value.value;
+  },
+  fit: (transform, value) => {
+    if (
+      value.kind === "string" &&
+      (value.value === "contain" || value.value === "cover" || value.value === "fill")
+    )
+      transform.fit = value.value;
+  },
+};
+
 function applyTransformValue(
   transform: IrClip["transform"],
   property: string,
   value: IrValue,
 ): void {
-  if ((property === "x" || property === "y") && value.kind === "length")
-    transform[property] = value.value;
-  else if ((property === "scaleX" || property === "scaleY") && value.kind === "number")
-    transform[property] = value.value;
-  else if (property === "rotation" && value.kind === "angle") transform.rotation = value.value;
-  else if (property === "opacity" && value.kind === "number") transform.opacity = value.value;
+  TRANSFORM_VALUE_APPLIERS[property]?.(transform, value);
 }
 
 function animatedTransform(clip: IrClip, localTime: number): IrClip["transform"] {

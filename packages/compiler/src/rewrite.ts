@@ -9,7 +9,12 @@ import type {
   SourceSpan,
 } from "@cinesim/ir";
 import { getBuiltinSchema } from "./registry";
-import { jsxAttribute, printNodeTemplate, replacementText } from "./source-printer";
+import {
+  jsxAttribute,
+  printIrExpression,
+  printNodeTemplate,
+  replacementText,
+} from "./source-printer";
 
 export { printIrExpression, printNodeTemplate } from "./source-printer";
 
@@ -247,16 +252,75 @@ function propertyReplacement(
   );
 }
 
-function keyframeReplacements(
-  patch: Extract<SemanticPatch, { type: "keyframe.set" }>,
-  sourceMap: IrEditMap,
-): SourceReplacement[] {
-  const animation = sourceMap.nodes[patch.nodeId]?.animations.find(
+type KeyframePatch = Extract<SemanticPatch, { type: `keyframe.${string}` }>;
+type EditMapAnimation = IrEditMap["nodes"][string]["animations"][number];
+
+function animationBinding(patch: KeyframePatch, context: PlanningContext): EditMapAnimation {
+  const animation = context.sourceMap.nodes[patch.nodeId]?.animations.find(
     (candidate) => candidate.property === patch.property,
   );
-  const keyframe = animation?.keyframes[patch.index];
-  if (!keyframe)
-    throw new Error(`No editable keyframe ${patch.nodeId}.${patch.property}[${patch.index}].`);
+  if (!animation) throw new Error(`No editable animation ${patch.nodeId}.${patch.property}.`);
+  return animation;
+}
+
+function addKeyframeReplacement(
+  patch: Extract<SemanticPatch, { type: "keyframe.add" }>,
+  animation: EditMapAnimation,
+  context: PlanningContext,
+): SourceReplacement {
+  const source = context.sources[animation.origin.uri];
+  if (source === undefined) throw new Error(`Missing source snapshot ${animation.origin.uri}.`);
+  const closingOffset = source.lastIndexOf("</animate>", animation.origin.end.offset);
+  if (closingOffset < animation.origin.start.offset)
+    throw new Error(`Animation ${patch.nodeId}.${patch.property} has no closing element.`);
+  const printed = `<key at={microseconds(${patch.atUs})} value={${printIrExpression(patch.value)}} easing=${JSON.stringify(patch.easing)} />`;
+  const next = animation.keyframes.find((keyframe) => keyframe.atUs > patch.atUs);
+  const targetOffset = next?.origin.start.offset ?? closingOffset;
+  const lineStart = source.lastIndexOf("\n", targetOffset - 1) + 1;
+  const indent = source.slice(lineStart, targetOffset);
+  const multiline = /^[ \t]*$/u.test(indent) && lineStart > animation.origin.start.offset;
+  const newline = source.includes("\r\n") ? "\r\n" : "\n";
+  const itemIndent = next ? indent : `  ${indent}`;
+  return replacement(
+    animation.origin,
+    multiline ? lineStart : targetOffset,
+    multiline ? lineStart : targetOffset,
+    multiline ? `${itemIndent}${printed}${newline}` : `${printed} `,
+  );
+}
+
+function easingReplacement(
+  patch: Extract<SemanticPatch, { type: "keyframe.set" }>,
+  keyframe: EditMapAnimation["keyframes"][number],
+  context: PlanningContext,
+): SourceReplacement | undefined {
+  if (patch.easing === undefined) return undefined;
+  if (keyframe.easing)
+    return replacement(
+      keyframe.easing.source,
+      keyframe.easing.source.start.offset,
+      keyframe.easing.source.end.offset,
+      replacementText(keyframe.easing, { kind: "string", value: patch.easing }),
+    );
+  const source = context.sources[keyframe.origin.uri];
+  if (source === undefined) throw new Error(`Missing source snapshot ${keyframe.origin.uri}.`);
+  const close = source.lastIndexOf("/>", keyframe.origin.end.offset);
+  if (close < keyframe.origin.start.offset)
+    throw new Error(`Keyframe ${patch.nodeId}.${patch.property}[${patch.index}] is malformed.`);
+  const trailingSpace = /\s/u.test(source[close - 1] ?? "");
+  return replacement(
+    keyframe.origin,
+    trailingSpace ? close - 1 : close,
+    close,
+    ` easing=${JSON.stringify(patch.easing)} `,
+  );
+}
+
+function setKeyframeReplacements(
+  patch: Extract<SemanticPatch, { type: "keyframe.set" }>,
+  keyframe: EditMapAnimation["keyframes"][number],
+  context: PlanningContext,
+): SourceReplacement[] {
   const replacements: SourceReplacement[] = [];
   if (patch.atUs !== undefined) {
     const value = { kind: "time" as const, valueUs: patch.atUs };
@@ -281,7 +345,24 @@ function keyframeReplacements(
       ),
     );
   }
+  const easing = easingReplacement(patch, keyframe, context);
+  if (easing) replacements.push(easing);
   return replacements;
+}
+
+function keyframeReplacements(patch: KeyframePatch, context: PlanningContext): SourceReplacement[] {
+  const animation = animationBinding(patch, context);
+  if (patch.type === "keyframe.add") return [addKeyframeReplacement(patch, animation, context)];
+  const keyframe = animation.keyframes[patch.index];
+  if (!keyframe)
+    throw new Error(`No editable keyframe ${patch.nodeId}.${patch.property}[${patch.index}].`);
+  if (patch.type === "keyframe.remove") {
+    const source = context.sources[keyframe.origin.uri];
+    if (source === undefined) throw new Error(`Missing source snapshot ${keyframe.origin.uri}.`);
+    const range = lineRemoval(source, keyframe.origin);
+    return [replacement(keyframe.origin, range.start, range.end, "")];
+  }
+  return setKeyframeReplacements(patch, keyframe, context);
 }
 
 function deferredMoveProperties(
@@ -407,7 +488,9 @@ function replacementsForPatch(patch: SemanticPatch, context: PlanningContext): S
     case "property.remove":
       return [removePropertyReplacement(patch, context)];
     case "keyframe.set":
-      return keyframeReplacements(patch, context.sourceMap);
+    case "keyframe.add":
+    case "keyframe.remove":
+      return keyframeReplacements(patch, context);
     case "node.insert":
       return [
         insertionReplacement(

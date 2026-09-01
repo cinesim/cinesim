@@ -203,6 +203,18 @@ const recipes: LanguageReferenceEntry[] = [
     tags: ["transition", "dissolve", "wipe", "slide", "push", "zoom", "blur", "crossfade"],
     capability: { compiler: "supported", preview: "supported", export: "unsupported" },
   },
+  {
+    id: "recipe:typed-keyframes",
+    kind: "recipe",
+    title: "Typed stable keyframes",
+    summary:
+      "Animate an existing typed property on clips, effects, caption cues, masks, scene nodes, or adjustment effects with exact local times.",
+    syntax: '<animate property="..."><key at={...} value={...} easing="..." /></animate>',
+    example:
+      '<blur id="blur_focus" radius={px(0)}><animate property="radius"><key at={seconds(0)} value={px(0)} easing="linear" /><key at={seconds(1)} value={px(24)} easing="ease-in-out" /></animate></blur>',
+    tags: ["animation", "keyframe", "effects", "caption style", "mask", "transform", "easing"],
+    capability: { compiler: "supported", preview: "supported", export: "unsupported" },
+  },
 ];
 
 export const LANGUAGE_REFERENCE: readonly LanguageReferenceEntry[] = [

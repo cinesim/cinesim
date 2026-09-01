@@ -231,11 +231,15 @@ function directTransform(
   opacity: number,
   output: { width: number; height: number },
 ): Transform {
+  const scaleX =
+    (transform.width === undefined ? 1 : transform.width / output.width) * transform.scaleX;
+  const scaleY =
+    (transform.height === undefined ? 1 : transform.height / output.height) * transform.scaleY;
   return {
-    x: (transform.x / output.width) * 2,
-    y: (transform.y / output.height) * 2,
-    scaleX: transform.scaleX,
-    scaleY: transform.scaleY,
+    x: (transform.x / output.width) * 2 + (0.5 - transform.anchorX / 100) * scaleX * 2,
+    y: (transform.y / output.height) * 2 + (0.5 - transform.anchorY / 100) * scaleY * 2,
+    scaleX,
+    scaleY,
     rotation: transform.rotation,
     opacity,
     fit: transform.fit,

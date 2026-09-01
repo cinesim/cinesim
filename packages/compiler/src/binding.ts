@@ -332,8 +332,10 @@ export class Compilation {
         origin: animation.origin,
         keyframes: animation.keyframes.map((keyframe) => ({
           origin: keyframe.origin,
+          atUs: keyframe.at,
           at: keyframe.edits.at,
           value: keyframe.edits.value,
+          ...(keyframe.edits.easing ? { easing: keyframe.edits.easing } : {}),
         })),
       })),
     });
@@ -407,12 +409,24 @@ export class Compilation {
       easingNode === undefined
         ? undefined
         : evaluateAttribute(easingNode, context, this.#assets, "string");
+    const easingValue = easing?.value.kind === "string" ? easing.value.value : "linear";
+    if (!["linear", "hold", "ease-in", "ease-out", "ease-in-out"].includes(easingValue)) {
+      fail(
+        "KEYFRAME_EASING",
+        `Unsupported keyframe easing ${easingValue}.`,
+        easing?.readSpan ?? nodeLocation(context.module, child),
+      );
+    }
     return {
       at: at.value.valueUs,
       value: value.value,
-      easing: easing?.value.kind === "string" ? easing.value.value : "linear",
+      easing: easingValue,
       origin: nodeLocation(context.module, child),
-      edits: { at: at.edit, value: value.edit },
+      edits: {
+        at: at.edit,
+        value: value.edit,
+        ...(easing?.edit ? { easing: easing.edit } : {}),
+      },
     };
   }
 
@@ -442,6 +456,13 @@ export class Compilation {
       );
     }
     keyframes.sort((left, right) => left.at - right.at);
+    if (new Set(keyframes.map((keyframe) => keyframe.at)).size !== keyframes.length) {
+      fail(
+        "KEYFRAME_TIME",
+        "Keyframes in one animation must use unique times.",
+        nodeLocation(context.module, element),
+      );
+    }
     return { property, keyframes, origin: nodeLocation(context.module, element) };
   }
 

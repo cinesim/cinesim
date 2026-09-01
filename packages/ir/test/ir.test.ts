@@ -110,6 +110,38 @@ describe("semantic ir", () => {
 
   it("evaluates typed keyframes and produces timeline/render/audio projections", () => {
     const ir = program();
+    ir.compositions[0]!.timeline.tracks[0]!.clips[0]!.animations = [
+      {
+        property: "width",
+        keyframes: [
+          {
+            at: irTimeUs(0),
+            value: { kind: "length", unit: "px", value: 640 },
+            easing: "linear",
+          },
+          {
+            at: irTimeUs(1_000_000),
+            value: { kind: "length", unit: "px", value: 1280 },
+            easing: "linear",
+          },
+        ],
+      },
+      {
+        property: "cornerRadius",
+        keyframes: [
+          {
+            at: irTimeUs(0),
+            value: { kind: "length", unit: "px", value: 0 },
+            easing: "linear",
+          },
+          {
+            at: irTimeUs(1_000_000),
+            value: { kind: "length", unit: "px", value: 40 },
+            easing: "linear",
+          },
+        ],
+      },
+    ];
     validateIrProgram(ir, new Set(["asset_camera"]));
     expect(evaluateIrFrame(scene, 500_000).props.opacity).toEqual({ kind: "number", value: 0.5 });
     expect(projectTimeline(ir).durationUs).toBe(3_000_000);
@@ -117,6 +149,7 @@ describe("semantic ir", () => {
       clipId: "clip_camera",
       sourceTimeUs: 2_250_000,
       opacity: 0.5,
+      transform: { width: 800, cornerRadius: 10 },
     });
     expect(createAudioPlan(ir, 250_000).sources).toEqual([]);
   });

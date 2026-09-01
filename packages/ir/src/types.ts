@@ -327,8 +327,10 @@ export interface IrEditMapNode {
     origin: SourceSpan;
     keyframes: Array<{
       origin: SourceSpan;
+      atUs: IrTimeUs;
       at: IrEditTarget;
       value: IrEditTarget;
+      easing?: IrEditTarget;
     }>;
   }>;
 }
@@ -369,7 +371,17 @@ export type SemanticPatch =
       index: number;
       atUs?: IrTimeUs;
       value?: IrValue;
+      easing?: string;
     }
+  | {
+      type: "keyframe.add";
+      nodeId: string;
+      property: string;
+      atUs: IrTimeUs;
+      value: IrValue;
+      easing: string;
+    }
+  | { type: "keyframe.remove"; nodeId: string; property: string; index: number }
   | { type: "node.insert"; parentId: string; node: IrNodeTemplate; anchor?: string }
   | { type: "node.remove"; nodeId: string }
   | { type: "node.move"; nodeId: string; parentId: string; anchor?: string }

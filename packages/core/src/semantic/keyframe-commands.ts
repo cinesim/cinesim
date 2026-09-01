@@ -98,25 +98,110 @@ export function planKeyframeCommand(
   context: CommandContext,
   command: KeyframeCommand,
 ): SemanticCommandPlan {
-  if (command.atUs === undefined && command.value === undefined)
-    throw new CommandError("KEYFRAME_EMPTY", "Keyframe edit must change time or value.");
   const animation = findAnimation(context, command.nodeId, command.property);
-  const keyframe = animation?.keyframes[command.index];
-  if (!animation || !keyframe)
-    throw new CommandError("KEYFRAME_NOT_FOUND", "Keyframe binding was not found.");
+  if (!animation) throw new CommandError("KEYFRAME_NOT_FOUND", "Keyframe binding was not found.");
+  if (command.type === "keyframe.add") return addKeyframe(context, command, animation);
+  if (command.type === "keyframe.remove") return removeKeyframe(context, command, animation);
+  return setKeyframe(context, command, animation);
+}
+
+const EASINGS = new Set(["linear", "hold", "ease-in", "ease-out", "ease-in-out"]);
+
+function validEasing(easing: string | undefined): string | undefined {
+  if (easing !== undefined && !EASINGS.has(easing))
+    throw new CommandError("KEYFRAME_EASING", `Unsupported keyframe easing: ${easing}.`);
+  return easing;
+}
+
+function assertUniqueTime(animation: IrAnimation, at: number, excludedIndex = -1): void {
+  if (animation.keyframes.some((keyframe, index) => index !== excludedIndex && keyframe.at === at))
+    throw new CommandError("KEYFRAME_TIME", "Keyframes in one animation must use unique times.");
+}
+
+function setKeyframe(
+  context: CommandContext,
+  command: Extract<KeyframeCommand, { type: "keyframe.set" }>,
+  animation: IrAnimation,
+): SemanticCommandPlan {
+  const keyframe = setKeyframeTarget(command, animation);
+  const atUs = command.atUs === undefined ? undefined : irTimeUs(command.atUs);
+  if (atUs !== undefined) assertUniqueTime(animation, atUs, command.index);
+  const easing = validEasing(command.easing);
+  context.patches.push(setKeyframePatch(command, atUs, easing));
+  applyKeyframeChange(keyframe, command.value, atUs, easing);
+  animation.keyframes.sort((left, right) => left.at - right.at);
+  return finishCommand(context, command, `Updated ${command.property} keyframe.`, [command.nodeId]);
+}
+
+function setKeyframeTarget(
+  command: Extract<KeyframeCommand, { type: "keyframe.set" }>,
+  animation: IrAnimation,
+): IrAnimation["keyframes"][number] {
+  if (command.atUs === undefined && command.value === undefined && command.easing === undefined)
+    throw new CommandError("KEYFRAME_EMPTY", "Keyframe edit must change time, value, or easing.");
+  const keyframe = animation.keyframes[command.index];
+  if (!keyframe) throw new CommandError("KEYFRAME_NOT_FOUND", "Keyframe binding was not found.");
   if (command.value && command.value.kind !== keyframe.value.kind)
     throw new CommandError("KEYFRAME_TYPE", "Keyframe value type cannot change.");
-  const atUs = command.atUs === undefined ? undefined : irTimeUs(command.atUs);
-  if (atUs !== undefined) keyframe.at = atUs;
-  if (command.value !== undefined) keyframe.value = command.value;
-  animation.keyframes.sort((left, right) => left.at - right.at);
-  context.patches.push({
+  return keyframe;
+}
+
+function setKeyframePatch(
+  command: Extract<KeyframeCommand, { type: "keyframe.set" }>,
+  atUs: ReturnType<typeof irTimeUs> | undefined,
+  easing: string | undefined,
+): Extract<import("@cinesim/ir").SemanticPatch, { type: "keyframe.set" }> {
+  return {
     type: "keyframe.set",
     nodeId: command.nodeId,
     property: command.property,
     index: command.index,
     ...(atUs === undefined ? {} : { atUs }),
     ...(command.value === undefined ? {} : { value: command.value }),
-  });
-  return finishCommand(context, command, `Updated ${command.property} keyframe.`, [command.nodeId]);
+    ...(easing === undefined ? {} : { easing }),
+  };
+}
+
+function applyKeyframeChange(
+  keyframe: IrAnimation["keyframes"][number],
+  value: import("@cinesim/ir").IrValue | undefined,
+  atUs: ReturnType<typeof irTimeUs> | undefined,
+  easing: string | undefined,
+): void {
+  if (atUs !== undefined) keyframe.at = atUs;
+  if (value !== undefined) keyframe.value = value;
+  if (easing !== undefined) keyframe.easing = easing;
+}
+
+function addKeyframe(
+  context: CommandContext,
+  command: Extract<KeyframeCommand, { type: "keyframe.add" }>,
+  animation: IrAnimation,
+): SemanticCommandPlan {
+  const reference = animation.keyframes[0];
+  if (!reference || reference.value.kind !== command.value.kind)
+    throw new CommandError("KEYFRAME_TYPE", "New keyframe value must match the animation type.");
+  if (animation.keyframes.length >= 1024)
+    throw new CommandError("KEYFRAME_LIMIT", "Animation has reached the 1024-keyframe limit.");
+  const atUs = irTimeUs(command.atUs);
+  assertUniqueTime(animation, atUs);
+  const easing = validEasing(command.easing) ?? "linear";
+  animation.keyframes.push({ at: atUs, value: command.value, easing });
+  animation.keyframes.sort((left, right) => left.at - right.at);
+  context.patches.push({ ...command, atUs, easing });
+  return finishCommand(context, command, `Added ${command.property} keyframe.`, [command.nodeId]);
+}
+
+function removeKeyframe(
+  context: CommandContext,
+  command: Extract<KeyframeCommand, { type: "keyframe.remove" }>,
+  animation: IrAnimation,
+): SemanticCommandPlan {
+  if (!animation.keyframes[command.index])
+    throw new CommandError("KEYFRAME_NOT_FOUND", "Keyframe binding was not found.");
+  if (animation.keyframes.length <= 2)
+    throw new CommandError("KEYFRAME_COUNT", "Animation must retain at least two keyframes.");
+  animation.keyframes.splice(command.index, 1);
+  context.patches.push(command);
+  return finishCommand(context, command, `Removed ${command.property} keyframe.`, [command.nodeId]);
 }

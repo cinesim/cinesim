@@ -93,6 +93,27 @@ The incoming clip needs at least the transition duration before its selected sou
 Transition diamonds appear at their edit points in the full timeline. Picture and audio transitions
 remain independent canonical elements.
 
+## Animate typed properties
+
+Place an `animate` block under a clip, effect, caption cue, mask, or other scene node. Its `property`
+must name an existing typed property, it must contain at least two keys at unique local times, and
+every value must retain the property's type. Supported easing is `linear`, `hold`, `ease-in`,
+`ease-out`, or `ease-in-out`.
+
+```jsx
+<blur id="blur_focus" radius={px(0)}>
+  <animate property="radius">
+    <key at={seconds(0)} value={px(0)} easing="linear" />
+    <key at={seconds(1)} value={px(24)} easing="ease-in-out" />
+  </animate>
+</blur>
+```
+
+The Effects workspace uses the ordinary project viewer and timeline. Its capability-backed browser
+shows effects that execute in preview, and its keyframe editor can add a key at the playhead, move
+it, change any typed value or easing, and delete it while retaining the required two keys. Each
+completed control gesture is one validated command and one global undo step.
+
 ## Manage tracks
 
 Add video, overlay, or audio tracks and rename, mute, lock, or reorder them. Index `0` is the

@@ -39,7 +39,7 @@ export interface BoundKeyframe {
   value: IrValue;
   easing: string;
   origin: SourceSpan;
-  edits: { at: IrEditTarget; value: IrEditTarget };
+  edits: { at: IrEditTarget; value: IrEditTarget; easing?: IrEditTarget };
 }
 
 export interface BoundAnimation {
