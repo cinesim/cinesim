@@ -49,6 +49,9 @@ export class DesktopApplication implements ApplicationLifecycle {
     this.#configureEditorSession();
 
     const { appState, agentSettings } = await this.#loadLocalState();
+    this.projectStore.setDefaultAgentInstructions(
+      () => agentSettings.snapshot().projectInstructions,
+    );
     const cloudMedia = await this.#createCloudMedia(appState);
     await this.#openDiagnosticProject();
     await this.#registerMedia(cloudMedia);

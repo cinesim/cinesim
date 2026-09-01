@@ -27,6 +27,7 @@ const providerSettingsShape = {
 const settingsUpdateSchema = z
   .object({
     defaultProvider: providerSchema.optional(),
+    projectInstructions: z.string().max(20_000).optional(),
     provider: providerSchema.optional(),
     ...providerSettingsShape,
   })
@@ -55,9 +56,22 @@ const createInputSchema = z
   .pipe(z.custom<AgentCreateInput>());
 const turnContextSchema = z
   .object({
+    workspace: z.enum(["media", "cut", "edit", "effects"]).optional(),
     activeSequenceId: boundedIdSchema.optional(),
     playheadUs: z.number().int().safe().nonnegative().optional(),
     selectedIds: z.array(boundedIdSchema).max(100).optional(),
+    selectedAssetIds: z.array(boundedIdSchema).max(100).optional(),
+    selectedClipIds: z.array(boundedIdSchema).max(100).optional(),
+    compiler: z
+      .object({
+        diskValid: z.boolean(),
+        diagnosticCount: z.number().int().nonnegative(),
+        diagnostics: z
+          .array(z.object({ code: boundedIdSchema, message: z.string().max(2_000) }).strict())
+          .max(20),
+      })
+      .strict()
+      .optional(),
   })
   .strict()
   .default({})

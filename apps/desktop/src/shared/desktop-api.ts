@@ -106,6 +106,7 @@ export interface DesktopDerivedApi {
 export interface DesktopTranscriptApi {
   get(scope: DerivedProjectScope, assetIds?: string[]): Promise<TranscriptSnapshot>;
   requestJobs(scope: DerivedProjectScope, assetIds: string[]): Promise<TranscriptSnapshot>;
+  regenerateJobs(scope: DerivedProjectScope, assetIds: string[]): Promise<TranscriptSnapshot>;
   cancelJobs(scope: DerivedProjectScope, assetIds: string[]): Promise<TranscriptSnapshot>;
   beginJob(scope: DerivedProjectScope, assetId: string): Promise<{ jobId: string }>;
   transcribeChunk(scope: DerivedProjectScope, input: TranscriptAudioChunkInput): Promise<void>;

@@ -1,9 +1,8 @@
 import { useMemo, useState } from "react";
 import { useDraggable } from "@dnd-kit/core";
-import { CircleAlert, Cloud, Film, Plus, RotateCcw, Sparkles, X } from "@cinesim/ui";
+import { CircleAlert, Cloud, Film, Plus } from "@cinesim/ui";
 import {
   Button,
-  cn,
   Empty,
   EmptyDescription,
   EmptyHeader,
@@ -14,131 +13,23 @@ import {
   SearchField,
 } from "@cinesim/ui";
 import type { Asset, Project } from "@cinesim/core";
-import type { TranscriptAssetSnapshot } from "../../../shared/transcript";
 import { formatDuration } from "../../lib/format";
 import { useRendererStore } from "../../store/renderer-store-context";
 import { useEditorDnd } from "../workspace/editor-dnd-context";
 import { useEditorTransport } from "../workspace/editor-transport-context";
 import { assetCompatibilityLabel, AssetSourceMetadata } from "./asset-source-metadata";
 import { MediaSkimSurface } from "./media-skim-surface";
+import { MediaTranscriptBadge } from "./media-transcript-badge";
 
 interface EditMediaPoolProps {
   project: Project;
   sequenceId: string;
 }
 
-const transcriptLabels = {
-  missing: "Not transcribed",
-  queued: "Transcript queued",
-  running: "Transcribing",
-  ready: "Transcript ready",
-  failed: "Transcript failed",
-} as const;
-
-function transcriptStatusClass(state: keyof typeof transcriptLabels): string {
-  if (state === "ready") return "bg-accent";
-  if (state === "failed") return "bg-primary";
-  return state === "queued" || state === "running"
-    ? "animate-pulse bg-primary"
-    : "bg-border-strong";
-}
-
-function TranscriptAction({
-  asset,
-  available,
-  onCancel,
-  onRequest,
-  state,
-}: {
-  asset: Asset;
-  available: boolean;
-  onCancel: () => Promise<unknown>;
-  onRequest: () => void;
-  state: keyof typeof transcriptLabels;
-}) {
-  if (state === "queued" || state === "running") {
-    return (
-      <button
-        type="button"
-        className="inline-flex size-5 shrink-0 items-center justify-center rounded text-secondary hover:bg-surface hover:text-primary"
-        aria-label={`Cancel transcript for ${asset.name}`}
-        title="Cancel transcription"
-        onPointerDown={(event) => event.stopPropagation()}
-        onClick={(event) => {
-          event.stopPropagation();
-          void onCancel();
-        }}
-      >
-        <X size={11} />
-      </button>
-    );
-  }
-  if (state !== "missing" && state !== "failed") return null;
-  const action = state === "failed" ? "Retry" : "Generate";
-  return (
-    <button
-      type="button"
-      className="inline-flex size-5 shrink-0 items-center justify-center rounded text-secondary hover:bg-surface hover:text-primary disabled:opacity-40"
-      aria-label={`${action} transcript for ${asset.name}`}
-      title={available ? `${action} transcript` : "Sign in to transcribe"}
-      disabled={!available}
-      onPointerDown={(event) => event.stopPropagation()}
-      onClick={(event) => {
-        event.stopPropagation();
-        onRequest();
-      }}
-    >
-      {state === "failed" ? <RotateCcw size={11} /> : <Sparkles size={11} />}
-    </button>
-  );
-}
-
-function TranscriptStatus({
-  asset,
-  available,
-  onCancel,
-  onRequest,
-  transcript,
-}: {
-  asset: Asset;
-  available: boolean;
-  onCancel: () => Promise<unknown>;
-  onRequest: () => void;
-  transcript: TranscriptAssetSnapshot | undefined;
-}) {
-  const supported = asset.kind === "audio" || (asset.kind === "video" && asset.hasAudio === true);
-  if (!supported) return null;
-  const state = transcript?.state ?? "missing";
-  const progress =
-    state === "running" && transcript?.progress !== undefined
-      ? ` · ${Math.round(transcript.progress * 100)}%`
-      : "";
-  return (
-    <div className="mt-1 flex min-w-0 items-center gap-1.5 text-[10px]">
-      <span className={cn("size-1.5 shrink-0 rounded-full", transcriptStatusClass(state))} />
-      <span className="min-w-0 flex-1 truncate text-muted">
-        {transcriptLabels[state]}
-        {progress}
-      </span>
-      <TranscriptAction
-        asset={asset}
-        available={available}
-        onCancel={onCancel}
-        onRequest={onRequest}
-        state={state}
-      />
-    </div>
-  );
-}
-
 export function EditMediaPool({ project, sequenceId }: EditMediaPoolProps) {
   const [query, setQuery] = useState("");
   const appendAsset = useRendererStore((state) => state.appendAsset);
   const importMedia = useRendererStore((state) => state.importMedia);
-  const transcripts = useRendererStore((state) => state.transcripts);
-  const account = useRendererStore((state) => state.account);
-  const requestTranscripts = useRendererStore((state) => state.requestTranscripts);
-  const cancelTranscripts = useRendererStore((state) => state.cancelTranscripts);
   const normalizedQuery = query.trim().toLowerCase();
   const assets = useMemo(
     () => project.assets.filter((asset) => asset.name.toLowerCase().includes(normalizedQuery)),
@@ -164,10 +55,6 @@ export function EditMediaPool({ project, sequenceId }: EditMediaPoolProps) {
               <DraggableAssetCard
                 key={asset.id}
                 asset={asset}
-                transcript={transcripts?.assets[asset.id]}
-                transcriptionAvailable={account.status === "signed-in" && account.transcription}
-                onRequestTranscript={() => void requestTranscripts([asset.id])}
-                onCancelTranscript={() => cancelTranscripts([asset.id])}
                 onAddAsset={(asset) => appendAsset(asset.id, sequenceId)}
               />
             ))}
@@ -198,17 +85,9 @@ export function EditMediaPool({ project, sequenceId }: EditMediaPoolProps) {
 
 function DraggableAssetCard({
   asset,
-  transcript,
-  transcriptionAvailable,
-  onRequestTranscript,
-  onCancelTranscript,
   onAddAsset,
 }: {
   asset: Asset;
-  transcript: TranscriptAssetSnapshot | undefined;
-  transcriptionAvailable: boolean;
-  onRequestTranscript: () => void;
-  onCancelTranscript: () => Promise<unknown>;
   onAddAsset: (asset: Asset) => Promise<unknown>;
 }) {
   const editorDrag = useEditorDnd();
@@ -285,13 +164,7 @@ function DraggableAssetCard({
           asset={asset}
           className="edit-media-card-secondary mt-0.5 truncate text-[10px] text-muted tabular-nums"
         />
-        <TranscriptStatus
-          asset={asset}
-          available={transcriptionAvailable}
-          onCancel={onCancelTranscript}
-          onRequest={onRequestTranscript}
-          transcript={transcript}
-        />
+        <MediaTranscriptBadge asset={asset} className="mt-1" />
       </PreviewCard>
     </div>
   );

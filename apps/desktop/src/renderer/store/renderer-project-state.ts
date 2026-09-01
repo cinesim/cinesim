@@ -89,6 +89,7 @@ export function hydratedProjectState(
     destination: "project",
     projectSection: "media",
     activeSequenceId: session.timeline.compositionId,
+    selectedAssetIds: [],
     mediaPoolOpen: appState.mediaPoolOpenByProject[session.directory] ?? true,
     inspectorOpen: appState.inspectorOpenByProject[session.directory] ?? true,
     notesOpen: appState.notesOpenByProject[session.directory] ?? true,

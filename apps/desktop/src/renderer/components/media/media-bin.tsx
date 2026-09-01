@@ -2,6 +2,8 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { X } from "@cinesim/ui";
 import { Button, Kbd, SearchField } from "@cinesim/ui";
 import type { Asset, AssetId, Project, Sequence } from "@cinesim/core";
+import type { CloudTransferSnapshot } from "../../../shared/contracts";
+import type { TranscriptSnapshot } from "../../../shared/transcript";
 import { useRendererStore } from "../../store/renderer-store-context";
 import { LibraryToolbar, LibraryViewToggle, useLibraryView } from "../shared/library-card";
 import { assetNeedsEditProxy } from "./media-actions";
@@ -16,6 +18,26 @@ import { useMediaBinSelection } from "./use-media-bin-selection";
 interface MediaBinProps {
   project: Project;
   onOpenTimeline: (sequenceId: string) => void;
+}
+
+type TranscriptAction = "generate" | "regenerate" | "cancel" | null;
+
+function transcriptActionFor(
+  assets: readonly Asset[],
+  transcripts: TranscriptSnapshot | null,
+): TranscriptAction {
+  if (assets.length === 0) return null;
+  const states = assets.map((asset) => transcripts?.assets[asset.id]?.state ?? "missing");
+  if (states.some((state) => state === "queued" || state === "running")) return "cancel";
+  return states.some((state) => state === "ready") ? "regenerate" : "generate";
+}
+
+function retryableAssetId(
+  asset: Asset | undefined,
+  transfer: CloudTransferSnapshot | undefined,
+): AssetId | null {
+  if (!asset || !transfer) return null;
+  return ["waiting-for-cloud", "paused", "failed"].includes(transfer.state) ? asset.id : null;
 }
 
 export function MediaBin({ project, onOpenTimeline }: MediaBinProps) {
@@ -55,8 +77,14 @@ export function MediaBin({ project, onOpenTimeline }: MediaBinProps) {
   const appendAsset = useRendererStore((state) => state.appendAsset);
   const execute = useRendererStore((state) => state.execute);
   const activeSequenceId = useRendererStore((state) => state.activeSequenceId);
+  const setSelectedAssetIds = useRendererStore((state) => state.setSelectedAssetIds);
   const cloudTransfers = useRendererStore((state) => state.cloudTransfers);
   const derivedMedia = useRendererStore((state) => state.derivedMedia);
+  const transcripts = useRendererStore((state) => state.transcripts);
+  const account = useRendererStore((state) => state.account);
+  const requestTranscripts = useRendererStore((state) => state.requestTranscripts);
+  const regenerateTranscripts = useRendererStore((state) => state.regenerateTranscripts);
+  const cancelTranscripts = useRendererStore((state) => state.cancelTranscripts);
   const downloadedCloudOriginals = useRendererStore((state) => state.downloadedCloudOriginals);
   const retryCloudTransfer = useRendererStore((state) => state.retryCloudTransfer);
   const keepCloudOriginalDownloaded = useRendererStore(
@@ -72,17 +100,22 @@ export function MediaBin({ project, onOpenTimeline }: MediaBinProps) {
   const selectedTransfer = selectedAsset
     ? cloudTransfers.find((transfer) => transfer.assetId === selectedAsset.id)
     : undefined;
-  const retryAssetId =
-    selectedAsset &&
-    selectedTransfer &&
-    ["waiting-for-cloud", "paused", "failed"].includes(selectedTransfer.state)
-      ? selectedAsset.id
-      : null;
+  const retryAssetId = retryableAssetId(selectedAsset, selectedTransfer);
   const selectedCloudAsset = selectedAsset?.source.kind === "cloud" ? selectedAsset : null;
   const selectedProxyAssets = selectedAssets.filter((asset) =>
     assetNeedsEditProxy(asset, derivedMedia?.assets[asset.id]),
   );
+  const selectedTranscriptAssets = selectedAssets.filter(
+    (asset) => asset.kind === "audio" || (asset.kind === "video" && asset.hasAudio === true),
+  );
+  const transcriptAction = transcriptActionFor(selectedTranscriptAssets, transcripts);
   const importMedia = useCallback(async () => importProjectMedia(), [importProjectMedia]);
+
+  useEffect(() => {
+    setSelectedAssetIds([...selection.selectedIds]);
+  }, [selection.selectedIds, setSelectedAssetIds]);
+
+  useEffect(() => () => setSelectedAssetIds([]), [setSelectedAssetIds]);
 
   useEffect(() => {
     function shortcut(event: KeyboardEvent) {
@@ -164,6 +197,13 @@ export function MediaBin({ project, onOpenTimeline }: MediaBinProps) {
     else void keepCloudOriginalDownloaded(assetId);
   }
 
+  function runTranscriptAction() {
+    const assetIds = selectedTranscriptAssets.map((asset) => asset.id);
+    if (transcriptAction === "cancel") void cancelTranscripts(assetIds);
+    else if (transcriptAction === "regenerate") void regenerateTranscripts(assetIds);
+    else if (transcriptAction === "generate") void requestTranscripts(assetIds);
+  }
+
   return (
     <section className="relative flex h-full min-h-0 flex-col bg-canvas">
       <LibraryToolbar
@@ -210,6 +250,8 @@ export function MediaBin({ project, onOpenTimeline }: MediaBinProps) {
           retryAssetId={retryAssetId}
           selectedAssetIds={selection.selectedIds}
           selectedCount={selectedCount}
+          transcriptAction={transcriptAction}
+          transcriptionAvailable={account.status === "signed-in" && account.transcription}
           onClearSelection={selection.clear}
           onCreateTimeline={requestTimelineCreation}
           onGenerateProxies={() => void generateSelectedProxies()}
@@ -219,6 +261,7 @@ export function MediaBin({ project, onOpenTimeline }: MediaBinProps) {
           onRetryCloudTransfer={(assetId) => void retryCloudTransfer(assetId)}
           onSelectOnly={selection.selectOnly}
           onToggleCloudOriginal={toggleCloudOriginal}
+          onTranscriptAction={runTranscriptAction}
         >
           {view === "grid" ? (
             <MediaBinGrid

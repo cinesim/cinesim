@@ -95,6 +95,12 @@ export function AgentSettings() {
     setSettings(next);
   }
 
+  async function updateProjectInstructions(value: string): Promise<void> {
+    const next = await window.cinesim.agents.updateSettings({ projectInstructions: value });
+    cacheAgentSettings(next);
+    setSettings(next);
+  }
+
   if (!settings)
     return (
       <div className="min-h-40" aria-busy="true">
@@ -252,6 +258,24 @@ export function AgentSettings() {
           )}
         </TabsContent>
       </Tabs>
+
+      <div className="mt-7 divide-y divide-border rounded-xl border border-border bg-panel">
+        <SettingRow
+          title="Project instructions"
+          detail="Default custom suffix added after Cinesim's managed AGENTS.md guidance for new projects."
+        >
+          <textarea
+            className="min-h-28 w-full resize-y rounded-md border border-border bg-canvas px-3 py-2 text-ui text-primary outline-none focus-visible:ring-2 focus-visible:ring-focus"
+            value={settings.projectInstructions}
+            placeholder="Creative standards, naming rules, or team-specific guidance"
+            maxLength={20_000}
+            onChange={(event) =>
+              setSettings({ ...settings, projectInstructions: event.target.value })
+            }
+            onBlur={(event) => void updateProjectInstructions(event.target.value)}
+          />
+        </SettingRow>
+      </div>
     </>
   );
 }

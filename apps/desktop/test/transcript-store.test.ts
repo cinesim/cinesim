@@ -219,6 +219,8 @@ describe("transcript artifact store", () => {
       ),
     );
     expect(saved.words).toEqual(snapshot.assets[asset.id]?.artifact?.words);
+    expect((await store.requestJobs(scope, [asset.id])).assets[asset.id]?.state).toBe("ready");
+    expect((await store.regenerateJobs(scope, [asset.id])).assets[asset.id]?.state).toBe("queued");
   });
 
   it("leaves an interrupted running job queued on disk and exposes it as running in memory", async () => {

@@ -9,6 +9,9 @@ export function registerTranscriptIpc(store: TranscriptStore): void {
   registerIpcHandler(transcriptContracts.request, ({ scope, assetIds }) =>
     store.requestJobs(scope, assetIds),
   );
+  registerIpcHandler(transcriptContracts.regenerate, ({ scope, assetIds }) =>
+    store.regenerateJobs(scope, assetIds),
+  );
   registerIpcHandler(transcriptContracts.cancel, ({ scope, assetIds }) =>
     store.cancelJobs(scope, assetIds),
   );

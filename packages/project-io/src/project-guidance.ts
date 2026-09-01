@@ -1,10 +1,19 @@
 import { parse, stringify } from "smol-toml";
+import { PROJECT_SETTING_DEFINITIONS } from "@cinesim/core";
 
 export const CINESIM_GUIDANCE_VERSION = 1;
 const MANAGED_START = `<!-- cinesim:managed-guidance:v${CINESIM_GUIDANCE_VERSION}:start -->`;
 const MANAGED_END = "<!-- cinesim:managed-guidance:end -->";
 
-const MANAGED_GUIDANCE = `${MANAGED_START}
+function settingsGuidance(): string {
+  return PROJECT_SETTING_DEFINITIONS.map(
+    ({ table, tomlKey, title, defaultValue }) =>
+      `- \`[${table}].${tomlKey}\` — ${title}; default ${JSON.stringify(defaultValue)}.`,
+  ).join("\n");
+}
+
+function managedGuidance(): string {
+  return `${MANAGED_START}
 # Cinesim project guidance
 
 - Canonical state is \`cinesim.toml\`, \`assets.toml\`, and reachable \`.js\`/\`.jsx\` source modules.
@@ -14,7 +23,12 @@ const MANAGED_GUIDANCE = `${MANAGED_START}
 - Reference imported media with \`asset("asset_id")\` IDs declared in \`assets.toml\`; never move, overwrite, or delete source media.
 - Use Cinesim MCP for inspection, perception, compiler/language help, and disposable services—not canonical editing.
 - Everything under \`.video/\` is disposable derived/runtime data and does not belong in canonical history.
+
+## Project settings
+
+${settingsGuidance()}
 ${MANAGED_END}`;
+}
 
 function customSuffix(existing: string): string {
   const managedEnd = existing.indexOf(MANAGED_END);
@@ -30,7 +44,7 @@ function customSuffix(existing: string): string {
 
 export function renderProjectAgents(customInstructions = ""): string {
   const custom = customInstructions.trim();
-  return `${MANAGED_GUIDANCE}\n\n# Custom instructions\n${custom ? `\n${custom}\n` : ""}`;
+  return `${managedGuidance()}\n\n# Custom instructions\n${custom ? `\n${custom}\n` : ""}`;
 }
 
 export function mergeProjectAgents(existing: string | null, defaultCustom = ""): string {

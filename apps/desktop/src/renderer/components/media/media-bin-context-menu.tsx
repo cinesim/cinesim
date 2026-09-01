@@ -1,6 +1,6 @@
 import { useState } from "react";
 import type { ReactNode } from "react";
-import { Film, HardDriveDownload, ListPlus, RotateCcw, Trash2, X } from "@cinesim/ui";
+import { Film, HardDriveDownload, ListPlus, RotateCcw, Sparkles, Trash2, X } from "@cinesim/ui";
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger } from "@cinesim/ui";
 import type { AssetId } from "@cinesim/core";
 
@@ -23,10 +23,19 @@ interface MediaBinContextMenuProps {
   onRetryCloudTransfer: (assetId: AssetId) => void;
   onSelectOnly: (assetId: AssetId) => void;
   onToggleCloudOriginal: (assetId: AssetId) => void;
+  onTranscriptAction: () => void;
   retryAssetId: AssetId | null;
   selectedAssetIds: ReadonlySet<AssetId>;
   selectedCount: number;
+  transcriptAction: "generate" | "regenerate" | "cancel" | null;
+  transcriptionAvailable: boolean;
 }
+
+const transcriptActionLabels = {
+  generate: "Generate transcript",
+  regenerate: "Regenerate transcript",
+  cancel: "Cancel transcription",
+} as const;
 
 function contextTarget(value: EventTarget): LocatedContextMenuTarget | null {
   if (!(value instanceof Element)) return null;
@@ -48,6 +57,14 @@ function AssetMenuItems(props: MediaBinContextMenuProps) {
       {props.hasProxyAssets && (
         <ContextMenuItem onClick={props.onGenerateProxies}>
           <Film size={14} /> Generate edit {props.selectedCount === 1 ? "proxy" : "proxies"}
+        </ContextMenuItem>
+      )}
+      {props.transcriptAction && (
+        <ContextMenuItem
+          disabled={props.transcriptAction !== "cancel" && !props.transcriptionAvailable}
+          onClick={props.onTranscriptAction}
+        >
+          <Sparkles size={14} /> {transcriptActionLabels[props.transcriptAction]}
         </ContextMenuItem>
       )}
       {props.retryAssetId && (

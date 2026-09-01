@@ -18,6 +18,7 @@ import { assetCompatibilityLabel, AssetSourceMetadata } from "./asset-source-met
 import { assetStoragePresentation } from "./media-bin-model";
 import type { AssetStorageStatus } from "./media-bin-model";
 import { MediaSkimSurface } from "./media-skim-surface";
+import { MediaTranscriptBadge } from "./media-transcript-badge";
 
 interface MediaBinGridProps {
   assets: readonly Asset[];
@@ -140,6 +141,7 @@ export function MediaBinGrid({
               }
               bottomCorner={
                 <div className="flex items-center gap-1.5">
+                  <MediaTranscriptBadge asset={asset} />
                   <span
                     className="flex items-center gap-1 rounded bg-panel/90 px-1.5 py-0.5 text-ui-xs text-secondary"
                     title={transfer?.error ?? storage.label}

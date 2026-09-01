@@ -16,6 +16,7 @@ import type { AgentExecutableIdentity } from "./executable-trust";
 const DEFAULT_SETTINGS: AgentSettings = {
   version: 1,
   defaultProvider: "claude",
+  projectInstructions: "",
   providers: {
     claude: { executablePath: "", model: "sonnet", effort: "high", permissionMode: "supervised" },
     codex: {
@@ -60,6 +61,10 @@ function parseSettings(value: unknown): AgentSettings {
   return {
     version: 1,
     defaultProvider: isProvider(candidate.defaultProvider) ? candidate.defaultProvider : "claude",
+    projectInstructions:
+      typeof candidate.projectInstructions === "string"
+        ? candidate.projectInstructions.slice(0, 20_000)
+        : "",
     providers: {
       claude: parseProviderSettings("claude", providers.claude),
       codex: parseProviderSettings("codex", providers.codex),
@@ -127,6 +132,8 @@ export class AgentSettingsStore {
 
   async update(update: AgentSettingsUpdate): Promise<AgentSettings> {
     if (update.defaultProvider) this.#settings.defaultProvider = update.defaultProvider;
+    if (update.projectInstructions !== undefined)
+      this.#settings.projectInstructions = update.projectInstructions.slice(0, 20_000);
     if (update.provider) {
       const current = this.#settings.providers[update.provider];
       this.#settings.providers[update.provider] = {

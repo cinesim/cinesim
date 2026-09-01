@@ -93,6 +93,7 @@ export interface CreateSourceProjectOptions {
   settings?: ProjectSettings;
   entry?: string;
   compositionId?: string;
+  agentInstructions?: string;
 }
 
 export class SourceProjectConflictError extends Error {
@@ -229,6 +230,15 @@ export class SourceProjectRepository {
     return new SourceProjectRepository(paths, fileSystem);
   }
 
+  /** Compile the canonical files without locks, recovery, history, or any filesystem writes. */
+  static async inspect(
+    directory: string,
+    fileSystem: ProjectFileSystem = nodeProjectFileSystem,
+  ): Promise<SourceProjectSnapshot> {
+    const paths = await ProjectPaths.open(directory, fileSystem);
+    return new SourceProjectRepository(paths, fileSystem).#inspectUnlocked({});
+  }
+
   static async create(
     directory: string,
     options: CreateSourceProjectOptions,
@@ -260,7 +270,7 @@ export class SourceProjectRepository {
         options.height ?? 1080,
         options.frameRate ?? 30,
       ),
-      "AGENTS.md": renderProjectAgents(),
+      "AGENTS.md": renderProjectAgents(options.agentInstructions),
       "CLAUDE.md": mergeClaudeInstructions(null),
       ".mcp.json": mergeClaudeMcpConfig(null),
       ".codex/config.toml": mergeCodexMcpConfig(null),
@@ -474,6 +484,12 @@ export class SourceProjectRepository {
 
   async #loadUnlocked(overlay: Readonly<Record<string, string>>): Promise<SourceProjectSnapshot> {
     await this.#recover();
+    return this.#inspectUnlocked(overlay);
+  }
+
+  async #inspectUnlocked(
+    overlay: Readonly<Record<string, string>>,
+  ): Promise<SourceProjectSnapshot> {
     const manifestSource =
       overlay[MANIFEST] ??
       (await this.fileSystem.readFile(await this.paths.assertSafeFile(MANIFEST, false), "utf8"));

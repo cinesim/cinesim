@@ -1,5 +1,5 @@
 import { timeUs } from "@cinesim/core";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { access, lstat, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
@@ -48,6 +48,28 @@ describe("AgentMcpServer", () => {
       onProjectChanged: () => undefined,
     });
     await server.start();
+    const brokerPath = join(project.directory, ".video", "mcp", "broker.json");
+    const broker = JSON.parse(await readFile(brokerPath, "utf8")) as {
+      url: string;
+      token: string;
+      projectDirectory: string;
+    };
+    expect(broker).toMatchObject({
+      projectDirectory: project.directory,
+      url: expect.stringMatching(/^http:\/\/127\.0\.0\.1:/u),
+      token: expect.stringMatching(/^[a-f0-9]{64}$/u),
+    });
+    expect((await lstat(brokerPath)).mode & 0o077).toBe(0);
+    const externalClient = new Client({ name: "external-cinesim-test", version: "0.1.0" });
+    await externalClient.connect(
+      new StreamableHTTPClientTransport(new URL(broker.url), {
+        requestInit: { headers: { Authorization: `Bearer ${broker.token}` } },
+      }) as Parameters<typeof externalClient.connect>[0],
+    );
+    await expect(externalClient.listTools()).resolves.toMatchObject({
+      tools: expect.arrayContaining([expect.objectContaining({ name: "project_status" })]),
+    });
+    await externalClient.close();
     const credential = server.registerSession({
       sessionId: "session-1",
       projectDirectory: project.directory,
@@ -109,5 +131,7 @@ describe("AgentMcpServer", () => {
     await client.close();
 
     await server.close();
+    await expect(access(brokerPath)).rejects.toMatchObject({ code: "ENOENT" });
+    await projectStore.close();
   });
 });

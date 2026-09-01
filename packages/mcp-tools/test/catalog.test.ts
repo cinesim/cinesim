@@ -46,6 +46,21 @@ function catalogServer(onOperation: () => void = () => undefined): McpServer {
       candidateDiagnostics: [],
       lastValidComposition: project.activeSequenceId,
     }),
+    languageSearch: async (query) => [
+      {
+        id: "recipe:fixture",
+        kind: "recipe",
+        title: "Fixture recipe",
+        summary: query,
+        capability: { compiler: "supported", preview: "supported", export: "unsupported" },
+      },
+    ],
+    transcriptGet: async (assetId) => ({ assetId, state: "missing", words: [] }),
+    timelineTranscriptGet: async (sequenceId) => ({
+      sequenceId: sequenceId ?? project.activeSequenceId,
+      words: [],
+    }),
+    transcriptJobs: async (action, assetIds) => ({ action, assetIds }),
     perform: async (_tool, operation) => {
       onOperation();
       return textResult(await operation());
@@ -74,6 +89,14 @@ describe("Cinesim inspection and perception MCP catalog", () => {
     await expect(
       client.callTool({ name: "project_inspect", arguments: {} }),
     ).resolves.toMatchObject({ structuredContent: { version: 2 } });
+    await expect(
+      client.callTool({ name: "language_search", arguments: { query: "cutaway", limit: 4 } }),
+    ).resolves.toMatchObject({
+      structuredContent: {
+        query: "cutaway",
+        results: [expect.objectContaining({ id: "recipe:fixture" })],
+      },
+    });
     await client.close();
     await server.close();
   });

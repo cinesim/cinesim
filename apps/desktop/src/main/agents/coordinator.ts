@@ -261,11 +261,25 @@ export class AgentCoordinator implements AgentToolHooks {
   }
 
   #runtimeMessage(message: string, context: AgentTurnContext): string {
+    const compiler = context.compiler;
     const contextLines = [
       `Project revision: ${this.projectStore.session().revision}`,
+      context.workspace ? `Workspace: ${context.workspace}` : "",
       context.activeSequenceId ? `Active sequence: ${context.activeSequenceId}` : "",
       context.playheadUs === undefined ? "" : `Playhead: ${context.playheadUs} microseconds`,
       context.selectedIds?.length ? `Selected IDs: ${context.selectedIds.join(", ")}` : "",
+      context.selectedAssetIds?.length
+        ? `Selected assets: ${context.selectedAssetIds.join(", ")}`
+        : "",
+      context.selectedClipIds?.length
+        ? `Selected clips: ${context.selectedClipIds.join(", ")}`
+        : "",
+      compiler
+        ? `Compiler: disk ${compiler.diskValid ? "valid" : "invalid"}; ${compiler.diagnosticCount} diagnostic(s)`
+        : "",
+      ...(compiler?.diagnostics.map(
+        (diagnostic) => `Compiler diagnostic ${diagnostic.code}: ${diagnostic.message}`,
+      ) ?? []),
     ].filter(Boolean);
     return `${contextLines.join("\n")}\n\nUser request:\n${message}`;
   }

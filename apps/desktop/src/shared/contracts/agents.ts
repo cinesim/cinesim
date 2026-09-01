@@ -12,6 +12,7 @@ export interface AgentProviderSettings {
 export interface AgentSettings {
   version: 1;
   defaultProvider: AgentProviderKind;
+  projectInstructions: string;
   providers: Record<AgentProviderKind, AgentProviderSettings>;
 }
 
@@ -136,9 +137,17 @@ export interface AgentProjectDelta {
 }
 
 export interface AgentTurnContext {
+  workspace?: "media" | "cut" | "edit" | "effects";
   activeSequenceId?: string;
   playheadUs?: number;
   selectedIds?: string[];
+  selectedAssetIds?: string[];
+  selectedClipIds?: string[];
+  compiler?: {
+    diskValid: boolean;
+    diagnosticCount: number;
+    diagnostics: Array<{ code: string; message: string }>;
+  };
 }
 
 export interface AgentCreateInput {
@@ -157,6 +166,7 @@ export interface AgentSessionUpdate {
 
 export interface AgentSettingsUpdate {
   defaultProvider?: AgentProviderKind;
+  projectInstructions?: string;
   provider?: AgentProviderKind;
   model?: string;
   effort?: AgentEffort;

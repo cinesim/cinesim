@@ -47,11 +47,16 @@ export class DesktopProjectStore {
   readonly #listeners = new Set<(session: DesktopProjectSession) => void>();
   #revision = 0;
   #operationQueue: Promise<unknown> = Promise.resolve();
+  #defaultAgentInstructions: () => string = () => "";
 
   constructor(accountService: DesktopAccountService | null = null) {
     this.transcripts = new TranscriptStore(accountService, (assetId) =>
       this.derivedMedia.sourceFingerprint(assetId),
     );
+  }
+
+  setDefaultAgentInstructions(provider: () => string): void {
+    this.#defaultAgentInstructions = provider;
   }
 
   get directory(): string | null {
@@ -100,6 +105,7 @@ export class DesktopProjectStore {
       const snapshot = await SourceProjectRepository.create(directory, {
         id: projectId,
         name,
+        agentInstructions: this.#defaultAgentInstructions(),
         ...(typeof input === "string" || input.cloudProjectId === undefined
           ? {}
           : { cloudProjectId: input.cloudProjectId }),
@@ -114,6 +120,7 @@ export class DesktopProjectStore {
       this.#revision = 1;
       this.#attachWatcher();
       await this.#publishDependentProject();
+      this.#notify();
       return this.session();
     });
   }
@@ -155,6 +162,7 @@ export class DesktopProjectStore {
           preparedDerived,
         });
         const session = this.session();
+        this.#notify();
         log.info(
           {
             operationId,

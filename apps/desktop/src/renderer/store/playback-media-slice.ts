@@ -75,6 +75,24 @@ export function createPlaybackMediaSlice(context: RendererStoreContext): Playbac
         return { ok: false, error: message };
       }
     },
+    regenerateTranscripts: async (assetIds) => {
+      const session = sessionFromLifecycle(get().project);
+      if (!session) return { ok: false, error: "Open a project before regenerating transcripts" };
+      if (get().account.status !== "signed-in" || !get().account.transcription) {
+        const error = "Sign in to transcribe media";
+        set({ operationError: error });
+        return { ok: false, error };
+      }
+      try {
+        const snapshot = await api.transcripts.regenerateJobs(session.derivedScope, assetIds);
+        set({ transcripts: snapshot, operationError: null });
+        return { ok: true, value: snapshot };
+      } catch (error) {
+        const message = messageFrom(error, "Transcription could not be regenerated");
+        set({ operationError: message });
+        return { ok: false, error: message };
+      }
+    },
     cancelTranscripts: async (assetIds) => {
       const session = sessionFromLifecycle(get().project);
       if (!session) return { ok: false, error: "Open a project before canceling transcripts" };

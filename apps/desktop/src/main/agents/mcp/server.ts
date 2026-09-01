@@ -1,17 +1,28 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
+import { chmod, rename, rm, writeFile } from "node:fs/promises";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { localDerivedFile, registerCinesimMcpTools } from "@cinesim/mcp-tools";
 import type { CinesimMcpToolRuntime } from "@cinesim/mcp-tools";
+import { searchLanguageReference } from "@cinesim/compiler";
 import { ProjectPaths } from "@cinesim/project-io";
 import type { AgentPermissionMode } from "../../../shared/contracts";
 import type { DesktopProjectStore } from "../../projects/project-store";
+import { projectTimelineTranscript } from "../../../shared/transcript";
+import type { TranscriptSnapshot } from "../../../shared/transcript";
 
 interface AgentToolSession {
   sessionId: string;
   token: string;
   projectDirectory: string;
   permissionMode: AgentPermissionMode;
+  external: boolean;
+}
+
+interface ProjectBroker {
+  directory: string;
+  path: string;
+  sessionId: string;
 }
 
 export interface AgentToolHooks {
@@ -46,10 +57,32 @@ function jsonResult(value: Record<string, unknown>) {
   };
 }
 
+function rangeEnd(fromUs: number, toUs: number | undefined): number {
+  if (toUs !== undefined && toUs <= fromUs) throw new Error("toUs must be greater than fromUs");
+  return toUs ?? Number.MAX_SAFE_INTEGER;
+}
+
+function transcriptStates(snapshot: TranscriptSnapshot): Record<string, unknown> {
+  return {
+    assets: Object.fromEntries(
+      Object.entries(snapshot.assets).map(([assetId, record]) => [
+        assetId,
+        {
+          state: record?.state ?? "missing",
+          ...(record?.failureCode ? { failureCode: record.failureCode } : {}),
+        },
+      ]),
+    ),
+  };
+}
+
 export class AgentMcpServer {
   #sessionsByToken = new Map<string, AgentToolSession>();
   #server = createServer((request, response) => void this.#handle(request, response));
   #url: string | null = null;
+  #broker: ProjectBroker | null = null;
+  #brokerQueue: Promise<void> = Promise.resolve();
+  #unsubscribeProject: (() => void) | null = null;
 
   constructor(
     private readonly projectStore: DesktopProjectStore,
@@ -68,6 +101,8 @@ export class AgentMcpServer {
     const address = this.#server.address();
     if (!address || typeof address === "string") throw new Error("Could not bind agent MCP server");
     this.#url = `http://127.0.0.1:${address.port}/mcp`;
+    this.#unsubscribeProject = this.projectStore.subscribe(() => this.#scheduleBrokerSync());
+    await this.#syncProjectBroker();
   }
 
   registerSession(input: {
@@ -77,7 +112,7 @@ export class AgentMcpServer {
   }): { url: string; token: string } {
     if (!this.#url) throw new Error("Agent MCP server has not started");
     const token = crypto.randomUUID().replaceAll("-", "") + crypto.randomUUID().replaceAll("-", "");
-    this.#sessionsByToken.set(token, { ...input, token });
+    this.#sessionsByToken.set(token, { ...input, token, external: false });
     return { url: this.#url, token };
   }
 
@@ -88,8 +123,57 @@ export class AgentMcpServer {
   }
 
   async close(): Promise<void> {
+    this.#unsubscribeProject?.();
+    this.#unsubscribeProject = null;
+    await this.#brokerQueue.catch(() => undefined);
+    await this.#removeBroker();
     this.#sessionsByToken.clear();
     await new Promise<void>((resolve) => this.#server.close(() => resolve()));
+  }
+
+  #scheduleBrokerSync(): void {
+    this.#brokerQueue = this.#brokerQueue
+      .catch(() => undefined)
+      .then(() => this.#syncProjectBroker());
+  }
+
+  async #syncProjectBroker(): Promise<void> {
+    const projectDirectory = this.projectStore.directory;
+    if (!this.#url || !projectDirectory) {
+      await this.#removeBroker();
+      return;
+    }
+    if (this.#broker?.directory === projectDirectory) return;
+    await this.#removeBroker();
+    const sessionId = `external:${crypto.randomUUID()}`;
+    const token = crypto.randomUUID().replaceAll("-", "") + crypto.randomUUID().replaceAll("-", "");
+    this.#sessionsByToken.set(token, {
+      sessionId,
+      token,
+      projectDirectory,
+      permissionMode: "auto-edit",
+      external: true,
+    });
+    const paths = await ProjectPaths.open(projectDirectory);
+    await paths.ensureLayout(["mcp"]);
+    const path = await paths.assertSafeDerivedFile(".video/mcp/broker.json");
+    const temporary = `${path}.${crypto.randomUUID()}.tmp`;
+    await writeFile(
+      temporary,
+      `${JSON.stringify({ version: 1, projectDirectory, url: this.#url, token }, null, 2)}\n`,
+      { mode: 0o600 },
+    );
+    await chmod(temporary, 0o600);
+    await rename(temporary, path);
+    this.#broker = { directory: projectDirectory, path, sessionId };
+  }
+
+  async #removeBroker(): Promise<void> {
+    const broker = this.#broker;
+    if (!broker) return;
+    this.revokeSession(broker.sessionId);
+    this.#broker = null;
+    await rm(broker.path, { force: true }).catch(() => undefined);
   }
 
   async #handle(request: IncomingMessage, response: ServerResponse): Promise<void> {
@@ -170,7 +254,72 @@ export class AgentMcpServer {
           backgroundJobs: this.projectStore.derivedMedia.snapshot().jobs,
         };
       },
+      languageSearch: async (query, limit) =>
+        searchLanguageReference(query, limit) as unknown as Record<string, unknown>[],
+      transcriptGet: async (assetId, fromUs, toUs, limit) => {
+        const snapshot = await this.projectStore.transcripts.snapshot(
+          this.projectStore.derivedMedia.scope(),
+          [assetId],
+        );
+        const record = snapshot.assets[assetId as `asset_${string}`];
+        const endUs = rangeEnd(fromUs, toUs);
+        const matching = (record?.artifact?.words ?? []).filter(
+          (word) => word.sourceEndUs > fromUs && word.sourceStartUs < endUs,
+        );
+        return {
+          assetId,
+          state: record?.state ?? "missing",
+          ...(record?.failureCode ? { failureCode: record.failureCode } : {}),
+          ...(record?.artifact
+            ? {
+                language: record.artifact.language,
+                sourceFingerprint: record.artifact.sourceFingerprint,
+                words: matching.slice(0, limit),
+                truncated: matching.length > limit,
+              }
+            : {}),
+        };
+      },
+      timelineTranscriptGet: async (sequenceId, fromUs, toUs, limit) => {
+        const project = requireProject();
+        const selectedSequenceId = sequenceId ?? project.activeSequenceId;
+        const sequence = project.sequences.find((candidate) => candidate.id === selectedSequenceId);
+        if (!sequence) throw new Error(`Unknown timeline: ${selectedSequenceId}`);
+        const assetIds = [
+          ...new Set(sequence.tracks.flatMap((track) => track.clips.map((clip) => clip.assetId))),
+        ];
+        const transcripts = await this.projectStore.transcripts.snapshot(
+          this.projectStore.derivedMedia.scope(),
+          assetIds,
+        );
+        const endUs = rangeEnd(fromUs, toUs);
+        const projection = projectTimelineTranscript({
+          project,
+          sequenceId: selectedSequenceId,
+          transcripts,
+        });
+        const matching = projection.words.filter(
+          (word) => word.timelineEndUs > fromUs && word.timelineStartUs < endUs,
+        );
+        return {
+          sequenceId: selectedSequenceId,
+          words: matching.slice(0, limit),
+          coverage: projection.coverage,
+          truncated: matching.length > limit,
+        };
+      },
+      transcriptJobs: async (action, assetIds) => {
+        const scope = this.projectStore.derivedMedia.scope();
+        const snapshot =
+          action === "generate"
+            ? await this.projectStore.transcripts.requestJobs(scope, assetIds)
+            : action === "regenerate"
+              ? await this.projectStore.transcripts.regenerateJobs(scope, assetIds)
+              : await this.projectStore.transcripts.cancelJobs(scope, assetIds);
+        return transcriptStates(snapshot);
+      },
       perform: async (tool, operation) => {
+        if (session.external) return jsonResult(await operation());
         const eventId = await this.hooks.onToolStarted(session.sessionId, tool.name, tool.detail);
         try {
           if (

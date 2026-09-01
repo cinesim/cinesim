@@ -108,6 +108,8 @@ const api: DesktopApi = {
     get: (scope, assetIds) => invoke(invokeChannels.transcripts.get, { scope, assetIds }),
     requestJobs: (scope, assetIds) =>
       invoke(invokeChannels.transcripts.request, { scope, assetIds }),
+    regenerateJobs: (scope, assetIds) =>
+      invoke(invokeChannels.transcripts.regenerate, { scope, assetIds }),
     cancelJobs: (scope, assetIds) => invoke(invokeChannels.transcripts.cancel, { scope, assetIds }),
     beginJob: (scope, assetId) => invoke(invokeChannels.transcripts.begin, { scope, assetId }),
     transcribeChunk: (scope, input) => invoke(invokeChannels.transcripts.chunk, { scope, input }),

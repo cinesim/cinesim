@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { access, mkdtemp, mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DEFAULT_SETTINGS, timeUs } from "@cinesim/core";
@@ -165,11 +165,32 @@ describe("project manifest", () => {
 });
 
 describe("SourceProjectRepository", () => {
+  it("inspects valid canonical files without creating derived state or writer locks", async () => {
+    const directory = await temporaryDirectory();
+    await Promise.all([
+      writeFile(join(directory, "cinesim.toml"), serializeProjectManifest(emptyManifest())),
+      writeFile(
+        join(directory, "assets.toml"),
+        serializeAssetManifest({ formatVersion: 1, assets: [] }),
+      ),
+      writeFile(
+        join(directory, "main.jsx"),
+        'export default <composition id="sequence_main" width={1920} height={1080} fps={30}><timeline id="timeline_main" /></composition>;\n',
+      ),
+    ]);
+
+    await expect(SourceProjectRepository.inspect(directory)).resolves.toMatchObject({
+      manifest: { formatVersion: 3 },
+    });
+    await expect(access(join(directory, ".video"))).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
   it("creates canonical source files, compiles, imports an asset, and reopens deterministically", async () => {
     const directory = await temporaryDirectory();
     const created = await SourceProjectRepository.create(directory, {
       id: "project_test",
       name: "Source project",
+      agentInstructions: "Keep dialogue edits natural.",
     });
     expect(created.compilation.ir.activeCompositionId).toBe("sequence_main");
     await expect(readFile(join(directory, "cinesim.toml"), "utf8")).resolves.toContain(
@@ -181,6 +202,12 @@ describe("SourceProjectRepository", () => {
     await expect(readFile(join(directory, "main.jsx"), "utf8")).resolves.toContain("<timeline");
     await expect(readFile(join(directory, "AGENTS.md"), "utf8")).resolves.toContain(
       "Canonical state is `cinesim.toml`",
+    );
+    await expect(readFile(join(directory, "AGENTS.md"), "utf8")).resolves.toContain(
+      "Keep dialogue edits natural.",
+    );
+    await expect(readFile(join(directory, "AGENTS.md"), "utf8")).resolves.toContain(
+      "`[settings].tone_mapping`",
     );
     await expect(readFile(join(directory, "CLAUDE.md"), "utf8")).resolves.toBe("@AGENTS.md\n");
     await expect(readFile(join(directory, ".mcp.json"), "utf8")).resolves.toContain(

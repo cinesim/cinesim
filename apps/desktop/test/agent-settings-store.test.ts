@@ -31,12 +31,14 @@ describe("AgentSettingsStore", () => {
       permissionMode: "auto-edit",
     });
     await store.update({ defaultProvider: "codex" });
+    await store.update({ projectInstructions: "Prefer documentary pacing." });
     const canonicalExecutablePath = await realpath(executablePath);
 
     const reloaded = new AgentSettingsStore(path);
     await reloaded.load();
     expect(reloaded.snapshot()).toMatchObject({
       defaultProvider: "codex",
+      projectInstructions: "Prefer documentary pacing.",
       providers: {
         codex: {
           executablePath: canonicalExecutablePath,

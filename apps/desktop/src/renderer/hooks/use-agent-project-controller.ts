@@ -31,15 +31,33 @@ function preferredProvider(
   return connected.find((status) => status.provider === settings.defaultProvider) ?? connected[0];
 }
 
-export function buildAgentTurnContext(
-  activeSequenceId: string | null,
-  playheadUs: number,
-  selectedClipId: string | null,
-): AgentTurnContext {
+interface AgentTurnContextInput {
+  workspace: "media" | "cut" | "edit";
+  activeSequenceId: string | null;
+  playheadUs: number;
+  selectedAssetIds: readonly string[];
+  selectedClipId: string | null;
+  session: Pick<DesktopProjectSession, "diskValid" | "diagnostics" | "candidateDiagnostics">;
+}
+
+export function buildAgentTurnContext(input: AgentTurnContextInput): AgentTurnContext {
+  const selectedClipIds = input.selectedClipId ? [input.selectedClipId] : [];
+  const selectedIds = [...input.selectedAssetIds, ...selectedClipIds];
+  const diagnostics = input.session.diskValid
+    ? input.session.diagnostics
+    : input.session.candidateDiagnostics;
   return {
-    ...(activeSequenceId ? { activeSequenceId } : {}),
-    playheadUs,
-    ...(selectedClipId ? { selectedIds: [selectedClipId] } : {}),
+    workspace: input.workspace,
+    ...(input.activeSequenceId ? { activeSequenceId: input.activeSequenceId } : {}),
+    playheadUs: input.playheadUs,
+    ...(selectedIds.length > 0 ? { selectedIds } : {}),
+    ...(input.selectedAssetIds.length > 0 ? { selectedAssetIds: [...input.selectedAssetIds] } : {}),
+    ...(selectedClipIds.length > 0 ? { selectedClipIds } : {}),
+    compiler: {
+      diskValid: input.session.diskValid,
+      diagnosticCount: diagnostics.length,
+      diagnostics: diagnostics.slice(0, 20).map(({ code, message }) => ({ code, message })),
+    },
   };
 }
 
@@ -55,7 +73,9 @@ export function useAgentProjectController(session: DesktopProjectSession) {
   const busyRef = useRef(false);
   const [error, setError] = useState<string | null>(null);
   const activeSequenceId = useRendererStore((state) => state.activeSequenceId);
+  const workspace = useRendererStore((state) => state.projectSection);
   const playheadUs = useRendererStore((state) => state.playheadUs);
+  const selectedAssetIds = useRendererStore((state) => state.selectedAssetIds);
   const selectedClipId = useRendererStore((state) => state.selectedClipId);
 
   useEffect(() => {
@@ -199,7 +219,14 @@ export function useAgentProjectController(session: DesktopProjectSession) {
         window.cinesim.agents.send(
           activeSession.id,
           message,
-          buildAgentTurnContext(activeSequenceId, playheadUs, selectedClipId),
+          buildAgentTurnContext({
+            workspace,
+            activeSequenceId,
+            playheadUs,
+            selectedAssetIds,
+            selectedClipId,
+            session,
+          }),
         ),
       "Could not send message",
     );

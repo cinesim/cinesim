@@ -80,6 +80,7 @@ export const invokeChannels = {
     fail: "transcripts:fail",
     finalize: "transcripts:finalize",
     get: "transcripts:get",
+    regenerate: "transcripts:regenerate",
     request: "transcripts:request",
   },
 } as const;

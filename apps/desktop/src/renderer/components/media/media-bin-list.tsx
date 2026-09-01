@@ -8,6 +8,7 @@ import { LibraryList, LibraryListRow } from "../shared/library-card";
 import { assetCompatibilityLabel, assetSourceMetadataLabel } from "./asset-source-metadata";
 import { assetStoragePresentation } from "./media-bin-model";
 import { MediaSkimSurface } from "./media-skim-surface";
+import { MediaTranscriptBadge } from "./media-transcript-badge";
 
 const MEDIA_LIST_COLUMNS =
   "grid-cols-[minmax(280px,1.5fr)_110px_120px_minmax(190px,0.8fr)_minmax(220px,1fr)]";
@@ -101,7 +102,8 @@ export function MediaBinList({
               >
                 <MediaSkimSurface asset={asset} />
               </div>
-              <span className="truncate font-medium text-primary">{asset.name}</span>
+              <span className="min-w-0 flex-1 truncate font-medium text-primary">{asset.name}</span>
+              <MediaTranscriptBadge asset={asset} />
             </div>
             <span className={CELL_CLASS_NAME}>{kindLabel(asset.kind)}</span>
             <span className={cn(CELL_CLASS_NAME, "tabular-nums")}>
