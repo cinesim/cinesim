@@ -64,6 +64,10 @@ There is no mandatory call sequence, but dependable assembly usually repeats thi
 
 The visual index under `.video/visual-index` is reusable but disposable perception. Correcting,
 splitting, merging, clearing, or regenerating it does not compile the project or enter undo history.
+Generation samples at most 180 decoded frames in a dedicated low-priority worker and records only
+conservative pixel evidence: brightness, colorfulness, and visual change. It deliberately does not
+invent people, objects, dialogue, or story meaning. Use `visual_index_upsert` to add or correct
+semantic observations when stronger evidence is available.
 Deliberate story intent belongs in canonical project, asset, or timeline notes instead.
 
 ## Acceptance, history, and review

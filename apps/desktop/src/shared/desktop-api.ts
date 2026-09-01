@@ -33,6 +33,11 @@ import type {
   FrameRenderFailure,
   FrameRenderRequest,
 } from "./contracts/frames";
+import type {
+  VisualAnalysisCompletion,
+  VisualAnalysisFailure,
+  VisualAnalysisRequest,
+} from "./contracts/visual-analysis";
 import type { ElectronHealthSnapshot } from "./contracts/health";
 import type {
   CreateProjectLocation,
@@ -133,6 +138,13 @@ export interface DesktopFrameApi {
   onCanceled(callback: (request: { requestId: string }) => void): () => void;
 }
 
+export interface DesktopVisualAnalysisApi {
+  complete(scope: DerivedProjectScope, completion: VisualAnalysisCompletion): Promise<void>;
+  fail(scope: DerivedProjectScope, failure: VisualAnalysisFailure): Promise<void>;
+  onRequested(callback: (request: VisualAnalysisRequest) => void): () => void;
+  onCanceled(callback: (request: { requestId: string }) => void): () => void;
+}
+
 export interface DesktopVisualIndexApi {
   status(scope: DerivedProjectScope, assetIds?: string[]): Promise<VisualIndexAssetStatus[]>;
   get(
@@ -210,6 +222,7 @@ export interface DesktopApi {
   project: DesktopProjectApi;
   transcripts: DesktopTranscriptApi;
   visualIndex: DesktopVisualIndexApi;
+  visualAnalysis: DesktopVisualAnalysisApi;
   platform: NodeJS.Platform;
 }
 

@@ -336,8 +336,8 @@ export function registerCinesimMcpTools(server: McpServer, runtime: CinesimMcpTo
       name,
       {
         title: `${action[0]!.toUpperCase()}${action.slice(1)} visual indexes`,
-        description: `${action} versioned disposable visual-index artifacts without changing canonical project files.`,
-        inputSchema: { assetIds: z.array(assetIdSchema).min(1).max(100) },
+        description: `${action} bounded local visual analysis into versioned disposable artifacts without changing canonical project files.`,
+        inputSchema: { assetIds: z.array(assetIdSchema).min(1).max(8) },
         annotations: { readOnlyHint: false, idempotentHint: action === "generate" },
       },
       ({ assetIds }) =>

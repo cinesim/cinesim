@@ -7,24 +7,24 @@ import { defineInvokeContract } from "../app/ipc-contract";
 import { MAX_REQUEST_IDS } from "../app/ipc-schemas";
 import { derivedProjectScopeSchema } from "../derived-media/ipc-validation";
 
-const safeTimeSchema = z.number().int().nonnegative().safe();
+export const visualIndexSafeTimeSchema = z.number().int().nonnegative().safe();
 const assetIdsSchema = z.array(assetIdSchema).min(1).max(MAX_REQUEST_IDS);
 const rangeSchema = z
   .object({
-    fromUs: safeTimeSchema.optional(),
-    toUs: safeTimeSchema.optional(),
+    fromUs: visualIndexSafeTimeSchema.optional(),
+    toUs: visualIndexSafeTimeSchema.optional(),
     limit: z.number().int().min(1).max(2_000).optional(),
   })
   .strict()
   .optional();
-const observationSchema = z
+export const visualIndexObservationSchema = z
   .object({
     id: z
       .string()
       .regex(/^observation_[a-zA-Z0-9][a-zA-Z0-9_-]*$/u)
       .max(128),
-    sourceInUs: safeTimeSchema,
-    sourceOutUs: safeTimeSchema,
+    sourceInUs: visualIndexSafeTimeSchema,
+    sourceOutUs: visualIndexSafeTimeSchema,
     description: z.string().trim().min(1).max(2_000),
     people: z.array(z.string().trim().min(1).max(200)).max(50).optional(),
     setting: z.string().trim().min(1).max(500).optional(),
@@ -39,8 +39,8 @@ const observationSchema = z
 const selectorSchema = z
   .object({
     observationIds: z.array(z.string().max(128)).max(500).optional(),
-    fromUs: safeTimeSchema.optional(),
-    toUs: safeTimeSchema.optional(),
+    fromUs: visualIndexSafeTimeSchema.optional(),
+    toUs: visualIndexSafeTimeSchema.optional(),
   })
   .strict()
   .refine(
@@ -96,7 +96,7 @@ export const visualIndexContracts = {
       {
         scope: DerivedProjectScope;
         assetId: string;
-        observations: Array<z.output<typeof observationSchema>>;
+        observations: Array<z.output<typeof visualIndexObservationSchema>>;
       },
     ],
     VisualIndexAssetStatus
@@ -107,7 +107,7 @@ export const visualIndexContracts = {
         .object({
           scope: derivedProjectScopeSchema,
           assetId: assetIdSchema,
-          observations: z.array(observationSchema).min(1).max(500),
+          observations: z.array(visualIndexObservationSchema).min(1).max(500),
         })
         .strict(),
     ]),

@@ -13,6 +13,7 @@ import type { TranscriptSnapshot } from "../../shared/transcript";
 import type { DerivedWorkerRequest, DerivedWorkerResponse } from "./derived-worker-api";
 import { waveformByteLength, waveformPeakCount } from "../../shared/waveform-format";
 import { FrameJobCoordinator, type TimelineRenderer } from "./frame-job-coordinator";
+import { VisualAnalysisJobCoordinator } from "./visual-analysis-job-coordinator";
 
 interface ActiveJob {
   jobId: string;
@@ -115,6 +116,7 @@ export class MediaJobCoordinator {
   #acceptedGeneration: string;
   #program: IrProgram | null;
   readonly #frames: FrameJobCoordinator;
+  readonly #visualAnalysis: VisualAnalysisJobCoordinator;
   #foregroundPressure: "idle" | "hover-skimming" | "seeking" | "playing" | "dragging" = "idle";
   readonly #onSnapshot: (snapshot: DerivedMediaSnapshot) => void;
   readonly #onTranscriptSnapshot: (snapshot: TranscriptSnapshot) => void;
@@ -140,11 +142,13 @@ export class MediaJobCoordinator {
       program: this.#program,
       ...(options.timelineRenderer ? { timelineRenderer: options.timelineRenderer } : {}),
     });
+    this.#visualAnalysis = new VisualAnalysisJobCoordinator(projectScope, this.#acceptedGeneration);
   }
 
   async start(): Promise<void> {
     if (this.#destroyed || this.#worker) return;
     this.#frames.start();
+    this.#visualAnalysis.start();
     this.#createWorker();
     this.#unsubscribe = window.cinesim.derived.onChanged((snapshot) => {
       this.#acceptSnapshot(snapshot);
@@ -208,6 +212,7 @@ export class MediaJobCoordinator {
     this.#acceptedGeneration = acceptedGeneration;
     this.#program = program;
     this.#frames.update(project, program, acceptedGeneration);
+    this.#visualAnalysis.update(acceptedGeneration);
     if (this.#destroyed) return;
     const mediaIds = project.assets
       .filter((asset) => asset.kind === "video" || asset.kind === "audio")
@@ -247,6 +252,7 @@ export class MediaJobCoordinator {
     if (this.#destroyed) return;
     this.#destroyed = true;
     this.#frames.destroy();
+    this.#visualAnalysis.destroy();
     if (this.#resumeTimer) clearTimeout(this.#resumeTimer);
     this.#clearWorkerInactivityTimer();
     this.#unsubscribe?.();
@@ -277,6 +283,7 @@ export class MediaJobCoordinator {
   ): void {
     this.#foregroundPressure = pressure;
     this.#frames.setForegroundPressure(pressure);
+    this.#visualAnalysis.setForegroundPressure(pressure);
     const active = this.#active;
     if (!active || !this.#worker) {
       if (pressure === "idle") void this.#schedule();

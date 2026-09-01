@@ -21,6 +21,7 @@ import { CloudMediaManager } from "../cloud/manager";
 import { registerTranscriptIpc } from "../transcripts/ipc";
 import { registerVisualIndexIpc } from "../visual-index/ipc";
 import { registerFrameIpc } from "../frames/ipc";
+import { registerVisualAnalysisIpc } from "../visual-analysis/ipc";
 import type { DevelopmentConfiguration } from "./development-configuration";
 import { configureIpcSecurity } from "./secure-ipc";
 import { desktopEvents } from "../../shared/contracts/events";
@@ -50,6 +51,12 @@ export class DesktopApplication implements ApplicationLifecycle {
         return true;
       },
       (requestId) => this.windows.sendPrimary(desktopEvents.frameCanceled, { requestId }),
+      (request) => {
+        if (this.windows.size === 0) return false;
+        this.windows.sendPrimary(desktopEvents.visualAnalysisRequested, request);
+        return true;
+      },
+      (requestId) => this.windows.sendPrimary(desktopEvents.visualAnalysisCanceled, { requestId }),
     );
     configureIpcSecurity({ developmentUrl: development.rendererUrl });
   }
@@ -171,6 +178,7 @@ export class DesktopApplication implements ApplicationLifecycle {
     registerProjectIpc(this.projectStore, appState, agents, this.accountService, cloudMedia);
     registerDerivedMediaIpc(this.projectStore.derivedMedia);
     registerFrameIpc(this.projectStore.frames);
+    registerVisualAnalysisIpc(this.projectStore.visualAnalysis);
     registerTranscriptIpc(this.projectStore.transcripts);
     registerVisualIndexIpc(this.projectStore);
     registerAppStateIpc(appState, this.projectStore);

@@ -144,4 +144,35 @@ describe("VisualIndexStore", () => {
     await store.clear(["asset_camera"]);
     expect(changes).toBe(3);
   });
+
+  it("atomically replaces generated options, coverage, and observations", async () => {
+    const { store } = await fixture();
+    await store.upsert("asset_camera", [
+      {
+        id: "observation_old",
+        sourceInUs: 0,
+        sourceOutUs: 1_000_000,
+        description: "Old",
+      },
+    ]);
+
+    await expect(
+      store.replaceGenerated("asset_camera", {
+        options: { analyzer: "local-v1", sampleCount: 5 },
+        coverage: [{ sourceInUs: 0, sourceOutUs: 10_000_000 }],
+        observations: [
+          {
+            id: "observation_generated",
+            sourceInUs: 0,
+            sourceOutUs: 10_000_000,
+            description: "Bounded visual evidence",
+          },
+        ],
+      }),
+    ).resolves.toMatchObject({ state: "current", observationCount: 1 });
+    await expect(store.get("asset_camera")).resolves.toMatchObject({
+      status: { coverage: [{ sourceInUs: 0, sourceOutUs: 10_000_000 }] },
+      observations: [{ id: "observation_generated" }],
+    });
+  });
 });

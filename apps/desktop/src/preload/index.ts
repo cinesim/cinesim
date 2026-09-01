@@ -140,6 +140,13 @@ const api: DesktopApi = {
     clear: (scope, assetIds) => invoke(invokeChannels.visualIndex.clear, { scope, assetIds }),
     onChanged: (callback) => subscribe(eventChannels.visualIndexChanged, callback),
   },
+  visualAnalysis: {
+    complete: (scope, completion) =>
+      invoke(invokeChannels.visualAnalysis.complete, { scope, completion }),
+    fail: (scope, failure) => invoke(invokeChannels.visualAnalysis.fail, { scope, failure }),
+    onRequested: (callback) => subscribe(eventChannels.visualAnalysisRequested, callback),
+    onCanceled: (callback) => subscribe(eventChannels.visualAnalysisCanceled, callback),
+  },
   appState: {
     get: () => invoke(invokeChannels.appState.get),
     setMediaPoolOpen: (open) => invoke(invokeChannels.appState.setMediaPoolOpen, { open }),

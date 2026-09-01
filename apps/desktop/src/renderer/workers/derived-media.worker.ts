@@ -34,6 +34,12 @@ import {
   waveformPeakCount,
 } from "../../shared/waveform-format";
 import { accumulateWaveformSample } from "../lib/waveform-sampling";
+import {
+  analyzeVisualRgba,
+  buildLocalVisualAnalysis,
+  visualSampleTimes,
+  type VisualSample,
+} from "../lib/local-visual-analysis";
 
 const scope = self as DedicatedWorkerGlobalScope;
 const canceled = new Set<string>();
@@ -70,6 +76,7 @@ const COLUMNS = 8;
 
 type GenerateRequest = Extract<DerivedWorkerRequest, { type: "generate" }>;
 type FrameRequest = Extract<DerivedWorkerRequest, { type: "frame" }>;
+type VisualIndexRequest = Extract<DerivedWorkerRequest, { type: "visual-index" }>;
 type ProxyRequest = Extract<DerivedWorkerRequest, { type: "proxy" }>;
 type TranscriptRequest = Extract<DerivedWorkerRequest, { type: "transcript" }>;
 type VideoTrack = NonNullable<Awaited<ReturnType<Input["getPrimaryVideoTrack"]>>>;
@@ -351,6 +358,54 @@ async function generateFrame(request: FrameRequest): Promise<void> {
       },
       [frame],
     );
+  } finally {
+    input.dispose();
+    canceled.delete(request.jobId);
+  }
+}
+
+async function analyzeVisualIndex(request: VisualIndexRequest): Promise<void> {
+  const input = mediaInput(request);
+  try {
+    assertActive(request.jobId);
+    if (!(await input.canRead())) throw new Error("unsupported-container");
+    const track = await input.getPrimaryVideoTrack();
+    if (!track || !(await track.canDecode())) throw new Error("source-undecodable");
+    const timesUs = visualSampleTimes(request.durationUs);
+    const sink = new CanvasSink(track, {
+      width: 160,
+      height: 90,
+      fit: "contain",
+      poolSize: 2,
+      decoderOptions: { hardwareAcceleration: "prefer-hardware", optimizeForLatency: true },
+    });
+    const analysis = new OffscreenCanvas(160, 90);
+    const context = analysis.getContext("2d", { willReadFrequently: true });
+    if (!context) throw new Error("canvas-unavailable");
+    const samples: VisualSample[] = [];
+    let previous: Uint8ClampedArray | undefined;
+    for await (const wrapped of sink.canvasesAtTimestamps(
+      timesUs.map((candidate) => candidate / 1_000_000),
+      { verifyKeyPackets: false },
+    )) {
+      assertActive(request.jobId);
+      if (!wrapped) continue;
+      context.clearRect(0, 0, 160, 90);
+      context.drawImage(wrapped.canvas, 0, 0, 160, 90);
+      const pixels = context.getImageData(0, 0, 160, 90).data;
+      samples.push({
+        atUs: Math.max(0, Math.round(wrapped.timestamp * 1_000_000)),
+        ...analyzeVisualRgba(pixels, 160, 90, previous),
+      });
+      previous = new Uint8ClampedArray(pixels);
+    }
+    assertActive(request.jobId);
+    if (samples.length === 0) throw new Error("no-video-frames");
+    post({
+      type: "visual-index-complete",
+      jobId: request.jobId,
+      ...buildLocalVisualAnalysis(samples, request.durationUs),
+    });
   } finally {
     input.dispose();
     canceled.delete(request.jobId);
@@ -830,12 +885,13 @@ function generationFailure(jobId: string, error: unknown): void {
 }
 
 function startGeneration(
-  request: GenerateRequest | ProxyRequest | TranscriptRequest | FrameRequest,
+  request: GenerateRequest | ProxyRequest | TranscriptRequest | FrameRequest | VisualIndexRequest,
 ): void {
   let operation: Promise<void>;
   if (request.type === "proxy") operation = generateProxy(request);
   else if (request.type === "transcript") operation = generateTranscript(request);
   else if (request.type === "frame") operation = generateFrame(request);
+  else if (request.type === "visual-index") operation = analyzeVisualIndex(request);
   else operation = generate(request);
   void operation.catch((error: unknown) => generationFailure(request.jobId, error));
 }
@@ -847,7 +903,8 @@ scope.onmessage = (event: MessageEvent<DerivedWorkerRequest>) => {
     request.type === "proxy" ||
     request.type === "generate" ||
     request.type === "transcript" ||
-    request.type === "frame"
+    request.type === "frame" ||
+    request.type === "visual-index"
   ) {
     startGeneration(request);
   }

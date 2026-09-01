@@ -9,7 +9,7 @@ import {
 const MAX_ARTIFACT_BYTES = 8 * 1024 * 1024;
 const MAX_OBSERVATIONS = 10_000;
 export const VISUAL_INDEX_VERSION = 1;
-export const VISUAL_INDEX_GENERATOR_VERSION = "cinesim-visual-index-v1";
+export const VISUAL_INDEX_GENERATOR_VERSION = "cinesim-visual-index-v2";
 
 export interface VisualIndexRange {
   sourceInUs: number;
@@ -265,6 +265,29 @@ export class VisualIndexStore {
       await this.#write(await this.#emptyArtifact(assetId));
     }
     return this.status(assetIds);
+  }
+
+  async replaceGenerated(
+    assetId: string,
+    input: {
+      options: Record<string, boolean | number | string | null>;
+      coverage: readonly VisualIndexRange[];
+      observations: readonly VisualIndexObservation[];
+    },
+  ): Promise<VisualIndexAssetStatus> {
+    const id = this.#requireAsset(assetId);
+    if (input.observations.length > MAX_OBSERVATIONS)
+      throw new Error("Visual index has too many observations");
+    const current = await this.#emptyArtifact(id);
+    await this.#write(
+      normalizeVisualIndex({
+        ...current,
+        options: parseOptions(input.options),
+        coverage: input.coverage.map((range, index) => parseRange(range, `coverage[${index}]`)),
+        observations: input.observations.map(parseVisualIndexObservation),
+      }),
+    );
+    return this.#status(id);
   }
 
   async upsert(assetId: string, values: readonly unknown[]): Promise<VisualIndexAssetStatus> {

@@ -19,11 +19,11 @@ export function registerVisualIndexIpc(store: DesktopProjectStore): void {
   });
   registerIpcHandler(visualIndexContracts.generate, ({ scope, assetIds }) => {
     assertScope(scope);
-    return store.visualIndex.generate(assetIds);
+    return store.generateVisualIndex(assetIds);
   });
   registerIpcHandler(visualIndexContracts.regenerate, ({ scope, assetIds }) => {
     assertScope(scope);
-    return store.visualIndex.generate(assetIds, true);
+    return store.generateVisualIndex(assetIds, true);
   });
   registerIpcHandler(visualIndexContracts.upsert, ({ scope, assetId, observations }) => {
     assertScope(scope);

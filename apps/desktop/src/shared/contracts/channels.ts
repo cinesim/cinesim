@@ -96,6 +96,10 @@ export const invokeChannels = {
     status: "visual-index:status",
     upsert: "visual-index:upsert",
   },
+  visualAnalysis: {
+    complete: "visual-analysis:complete",
+    fail: "visual-analysis:fail",
+  },
 } as const;
 
 export const eventChannels = {
@@ -110,6 +114,8 @@ export const eventChannels = {
   projectChanged: "project:changed",
   transcriptsChanged: "transcripts:changed",
   visualIndexChanged: "visual-index:changed",
+  visualAnalysisCanceled: "visual-analysis:canceled",
+  visualAnalysisRequested: "visual-analysis:requested",
 } as const;
 
 function stringLeaves(value: object): string[] {

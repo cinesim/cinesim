@@ -52,18 +52,22 @@ Transcript jobs change derived state only. They never compile or enter canonical
 
 ## Visual index
 
-| Tool                      | Purpose                                                     |
-| ------------------------- | ----------------------------------------------------------- |
-| `visual_index_status`     | Coverage, freshness, source fingerprints, and compatibility |
-| `visual_index_get`        | Bounded timestamped observations for one asset/range        |
-| `visual_index_generate`   | Initialize or continue disposable perception work           |
-| `visual_index_regenerate` | Discard stale observations and start a compatible artifact  |
-| `visual_index_upsert`     | Add or correct validated timestamped observations           |
-| `visual_index_delete`     | Remove selected observation IDs or a bounded range          |
-| `visual_index_clear`      | Remove selected assets' disposable index artifacts          |
+| Tool                      | Purpose                                                       |
+| ------------------------- | ------------------------------------------------------------- |
+| `visual_index_status`     | Coverage, freshness, source fingerprints, and compatibility   |
+| `visual_index_get`        | Bounded timestamped observations for one asset/range          |
+| `visual_index_generate`   | Run bounded local analysis when compatible evidence is absent |
+| `visual_index_regenerate` | Replace observations with a fresh bounded local analysis      |
+| `visual_index_upsert`     | Add or correct validated timestamped observations             |
+| `visual_index_delete`     | Remove selected observation IDs or a bounded range            |
+| `visual_index_clear`      | Remove selected assets' disposable index artifacts            |
 
 Visual-index mutations are intentionally allowed because `.video/visual-index` is disposable. They
-do not edit source, compile the project, or affect undo history.
+do not edit source, compile the project, or affect undo history. Generation requires the live
+desktop renderer, processes at most eight requested assets sequentially, samples at most 180 frames
+per asset, and yields to active playback, seeking, dragging, and hover skimming. Its automatic
+descriptions cover measurable light, color, and visual-change evidence only; semantic corrections
+belong in validated `visual_index_upsert` observations.
 
 ## Media artifacts
 

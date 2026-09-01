@@ -336,7 +336,7 @@ export class AgentMcpServer {
           limit,
         }),
       visualIndexGenerate: async (action, assetIds) => ({
-        assets: await this.projectStore.visualIndex.generate(assetIds, action === "regenerate"),
+        assets: await this.projectStore.generateVisualIndex(assetIds, action === "regenerate"),
       }),
       visualIndexUpsert: async (assetId, observations) => ({
         asset: await this.projectStore.visualIndex.upsert(assetId, observations),

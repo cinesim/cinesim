@@ -21,12 +21,16 @@ import {
   type SourceProjectSnapshot,
 } from "@cinesim/project-io";
 import { editorCommandSchema } from "@cinesim/protocol";
-import type { DesktopProjectSession } from "../../shared/contracts";
+import type {
+  DesktopProjectSession,
+  FrameRenderRequest,
+  VisualAnalysisRequest,
+} from "../../shared/contracts";
 import type { DesktopAccountService } from "../account/service";
 import { DerivedMediaStore } from "../derived-media/service";
 import { TranscriptStore } from "../transcripts/service";
 import { FrameService } from "../frames/service";
-import type { FrameRenderRequest } from "../../shared/contracts";
+import { VisualAnalysisService } from "../visual-analysis/service";
 import { publishDependentProject } from "./dependent-project";
 import { inspectMedia } from "./media-import";
 import {
@@ -43,6 +47,7 @@ export class DesktopProjectStore {
   readonly frames: FrameService;
   readonly transcripts: TranscriptStore;
   readonly visualIndex: VisualIndexStore;
+  readonly visualAnalysis: VisualAnalysisService;
   #directory: string | null = null;
   #commands: SourceCommandService | null = null;
   #snapshot: SourceProjectSnapshot | null = null;
@@ -59,6 +64,8 @@ export class DesktopProjectStore {
     onVisualIndexChanged: () => void = () => undefined,
     dispatchFrame: (request: FrameRenderRequest) => boolean = () => false,
     cancelFrame: (requestId: string) => void = () => undefined,
+    dispatchVisualAnalysis: (request: VisualAnalysisRequest) => boolean = () => false,
+    cancelVisualAnalysis: (requestId: string) => void = () => undefined,
   ) {
     this.frames = new FrameService(
       dispatchFrame,
@@ -71,6 +78,11 @@ export class DesktopProjectStore {
     this.visualIndex = new VisualIndexStore(
       (assetId) => this.derivedMedia.sourceFingerprint(assetId),
       onVisualIndexChanged,
+    );
+    this.visualAnalysis = new VisualAnalysisService(
+      this.visualIndex,
+      dispatchVisualAnalysis,
+      cancelVisualAnalysis,
     );
   }
 
@@ -178,6 +190,7 @@ export class DesktopProjectStore {
           frames: this.frames,
           transcripts: this.transcripts,
           visualIndex: this.visualIndex,
+          visualAnalysis: this.visualAnalysis,
           directory,
           project: this.#requireProject(),
           settings: snapshot.manifest.settings,
@@ -401,6 +414,8 @@ export class DesktopProjectStore {
     await this.#serialize(async () => {
       this.#watcher?.close();
       this.#watcher = null;
+      this.visualAnalysis.clearProject();
+      this.frames.clearProject();
       this.#directory = null;
       this.#commands = null;
       this.#snapshot = null;
@@ -410,7 +425,6 @@ export class DesktopProjectStore {
       await this.derivedMedia.clearProject();
       await this.transcripts.clearProject();
       this.visualIndex.clearProject();
-      this.frames.clearProject();
     });
   }
 
@@ -471,6 +485,7 @@ export class DesktopProjectStore {
       frames: this.frames,
       transcripts: this.transcripts,
       visualIndex: this.visualIndex,
+      visualAnalysis: this.visualAnalysis,
       directory: this.#requireDirectory(),
       project: this.#requireProject(),
       settings: this.#requireSnapshot().manifest.settings,
@@ -493,8 +508,10 @@ export class DesktopProjectStore {
           const project = this.#requireProject();
           this.derivedMedia.updateProject(project);
           this.#refreshFrameProject();
+          this.visualAnalysis.clearProject();
           await this.transcripts.updateProject(project).catch(() => undefined);
           await this.visualIndex.updateProject(project).catch(() => undefined);
+          this.#refreshVisualAnalysisProject();
           this.#notify();
         });
       },
@@ -522,6 +539,18 @@ export class DesktopProjectStore {
       acceptedGeneration: this.#requireSnapshot().generation,
       scope: this.derivedMedia.scope(),
     });
+  }
+
+  #refreshVisualAnalysisProject(): void {
+    this.visualAnalysis.setProject({
+      project: this.#requireProject(),
+      acceptedGeneration: this.#requireSnapshot().generation,
+      scope: this.derivedMedia.scope(),
+    });
+  }
+
+  generateVisualIndex(assetIds: readonly string[], force = false) {
+    return this.visualAnalysis.generate(assetIds, force);
   }
 
   #serialize<T>(operation: () => Promise<T>): Promise<T> {

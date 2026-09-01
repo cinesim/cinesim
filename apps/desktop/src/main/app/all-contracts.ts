@@ -6,6 +6,7 @@ import { frameContracts } from "../frames/contracts";
 import { projectContracts } from "../projects/contracts";
 import { transcriptContracts } from "../transcripts/contracts";
 import { visualIndexContracts } from "../visual-index/contracts";
+import { visualAnalysisContracts } from "../visual-analysis/contracts";
 import { appContracts } from "./contracts";
 import type { InvokeContract } from "./ipc-contract";
 
@@ -22,5 +23,6 @@ export const allInvokeContracts = Object.freeze([
   ...values(frameContracts),
   ...values(projectContracts),
   ...values(transcriptContracts),
+  ...values(visualAnalysisContracts),
   ...values(visualIndexContracts),
 ]);

@@ -4,6 +4,7 @@ import type { CloudTransferSnapshot } from "./cloud";
 import type { DerivedMediaSnapshot } from "./derived-media";
 import type { DesktopProjectSession } from "./project";
 import type { FrameRenderRequest } from "./frames";
+import type { VisualAnalysisRequest } from "./visual-analysis";
 import { eventChannels } from "./channels";
 
 export interface DesktopEventContract<TPayload> {
@@ -27,4 +28,6 @@ export const desktopEvents = {
   projectChanged: event<DesktopProjectSession>(eventChannels.projectChanged),
   transcriptsChanged: event<TranscriptSnapshot>(eventChannels.transcriptsChanged),
   visualIndexChanged: event<void>(eventChannels.visualIndexChanged),
+  visualAnalysisCanceled: event<{ requestId: string }>(eventChannels.visualAnalysisCanceled),
+  visualAnalysisRequested: event<VisualAnalysisRequest>(eventChannels.visualAnalysisRequested),
 } as const;

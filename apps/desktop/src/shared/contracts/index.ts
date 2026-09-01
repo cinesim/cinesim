@@ -9,3 +9,4 @@ export * from "./events";
 export * from "./frames";
 export * from "./health";
 export * from "./project";
+export * from "./visual-analysis";

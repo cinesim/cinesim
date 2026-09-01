@@ -132,6 +132,10 @@ function setup(initial: DerivedMediaSnapshot, initialTranscripts?: TranscriptSna
     | ((request: import("../src/shared/contracts").FrameRenderRequest) => void)
     | null = null;
   let frameCancelListener: ((request: { requestId: string }) => void) | null = null;
+  let visualAnalysisListener:
+    | ((request: import("../src/shared/contracts").VisualAnalysisRequest) => void)
+    | null = null;
+  let visualAnalysisCancelListener: ((request: { requestId: string }) => void) | null = null;
   const transcriptSnapshot: TranscriptSnapshot =
     initialTranscripts ??
     ({
@@ -147,6 +151,7 @@ function setup(initial: DerivedMediaSnapshot, initialTranscripts?: TranscriptSna
   const begun: { assetId: string; kind: string; expectedBytes?: number }[] = [];
   const canceled: { writerId: string; failureCode?: string; detail?: string }[] = [];
   const completeFrame = vi.fn(async () => undefined);
+  const completeVisualAnalysis = vi.fn(async () => undefined);
   const api = {
     frames: {
       complete: completeFrame,
@@ -161,6 +166,22 @@ function setup(initial: DerivedMediaSnapshot, initialTranscripts?: TranscriptSna
         frameCancelListener = listener;
         return () => {
           frameCancelListener = null;
+        };
+      }),
+    },
+    visualAnalysis: {
+      complete: completeVisualAnalysis,
+      fail: vi.fn(async () => undefined),
+      onRequested: vi.fn((listener) => {
+        visualAnalysisListener = listener;
+        return () => {
+          visualAnalysisListener = null;
+        };
+      }),
+      onCanceled: vi.fn((listener) => {
+        visualAnalysisCancelListener = listener;
+        return () => {
+          visualAnalysisCancelListener = null;
         };
       }),
     },
@@ -251,11 +272,15 @@ function setup(initial: DerivedMediaSnapshot, initialTranscripts?: TranscriptSna
     requestedTranscriptAssets,
     failTranscriptJob,
     completeFrame,
+    completeVisualAnalysis,
     emitDerivedMedia: (next: DerivedMediaSnapshot) => derivedMediaListener?.(next),
     emitTranscripts: (next: TranscriptSnapshot) => transcriptListener?.(next),
     emitFrame: (request: import("../src/shared/contracts").FrameRenderRequest) =>
       frameListener?.(request),
     cancelFrame: (requestId: string) => frameCancelListener?.({ requestId }),
+    emitVisualAnalysis: (request: import("../src/shared/contracts").VisualAnalysisRequest) =>
+      visualAnalysisListener?.(request),
+    cancelVisualAnalysis: (requestId: string) => visualAnalysisCancelListener?.({ requestId }),
   };
 }
 
@@ -267,6 +292,55 @@ afterEach(() => {
 });
 
 describe("MediaJobCoordinator", () => {
+  it("runs visual analysis in an isolated worker only when foreground work is idle", async () => {
+    const fixture = setup(snapshot("ready", "ready", "ready"));
+    const coordinator = new MediaJobCoordinator(project(), projectScope, () => undefined, {
+      acceptedGeneration: "generation_fixture",
+    });
+    await coordinator.start();
+    coordinator.setForegroundPressure("playing");
+    const request = {
+      requestId: "00000000-0000-4000-8000-000000000055",
+      projectScope,
+      assetId: "asset_fixture",
+      durationUs: timeUs(2_000_000),
+      acceptedGeneration: "generation_fixture",
+    };
+    fixture.emitVisualAnalysis(request);
+    expect(FakeWorker.instances).toHaveLength(1);
+
+    coordinator.setForegroundPressure("idle");
+    await vi.waitFor(() => expect(FakeWorker.instances).toHaveLength(2));
+    expect(FakeWorker.instances[1]?.sent).toContainEqual({
+      type: "visual-index",
+      jobId: request.requestId,
+      assetId: "asset_fixture",
+      projectScope,
+      durationUs: timeUs(2_000_000),
+    });
+    FakeWorker.instances[1]!.emit({
+      type: "visual-index-complete",
+      jobId: request.requestId,
+      options: { analyzer: "fixture" },
+      coverage: [{ sourceInUs: 0, sourceOutUs: timeUs(2_000_000) }],
+      observations: [
+        {
+          id: "observation_fixture",
+          sourceInUs: 0,
+          sourceOutUs: timeUs(2_000_000),
+          description: "Fixture evidence",
+        },
+      ],
+    });
+    await vi.waitFor(() =>
+      expect(fixture.completeVisualAnalysis).toHaveBeenCalledWith(
+        projectScope,
+        expect.objectContaining({ requestId: request.requestId }),
+      ),
+    );
+    await coordinator.destroy();
+  });
+
   it("prioritizes and publishes one bounded exact asset frame", async () => {
     const fixture = setup(snapshot("ready", "ready", "ready"));
     const coordinator = new MediaJobCoordinator(project(), projectScope, () => undefined);

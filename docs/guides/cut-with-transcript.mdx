@@ -52,6 +52,11 @@ descriptions, split an observation at its midpoint, merge it with the next obser
 asset index. These operations use the same validated disposable visual-index store as MCP and never
 enter canonical history.
 
+Automatic generation runs bounded local frame analysis and therefore starts with conservative
+light, color, and visual-change descriptions. The screenplay updates from the same shared index as
+soon as analysis completes; correction controls and `visual_index_upsert` can refine those blocks
+without changing canonical edit history.
+
 ## Edit as text
 
 With words, silence, a timeline gap, action range, supporting-media interval, or visual-coverage gap
