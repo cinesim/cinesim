@@ -38,6 +38,12 @@ prefixed strings such as `asset_…`, `clip_…`, `track_…`, and `sequence_…
 | `notes_inspect`    | Structured project, asset, and timeline notes                                                                         |
 | `language_search`  | Fuzzy syntax, constraints, examples, recipes, and separate compiler/preview/export capability states                  |
 
+`language_search` classifies results as nodes, typed properties, effects, blend modes, animations,
+transitions, or recipes. Property rows include types, required/animatable constraints, options, and
+their own compiler/preview/export state. Blend-mode, easing, picture-transition, and audio-crossfade
+values are independently searchable, so compiler acceptance is never used as a proxy for rendered
+support. Results are deterministically ranked and capped at 20.
+
 ## Transcripts
 
 | Tool                      | Purpose                                                             |

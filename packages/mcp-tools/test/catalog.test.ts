@@ -50,6 +50,7 @@ function catalogServer(onOperation: () => void = () => undefined): McpServer {
       {
         id: "recipe:fixture",
         kind: "recipe",
+        feature: "recipe",
         title: "Fixture recipe",
         summary: query,
         capability: { compiler: "supported", preview: "supported", export: "unsupported" },

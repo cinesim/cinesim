@@ -8,6 +8,9 @@ describe("language reference", () => {
       preview: "supported",
       export: "supported",
     });
+    expect(LANGUAGE_REFERENCE.find(({ id }) => id === "element:colorgrade")?.feature).toBe(
+      "effect",
+    );
     expect(LANGUAGE_REFERENCE.find(({ id }) => id === "element:ducker")?.capability).toEqual({
       compiler: "supported",
       preview: "supported",
@@ -54,11 +57,37 @@ describe("language reference", () => {
         expect.objectContaining({
           id: "element:clip",
           properties: expect.arrayContaining([
-            expect.objectContaining({ name: "fadeIn", type: "time" }),
+            expect.objectContaining({
+              name: "fadeIn",
+              type: "time",
+              feature: "property",
+              capability: {
+                compiler: "supported",
+                preview: "supported",
+                export: "supported",
+              },
+            }),
           ]),
         }),
       ]),
     );
     expect(searchLanguageReference("", 200)).toHaveLength(20);
+  });
+
+  it("advertises executed blend, animation, and transition values independently", () => {
+    expect(searchLanguageReference("overlay blend", 3)[0]).toMatchObject({
+      id: "blend-mode:overlay",
+      feature: "blend-mode",
+      capability: { preview: "supported", export: "supported" },
+    });
+    expect(searchLanguageReference("ease-in keyframe", 3)[0]).toMatchObject({
+      id: "animation:easing:ease-in",
+      feature: "animation",
+    });
+    expect(searchLanguageReference("blur transition", 3)[0]).toMatchObject({
+      id: "transition:picture:blur",
+      feature: "transition",
+      capability: { preview: "supported", export: "supported" },
+    });
   });
 });

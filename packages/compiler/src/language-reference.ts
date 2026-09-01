@@ -9,9 +9,19 @@ export interface LanguageCapability {
   detail?: string;
 }
 
+export type LanguageFeature =
+  | "node"
+  | "property"
+  | "effect"
+  | "blend-mode"
+  | "animation"
+  | "transition"
+  | "recipe";
+
 export interface LanguageReferenceEntry {
   id: string;
   kind: "element" | "recipe";
+  feature: Exclude<LanguageFeature, "property">;
   title: string;
   summary: string;
   syntax: string;
@@ -23,6 +33,8 @@ export interface LanguageReferenceEntry {
     required: boolean;
     animatable: boolean;
     options?: string[];
+    feature: "property";
+    capability: LanguageCapability;
   }>;
   capability: LanguageCapability;
 }
@@ -82,13 +94,21 @@ function elementSyntax(name: string, requiredProperties: readonly string[]): str
   return properties ? `<${name} ${properties} />` : `<${name} />`;
 }
 
+function elementFeature(name: string, category: string): LanguageReferenceEntry["feature"] {
+  if (name === "transition" || name === "audiocrossfade") return "transition";
+  return category === "effect" ? "effect" : "node";
+}
+
 function elementEntries(): LanguageReferenceEntry[] {
   return Object.values(BUILTIN_REGISTRY).map((schema) => {
+    const capability = elementCapability(schema.name);
     const properties = Object.values(schema.properties).map((property) => ({
       name: property.name,
       type: property.type,
       required: property.required,
       animatable: property.animatable,
+      feature: "property" as const,
+      capability,
       ...(property.options ? { options: property.options } : {}),
     }));
     const required = properties.filter((property) => property.required).map(({ name }) => name);
@@ -96,13 +116,14 @@ function elementEntries(): LanguageReferenceEntry[] {
     return {
       id: `element:${schema.name}`,
       kind: "element",
+      feature: elementFeature(schema.name, schema.category),
       title: `<${schema.name}>`,
       summary: `${schema.category} element with ${properties.length} typed properties.`,
       syntax,
       example: syntax,
       tags: [schema.name, schema.category, ...properties.map(({ name }) => name)],
       properties,
-      capability: elementCapability(schema.name),
+      capability,
     };
   });
 }
@@ -111,6 +132,7 @@ const recipes: LanguageReferenceEntry[] = [
   {
     id: "recipe:cutaway",
     kind: "recipe",
+    feature: "recipe",
     title: "B-roll cutaway",
     summary:
       "Place a visual-only clip above continuing dialogue audio to preserve narrative continuity.",
@@ -123,6 +145,7 @@ const recipes: LanguageReferenceEntry[] = [
   {
     id: "recipe:montage",
     kind: "recipe",
+    feature: "recipe",
     title: "Montage pacing",
     summary:
       "Use short adjacent clips with deliberate source selections and vary shot scale or action.",
@@ -135,6 +158,7 @@ const recipes: LanguageReferenceEntry[] = [
   {
     id: "recipe:dialogue-cleanup",
     kind: "recipe",
+    feature: "recipe",
     title: "Dialogue cleanup",
     summary:
       "Trim pauses at word boundaries, retain room tone, and use short audio fades to avoid clicks.",
@@ -147,6 +171,7 @@ const recipes: LanguageReferenceEntry[] = [
   {
     id: "recipe:split-edit",
     kind: "recipe",
+    feature: "recipe",
     title: "Split edit / J-cut / L-cut",
     summary:
       "Keep reciprocal A/V links while giving the audio and picture independent source and timeline boundaries.",
@@ -158,6 +183,7 @@ const recipes: LanguageReferenceEntry[] = [
   {
     id: "recipe:dialogue-ducking",
     kind: "recipe",
+    feature: "recipe",
     title: "Dialogue sidechain ducking",
     summary:
       "Reduce a music clip or track under active dialogue with deterministic look-ahead attack and release automation.",
@@ -170,6 +196,7 @@ const recipes: LanguageReferenceEntry[] = [
   {
     id: "recipe:transcript-captions",
     kind: "recipe",
+    feature: "recipe",
     title: "Editable transcript captions",
     summary:
       "Generate stable timed cues from selected transcript words, then edit canonical text and style independently.",
@@ -182,6 +209,7 @@ const recipes: LanguageReferenceEntry[] = [
   {
     id: "recipe:adjustment-look",
     kind: "recipe",
+    feature: "recipe",
     title: "Time-bounded adjustment look",
     summary:
       "Apply a deterministic effect chain to a bounded number of visual tracks below, or to explicit lower visual tracks.",
@@ -194,6 +222,7 @@ const recipes: LanguageReferenceEntry[] = [
   {
     id: "recipe:edit-point-transition",
     kind: "recipe",
+    feature: "recipe",
     title: "Edit-point picture and audio transitions",
     summary:
       "Reference adjacent clips without overlapping their canonical ranges; picture and audio transitions remain independent.",
@@ -206,6 +235,7 @@ const recipes: LanguageReferenceEntry[] = [
   {
     id: "recipe:typed-keyframes",
     kind: "recipe",
+    feature: "recipe",
     title: "Typed stable keyframes",
     summary:
       "Animate an existing typed property on clips, effects, caption cues, masks, scene nodes, or adjustment effects with exact local times.",
@@ -217,8 +247,76 @@ const recipes: LanguageReferenceEntry[] = [
   },
 ];
 
+const supportedCapability: LanguageCapability = {
+  compiler: "supported",
+  preview: "supported",
+  export: "supported",
+};
+
+function valueEntry(input: {
+  id: string;
+  feature: "blend-mode" | "animation" | "transition";
+  title: string;
+  summary: string;
+  syntax: string;
+  example: string;
+  tags: string[];
+}): LanguageReferenceEntry {
+  return { ...input, kind: "element", capability: supportedCapability };
+}
+
+const capabilityValues: LanguageReferenceEntry[] = [
+  ...["normal", "multiply", "screen", "overlay", "darken", "lighten"].map((mode) =>
+    valueEntry({
+      id: `blend-mode:${mode}`,
+      feature: "blend-mode",
+      title: `${mode} blend mode`,
+      summary: "Linear-Rec.709 WebGPU compositing mode supported by preview, sampling, and export.",
+      syntax: `blendMode="${mode}"`,
+      example: `<video id="layer" source={asset("asset_id")} blendMode="${mode}" />`,
+      tags: ["blend", "composite", mode],
+    }),
+  ),
+  ...["linear", "hold", "ease-in", "ease-out", "ease-in-out"].map((easing) =>
+    valueEntry({
+      id: `animation:easing:${easing}`,
+      feature: "animation",
+      title: `${easing} keyframe easing`,
+      summary:
+        "Typed keyframe interpolation evaluated identically in preview, sampling, and export.",
+      syntax: `<key at={...} value={...} easing="${easing}" />`,
+      example: `<animate property="opacity"><key at={seconds(0)} value={0} easing="${easing}" /><key at={seconds(1)} value={1} /></animate>`,
+      tags: ["animation", "keyframe", "interpolation", "easing", easing],
+    }),
+  ),
+  ...["cut", "dissolve", "dip", "wipe", "slide", "push", "zoom", "blur"].map((kind) =>
+    valueEntry({
+      id: `transition:picture:${kind}`,
+      feature: "transition",
+      title: `${kind} transition`,
+      summary: "Validated adjacent-clip transition with deterministic WebGPU preview and export.",
+      syntax: `<transition from="..." to="..." kind="${kind}" duration={...} />`,
+      example: `<transition id="transition_main" from="clip_a" to="clip_b" kind="${kind}" duration={seconds(1)} />`,
+      tags: ["transition", "picture", "adjacent clips", kind],
+    }),
+  ),
+  ...["linear", "equal-power"].map((curve) =>
+    valueEntry({
+      id: `transition:audio:${curve}`,
+      feature: "transition",
+      title: `${curve} audio crossfade`,
+      summary:
+        "Independent adjacent-audio crossfade supported by playback and exact-range export mixing.",
+      syntax: `<audiocrossfade from="..." to="..." curve="${curve}" duration={...} />`,
+      example: `<audiocrossfade id="crossfade_main" from="clip_a" to="clip_b" curve="${curve}" duration={milliseconds(250)} />`,
+      tags: ["transition", "audio", "crossfade", curve],
+    }),
+  ),
+];
+
 export const LANGUAGE_REFERENCE: readonly LanguageReferenceEntry[] = [
   ...elementEntries(),
+  ...capabilityValues,
   ...recipes,
 ];
 
