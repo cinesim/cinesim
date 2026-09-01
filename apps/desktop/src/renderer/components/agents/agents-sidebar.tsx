@@ -66,7 +66,6 @@ export function AgentsSidebar({ session, onConfigure }: AgentsSidebarProps) {
     deleteAgent,
     interruptAgent,
     respondApproval,
-    revertTurn,
   } = useAgentProjectController(session);
   const availableProviders = providers.filter((provider) => provider.state === "connected");
   const awaitingInitialState = !snapshot || !settings;
@@ -193,7 +192,6 @@ export function AgentsSidebar({ session, onConfigure }: AgentsSidebarProps) {
             onApproval={(requestId, decision) =>
               void respondApproval(activeSession.id, requestId, decision)
             }
-            onRevert={(turnId) => void revertTurn(activeSession.id, turnId)}
           />
           {error && <Notice className="mx-3 mb-2">{error}</Notice>}
           <AgentComposer

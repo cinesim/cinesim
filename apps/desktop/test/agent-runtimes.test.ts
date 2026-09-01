@@ -49,9 +49,9 @@ const launchOptions = (executablePath: string) => ({
   cwd: tmpdir(),
   model: "test-model",
   effort: "high" as const,
+  permissionMode: "supervised" as const,
   mcpUrl: "http://127.0.0.1:9876/mcp",
   mcpToken: "test-token",
-  instructions: "Use Cinesim tools.",
 });
 
 describe("local provider runtimes", () => {

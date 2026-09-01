@@ -12,7 +12,6 @@ import {
   ListVideo,
   Move,
   Plus,
-  RotateCcw,
   Scissors,
   Search,
   Terminal,
@@ -27,7 +26,6 @@ interface AgentEventViewProps {
   event: AgentEvent;
   session: AgentSessionSnapshot;
   onApproval: (requestId: string, decision: "accept" | "decline") => void;
-  onRevert: (turnId: string) => void;
 }
 
 function UserMessage({ event }: Pick<AgentEventViewProps, "event">) {
@@ -74,7 +72,7 @@ function ReasoningEvent({ event }: Pick<AgentEventViewProps, "event">) {
   );
 }
 
-function ApprovalEvent({ event, session, onApproval }: Omit<AgentEventViewProps, "onRevert">) {
+function ApprovalEvent({ event, session, onApproval }: AgentEventViewProps) {
   const resolution = session.events.find(
     (candidate) =>
       candidate.kind === "approval-resolved" && candidate.requestId === event.requestId,
@@ -114,8 +112,7 @@ function ApprovalEvent({ event, session, onApproval }: Omit<AgentEventViewProps,
   );
 }
 
-function CheckpointEvent({ event, session, onRevert }: Omit<AgentEventViewProps, "onApproval">) {
-  const checkpoint = session.checkpoints.find((candidate) => candidate.turnId === event.turnId);
+function CheckpointEvent({ event }: Pick<AgentEventViewProps, "event">) {
   return (
     <div className="flex min-w-0 items-center gap-2 px-1 py-1 text-ui-xs text-muted">
       <Clock3 size={13} className="shrink-0" />
@@ -123,16 +120,6 @@ function CheckpointEvent({ event, session, onRevert }: Omit<AgentEventViewProps,
         <span className="font-medium text-secondary">{event.title}</span>
         {event.detail && <span> · {event.detail}</span>}
       </p>
-      {checkpoint && (
-        <button
-          className="grid size-7 shrink-0 place-items-center rounded-md text-muted hover:bg-surface hover:text-primary"
-          aria-label="Revert turn"
-          title="Revert this turn"
-          onClick={() => onRevert(checkpoint.turnId)}
-        >
-          <RotateCcw size={13} />
-        </button>
-      )}
     </div>
   );
 }

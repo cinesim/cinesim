@@ -145,7 +145,6 @@ const api: DesktopApi = {
     interrupt: (sessionId) => invoke(invokeChannels.agents.interrupt, { sessionId }),
     respondApproval: (sessionId, requestId, decision) =>
       invoke(invokeChannels.agents.approval, { sessionId, requestId, decision }),
-    revertTurn: (sessionId, turnId) => invoke(invokeChannels.agents.revert, { sessionId, turnId }),
     onDelta: (callback) => subscribe(eventChannels.agentsDelta, callback),
   },
   health: { get: () => invoke(invokeChannels.app.health) },

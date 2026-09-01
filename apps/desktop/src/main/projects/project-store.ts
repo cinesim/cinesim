@@ -74,7 +74,7 @@ export class DesktopProjectStore {
     if (!snapshot) return null;
     return projectViewFromIr(snapshot.compilation.ir, {
       name: snapshot.manifest.project.name,
-      assets: snapshot.manifest.assets,
+      assets: snapshot.assets,
       ...(snapshot.manifest.project.cloudProjectId === undefined
         ? {}
         : {

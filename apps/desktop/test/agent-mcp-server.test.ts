@@ -63,16 +63,13 @@ describe("AgentMcpServer", () => {
     expect(tools.tools.map((tool) => tool.name).sort()).toEqual([...CINESIM_MCP_TOOL_NAMES].sort());
     const inspection = await client.callTool({ name: "project_inspect", arguments: {} });
     expect(inspection.isError).not.toBe(true);
-    const denied = await client.callTool({
+    const unavailableEdit = await client.callTool({
       name: "clip_add",
-      arguments: {
-        trackId: project.project.sequences[0]!.tracks[0]!.id,
-        assetId: "asset_fixture",
-        timelineStartUs: timeUs(0),
-      },
+      arguments: {},
     });
-    expect(denied.isError).toBe(true);
-    expect(approvals).toEqual(["clip_add"]);
+    expect(unavailableEdit.isError).toBe(true);
+    expect(approvals).toEqual([]);
+    expect(projectStore.project?.sequences[0]?.tracks[0]?.clips).toHaveLength(0);
     await expect(
       client.callTool({
         name: "filmstrip_get",
@@ -82,32 +79,6 @@ describe("AgentMcpServer", () => {
 
     await client.close();
 
-    const automaticCredential = server.registerSession({
-      sessionId: "session-2",
-      projectDirectory: project.directory,
-      permissionMode: "auto-edit",
-    });
-    const automaticClient = new Client({ name: "cinesim-test-auto", version: "0.1.0" });
-    const automaticTransport = new StreamableHTTPClientTransport(new URL(automaticCredential.url), {
-      requestInit: {
-        headers: { Authorization: `Bearer ${automaticCredential.token}` },
-      },
-    });
-    await automaticClient.connect(
-      automaticTransport as Parameters<typeof automaticClient.connect>[0],
-    );
-    const edited = await automaticClient.callTool({
-      name: "clip_add",
-      arguments: {
-        trackId: project.project.sequences[0]!.tracks[0]!.id,
-        assetId: "asset_fixture",
-        timelineStartUs: timeUs(0),
-      },
-    });
-    expect(edited.isError).not.toBe(true);
-    expect(projectStore.project?.sequences[0]?.tracks[0]?.clips).toHaveLength(1);
-
-    await automaticClient.close();
     await server.close();
   });
 });

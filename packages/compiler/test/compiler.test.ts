@@ -108,18 +108,20 @@ describe("compiler", () => {
       "sequence_selects",
     ]);
     expect(
-      parseCompilerConfig({
-        format_version: 2,
-        language_version: 1,
-        project: {
-          id: "project_test",
-          name: "Test",
-          entry: "main.jsx",
-          active_composition: "sequence_main",
+      parseCompilerConfig(
+        {
+          format_version: 3,
+          language_version: 1,
+          project: {
+            id: "project_test",
+            name: "Test",
+            entry: "main.jsx",
+            active_composition: "sequence_main",
+          },
+          compiler: { strict: true },
         },
-        compiler: { strict: true },
-        assets: { asset_camera: {} },
-      }),
+        ["asset_camera"],
+      ),
     ).toMatchObject({
       projectId: "project_test",
       entry: "main.jsx",

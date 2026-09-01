@@ -216,7 +216,7 @@ function evaluateAssetHelper(
   if (!/^asset_[a-zA-Z0-9][a-zA-Z0-9_-]*$/u.test(assetId))
     fail("ASSET_ID", `Invalid stable asset id: ${assetId}.`, origin);
   if (!assets.has(assetId))
-    fail("UNKNOWN_ASSET", `Asset ${assetId} is not declared in cinesim.toml.`, origin);
+    fail("UNKNOWN_ASSET", `Asset ${assetId} is not declared in assets.toml.`, origin);
   return { kind: "resource", assetId };
 }
 

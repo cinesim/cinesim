@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { timeUs } from "@cinesim/core";
@@ -34,6 +34,39 @@ afterEach(async () => {
 });
 
 describe("source-backed semantic commands", () => {
+  it("records accepted filesystem generations in global undo and restores complete source sets", async () => {
+    const { directory, service } = await setup();
+    const mainPath = join(directory, "main.jsx");
+    const extraPath = join(directory, "Extra.jsx");
+    const originalMain = await readFile(mainPath, "utf8");
+    const withExtra = `import { Extra } from "./Extra.jsx";\n${originalMain.replace(
+      '<track id="track_overlay_1" kind="overlay" name="Titles" muted={false} locked={false} />',
+      '<track id="track_overlay_1" kind="overlay" name="Titles" muted={false} locked={false}><clip id="clip_external" start={seconds(0)} duration={seconds(1)}><Extra id="external" /></clip></track>',
+    )}`;
+    await Promise.all([
+      writeFile(
+        extraPath,
+        'export function Extra() { return <rect id="panel" width={px(100)} height={px(100)} />; }\n',
+      ),
+      writeFile(mainPath, withExtra),
+    ]);
+    const withExtraSnapshot = await service.repository.load();
+    service.acceptExternal(withExtraSnapshot);
+    expect(service.canUndo).toBe(true);
+    expect(Object.keys(service.snapshot.sources)).toContain("Extra.jsx");
+
+    await writeFile(mainPath, originalMain.replace('name="Main timeline"', 'name="Disk edit"'));
+    const withoutExtraSnapshot = await service.repository.load();
+    service.acceptExternal(withoutExtraSnapshot);
+    expect(Object.keys(service.snapshot.sources)).not.toContain("Extra.jsx");
+
+    const restored = await service.undo();
+    expect(restored.sources["Extra.jsx"]).toBeDefined();
+    const redone = await service.redo();
+    expect(redone.sources["Extra.jsx"]).toBeUndefined();
+    await expect(readFile(extraPath, "utf8")).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
   it("adds linked media, moves, trims, fades, splits, and undo/redoes as source transactions", async () => {
     const { service } = await setup();
     const added = await service.execute({

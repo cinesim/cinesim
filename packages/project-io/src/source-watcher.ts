@@ -32,7 +32,9 @@ export class SourceProjectWatcher {
       if (
         !relative ||
         relative.startsWith(".video/") ||
-        (relative !== "cinesim.toml" && !/\.(?:js|jsx)$/u.test(relative))
+        (relative !== "cinesim.toml" &&
+          relative !== "assets.toml" &&
+          !/\.(?:js|jsx)$/u.test(relative))
       ) {
         return;
       }

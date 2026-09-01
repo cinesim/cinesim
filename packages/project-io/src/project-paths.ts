@@ -45,6 +45,7 @@ export class ProjectPaths {
   canonical(relativePath: string): string {
     if (
       relativePath !== "cinesim.toml" &&
+      relativePath !== "assets.toml" &&
       relativePath !== "AGENTS.md" &&
       relativePath !== ".gitignore" &&
       !/\.(?:js|jsx)$/u.test(relativePath)

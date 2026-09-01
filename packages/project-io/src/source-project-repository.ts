@@ -14,10 +14,21 @@ import type { ProjectFileSystem } from "./file-system";
 import { nodeProjectFileSystem } from "./file-system";
 import { ProjectPaths } from "./project-paths";
 import {
+  mergeClaudeInstructions,
+  mergeClaudeMcpConfig,
+  mergeCodexMcpConfig,
+  renderProjectAgents,
+} from "./project-guidance";
+import {
+  parseAssetManifest,
+  patchAssetManifestAdd,
+  patchAssetManifestRemove,
+  patchAssetManifestSource,
+  serializeAssetManifest,
+  type AssetManifest,
+} from "./asset-manifest";
+import {
   parseProjectManifest,
-  patchManifestAddAsset,
-  patchManifestAssetSource,
-  patchManifestRemoveAsset,
   patchManifestSetting,
   serializeProjectManifest,
   sourceRevision,
@@ -25,6 +36,7 @@ import {
 } from "./project-manifest";
 
 const MANIFEST = "cinesim.toml";
+const ASSET_MANIFEST = "assets.toml";
 const TRANSACTION_DIRECTORY = ".video/compiler";
 const JOURNAL = `${TRANSACTION_DIRECTORY}/source-transaction.json`;
 const LOCK = `${TRANSACTION_DIRECTORY}/source-write.lock`;
@@ -34,12 +46,15 @@ interface SourceJournal {
   version: 1;
   id: string;
   previous: Record<string, string | null>;
-  next: Record<string, string>;
+  next: Record<string, string | null>;
 }
 
 export interface SourceProjectSnapshot {
   manifest: ProjectManifest;
   manifestSource: string;
+  assetManifest: AssetManifest;
+  assetManifestSource: string;
+  assets: Asset[];
   sources: Record<string, string>;
   revisions: Record<string, string>;
   generation: string;
@@ -49,7 +64,8 @@ export interface SourceProjectSnapshot {
 export interface SourceProjectCommit {
   expectedGeneration: string;
   manifestSource?: string;
-  sources?: Record<string, string>;
+  assetManifestSource?: string;
+  sources?: Record<string, string | null>;
   expectedProgram?: IrProgram;
 }
 
@@ -59,9 +75,11 @@ interface ProjectCompilation {
 }
 
 interface PreparedSourceCommit {
-  replacements: Record<string, string>;
+  replacements: Record<string, string | null>;
   manifest: ProjectManifest;
   manifestSource: string;
+  assetManifest: AssetManifest;
+  assetManifestSource: string;
   compiled: ProjectCompilation;
 }
 
@@ -89,7 +107,7 @@ function isMissing(error: unknown): boolean {
   return (error as NodeJS.ErrnoException).code === "ENOENT";
 }
 
-function compilerConfig(manifest: ProjectManifest): CompilerConfig {
+function compilerConfig(manifest: ProjectManifest, assets: readonly Asset[]): CompilerConfig {
   return {
     languageVersion: manifest.languageVersion,
     projectId: manifest.project.id,
@@ -98,7 +116,7 @@ function compilerConfig(manifest: ProjectManifest): CompilerConfig {
     output: ".video/compiler",
     sourceMaps: true,
     strict: manifest.compiler.strict,
-    assetIds: manifest.assets.map((asset) => asset.id),
+    assetIds: assets.map((asset) => asset.id),
     budgets: DEFAULT_COMPILER_BUDGETS,
   };
 }
@@ -170,11 +188,13 @@ class RepositoryCompilerHost implements CompilerHost {
 
 function projectGeneration(
   manifestSource: string,
+  assetManifestSource: string,
   sources: ReadonlyMap<string, CompilerSource>,
 ): string {
   return sourceRevision(
     [
       [MANIFEST, manifestSource] as const,
+      [ASSET_MANIFEST, assetManifestSource] as const,
       ...[...sources]
         .sort(([left], [right]) => left.localeCompare(right))
         .map(([uri, source]) => [uri, source.source] as const),
@@ -192,10 +212,6 @@ function newProjectSource(
 ): string {
   const suffix = compositionId.replace(/^sequence_/u, "") || "main";
   return `export const main = (\n  <composition id=${JSON.stringify(compositionId)} name="Main timeline" width={${width}} height={${height}} fps={${frameRate}}>\n    <timeline id=${JSON.stringify(`timeline_${suffix}`)}>\n      <track id="track_overlay_1" kind="overlay" name="Titles" muted={false} locked={false} />\n      <track id="track_video_1" kind="video" name="Video 1" muted={false} locked={false} />\n      <track id="track_audio_1" kind="audio" name="Audio 1" muted={false} locked={false} />\n    </timeline>\n  </composition>\n);\n\nexport default main;\n`;
-}
-
-export function generatedProjectAgents(): string {
-  return `# Cinesim project guidance\n\n- Canonical state is \`cinesim.toml\` plus the reachable \`.js\` and \`.jsx\` source modules.\n- Timeline structure lives only in source. Use lowercase Cinesim built-ins and capitalized user components.\n- Reference imported media with stable \`asset("asset_id")\` values declared in \`cinesim.toml\`.\n- Do not edit \`.video/\`; it contains disposable derived/runtime data.\n- Do not create project-managed \`media/\` or \`exports/\` paths.\n`;
 }
 
 export class SourceProjectRepository {
@@ -222,7 +238,7 @@ export class SourceProjectRepository {
     const entry = options.entry ?? "main.jsx";
     const compositionId = options.compositionId ?? "sequence_main";
     const manifest: ProjectManifest = {
-      formatVersion: 2,
+      formatVersion: 3,
       languageVersion: 1,
       project: {
         id: options.id,
@@ -233,17 +249,22 @@ export class SourceProjectRepository {
       },
       settings: options.settings ?? DEFAULT_SETTINGS,
       compiler: { strict: true },
-      assets: [],
     };
+    const assetManifest: AssetManifest = { formatVersion: 1, assets: [] };
+    await repository.paths.ensureDirectory(".codex");
     const files: Record<string, string> = {
       [MANIFEST]: serializeProjectManifest(manifest),
+      [ASSET_MANIFEST]: serializeAssetManifest(assetManifest),
       [entry]: newProjectSource(
         compositionId,
         options.width ?? 1920,
         options.height ?? 1080,
         options.frameRate ?? 30,
       ),
-      "AGENTS.md": generatedProjectAgents(),
+      "AGENTS.md": renderProjectAgents(),
+      "CLAUDE.md": mergeClaudeInstructions(null),
+      ".mcp.json": mergeClaudeMcpConfig(null),
+      ".codex/config.toml": mergeCodexMcpConfig(null),
       ".gitignore": ".video/\n",
     };
     for (const relativePath of Object.keys(files)) {
@@ -287,20 +308,36 @@ export class SourceProjectRepository {
     const replacements = {
       ...input.sources,
       ...(input.manifestSource === undefined ? {} : { [MANIFEST]: input.manifestSource }),
+      ...(input.assetManifestSource === undefined
+        ? {}
+        : { [ASSET_MANIFEST]: input.assetManifestSource }),
     };
     if (Object.keys(replacements).length === 0) return null;
     for (const relativePath of Object.keys(replacements)) {
-      if (relativePath === MANIFEST) await this.paths.assertSafeFile(relativePath);
+      if (relativePath === MANIFEST || relativePath === ASSET_MANIFEST)
+        await this.paths.assertSafeFile(relativePath);
       else await this.paths.assertSafeSourceFile(relativePath);
     }
-    const manifestSource = replacements[MANIFEST] ?? current.manifestSource;
+    const manifestSource = input.manifestSource ?? current.manifestSource;
+    const assetManifestSource = input.assetManifestSource ?? current.assetManifestSource;
     const manifest = parseProjectManifest(manifestSource);
+    const assetManifest = parseAssetManifest(assetManifestSource);
     const sourceOverlay = Object.fromEntries(
-      Object.entries(replacements).filter(([path]) => path !== MANIFEST),
+      Object.entries(replacements).filter(
+        (entry): entry is [string, string] =>
+          entry[0] !== MANIFEST && entry[0] !== ASSET_MANIFEST && entry[1] !== null,
+      ),
     );
-    const compiled = await this.#compile(manifest, sourceOverlay);
+    const compiled = await this.#compile(manifest, assetManifest.assets, sourceOverlay);
     this.#assertExpectedProgram(compiled.result.ir, input.expectedProgram);
-    return { replacements, manifest, manifestSource, compiled };
+    return {
+      replacements,
+      manifest,
+      manifestSource,
+      assetManifest,
+      assetManifestSource,
+      compiled,
+    };
   }
 
   #assertExpectedProgram(compiledProgram: IrProgram, expectedProgram?: IrProgram): void {
@@ -327,6 +364,7 @@ export class SourceProjectRepository {
     const temporaryFiles = new Map<string, string>();
     try {
       for (const [relativePath, contents] of Object.entries(prepared.replacements)) {
+        if (contents === null) continue;
         const target = await this.paths.assertSafeFile(relativePath);
         const temporary = join(
           dirname(target),
@@ -336,13 +374,22 @@ export class SourceProjectRepository {
         temporaryFiles.set(relativePath, temporary);
       }
       await this.#writeJournal(journal);
-      for (const [relativePath, temporary] of temporaryFiles) {
-        await this.fileSystem.rename(temporary, this.paths.projectFile(relativePath));
+      for (const [relativePath, contents] of Object.entries(prepared.replacements)) {
+        if (contents === null) {
+          await this.fileSystem.rm(this.paths.projectFile(relativePath), { force: true });
+          continue;
+        }
+        await this.fileSystem.rename(
+          temporaryFiles.get(relativePath)!,
+          this.paths.projectFile(relativePath),
+        );
       }
       await this.#syncDirectory(this.paths.root);
       const published = this.#snapshot(
         prepared.manifest,
         prepared.manifestSource,
+        prepared.assetManifest,
+        prepared.assetManifestSource,
         prepared.compiled,
       );
       await this.fileSystem.rm(this.paths.derived(JOURNAL));
@@ -366,10 +413,10 @@ export class SourceProjectRepository {
       throw new SourceProjectConflictError(expectedGeneration, current.generation);
     return this.commit({
       expectedGeneration,
-      manifestSource: patchManifestAddAsset(
-        current.manifestSource,
+      assetManifestSource: patchAssetManifestAdd(
+        current.assetManifestSource,
         asset,
-        sourceRevision(current.manifestSource),
+        sourceRevision(current.assetManifestSource),
       ),
     });
   }
@@ -380,10 +427,10 @@ export class SourceProjectRepository {
       throw new SourceProjectConflictError(expectedGeneration, current.generation);
     return this.commit({
       expectedGeneration,
-      manifestSource: patchManifestRemoveAsset(
-        current.manifestSource,
+      assetManifestSource: patchAssetManifestRemove(
+        current.assetManifestSource,
         assetId,
-        sourceRevision(current.manifestSource),
+        sourceRevision(current.assetManifestSource),
       ),
     });
   }
@@ -398,11 +445,11 @@ export class SourceProjectRepository {
       throw new SourceProjectConflictError(expectedGeneration, current.generation);
     return this.commit({
       expectedGeneration,
-      manifestSource: patchManifestAssetSource(
-        current.manifestSource,
+      assetManifestSource: patchAssetManifestSource(
+        current.assetManifestSource,
         assetId,
         source,
-        sourceRevision(current.manifestSource),
+        sourceRevision(current.assetManifestSource),
       ),
     });
   }
@@ -432,22 +479,42 @@ export class SourceProjectRepository {
       overlay[MANIFEST] ??
       (await this.fileSystem.readFile(await this.paths.assertSafeFile(MANIFEST, false), "utf8"));
     const manifest = parseProjectManifest(manifestSource);
-    const compilation = await this.#compile(manifest, overlay);
-    return this.#snapshot(manifest, manifestSource, compilation);
+    const assetManifestSource =
+      overlay[ASSET_MANIFEST] ??
+      (await this.fileSystem.readFile(
+        await this.paths.assertSafeFile(ASSET_MANIFEST, false),
+        "utf8",
+      ));
+    const assetManifest = parseAssetManifest(assetManifestSource);
+    const compilation = await this.#compile(manifest, assetManifest.assets, overlay);
+    return this.#snapshot(
+      manifest,
+      manifestSource,
+      assetManifest,
+      assetManifestSource,
+      compilation,
+    );
   }
 
   async #compile(
     manifest: ProjectManifest,
+    assets: readonly Asset[],
     overlay: Readonly<Record<string, string>>,
   ): Promise<ProjectCompilation> {
     const host = new RepositoryCompilerHost(this.paths, this.fileSystem, overlay);
-    const result = await compileVideo(manifest.project.entry, compilerConfig(manifest), host);
+    const result = await compileVideo(
+      manifest.project.entry,
+      compilerConfig(manifest, assets),
+      host,
+    );
     return { result, loaded: host.loaded };
   }
 
   #snapshot(
     manifest: ProjectManifest,
     manifestSource: string,
+    assetManifest: AssetManifest,
+    assetManifestSource: string,
     compiled: ProjectCompilation,
   ): SourceProjectSnapshot {
     const sources = Object.fromEntries(
@@ -459,9 +526,12 @@ export class SourceProjectRepository {
     return {
       manifest,
       manifestSource,
+      assetManifest,
+      assetManifestSource,
+      assets: assetManifest.assets,
       sources,
       revisions,
-      generation: projectGeneration(manifestSource, compiled.loaded),
+      generation: projectGeneration(manifestSource, assetManifestSource, compiled.loaded),
       compilation: compiled.result,
     };
   }
@@ -515,8 +585,10 @@ export class SourceProjectRepository {
     if (journal.version !== 1 || typeof journal.id !== "string")
       throw new Error("Invalid source transaction journal.");
     const allPublished = await Promise.all(
-      Object.entries(journal.next).map(
-        async ([path, contents]) => (await this.#readOptional(path)) === contents,
+      Object.entries(journal.next).map(async ([path, contents]) =>
+        contents === null
+          ? (await this.#readOptional(path)) === null
+          : (await this.#readOptional(path)) === contents,
       ),
     );
     if (!allPublished.every(Boolean)) {

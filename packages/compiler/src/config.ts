@@ -27,16 +27,17 @@ function booleanValue(value: unknown, name: string, fallback: boolean): boolean 
   return value;
 }
 
-function assetIds(value: unknown): string[] {
-  if (value === undefined) return [];
-  const assets = record(value, "assets");
-  return Object.keys(assets).sort((left, right) => left.localeCompare(right));
-}
-
 /** Parses the compiler-facing portion of a complete cinesim.toml value. */
-export function parseCompilerConfig(input: unknown): CompilerConfig {
+export function parseCompilerConfig(
+  input: unknown,
+  assetIds: readonly string[] = [],
+): CompilerConfig {
   const value = record(input, "cinesim.toml");
-  if (value.format_version !== 2) throw new Error("cinesim.toml format_version must be 2.");
+  if (value.format_version === 2)
+    throw new Error(
+      "Unsupported Cinesim project format 2. This build requires format 3 with a separate assets.toml file.",
+    );
+  if (value.format_version !== 3) throw new Error("cinesim.toml format_version must be 3.");
   if (value.language_version !== 1) throw new Error("cinesim.toml language_version must be 1.");
   const project = record(value.project, "project");
   const compiler = value.compiler === undefined ? {} : record(value.compiler, "compiler");
@@ -48,7 +49,7 @@ export function parseCompilerConfig(input: unknown): CompilerConfig {
     output: ".video/compiler",
     sourceMaps: true,
     strict: booleanValue(compiler.strict, "compiler.strict", true),
-    assetIds: assetIds(value.assets),
+    assetIds: [...assetIds].sort((left, right) => left.localeCompare(right)),
     budgets: DEFAULT_COMPILER_BUDGETS,
   };
 }

@@ -70,7 +70,7 @@ export class DiskProjectStore {
     this.editMap = structuredClone(snapshot.compilation.sourceMap);
     this.project = projectViewFromIr(snapshot.compilation.ir, {
       name: snapshot.manifest.project.name,
-      assets: snapshot.manifest.assets,
+      assets: snapshot.assets,
       ...(snapshot.manifest.project.cloudProjectId === undefined
         ? {}
         : {

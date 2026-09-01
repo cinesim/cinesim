@@ -5,10 +5,9 @@ import { AgentEventView } from "./agent-event-view";
 interface AgentConversationProps {
   session: AgentSessionSnapshot;
   onApproval: (requestId: string, decision: "accept" | "decline") => void;
-  onRevert: (turnId: string) => void;
 }
 
-export function AgentConversation({ session, onApproval, onRevert }: AgentConversationProps) {
+export function AgentConversation({ session, onApproval }: AgentConversationProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const eventCount = session.events.length;
   const lastEventText = session.events.at(-1)?.text;
@@ -28,7 +27,6 @@ export function AgentConversation({ session, onApproval, onRevert }: AgentConver
               event={event}
               session={session}
               onApproval={onApproval}
-              onRevert={onRevert}
             />
           ))}
         </div>

@@ -100,7 +100,7 @@ export class AgentCheckpointStore {
   async #canonicalFiles(): Promise<string[]> {
     const repository = await SourceProjectRepository.open(this.projectDirectory);
     const snapshot = await repository.load();
-    return ["cinesim.toml", ...Object.keys(snapshot.sources).sort()];
+    return ["assets.toml", "cinesim.toml", ...Object.keys(snapshot.sources).sort()];
   }
 
   async #git(arguments_: string[], environment: NodeJS.ProcessEnv): Promise<string> {

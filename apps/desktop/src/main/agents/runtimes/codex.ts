@@ -75,12 +75,12 @@ export class CodexRuntime implements AgentProviderRuntime {
       capabilities: { experimentalApi: true },
     });
     this.#notify("initialized", undefined);
+    const approvalPolicy = this.options.permissionMode === "auto-edit" ? "never" : "on-request";
     const params = {
       cwd: this.options.cwd,
-      approvalPolicy: "never",
+      approvalPolicy,
       approvalsReviewer: "user",
-      sandbox: "read-only",
-      developerInstructions: this.options.instructions,
+      sandbox: "workspace-write",
       ...(this.options.model ? { model: this.options.model } : {}),
     };
     const opened = asRecord(
@@ -104,9 +104,13 @@ export class CodexRuntime implements AgentProviderRuntime {
       await this.#request("turn/start", {
         threadId: this.#threadId,
         input: [{ type: "text", text: message }],
-        approvalPolicy: "never",
+        approvalPolicy: this.options.permissionMode === "auto-edit" ? "never" : "on-request",
         approvalsReviewer: "user",
-        sandboxPolicy: { type: "readOnly" },
+        sandboxPolicy: {
+          type: "workspaceWrite",
+          writableRoots: [this.options.cwd],
+          networkAccess: true,
+        },
         effort: this.options.effort,
         ...(this.options.model ? { model: this.options.model } : {}),
       }),

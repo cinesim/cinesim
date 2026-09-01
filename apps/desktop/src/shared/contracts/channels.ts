@@ -14,7 +14,6 @@ export const invokeChannels = {
     interrupt: "agents:interrupt",
     login: "agents:login",
     providersRefresh: "agents:providers:refresh",
-    revert: "agents:revert",
     select: "agents:select",
     send: "agents:send",
     settingsGet: "agents:settings:get",

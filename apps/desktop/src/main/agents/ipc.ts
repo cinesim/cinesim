@@ -104,16 +104,6 @@ export function registerAgentIpc(agents: AgentManager, settingsStore: AgentSetti
     }
     return agents.respondApproval(sessionId, requestId, decision);
   });
-  registerIpcHandler(agentContracts.revert, async ({ sessionId, turnId }) => {
-    const intent = agents.revertIntent(sessionId, turnId);
-    await requireUserIntent({
-      title: "Restore agent checkpoint?",
-      message: `Restore the project to before agent turn ${intent.turnNumber}?`,
-      detail: `${intent.summary}\nCanonical project files will be replaced with the checkpoint state.`,
-      confirmLabel: "Restore checkpoint",
-    });
-    return agents.revert(sessionId, turnId);
-  });
 }
 
 async function confirmSessionAutoEdit(provider?: AgentProviderKind): Promise<void> {

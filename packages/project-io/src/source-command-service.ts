@@ -5,21 +5,18 @@ import {
   type SemanticEditorCommand,
 } from "@cinesim/core";
 import {
-  patchManifestAddAsset,
-  patchManifestAssetSource,
-  patchManifestProjectKey,
-  patchManifestRemoveAsset,
-  sourceRevision,
-} from "./project-manifest";
+  patchAssetManifestAdd,
+  patchAssetManifestRemove,
+  patchAssetManifestSource,
+} from "./asset-manifest";
+import { patchManifestProjectKey, sourceRevision } from "./project-manifest";
 import {
   SourceProjectConflictError,
   SourceProjectRepository,
   type SourceProjectSnapshot,
 } from "./source-project-repository";
 
-interface SourceHistoryTransaction {
-  command: SemanticEditorCommand;
-  summary: string;
+interface SourceHistoryEntry {
   before: SourceProjectSnapshot;
   after: SourceProjectSnapshot;
 }
@@ -31,51 +28,67 @@ export interface SourceCommandResult extends SemanticCommandPlan {
 function changedSources(
   current: SourceProjectSnapshot,
   target: SourceProjectSnapshot,
-): Record<string, string> {
+): Record<string, string | null> {
+  const paths = new Set([...Object.keys(current.sources), ...Object.keys(target.sources)]);
   return Object.fromEntries(
-    Object.entries(target.sources).filter(([uri, source]) => current.sources[uri] !== source),
+    [...paths]
+      .filter((uri) => current.sources[uri] !== target.sources[uri])
+      .map((uri) => [uri, target.sources[uri] ?? null]),
   );
 }
 
-function patchManifestForCommand(
+function patchDocumentsForCommand(
   snapshot: SourceProjectSnapshot,
   command: SemanticEditorCommand,
   plan: SemanticCommandPlan,
-): string | undefined {
-  let source = snapshot.manifestSource;
-  let changed = false;
+): { manifestSource?: string; assetManifestSource?: string } {
+  let manifestSource = snapshot.manifestSource;
+  let assetManifestSource = snapshot.assetManifestSource;
+  let manifestChanged = false;
+  let assetsChanged = false;
   if (command.type === "asset.import") {
-    source = patchManifestAddAsset(source, command.asset, sourceRevision(source));
-    changed = true;
+    assetManifestSource = patchAssetManifestAdd(
+      assetManifestSource,
+      command.asset,
+      sourceRevision(assetManifestSource),
+    );
+    assetsChanged = true;
   } else if (command.type === "asset.setSource") {
-    source = patchManifestAssetSource(
-      source,
+    assetManifestSource = patchAssetManifestSource(
+      assetManifestSource,
       command.assetId,
       command.source,
-      sourceRevision(source),
+      sourceRevision(assetManifestSource),
     );
-    changed = true;
+    assetsChanged = true;
   } else if (command.type === "asset.remove") {
     for (const assetId of command.assetIds) {
-      source = patchManifestRemoveAsset(source, assetId, sourceRevision(source));
-      changed = true;
+      assetManifestSource = patchAssetManifestRemove(
+        assetManifestSource,
+        assetId,
+        sourceRevision(assetManifestSource),
+      );
+      assetsChanged = true;
     }
   }
   if (plan.manifest.activeCompositionId !== undefined) {
-    source = patchManifestProjectKey(
-      source,
+    manifestSource = patchManifestProjectKey(
+      manifestSource,
       "active_composition",
       plan.manifest.activeCompositionId,
-      sourceRevision(source),
+      sourceRevision(manifestSource),
     );
-    changed = true;
+    manifestChanged = true;
   }
-  return changed ? source : undefined;
+  return {
+    ...(manifestChanged ? { manifestSource } : {}),
+    ...(assetsChanged ? { assetManifestSource } : {}),
+  };
 }
 
 export class SourceCommandService {
-  readonly #undo: SourceHistoryTransaction[] = [];
-  readonly #redo: SourceHistoryTransaction[] = [];
+  readonly #undo: SourceHistoryEntry[] = [];
+  readonly #redo: SourceHistoryEntry[] = [];
   #snapshot: SourceProjectSnapshot;
 
   private constructor(
@@ -108,12 +121,13 @@ export class SourceCommandService {
     return this.#snapshot;
   }
 
-  /** Accepts a watcher-validated external snapshot and invalidates local source history. */
+  /** Records a watcher-validated generation in the same project-wide history as UI commands. */
   acceptExternal(snapshot: SourceProjectSnapshot): void {
     if (snapshot.generation === this.#snapshot.generation) return;
-    this.#snapshot = snapshot;
-    this.#undo.length = 0;
+    this.#undo.push({ before: this.#snapshot, after: snapshot });
+    if (this.#undo.length > this.historyLimit) this.#undo.shift();
     this.#redo.length = 0;
+    this.#snapshot = snapshot;
   }
 
   async execute(
@@ -124,7 +138,7 @@ export class SourceCommandService {
       throw new SourceProjectConflictError(expectedGeneration, this.#snapshot.generation);
     }
     const before = this.#snapshot;
-    const plan = planSemanticCommand(before.compilation.ir, before.manifest.assets, command);
+    const plan = planSemanticCommand(before.compilation.ir, before.assets, command);
     const sourcePlan = planSemanticSourceEdits(
       plan.patches,
       before.compilation.sourceMap,
@@ -134,15 +148,15 @@ export class SourceCommandService {
     const sourceReplacements = Object.fromEntries(
       sourcePlan.touchedUris.map((uri) => [uri, nextSources[uri]!]),
     );
-    const manifestSource = patchManifestForCommand(before, command, plan);
+    const documentChanges = patchDocumentsForCommand(before, command, plan);
     const after = await this.repository.commit({
       expectedGeneration,
       ...(Object.keys(sourceReplacements).length === 0 ? {} : { sources: sourceReplacements }),
-      ...(manifestSource === undefined ? {} : { manifestSource }),
+      ...documentChanges,
       expectedProgram: plan.program,
     });
     this.#snapshot = after;
-    this.#undo.push({ command, summary: plan.summary, before, after });
+    this.#undo.push({ before, after });
     if (this.#undo.length > this.historyLimit) this.#undo.shift();
     this.#redo.length = 0;
     return { ...plan, snapshot: after };
@@ -159,6 +173,9 @@ export class SourceCommandService {
       ...(this.#snapshot.manifestSource === transaction.before.manifestSource
         ? {}
         : { manifestSource: transaction.before.manifestSource }),
+      ...(this.#snapshot.assetManifestSource === transaction.before.assetManifestSource
+        ? {}
+        : { assetManifestSource: transaction.before.assetManifestSource }),
       sources: changedSources(this.#snapshot, transaction.before),
       expectedProgram: transaction.before.compilation.ir,
     });
@@ -176,6 +193,9 @@ export class SourceCommandService {
       ...(this.#snapshot.manifestSource === transaction.after.manifestSource
         ? {}
         : { manifestSource: transaction.after.manifestSource }),
+      ...(this.#snapshot.assetManifestSource === transaction.after.assetManifestSource
+        ? {}
+        : { assetManifestSource: transaction.after.assetManifestSource }),
       sources: changedSources(this.#snapshot, transaction.after),
       expectedProgram: transaction.after.compilation.ir,
     });

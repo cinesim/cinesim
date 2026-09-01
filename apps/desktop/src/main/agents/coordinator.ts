@@ -63,23 +63,18 @@ export class AgentCoordinator implements AgentToolHooks {
     this.#sessionStore = new AgentSessionStore(path);
     this.#events = new AgentEventPublisher(publishDelta);
     this.mcpServer = new AgentMcpServer(projectStore, this);
-    this.#runtimeCoordinator = new AgentRuntimeCoordinator(
-      settingsStore,
-      this.mcpServer,
-      {
-        event: (sessionId, event) => this.#runtimeEvent(sessionId, event),
-        providerSessionId: (sessionId, providerSessionId) =>
-          this.#recordProviderSessionId(sessionId, providerSessionId),
-        turnStarted: (sessionId, providerTurnId) =>
-          this.#recordTurnStarted(sessionId, providerTurnId),
-        turnCompleted: (sessionId, status, detail) =>
-          void this.#completeTurn(sessionId, status, detail),
-        tokenUsage: (sessionId, usage) => this.#recordTokenUsage(sessionId, usage),
-        approval: (sessionId, title, detail) => this.requestApproval(sessionId, title, detail),
-        exited: (sessionId, detail) => void this.#providerExited(sessionId, detail),
-      },
-      this.#instructions(),
-    );
+    this.#runtimeCoordinator = new AgentRuntimeCoordinator(settingsStore, this.mcpServer, {
+      event: (sessionId, event) => this.#runtimeEvent(sessionId, event),
+      providerSessionId: (sessionId, providerSessionId) =>
+        this.#recordProviderSessionId(sessionId, providerSessionId),
+      turnStarted: (sessionId, providerTurnId) =>
+        this.#recordTurnStarted(sessionId, providerTurnId),
+      turnCompleted: (sessionId, status, detail) =>
+        void this.#completeTurn(sessionId, status, detail),
+      tokenUsage: (sessionId, usage) => this.#recordTokenUsage(sessionId, usage),
+      approval: (sessionId, title, detail) => this.requestApproval(sessionId, title, detail),
+      exited: (sessionId, detail) => void this.#providerExited(sessionId, detail),
+    });
   }
 
   async load(): Promise<void> {
@@ -323,34 +318,6 @@ export class AgentCoordinator implements AgentToolHooks {
     const session = this.#requireSession(sessionId);
     const lease = this.#approvals.intent(sessionId, requestId, session.activeTurnId);
     return { toolName: lease.toolName, detail: lease.detail };
-  }
-
-  revertIntent(sessionId: string, turnId: string): { turnNumber: number; summary: string } {
-    const session = this.#requireSession(sessionId);
-    const checkpoint = session.checkpoints.find((candidate) => candidate.turnId === turnId);
-    if (!checkpoint) throw new Error("Checkpoint is unavailable for this turn");
-    return { turnNumber: checkpoint.turnNumber, summary: checkpoint.summary };
-  }
-
-  async revert(sessionId: string, turnId: string): Promise<AgentProjectSnapshot> {
-    const session = this.#requireSession(sessionId);
-    const checkpoint = session.checkpoints.find((candidate) => candidate.turnId === turnId);
-    if (!checkpoint) throw new Error("Checkpoint is unavailable for this turn");
-    await this.#stopRuntime(sessionId);
-    await this.#turns.restore(session, checkpoint);
-    await this.projectStore.open(session.projectDirectory);
-    session.providerSessionId = undefined;
-    session.tokenUsage = undefined;
-    session.activeTurnId = undefined;
-    session.status = "completed";
-    session.updatedAt = now();
-    this.#appendEvent(session, {
-      kind: "notice",
-      title: "Turn reverted",
-      detail: `Restored the project to before turn ${checkpoint.turnNumber}. The next message starts a fresh provider context.`,
-    });
-    this.notifyProjectChanged();
-    return this.#changed(session.projectDirectory);
   }
 
   async close(): Promise<void> {
@@ -613,11 +580,5 @@ export class AgentCoordinator implements AgentToolHooks {
 
   async #save(): Promise<void> {
     await this.#sessionStore.write(this.#sessions.state);
-  }
-
-  #instructions(): string {
-    return `You are working inside Cinesim, a local-first nonlinear video editor.
-
-Use the cinesim MCP tools for every canonical project edit. Canonical state is cinesim.toml plus reachable JavaScript/JSX video source; never bypass semantic commands to edit it. Inspect the current project and timeline before editing. All timeline times are integer microseconds and all entities are addressed by stable IDs. Source media is referenced in place and must never be moved, overwritten, or deleted. Files under .video are derived and disposable. Explain completed changes clearly and mention the stable IDs you changed.`;
   }
 }

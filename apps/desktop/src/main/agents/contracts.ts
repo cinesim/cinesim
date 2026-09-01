@@ -160,9 +160,4 @@ export const agentContracts = {
     ]),
     "trust-change",
   ),
-  revert: snapshotContract(
-    invokeChannels.agents.revert,
-    z.tuple([z.object({ sessionId: boundedIdSchema, turnId: boundedIdSchema }).strict()]),
-    "trust-change",
-  ),
 } as const;

@@ -26,7 +26,6 @@ export class AgentRuntimeCoordinator {
     private readonly settings: AgentSettingsStore,
     private readonly mcpServer: AgentMcpServer,
     private readonly host: AgentRuntimeHost,
-    private readonly instructions: string,
   ) {}
 
   async send(session: AgentSessionSnapshot, message: string): Promise<void> {
@@ -68,10 +67,10 @@ export class AgentRuntimeCoordinator {
         cwd: session.projectDirectory,
         model: session.model,
         effort: session.effort,
+        permissionMode: session.permissionMode,
         ...(session.providerSessionId ? { providerSessionId: session.providerSessionId } : {}),
         mcpUrl: credential.url,
         mcpToken: credential.token,
-        instructions: this.instructions,
       },
       {
         onEvent: (event) => this.host.event(session.id, event),

@@ -41,14 +41,6 @@ const runtime: CinesimMcpToolRuntime = {
   program: () => store().program,
   editMap: () => store().editMap,
   directory: () => projectDirectory,
-  execute: async (command) => {
-    const result = await store().execute(command);
-    return {
-      summary: result.summary,
-      changedIds: result.changedIds,
-      createdIds: result.createdIds,
-    };
-  },
   perform: async (_tool, operation) => {
     try {
       const loaded = await new DiskProjectStore(projectDirectory).load();

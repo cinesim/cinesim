@@ -8,7 +8,7 @@ import {
   type CompilerSource,
 } from "@cinesim/compiler";
 import { serializeIr } from "@cinesim/ir";
-import { SourceProjectRepository } from "@cinesim/project-io";
+import { parseAssetManifest, SourceProjectRepository } from "@cinesim/project-io";
 import { parse } from "smol-toml";
 
 export interface CompileCommandOptions {
@@ -90,7 +90,12 @@ export async function runCompileCommand(
     : undefined;
   const config =
     repositorySnapshot === undefined
-      ? parseCompilerConfig(parse(await readFile(filename, "utf8")) as unknown)
+      ? parseCompilerConfig(
+          parse(await readFile(filename, "utf8")) as unknown,
+          parseAssetManifest(
+            await readFile(path.join(configDirectory, "assets.toml"), "utf8"),
+          ).assets.map((asset) => asset.id),
+        )
       : undefined;
   const entry = repositorySnapshot?.manifest.project.entry ?? safeUri(config?.entry ?? "main.jsx");
   const result =

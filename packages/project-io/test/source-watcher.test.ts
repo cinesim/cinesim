@@ -47,6 +47,17 @@ describe("SourceProjectWatcher", () => {
     await watcher.checkNow();
     expect(accepted).toHaveLength(1);
     expect(accepted[0]!.compilation.ir.compositions[0]!.name).toBe("Recovered");
+
+    const assetManifestPath = join(directory, "assets.toml");
+    const assetManifest = await readFile(assetManifestPath, "utf8");
+    await writeFile(assetManifestPath, "format_version = 1\n[assets.invalid]\n");
+    await watcher.checkNow();
+    expect(accepted).toHaveLength(1);
+    expect(diagnostics.at(-1)).toBeDefined();
+    await writeFile(assetManifestPath, `${assetManifest}\n# accepted catalog generation\n`);
+    await watcher.checkNow();
+    expect(accepted).toHaveLength(2);
+    expect(accepted[1]!.assetManifestSource).toContain("accepted catalog generation");
     watcher.close();
   });
 

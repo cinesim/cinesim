@@ -1,10 +1,10 @@
 import { createHash } from "node:crypto";
-import { assetSchema, DEFAULT_SETTINGS, settingsSchema } from "@cinesim/core";
-import type { Asset, ProjectSettings } from "@cinesim/core";
+import { DEFAULT_SETTINGS, settingsSchema } from "@cinesim/core";
+import type { ProjectSettings } from "@cinesim/core";
 import { parse, stringify } from "smol-toml";
 
 export interface ProjectManifest {
-  formatVersion: 2;
+  formatVersion: 3;
   languageVersion: 1;
   project: {
     id: string;
@@ -15,7 +15,6 @@ export interface ProjectManifest {
   };
   settings: ProjectSettings;
   compiler: { strict: boolean };
-  assets: Asset[];
 }
 
 function record(value: unknown, name: string): Record<string, unknown> {
@@ -33,13 +32,6 @@ function requiredString(value: unknown, name: string): string {
 function optionalBoolean(value: unknown, name: string, fallback: boolean): boolean {
   if (value === undefined) return fallback;
   if (typeof value !== "boolean") throw new Error(`${name} must be a boolean.`);
-  return value;
-}
-
-function optionalNumber(value: unknown, name: string): number | undefined {
-  if (value === undefined) return undefined;
-  if (typeof value !== "number" || !Number.isFinite(value))
-    throw new Error(`${name} must be finite.`);
   return value;
 }
 
@@ -73,44 +65,13 @@ function parseSettings(input: unknown): ProjectSettings {
   });
 }
 
-function parseAsset(id: string, input: unknown): Asset {
-  if (!/^asset_[a-zA-Z0-9][a-zA-Z0-9_-]*$/u.test(id))
-    throw new Error(`Invalid stable asset table key: ${id}`);
-  const value = record(input, `assets.${id}`);
-  const source = record(value.source, `assets.${id}.source`);
-  return assetSchema.parse({
-    id,
-    kind: value.kind,
-    name: value.name,
-    durationUs: value.duration_us,
-    ...(optionalNumber(value.width, `assets.${id}.width`) === undefined
-      ? {}
-      : { width: value.width }),
-    ...(optionalNumber(value.height, `assets.${id}.height`) === undefined
-      ? {}
-      : { height: value.height }),
-    ...(optionalNumber(value.frame_rate, `assets.${id}.frame_rate`) === undefined
-      ? {}
-      : { frameRate: value.frame_rate }),
-    ...(value.has_audio === undefined ? {} : { hasAudio: value.has_audio }),
-    source:
-      source.kind === "local"
-        ? { kind: "local", path: requiredString(source.path, `assets.${id}.source.path`) }
-        : source.kind === "cloud"
-          ? {
-              kind: "cloud",
-              cloudAssetId: requiredString(
-                source.cloud_asset_id,
-                `assets.${id}.source.cloud_asset_id`,
-              ),
-            }
-          : source,
-  }) as unknown as Asset;
-}
-
 export function parseProjectManifest(source: string): ProjectManifest {
   const input = record(parse(source) as unknown, "cinesim.toml");
-  if (input.format_version !== 2) throw new Error("cinesim.toml format_version must be 2.");
+  if (input.format_version === 2)
+    throw new Error(
+      "Unsupported Cinesim project format 2. This build requires format 3 with a separate assets.toml file.",
+    );
+  if (input.format_version !== 3) throw new Error("cinesim.toml format_version must be 3.");
   if (input.language_version !== 1) throw new Error("cinesim.toml language_version must be 1.");
   const project = record(input.project, "project");
   const id = requiredString(project.id, "project.id");
@@ -128,10 +89,11 @@ export function parseProjectManifest(source: string): ProjectManifest {
       !/^cloud_project_[a-zA-Z0-9][a-zA-Z0-9_-]{7,127}$/u.test(cloudProjectId))
   )
     throw new Error("Invalid project.cloud_project_id.");
-  const assetsInput = input.assets === undefined ? {} : record(input.assets, "assets");
+  if (input.assets !== undefined)
+    throw new Error("cinesim.toml must not contain assets; use the canonical assets.toml catalog.");
   const compiler = input.compiler === undefined ? {} : record(input.compiler, "compiler");
   return {
-    formatVersion: 2,
+    formatVersion: 3,
     languageVersion: 1,
     project: {
       id,
@@ -142,35 +104,12 @@ export function parseProjectManifest(source: string): ProjectManifest {
     },
     settings: parseSettings(input.settings),
     compiler: { strict: optionalBoolean(compiler.strict, "compiler.strict", true) },
-    assets: Object.entries(assetsInput)
-      .map(([assetId, asset]) => parseAsset(assetId, asset))
-      .sort((left, right) => left.id.localeCompare(right.id)),
   };
 }
 
 function manifestShape(manifest: ProjectManifest): Record<string, unknown> {
-  const assets = Object.fromEntries(
-    [...manifest.assets]
-      .sort((left, right) => left.id.localeCompare(right.id))
-      .map((asset) => [
-        asset.id,
-        {
-          kind: asset.kind,
-          name: asset.name,
-          duration_us: asset.durationUs,
-          ...(asset.width === undefined ? {} : { width: asset.width }),
-          ...(asset.height === undefined ? {} : { height: asset.height }),
-          ...(asset.frameRate === undefined ? {} : { frame_rate: asset.frameRate }),
-          ...(asset.hasAudio === undefined ? {} : { has_audio: asset.hasAudio }),
-          source:
-            asset.source.kind === "local"
-              ? { kind: "local", path: asset.source.path }
-              : { kind: "cloud", cloud_asset_id: asset.source.cloudAssetId },
-        },
-      ]),
-  );
   return {
-    format_version: 2,
+    format_version: 3,
     language_version: 1,
     project: {
       id: manifest.project.id,
@@ -193,7 +132,6 @@ function manifestShape(manifest: ProjectManifest): Record<string, unknown> {
       proxy_quality: manifest.settings.proxyQuality,
     },
     compiler: { strict: manifest.compiler.strict },
-    assets,
   };
 }
 
@@ -285,93 +223,6 @@ export function patchManifestProjectKey(
 ): string {
   assertRevision(source, expectedRevision);
   const next = replaceTableKey(source, "project", key, value);
-  parseProjectManifest(next);
-  return next;
-}
-
-function assetBlock(asset: Asset, newline: string): string {
-  const fields = [
-    `[assets.${asset.id}]`,
-    `kind = ${literal(asset.kind)}`,
-    `name = ${literal(asset.name)}`,
-    `duration_us = ${asset.durationUs}`,
-    ...(asset.width === undefined ? [] : [`width = ${asset.width}`]),
-    ...(asset.height === undefined ? [] : [`height = ${asset.height}`]),
-    ...(asset.frameRate === undefined ? [] : [`frame_rate = ${asset.frameRate}`]),
-    ...(asset.hasAudio === undefined ? [] : [`has_audio = ${asset.hasAudio}`]),
-    "",
-    `[assets.${asset.id}.source]`,
-    `kind = ${literal(asset.source.kind)}`,
-    ...(asset.source.kind === "local"
-      ? [`path = ${literal(asset.source.path)}`]
-      : [`cloud_asset_id = ${literal(asset.source.cloudAssetId)}`]),
-    "",
-  ];
-  return fields.join(newline);
-}
-
-function assetRanges(source: string): Array<{ id: string; start: number; end: number }> {
-  const headers = [...source.matchAll(/^\[assets\.(asset_[a-zA-Z0-9_-]+)\][ \t]*(?:\r?\n|$)/gmu)];
-  return headers.map((match) => {
-    const id = match[1]!;
-    const sourceRange = tableRange(source, `assets.${id}.source`);
-    if (!sourceRange) throw new Error(`Asset ${id} is missing its source table.`);
-    return { id, start: match.index!, end: sourceRange.end };
-  });
-}
-
-export function patchManifestAddAsset(
-  source: string,
-  asset: Asset,
-  expectedRevision: string,
-): string {
-  assertRevision(source, expectedRevision);
-  assetSchema.parse(asset);
-  const ranges = assetRanges(source);
-  if (ranges.some((range) => range.id === asset.id))
-    throw new Error(`Asset already exists: ${asset.id}`);
-  const newline = source.includes("\r\n") ? "\r\n" : "\n";
-  const nextAsset = ranges.find((range) => range.id.localeCompare(asset.id) > 0);
-  const insertion = nextAsset?.start ?? ranges.at(-1)?.end ?? source.length;
-  const prefix =
-    insertion > 0 && !source.slice(0, insertion).endsWith(`${newline}${newline}`) ? newline : "";
-  const next = `${source.slice(0, insertion)}${prefix}${assetBlock(asset, newline)}${source.slice(insertion)}`;
-  parseProjectManifest(next);
-  return next;
-}
-
-export function patchManifestRemoveAsset(
-  source: string,
-  assetId: string,
-  expectedRevision: string,
-): string {
-  assertRevision(source, expectedRevision);
-  const range = assetRanges(source).find((candidate) => candidate.id === assetId);
-  if (!range) throw new Error(`Asset not found: ${assetId}`);
-  const next = `${source.slice(0, range.start)}${source.slice(range.end)}`;
-  parseProjectManifest(next);
-  return next;
-}
-
-export function patchManifestAssetSource(
-  source: string,
-  assetId: string,
-  assetSource: Asset["source"],
-  expectedRevision: string,
-): string {
-  assertRevision(source, expectedRevision);
-  const range = tableRange(source, `assets.${assetId}.source`);
-  if (!range) throw new Error(`Asset source not found: ${assetId}`);
-  const newline = source.includes("\r\n") ? "\r\n" : "\n";
-  const replacement = [
-    `[assets.${assetId}.source]`,
-    `kind = ${literal(assetSource.kind)}`,
-    ...(assetSource.kind === "local"
-      ? [`path = ${literal(assetSource.path)}`]
-      : [`cloud_asset_id = ${literal(assetSource.cloudAssetId)}`]),
-    "",
-  ].join(newline);
-  const next = `${source.slice(0, range.start)}${replacement}${source.slice(range.end)}`;
   parseProjectManifest(next);
   return next;
 }

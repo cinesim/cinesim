@@ -248,10 +248,5 @@ export function useAgentProjectController(session: DesktopProjectSession) {
         () => window.cinesim.agents.respondApproval(sessionId, requestId, decision),
         "Could not respond to approval",
       ),
-    revertTurn: (sessionId: string, turnId: string) =>
-      runSnapshotAction(
-        () => window.cinesim.agents.revertTurn(sessionId, turnId),
-        "Could not revert agent turn",
-      ),
   };
 }

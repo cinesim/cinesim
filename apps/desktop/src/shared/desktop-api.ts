@@ -152,7 +152,6 @@ export interface DesktopAgentApi {
     requestId: string,
     decision: "accept" | "decline",
   ): Promise<AgentProjectSnapshot>;
-  revertTurn(sessionId: string, turnId: string): Promise<AgentProjectSnapshot>;
   onDelta(callback: (delta: AgentProjectDelta) => void): () => void;
 }
 

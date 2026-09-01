@@ -1,5 +1,7 @@
 export * from "./file-system";
+export * from "./asset-manifest";
 export * from "./project-manifest";
+export * from "./project-guidance";
 export * from "./project-paths";
 export * from "./source-command-service";
 export * from "./source-project-repository";

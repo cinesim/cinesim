@@ -1,4 +1,9 @@
-import type { AgentEffort, AgentEventKind, AgentTokenUsage } from "../../../shared/contracts";
+import type {
+  AgentEffort,
+  AgentEventKind,
+  AgentPermissionMode,
+  AgentTokenUsage,
+} from "../../../shared/contracts";
 
 export const MAX_PROVIDER_LINE_CHARACTERS = 2_000_000;
 export const MAX_PROVIDER_STRING_CHARACTERS = 1_000_000;
@@ -34,10 +39,10 @@ export interface AgentRuntimeLaunchOptions {
   cwd: string;
   model: string;
   effort: AgentEffort;
+  permissionMode: AgentPermissionMode;
   providerSessionId?: string;
   mcpUrl: string;
   mcpToken: string;
-  instructions: string;
 }
 
 export function asRecord(value: unknown): Record<string, unknown> | null {
