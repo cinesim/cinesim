@@ -211,6 +211,7 @@ export class VisualIndexStore {
 
   constructor(
     private readonly fingerprintForAsset: (assetId: AssetId) => Promise<ProjectSourceFingerprint>,
+    private readonly onChanged: () => void = () => undefined,
   ) {}
 
   setProject(directory: string, project: Project): void {
@@ -223,6 +224,7 @@ export class VisualIndexStore {
     const removed = (this.#project?.assets ?? []).filter(({ id }) => !retained.has(id));
     this.#project = structuredClone(project);
     for (const asset of removed) await rm(await this.#path(asset.id), { force: true });
+    if (removed.length > 0) this.onChanged();
   }
 
   clearProject(): void {
@@ -305,6 +307,7 @@ export class VisualIndexStore {
   async clear(assetIds: readonly string[]): Promise<VisualIndexAssetStatus[]> {
     for (const assetId of this.#assetIds(assetIds))
       await rm(await this.#path(assetId), { force: true });
+    this.onChanged();
     return this.status(assetIds);
   }
 
@@ -402,5 +405,6 @@ export class VisualIndexStore {
     const temporary = `${path}.${crypto.randomUUID()}.tmp`;
     await writeFile(temporary, `${JSON.stringify(artifact, null, 2)}\n`, { mode: 0o600 });
     await rename(temporary, path);
+    this.onChanged();
   }
 }

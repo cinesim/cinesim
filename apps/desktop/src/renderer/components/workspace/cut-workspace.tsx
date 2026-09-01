@@ -81,6 +81,8 @@ export function CutWorkspace({ session, project, sequenceId, initialLayout }: Cu
           <TimelineTranscript
             project={project}
             sequenceId={sequenceId}
+            derivedScope={session.derivedScope}
+            markers={(session.timelines[sequenceId] ?? session.timeline).markers}
             onSelectionChange={acceptSelection}
           />
           <PanelResizeHandle

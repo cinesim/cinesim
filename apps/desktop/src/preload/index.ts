@@ -118,6 +118,22 @@ const api: DesktopApi = {
       invoke(invokeChannels.transcripts.fail, { scope, jobId, failureCode, detail }),
     onChanged: (callback) => subscribe(eventChannels.transcriptsChanged, callback),
   },
+  visualIndex: {
+    status: (scope, assetIds) => invoke(invokeChannels.visualIndex.status, { scope, assetIds }),
+    get: (scope, assetId, range) =>
+      invoke(invokeChannels.visualIndex.get, { scope, assetId, range }),
+    generate: (scope, assetIds, force = false) =>
+      invoke(force ? invokeChannels.visualIndex.regenerate : invokeChannels.visualIndex.generate, {
+        scope,
+        assetIds,
+      }),
+    upsert: (scope, assetId, observations) =>
+      invoke(invokeChannels.visualIndex.upsert, { scope, assetId, observations }),
+    delete: (scope, assetId, selector) =>
+      invoke(invokeChannels.visualIndex.delete, { scope, assetId, selector }),
+    clear: (scope, assetIds) => invoke(invokeChannels.visualIndex.clear, { scope, assetIds }),
+    onChanged: (callback) => subscribe(eventChannels.visualIndexChanged, callback),
+  },
   appState: {
     get: () => invoke(invokeChannels.appState.get),
     setMediaPoolOpen: (open) => invoke(invokeChannels.appState.setMediaPoolOpen, { open }),

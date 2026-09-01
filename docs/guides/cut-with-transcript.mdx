@@ -1,11 +1,11 @@
 ---
-title: Cut from the transcript
-description: Transcribe the active timeline, navigate by speech, and make exact ripple edits as text.
+title: Cut from the screenplay
+description: Navigate dialogue, action, scene intent, and supporting media, then make exact text-led edits.
 ---
 
-The **Cut** workspace turns the active timeline into an editable document without creating a second
-timeline. Cut and Edit share the same sequence, clips, playhead, playback runtime, command history,
-and undo stack. Switch among **Media**, **Cut**, and **Edit** with <kbd>⌘1</kbd>, <kbd>⌘2</kbd>, and
+The **Cut** workspace projects the active timeline as a screenplay-like document without creating a
+second editing format. Cut and Edit share the same sequence, clips, playhead, playback runtime,
+command history, and undo stack. Switch among **Media**, **Cut**, and **Edit** with <kbd>⌘1</kbd>, <kbd>⌘2</kbd>, and
 
 <kbd>⌘3</kbd> (use <kbd>Ctrl</kbd> on Windows and Linux).
 
@@ -42,9 +42,20 @@ Long pauses appear as filled silence pills with their exact duration. Empty time
 separate hollow treatment. Missing, queued, running, and failed transcript coverage stays visible,
 so the document never suggests that an untranscribed interval contains no content.
 
+Dialogue blocks are narrow and centered with speaker labels. Action blocks come from timestamped
+visual-index observations mapped through each clip's exact source range. Scene headings come from
+canonical scene notes and markers. Supporting picture, stills, ambient sound, and music appear as
+compact indicators in narrative order.
+
+Missing, stale, and partially covered visual intervals remain explicit. Action blocks can correct
+descriptions, split an observation at its midpoint, merge it with the next observation, or clear the
+asset index. These operations use the same validated disposable visual-index store as MCP and never
+enter canonical history.
+
 ## Edit as text
 
-With words, silence, or a timeline gap selected:
+With words, silence, a timeline gap, action range, supporting-media interval, or visual-coverage gap
+selected:
 
 - choose **Play** to audition the exact range and stop at its end;
 - press <kbd>Backspace</kbd> or <kbd>Delete</kbd>, or choose **Ripple delete**, to remove the exact
@@ -67,6 +78,6 @@ The same responsive Timeline component is used in Edit, so resizing never change
 selection, playhead, or history. Cut remembers its transcript/right-column, viewer/Media Pool, and
 timeline sizes independently from Edit.
 
-Generated speaker names and transcript text are derived in this first release. Durable speaker
+Generated speaker names and transcript text remain derived. Durable speaker
 renames, merges, and text corrections require a future versioned canonical annotation format; the
 app does not hide that limitation by writing corrections into disposable transcript artifacts.

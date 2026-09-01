@@ -4,6 +4,7 @@ import { cloudContracts } from "../cloud/contracts";
 import { derivedContracts } from "../derived-media/contracts";
 import { projectContracts } from "../projects/contracts";
 import { transcriptContracts } from "../transcripts/contracts";
+import { visualIndexContracts } from "../visual-index/contracts";
 import { appContracts } from "./contracts";
 import type { InvokeContract } from "./ipc-contract";
 
@@ -19,4 +20,5 @@ export const allInvokeContracts = Object.freeze([
   ...values(derivedContracts),
   ...values(projectContracts),
   ...values(transcriptContracts),
+  ...values(visualIndexContracts),
 ]);

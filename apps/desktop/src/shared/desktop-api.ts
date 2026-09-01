@@ -1,4 +1,5 @@
 import type { ProjectSettings, SemanticEditorCommand } from "@cinesim/core";
+import type { VisualIndexAssetStatus, VisualIndexObservation } from "@cinesim/project-io";
 import type { TranscriptAudioChunkInput, TranscriptSnapshot } from "./transcript";
 import type { AccountSnapshot, SignInMethod } from "./contracts/account";
 import type {
@@ -120,6 +121,36 @@ export interface DesktopTranscriptApi {
   onChanged(callback: (snapshot: TranscriptSnapshot) => void): () => void;
 }
 
+export interface DesktopVisualIndexApi {
+  status(scope: DerivedProjectScope, assetIds?: string[]): Promise<VisualIndexAssetStatus[]>;
+  get(
+    scope: DerivedProjectScope,
+    assetId: string,
+    range?: { fromUs?: number; toUs?: number; limit?: number },
+  ): Promise<{
+    status: VisualIndexAssetStatus;
+    observations: VisualIndexObservation[];
+    truncated: boolean;
+  }>;
+  generate(
+    scope: DerivedProjectScope,
+    assetIds: string[],
+    force?: boolean,
+  ): Promise<VisualIndexAssetStatus[]>;
+  upsert(
+    scope: DerivedProjectScope,
+    assetId: string,
+    observations: VisualIndexObservation[],
+  ): Promise<VisualIndexAssetStatus>;
+  delete(
+    scope: DerivedProjectScope,
+    assetId: string,
+    selector: { observationIds?: string[]; fromUs?: number; toUs?: number },
+  ): Promise<VisualIndexAssetStatus>;
+  clear(scope: DerivedProjectScope, assetIds: string[]): Promise<VisualIndexAssetStatus[]>;
+  onChanged(callback: () => void): () => void;
+}
+
 export interface DesktopAppStateApi {
   get(): Promise<DesktopAppState>;
   setMediaPoolOpen(open: boolean): Promise<DesktopAppState>;
@@ -165,6 +196,7 @@ export interface DesktopApi {
   health: { get(): Promise<ElectronHealthSnapshot> };
   project: DesktopProjectApi;
   transcripts: DesktopTranscriptApi;
+  visualIndex: DesktopVisualIndexApi;
   platform: NodeJS.Platform;
 }
 

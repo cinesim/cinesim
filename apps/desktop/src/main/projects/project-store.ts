@@ -51,12 +51,16 @@ export class DesktopProjectStore {
   #operationQueue: Promise<unknown> = Promise.resolve();
   #defaultAgentInstructions: () => string = () => "";
 
-  constructor(accountService: DesktopAccountService | null = null) {
+  constructor(
+    accountService: DesktopAccountService | null = null,
+    onVisualIndexChanged: () => void = () => undefined,
+  ) {
     this.transcripts = new TranscriptStore(accountService, (assetId) =>
       this.derivedMedia.sourceFingerprint(assetId),
     );
-    this.visualIndex = new VisualIndexStore((assetId) =>
-      this.derivedMedia.sourceFingerprint(assetId),
+    this.visualIndex = new VisualIndexStore(
+      (assetId) => this.derivedMedia.sourceFingerprint(assetId),
+      onVisualIndexChanged,
     );
   }
 

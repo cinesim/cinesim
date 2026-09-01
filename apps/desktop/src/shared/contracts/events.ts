@@ -23,4 +23,5 @@ export const desktopEvents = {
   derivedChanged: event<DerivedMediaSnapshot>(eventChannels.derivedChanged),
   projectChanged: event<DesktopProjectSession>(eventChannels.projectChanged),
   transcriptsChanged: event<TranscriptSnapshot>(eventChannels.transcriptsChanged),
+  visualIndexChanged: event<void>(eventChannels.visualIndexChanged),
 } as const;

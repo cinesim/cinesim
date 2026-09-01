@@ -83,6 +83,15 @@ export const invokeChannels = {
     regenerate: "transcripts:regenerate",
     request: "transcripts:request",
   },
+  visualIndex: {
+    clear: "visual-index:clear",
+    delete: "visual-index:delete",
+    generate: "visual-index:generate",
+    get: "visual-index:get",
+    regenerate: "visual-index:regenerate",
+    status: "visual-index:status",
+    upsert: "visual-index:upsert",
+  },
 } as const;
 
 export const eventChannels = {
@@ -94,6 +103,7 @@ export const eventChannels = {
   derivedChanged: "derived:changed",
   projectChanged: "project:changed",
   transcriptsChanged: "transcripts:changed",
+  visualIndexChanged: "visual-index:changed",
 } as const;
 
 function stringLeaves(value: object): string[] {

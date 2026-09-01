@@ -1,75 +1,90 @@
 ---
 title: Work with an agent
-description: Connect Claude Code or Codex to a project, supervise its edits, and roll back a turn you do not want.
+description: Connect Claude Code or Codex to inspect, author, compile, and revise one local Cinesim project.
 ---
 
-Cinesim runs your installed coding agent against the open project through a scoped connection. The
-agent gets the same command layer you do — no more, no less. This page covers setting one up and
-keeping control of it.
+Cinesim is a direct-file agent workflow. People, internal sessions, Claude Code, and Codex all author
+the same canonical project: `cinesim.toml`, `assets.toml`, and the reachable `.js`/`.jsx` video source
+modules. MCP supplies inspection, perception, diagnostics, and disposable services; it does not
+contain a second editing API.
 
 ## Set up a provider
 
 Open **Settings → Agents**. Cinesim discovers installed Claude Code and Codex executables and shows
-their login status. For each provider you can set the executable path, model, reasoning effort, and
-approval mode, and choose which one is the default.
+their login status. Choose an executable, model, reasoning effort, and permission mode.
 
-## Choose an approval mode
+Each new or opened project receives deterministic integration files:
 
-| Mode                          | Behavior                                              |
-| ----------------------------- | ----------------------------------------------------- |
-| **Supervised**                | Cinesim asks you in the UI before each canonical edit |
-| **Auto-accept Cinesim edits** | The same validated commands run without prompting     |
+- `AGENTS.md` contains Cinesim's managed guidance plus your custom default instructions;
+- `CLAUDE.md` imports that same guidance;
+- `.mcp.json` and `.codex/config.toml` merge a Cinesim-owned `cinesim mcp --project .` entry without
+  overwriting unrelated provider settings.
 
-Supervised is the default. Both modes go through identical validation — the mode only decides
-whether you are asked first. You cannot change an agent's model or approval mode while it is
-running; stop it first.
+The generated files contain no bearer token, transient port, account secret, or machine-specific
+application state. Provider trust and approval prompts remain visible.
 
-## Start a session
+## Choose a permission mode
 
-Open a project, then open the agents sidebar (<kbd>⌥⌘B</kbd> on macOS) and start a session.
+| Mode                               | Behavior                                                                                          |
+| ---------------------------------- | ------------------------------------------------------------------------------------------------- |
+| **Supervised**                     | The provider asks before file or shell operations that require approval.                          |
+| **Automatic workspace operations** | The provider may perform allowed project-local file and shell work without per-operation prompts. |
 
-Cinesim gives that session a bearer-authenticated MCP endpoint bound to loopback, scoped to one
-agent session and one open project. The agent submits edits through that endpoint; it never gets
-write access to canonical files, and one mutating agent runs per project at a time.
+Both modes start in the project root and use the provider's normal project-scoped safety boundary.
+They do not change compiler validation or grant an MCP canonical-write path.
 
-## Write requests it can act on
+## Start with context
 
-Ask for outcomes that are checkable in the project rather than open-ended direction:
+Open the agents sidebar in Media, Cut, or Edit. A turn receives the project directory, accepted
+generation, candidate compiler state, active composition and playhead, selected assets and clips,
+and bounded diagnostics. Ask for outcomes that are inspectable in source and in the editor:
 
-- "Inspect this timeline and summarize the current track layout."
-- "Create a new sequence from these selected assets."
-- "Move `clip_intro` to the 12-second mark."
-- "Find clips shorter than two seconds and list them before changing anything."
+- "Inspect the selected interviews and propose a two-minute dialogue assembly."
+- "Build a J-cut into the second answer and preserve the linked A/V relationship."
+- "Add scene and continuity notes, then sample the accepted timeline and revise weak cutaways."
 
-Asking for a read-only pass before a destructive one is a good habit — the agent can enumerate what
-it intends to touch, and you approve the plan rather than the aftermath.
+Project `AGENTS.md` is the standing source of behavioral guidance for internal and external agents.
 
-You can also give an agent standing direction by editing `AGENTS.md` in the project root. Cinesim
-writes a starter file when it creates the project; everything below its final line is yours.
+## Use the perception loop flexibly
 
-## Review and roll back
+There is no mandatory call sequence, but dependable assembly usually repeats this loop:
 
-Every turn is checkpointed. Before and after each turn, Cinesim snapshots canonical state using Git
-plumbing in `.video/runtime/agent-checkpoints.git` — a bare repository that needs no worktree and
-never contains media.
+1. Inspect `project_status`, assets, accepted timeline structure, and language capabilities.
+2. Check transcript and visual-index coverage; start or regenerate missing disposable work when it
+   would improve the decision.
+3. Read a bounded transcript range, fetch visual observations, and request frames for the same
+   source interval when evidence is needed.
+4. Edit canonical TOML or JSX directly: assemble clips, supporting picture/audio, structured notes,
+   split edits, and supported finishing constructs.
+5. Wait for a successful compiler acceptance. If the disk candidate is invalid, use its precise
+   diagnostics without treating it as the live editor state.
+6. Inspect the projected timeline transcript, visual structure, or timeline samples and revise the
+   source again.
 
-The sidebar shows the canonical diff stat for the turn, and you can restore the before-turn
-checkpoint. Restoring reloads the project and starts a fresh provider context on your next message,
-so the conversation cannot silently disagree with the project it is describing.
+The visual index under `.video/visual-index` is reusable but disposable perception. Correcting,
+splitting, merging, clearing, or regenerating it does not compile the project or enter undo history.
+Deliberate story intent belongs in canonical project, asset, or timeline notes instead.
 
-Ordinary undo still works too, since agent edits are ordinary commands.
+## Acceptance, history, and review
 
-## What agents cannot do
+The editor keeps playing the last accepted generation while an incomplete or invalid save is on
+disk. Each quiet, valid, deduplicated canonical generation becomes the next accepted state and an
+ordinary top-bar undo step, regardless of whether it came from the UI, an internal agent, or an
+external editor. Undo and redo atomically restore the complete canonical file set and survive a
+project reopen through bounded `.video/history` snapshots.
 
-- Write canonical files directly.
-- Bypass validation, locks, or the rules any other edit obeys.
-- Move, modify, or delete your source media.
-- Reach outside the open project.
+Review the agent's source diff, compiler state, and resulting timeline. There is no chat-specific
+restore control or competing history model.
 
-Claude's own tools are restricted to project reads plus the Cinesim MCP namespace; Codex runs
-read-only and performs its edits through that namespace.
+## Safety boundaries
+
+- Do not hand-edit generated `.video/` artifacts; use the relevant MCP or UI service.
+- Do not modify or delete source media as an editing operation.
+- Do not treat a compiler-accepted construct as preview/export support; inspect capability state.
+- Do not add secrets or transient broker credentials to project configuration.
 
 ## Next
 
-- [MCP reference](../reference/mcp.mdx) — the exact tools an agent is offered.
-- [Commands and history](../concepts/commands-and-history.mdx) — the guarantees behind all of this.
+- [MCP reference](../reference/mcp.mdx) — inspection, perception, and derived services.
+- [Commands and history](../concepts/commands-and-history.mdx) — acceptance and undo semantics.
+- [Cut from the transcript](./cut-with-transcript.mdx) — screenplay projection and exact text edits.

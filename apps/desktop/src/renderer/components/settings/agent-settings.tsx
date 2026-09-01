@@ -229,7 +229,7 @@ export function AgentSettings() {
                 }
               >
                 <option value="supervised">Supervised</option>
-                <option value="auto-edit">Auto-accept Cinesim edits</option>
+                <option value="auto-edit">Automatic workspace operations</option>
               </Select>
             </SettingRow>
             <SettingRow

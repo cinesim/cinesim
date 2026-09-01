@@ -12,7 +12,7 @@ afterEach(async () => {
   await Promise.all(directories.splice(0).map((directory) => rm(directory, { recursive: true })));
 });
 
-async function fixture() {
+async function fixture(onChanged: () => void = () => undefined) {
   const directory = await mkdtemp(join(tmpdir(), "cinesim-visual-index-"));
   directories.push(directory);
   const mediaPath = join(directory, "camera.mov");
@@ -29,7 +29,7 @@ async function fixture() {
     frameRate: 24,
     hasAudio: true,
   });
-  const store = new VisualIndexStore(async () => sourceFingerprintForPath(mediaPath));
+  const store = new VisualIndexStore(async () => sourceFingerprintForPath(mediaPath), onChanged);
   store.setProject(directory, project);
   return { directory, mediaPath, store };
 }
@@ -125,5 +125,23 @@ describe("VisualIndexStore", () => {
     ).rejects.toThrow("observation_ prefix");
     await store.clear(["asset_camera"]);
     await expect(store.status(["asset_camera"])).resolves.toMatchObject([{ state: "missing" }]);
+  });
+
+  it("notifies every shared UI or service consumer after derived artifacts change", async () => {
+    let changes = 0;
+    const { store } = await fixture(() => {
+      changes += 1;
+    });
+    await store.generate(["asset_camera"]);
+    await store.upsert("asset_camera", [
+      {
+        id: "observation_one",
+        sourceInUs: 0,
+        sourceOutUs: 1_000_000,
+        description: "One",
+      },
+    ]);
+    await store.clear(["asset_camera"]);
+    expect(changes).toBe(3);
   });
 });
