@@ -1344,8 +1344,7 @@ export class WebGpuCompositor implements PreviewCompositor {
   }
 
   async capturePng(): Promise<ArrayBuffer> {
-    if (!this.#device || this.#destroyed) throw new Error("WebGPU compositor is unavailable");
-    await this.#device.queue.onSubmittedWorkDone();
+    await this.waitForSubmittedWork();
     const blob = await new Promise<Blob>((resolve, reject) => {
       this.#canvas.toBlob((value) => {
         if (value) resolve(value);
@@ -1353,6 +1352,11 @@ export class WebGpuCompositor implements PreviewCompositor {
       }, "image/png");
     });
     return blob.arrayBuffer();
+  }
+
+  async waitForSubmittedWork(): Promise<void> {
+    if (!this.#device || this.#destroyed) throw new Error("WebGPU compositor is unavailable");
+    await this.#device.queue.onSubmittedWorkDone();
   }
 
   #drawGraphic(

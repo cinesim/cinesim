@@ -140,6 +140,19 @@ and fullscreen. Its header reports whether you are watching **Proxy** or **Origi
 Hovering an asset in the Media Pool previews that source in the viewer and restores your timeline
 frame when you leave — timeline transport and source preview stay separate.
 
+## Export an MP4
+
+Choose **Export** in the project header, select the 1080p or source-size H.264/AAC SDR preset, and
+render the full active timeline or an explicit second-based range. Progress and the final path stay
+visible in the dialog, and an active job can be canceled without publishing a partial file.
+
+Export renders the last accepted generation, not an invalid source candidate. Picture uses the same
+bounded WebGPU render graph as preview and exact timeline frames. Audio is mixed in bounded chunks
+over the identical range, including split edits, fades, gain, pan, equal-power crossfades, and
+sidechain ducking. Completed MP4s are atomically published under `.video/exports/`; copy the
+deliverable elsewhere before clearing derived project data. Agents can perform the same explicit
+operation with `export_capabilities`, `export_start`, `export_status`, and `export_cancel`.
+
 ## Undo
 
 Press <kbd>⌘Z</kbd> to reverse one completed gesture, not a fragment of one. Panel resizes, selection, zoom,

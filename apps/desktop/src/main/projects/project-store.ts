@@ -23,6 +23,7 @@ import {
 import { editorCommandSchema } from "@cinesim/protocol";
 import type {
   DesktopProjectSession,
+  ExportRenderRequest,
   FrameRenderRequest,
   VisualAnalysisRequest,
 } from "../../shared/contracts";
@@ -31,6 +32,7 @@ import { DerivedMediaStore } from "../derived-media/service";
 import { TranscriptStore } from "../transcripts/service";
 import { FrameService } from "../frames/service";
 import { VisualAnalysisService } from "../visual-analysis/service";
+import { ExportService } from "../exports/service";
 import { publishDependentProject } from "./dependent-project";
 import { inspectMedia } from "./media-import";
 import {
@@ -45,6 +47,7 @@ const log = createCinesimLogger({ service: "desktop-commands" });
 export class DesktopProjectStore {
   readonly derivedMedia = new DerivedMediaStore();
   readonly frames: FrameService;
+  readonly exports: ExportService;
   readonly transcripts: TranscriptStore;
   readonly visualIndex: VisualIndexStore;
   readonly visualAnalysis: VisualAnalysisService;
@@ -66,6 +69,8 @@ export class DesktopProjectStore {
     cancelFrame: (requestId: string) => void = () => undefined,
     dispatchVisualAnalysis: (request: VisualAnalysisRequest) => boolean = () => false,
     cancelVisualAnalysis: (requestId: string) => void = () => undefined,
+    dispatchExport: (request: ExportRenderRequest) => boolean = () => false,
+    cancelExport: (jobId: string) => void = () => undefined,
   ) {
     this.frames = new FrameService(
       dispatchFrame,
@@ -84,6 +89,7 @@ export class DesktopProjectStore {
       dispatchVisualAnalysis,
       cancelVisualAnalysis,
     );
+    this.exports = new ExportService(dispatchExport, cancelExport);
   }
 
   setDefaultAgentInstructions(provider: () => string): void {
@@ -188,6 +194,7 @@ export class DesktopProjectStore {
         await publishDependentProject({
           derivedMedia: this.derivedMedia,
           frames: this.frames,
+          exports: this.exports,
           transcripts: this.transcripts,
           visualIndex: this.visualIndex,
           visualAnalysis: this.visualAnalysis,
@@ -416,6 +423,7 @@ export class DesktopProjectStore {
       this.#watcher = null;
       this.visualAnalysis.clearProject();
       this.frames.clearProject();
+      await this.exports.clearProject();
       this.#directory = null;
       this.#commands = null;
       this.#snapshot = null;
@@ -483,6 +491,7 @@ export class DesktopProjectStore {
     await publishDependentProject({
       derivedMedia: this.derivedMedia,
       frames: this.frames,
+      exports: this.exports,
       transcripts: this.transcripts,
       visualIndex: this.visualIndex,
       visualAnalysis: this.visualAnalysis,

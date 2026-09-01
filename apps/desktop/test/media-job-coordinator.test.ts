@@ -136,6 +136,10 @@ function setup(initial: DerivedMediaSnapshot, initialTranscripts?: TranscriptSna
     | ((request: import("../src/shared/contracts").VisualAnalysisRequest) => void)
     | null = null;
   let visualAnalysisCancelListener: ((request: { requestId: string }) => void) | null = null;
+  let exportListener:
+    | ((request: import("../src/shared/contracts").ExportRenderRequest) => void)
+    | null = null;
+  let exportCancelListener: ((request: { jobId: string }) => void) | null = null;
   const transcriptSnapshot: TranscriptSnapshot =
     initialTranscripts ??
     ({
@@ -152,7 +156,25 @@ function setup(initial: DerivedMediaSnapshot, initialTranscripts?: TranscriptSna
   const canceled: { writerId: string; failureCode?: string; detail?: string }[] = [];
   const completeFrame = vi.fn(async () => undefined);
   const completeVisualAnalysis = vi.fn(async () => undefined);
+  const completeExport = vi.fn(async () => undefined);
+  const failExport = vi.fn(async () => undefined);
   const api = {
+    exports: {
+      complete: completeExport,
+      fail: failExport,
+      onRequested: vi.fn((listener) => {
+        exportListener = listener;
+        return () => {
+          exportListener = null;
+        };
+      }),
+      onCanceled: vi.fn((listener) => {
+        exportCancelListener = listener;
+        return () => {
+          exportCancelListener = null;
+        };
+      }),
+    },
     frames: {
       complete: completeFrame,
       fail: vi.fn(async () => undefined),
@@ -273,6 +295,8 @@ function setup(initial: DerivedMediaSnapshot, initialTranscripts?: TranscriptSna
     failTranscriptJob,
     completeFrame,
     completeVisualAnalysis,
+    completeExport,
+    failExport,
     emitDerivedMedia: (next: DerivedMediaSnapshot) => derivedMediaListener?.(next),
     emitTranscripts: (next: TranscriptSnapshot) => transcriptListener?.(next),
     emitFrame: (request: import("../src/shared/contracts").FrameRenderRequest) =>
@@ -281,6 +305,9 @@ function setup(initial: DerivedMediaSnapshot, initialTranscripts?: TranscriptSna
     emitVisualAnalysis: (request: import("../src/shared/contracts").VisualAnalysisRequest) =>
       visualAnalysisListener?.(request),
     cancelVisualAnalysis: (requestId: string) => visualAnalysisCancelListener?.({ requestId }),
+    emitExport: (request: import("../src/shared/contracts").ExportRenderRequest) =>
+      exportListener?.(request),
+    cancelExport: (jobId: string) => exportCancelListener?.({ jobId }),
   };
 }
 
@@ -292,6 +319,74 @@ afterEach(() => {
 });
 
 describe("MediaJobCoordinator", () => {
+  it("renders exports only from the matching accepted generation and honors cancellation", async () => {
+    const fixture = setup(snapshot("ready", "ready", "ready"));
+    const currentProject = project();
+    let resolveRender:
+      | ((value: import("../src/shared/contracts").ExportRenderCompletion) => void)
+      | null = null;
+    const exportRenderer = vi.fn(
+      ({
+        request,
+        signal,
+      }: Parameters<
+        import("../src/renderer/lib/export-job-coordinator").AcceptedExportRenderer
+      >[0]) =>
+        new Promise<import("../src/shared/contracts").ExportRenderCompletion>((resolve, reject) => {
+          resolveRender = resolve;
+          signal.addEventListener("abort", () =>
+            reject(new DOMException("Export canceled", "AbortError")),
+          );
+          expect(request.job.acceptedGeneration).toBe("generation_fixture");
+        }),
+    );
+    const coordinator = new MediaJobCoordinator(currentProject, projectScope, () => undefined, {
+      acceptedGeneration: "generation_fixture",
+      program: projectToIr(currentProject),
+      exportRenderer,
+    });
+    await coordinator.start();
+    const request = {
+      projectScope,
+      job: {
+        id: "export_fixture",
+        state: "rendering" as const,
+        sequenceId: currentProject.activeSequenceId,
+        presetId: "h264-aac-sdr-1080p" as const,
+        startUs: timeUs(0),
+        endUs: timeUs(1_000_000),
+        width: 1280,
+        height: 720,
+        frameRate: 30,
+        progress: 0,
+        acceptedGeneration: "generation_fixture",
+      },
+    };
+
+    fixture.emitExport(request);
+    await vi.waitFor(() => expect(exportRenderer).toHaveBeenCalledOnce());
+    fixture.cancelExport(request.job.id);
+    await vi.waitFor(() =>
+      expect(fixture.failExport).toHaveBeenCalledWith(
+        expect.objectContaining({ jobId: request.job.id, code: "canceled" }),
+      ),
+    );
+    expect(fixture.completeExport).not.toHaveBeenCalled();
+
+    fixture.emitExport({
+      ...request,
+      job: { ...request.job, id: "export_stale", acceptedGeneration: "generation_stale" },
+    });
+    await vi.waitFor(() =>
+      expect(fixture.failExport).toHaveBeenCalledWith(
+        expect.objectContaining({ jobId: "export_stale", code: "stale-export-request" }),
+      ),
+    );
+    expect(exportRenderer).toHaveBeenCalledOnce();
+    expect(resolveRender).toBeTypeOf("function");
+    await coordinator.destroy();
+  });
+
   it("runs visual analysis in an isolated worker only when foreground work is idle", async () => {
     const fixture = setup(snapshot("ready", "ready", "ready"));
     const coordinator = new MediaJobCoordinator(project(), projectScope, () => undefined, {

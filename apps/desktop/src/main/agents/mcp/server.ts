@@ -5,6 +5,7 @@ import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/
 import { localDerivedFile, registerCinesimMcpTools } from "@cinesim/mcp-tools";
 import type { CinesimMcpToolRuntime } from "@cinesim/mcp-tools";
 import { searchLanguageReference } from "@cinesim/compiler";
+import { timeUs } from "@cinesim/core";
 import { ProjectPaths } from "@cinesim/project-io";
 import type { AgentPermissionMode } from "../../../shared/contracts";
 import type { DesktopProjectStore } from "../../projects/project-store";
@@ -254,10 +255,26 @@ export class AgentMcpServer {
           lastValidComposition: current.project.activeSequenceId,
           backgroundJobs: this.projectStore.derivedMedia.snapshot().jobs,
           visualIndexes,
+          exportJobs: this.projectStore.exports.status(),
         };
       },
       languageSearch: async (query, limit) =>
         searchLanguageReference(query, limit) as unknown as Record<string, unknown>[],
+      exportCapabilities: async () => ({
+        ...this.projectStore.exports.capabilities(),
+        rendererAvailable: true,
+      }),
+      exportStart: async (request) => ({
+        job: await this.projectStore.exports.start({
+          presetId: request.presetId,
+          ...(request.sequenceId ? { sequenceId: request.sequenceId } : {}),
+          ...(request.fileName ? { fileName: request.fileName } : {}),
+          ...(request.startUs === undefined ? {} : { startUs: timeUs(request.startUs) }),
+          ...(request.endUs === undefined ? {} : { endUs: timeUs(request.endUs) }),
+        }),
+      }),
+      exportStatus: async (jobId) => ({ jobs: this.projectStore.exports.status(jobId) }),
+      exportCancel: async (jobId) => ({ job: await this.projectStore.exports.cancel(jobId) }),
       transcriptGet: async (assetId, fromUs, toUs, limit, observationId) => {
         const observationRange = observationId
           ? await this.projectStore.visualIndex.observationRange(assetId, observationId)

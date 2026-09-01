@@ -18,6 +18,7 @@ documentary-cut/
 └── .video/
     ├── cache/
     ├── compiler/
+    ├── exports/
     ├── filmstrips/
     ├── frames/
     ├── originals/
@@ -161,9 +162,11 @@ and WebGPU composition; Canvas2D and bitmap-font preview paths are not used.
 
 ## `.video/`
 
-`.video/` contains caches, proxies, perception artifacts, compiler transactions, and runtime
-checkpoints. It is ignored as a unit and must not become creative source of truth. Source media is
-referenced in place by the manifest; no project-level `media/` or `exports/` directory is required.
+`.video/` contains caches, proxies, perception artifacts, compiler transactions, runtime state, and
+atomically published export artifacts. It is ignored as a unit and must not become creative source
+of truth. Source media is referenced in place by the manifest; no project-level `media/` or
+canonical `exports/` directory is required. Copy a finished `.video/exports/*.mp4` deliverable to a
+user-chosen destination before clearing derived data.
 
 ## Version control
 

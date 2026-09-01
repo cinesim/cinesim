@@ -61,13 +61,13 @@ const previewPartial = new Set(["marker"]);
 
 function elementCapability(name: string): LanguageCapability {
   if (previewSupported.has(name))
-    return { compiler: "supported", preview: "supported", export: "unsupported" };
+    return { compiler: "supported", preview: "supported", export: "supported" };
   if (previewPartial.has(name))
     return {
       compiler: "supported",
       preview: "partial",
-      export: "unsupported",
-      detail: "The construct is visible in editorial UI but has no compositor pass.",
+      export: "partial",
+      detail: "The construct is editorial metadata and is not embedded in picture output.",
     };
   return {
     compiler: "supported",
@@ -118,7 +118,7 @@ const recipes: LanguageReferenceEntry[] = [
     example:
       '<track id="track_broll" kind="video" name="B-roll"><clip id="clip_cutaway" asset={asset("asset_broll")} media="video" start={seconds(4)} in={seconds(2)} duration={seconds(3)} /></track>',
     tags: ["b-roll", "cutaway", "dialogue", "reaction", "continuity"],
-    capability: { compiler: "supported", preview: "supported", export: "unsupported" },
+    capability: { compiler: "supported", preview: "supported", export: "supported" },
   },
   {
     id: "recipe:montage",
@@ -130,7 +130,7 @@ const recipes: LanguageReferenceEntry[] = [
     example:
       '<clip id="clip_beat_1" asset={asset("asset_a")} media="video" start={seconds(0)} in={seconds(3)} duration={seconds(1.5)} />',
     tags: ["montage", "pacing", "rhythm", "shots"],
-    capability: { compiler: "supported", preview: "supported", export: "unsupported" },
+    capability: { compiler: "supported", preview: "supported", export: "supported" },
   },
   {
     id: "recipe:dialogue-cleanup",
@@ -142,7 +142,7 @@ const recipes: LanguageReferenceEntry[] = [
     example:
       '<clip id="clip_dialogue" asset={asset("asset_interview")} media="audio" start={seconds(0)} in={seconds(12)} duration={seconds(5)} fadeIn={milliseconds(12)} fadeOut={milliseconds(18)} gain={db(-1.5)} />',
     tags: ["dialogue", "audio", "cleanup", "fade", "room tone"],
-    capability: { compiler: "supported", preview: "supported", export: "unsupported" },
+    capability: { compiler: "supported", preview: "supported", export: "supported" },
   },
   {
     id: "recipe:split-edit",
@@ -153,7 +153,7 @@ const recipes: LanguageReferenceEntry[] = [
     syntax: "linked media clips with different start and duration values",
     example: '<clip id="clip_audio" linked="clip_video" media="audio" start={seconds(1)} ... />',
     tags: ["split edit", "j-cut", "l-cut", "audio lead", "audio trail"],
-    capability: { compiler: "supported", preview: "supported", export: "unsupported" },
+    capability: { compiler: "supported", preview: "supported", export: "supported" },
   },
   {
     id: "recipe:dialogue-ducking",
@@ -165,7 +165,7 @@ const recipes: LanguageReferenceEntry[] = [
     example:
       '<ducker id="duck_music" sidechain="track_dialogue" reduction={db(-12)} attack={milliseconds(80)} release={milliseconds(250)} />',
     tags: ["audio", "ducking", "dialogue", "music", "sidechain", "mix"],
-    capability: { compiler: "supported", preview: "supported", export: "unsupported" },
+    capability: { compiler: "supported", preview: "supported", export: "supported" },
   },
   {
     id: "recipe:transcript-captions",
@@ -177,7 +177,7 @@ const recipes: LanguageReferenceEntry[] = [
     example:
       '<captiontrack id="captiontrack_main" name="English" fontSize={px(64)} placement="bottom"><cue id="cue_intro" start={seconds(1)} duration={seconds(2)} text="Welcome." /></captiontrack>',
     tags: ["captions", "subtitles", "transcript", "speaker", "timed text"],
-    capability: { compiler: "supported", preview: "supported", export: "unsupported" },
+    capability: { compiler: "supported", preview: "supported", export: "supported" },
   },
   {
     id: "recipe:adjustment-look",
@@ -189,7 +189,7 @@ const recipes: LanguageReferenceEntry[] = [
     example:
       '<adjustmentlayer id="look_night" start={seconds(2)} duration={seconds(5)} scope="below" depth={2}><colorgrade id="look_night/grade" exposure={-0.2} saturation={0.8} /><vignette id="look_night/edge" amount={0.35} softness={0.4} /></adjustmentlayer>',
     tags: ["adjustment", "effects", "grade", "blur", "vignette", "chroma key", "shadow", "grain"],
-    capability: { compiler: "supported", preview: "supported", export: "unsupported" },
+    capability: { compiler: "supported", preview: "supported", export: "supported" },
   },
   {
     id: "recipe:edit-point-transition",
@@ -201,7 +201,7 @@ const recipes: LanguageReferenceEntry[] = [
     example:
       '<transition id="transition_scene" from="clip_a" to="clip_b" kind="dissolve" duration={seconds(1)} easing="ease-in-out" />',
     tags: ["transition", "dissolve", "wipe", "slide", "push", "zoom", "blur", "crossfade"],
-    capability: { compiler: "supported", preview: "supported", export: "unsupported" },
+    capability: { compiler: "supported", preview: "supported", export: "supported" },
   },
   {
     id: "recipe:typed-keyframes",
@@ -213,7 +213,7 @@ const recipes: LanguageReferenceEntry[] = [
     example:
       '<blur id="blur_focus" radius={px(0)}><animate property="radius"><key at={seconds(0)} value={px(0)} easing="linear" /><key at={seconds(1)} value={px(24)} easing="ease-in-out" /></animate></blur>',
     tags: ["animation", "keyframe", "effects", "caption style", "mask", "transform", "easing"],
-    capability: { compiler: "supported", preview: "supported", export: "unsupported" },
+    capability: { compiler: "supported", preview: "supported", export: "supported" },
   },
 ];
 

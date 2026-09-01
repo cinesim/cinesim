@@ -110,6 +110,21 @@ const api: DesktopApi = {
     onRequested: (callback) => subscribe(eventChannels.frameRequested, callback),
     onCanceled: (callback) => subscribe(eventChannels.frameCanceled, callback),
   },
+  exports: {
+    capabilities: () => invoke(invokeChannels.exports.capabilities),
+    start: (request) => invoke(invokeChannels.exports.start, request),
+    status: (jobId) => invoke(invokeChannels.exports.status, { jobId }),
+    cancel: (jobId) => invoke(invokeChannels.exports.cancel, { jobId }),
+    writeChunk: (jobId, offset, data) =>
+      invoke(invokeChannels.exports.writeChunk, { jobId, offset, data }),
+    updateProgress: (jobId, progress) =>
+      invoke(invokeChannels.exports.progress, { jobId, progress }),
+    complete: (completion) => invoke(invokeChannels.exports.complete, completion),
+    fail: (failure) => invoke(invokeChannels.exports.fail, failure),
+    onRequested: (callback) => subscribe(eventChannels.exportRequested, callback),
+    onCanceled: (callback) => subscribe(eventChannels.exportCanceled, callback),
+    onChanged: (callback) => subscribe(eventChannels.exportChanged, callback),
+  },
   transcripts: {
     get: (scope, assetIds) => invoke(invokeChannels.transcripts.get, { scope, assetIds }),
     requestJobs: (scope, assetIds) =>

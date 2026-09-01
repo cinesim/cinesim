@@ -34,6 +34,14 @@ import type {
   FrameRenderRequest,
 } from "./contracts/frames";
 import type {
+  ExportCapabilitySnapshot,
+  ExportJobSnapshot,
+  ExportRenderCompletion,
+  ExportRenderFailure,
+  ExportRenderRequest,
+  ExportStartRequest,
+} from "./contracts/exports";
+import type {
   VisualAnalysisCompletion,
   VisualAnalysisFailure,
   VisualAnalysisRequest,
@@ -138,6 +146,20 @@ export interface DesktopFrameApi {
   onCanceled(callback: (request: { requestId: string }) => void): () => void;
 }
 
+export interface DesktopExportApi {
+  capabilities(): Promise<ExportCapabilitySnapshot>;
+  start(request: ExportStartRequest): Promise<ExportJobSnapshot>;
+  status(jobId?: string): Promise<ExportJobSnapshot[]>;
+  cancel(jobId: string): Promise<ExportJobSnapshot>;
+  writeChunk(jobId: string, offset: number, data: Uint8Array): Promise<void>;
+  updateProgress(jobId: string, progress: number): Promise<void>;
+  complete(completion: ExportRenderCompletion): Promise<ExportJobSnapshot>;
+  fail(failure: ExportRenderFailure): Promise<void>;
+  onRequested(callback: (request: ExportRenderRequest) => void): () => void;
+  onCanceled(callback: (request: { jobId: string }) => void): () => void;
+  onChanged(callback: (jobs: ExportJobSnapshot[]) => void): () => void;
+}
+
 export interface DesktopVisualAnalysisApi {
   complete(scope: DerivedProjectScope, completion: VisualAnalysisCompletion): Promise<void>;
   fail(scope: DerivedProjectScope, failure: VisualAnalysisFailure): Promise<void>;
@@ -217,6 +239,7 @@ export interface DesktopApi {
   appState: DesktopAppStateApi;
   cloud: DesktopCloudApi;
   derived: DesktopDerivedApi;
+  exports: DesktopExportApi;
   frames: DesktopFrameApi;
   health: { get(): Promise<ElectronHealthSnapshot> };
   project: DesktopProjectApi;

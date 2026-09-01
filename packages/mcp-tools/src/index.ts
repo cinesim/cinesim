@@ -23,6 +23,10 @@ export const CINESIM_MCP_TOOL_NAMES = [
   "timeline_inspect",
   "notes_inspect",
   "language_search",
+  "export_capabilities",
+  "export_start",
+  "export_status",
+  "export_cancel",
   "transcript_get",
   "timeline_transcript_get",
   "transcript_generate",
@@ -49,6 +53,16 @@ export interface CinesimMcpToolRuntime {
   projectRevision?(): number | undefined;
   projectStatus(): Promise<Record<string, unknown>>;
   languageSearch(query: string, limit: number): Promise<Record<string, unknown>[]>;
+  exportCapabilities(): Promise<Record<string, unknown>>;
+  exportStart(request: {
+    sequenceId?: string;
+    presetId: "h264-aac-sdr-1080p" | "h264-aac-sdr-source";
+    startUs?: number;
+    endUs?: number;
+    fileName?: string;
+  }): Promise<Record<string, unknown>>;
+  exportStatus(jobId?: string): Promise<Record<string, unknown>>;
+  exportCancel(jobId: string): Promise<Record<string, unknown>>;
   transcriptGet(
     assetId: string,
     fromUs: number,
@@ -229,6 +243,82 @@ export function registerCinesimMcpTools(server: McpServer, runtime: CinesimMcpTo
         query,
         results: await runtime.languageSearch(query, limit),
       })),
+  );
+  const exportPresetSchema = z.enum(["h264-aac-sdr-1080p", "h264-aac-sdr-source"]);
+  server.registerTool(
+    "export_capabilities",
+    {
+      title: "Inspect export capabilities",
+      description:
+        "List explicit deterministic SDR export presets and renderer availability requirements.",
+      annotations: readOnly,
+    },
+    () =>
+      perform("export_capabilities", "Inspect export capabilities", () =>
+        runtime.exportCapabilities(),
+      ),
+  );
+  server.registerTool(
+    "export_start",
+    {
+      title: "Start an accepted-timeline export",
+      description:
+        "Start one explicit H.264/AAC MP4 export from accepted IR into a visible disposable project artifact.",
+      inputSchema: {
+        sequenceId: z
+          .string()
+          .regex(/^sequence_[a-zA-Z0-9][a-zA-Z0-9_-]*$/u)
+          .optional(),
+        presetId: exportPresetSchema,
+        startUs: timeUsSchema.optional(),
+        endUs: timeUsSchema.optional(),
+        fileName: z
+          .string()
+          .regex(/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,119}\.mp4$/u)
+          .optional(),
+      },
+      annotations: { readOnlyHint: false, idempotentHint: false },
+    },
+    ({ sequenceId, presetId, startUs, endUs, fileName }) =>
+      perform(
+        "export_start",
+        `Export ${sequenceId ?? "the active timeline"} with ${presetId}`,
+        () =>
+          runtime.exportStart({
+            presetId,
+            ...(sequenceId ? { sequenceId } : {}),
+            ...(startUs === undefined ? {} : { startUs }),
+            ...(endUs === undefined ? {} : { endUs }),
+            ...(fileName ? { fileName } : {}),
+          }),
+        true,
+      ),
+  );
+  const exportJobIdSchema = z
+    .string()
+    .regex(/^export_[a-zA-Z0-9][a-zA-Z0-9_-]*$/u)
+    .max(128);
+  server.registerTool(
+    "export_status",
+    {
+      title: "Inspect export jobs",
+      description: "Report bounded export progress, failure detail, and published artifact paths.",
+      inputSchema: { jobId: exportJobIdSchema.optional() },
+      annotations: readOnly,
+    },
+    ({ jobId }) =>
+      perform("export_status", "Inspect export jobs", () => runtime.exportStatus(jobId)),
+  );
+  server.registerTool(
+    "export_cancel",
+    {
+      title: "Cancel an export",
+      description: "Cancel one active export and remove its unpublished partial artifact.",
+      inputSchema: { jobId: exportJobIdSchema },
+      annotations: { readOnlyHint: false, idempotentHint: true },
+    },
+    ({ jobId }) =>
+      perform("export_cancel", `Cancel ${jobId}`, () => runtime.exportCancel(jobId), true),
   );
   const transcriptRangeSchema = {
     fromUs: z.number().int().nonnegative().safe().default(0),

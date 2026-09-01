@@ -246,6 +246,7 @@ export async function runMcpServer(projectDirectory: string): Promise<void> {
           lastValidComposition: loaded.manifest.project.activeCompositionId,
           backgroundJobs: null,
           visualIndexes: await diskVisualIndexStatus(currentProject),
+          exportJobs: [],
         };
       } catch (error) {
         return {
@@ -260,11 +261,26 @@ export async function runMcpServer(projectDirectory: string): Promise<void> {
           ],
           diagnosticsTruncated: false,
           backgroundJobs: null,
+          exportJobs: [],
         };
       }
     },
     languageSearch: async (query, limit) =>
       searchLanguageReference(query, limit) as unknown as Record<string, unknown>[],
+    exportCapabilities: async () => ({
+      rendererAvailable: false,
+      rendererRequired: true,
+      maximumConcurrentJobs: 1,
+      presets: [],
+      detail: "Export requires the authenticated live Cinesim desktop broker",
+    }),
+    exportStart: async () => {
+      throw new Error("Export requires the authenticated live Cinesim desktop broker");
+    },
+    exportStatus: async () => ({ jobs: [], rendererAvailable: false }),
+    exportCancel: async () => {
+      throw new Error("Export cancellation requires the live Cinesim desktop broker");
+    },
     transcriptGet: async (assetId, fromUs, toUs, limit, observationId) => {
       if (!project().assets.some((asset) => asset.id === assetId))
         throw new Error(`Unknown asset: ${assetId}`);

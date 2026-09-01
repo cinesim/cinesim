@@ -4,6 +4,7 @@ import type { CloudTransferSnapshot } from "./cloud";
 import type { DerivedMediaSnapshot } from "./derived-media";
 import type { DesktopProjectSession } from "./project";
 import type { FrameRenderRequest } from "./frames";
+import type { ExportJobSnapshot, ExportRenderRequest } from "./exports";
 import type { VisualAnalysisRequest } from "./visual-analysis";
 import { eventChannels } from "./channels";
 
@@ -25,6 +26,9 @@ export const desktopEvents = {
   derivedChanged: event<DerivedMediaSnapshot>(eventChannels.derivedChanged),
   frameCanceled: event<{ requestId: string }>(eventChannels.frameCanceled),
   frameRequested: event<FrameRenderRequest>(eventChannels.frameRequested),
+  exportCanceled: event<{ jobId: string }>(eventChannels.exportCanceled),
+  exportChanged: event<ExportJobSnapshot[]>(eventChannels.exportChanged),
+  exportRequested: event<ExportRenderRequest>(eventChannels.exportRequested),
   projectChanged: event<DesktopProjectSession>(eventChannels.projectChanged),
   transcriptsChanged: event<TranscriptSnapshot>(eventChannels.transcriptsChanged),
   visualIndexChanged: event<void>(eventChannels.visualIndexChanged),

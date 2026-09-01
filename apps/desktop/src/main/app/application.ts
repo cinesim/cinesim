@@ -22,6 +22,7 @@ import { registerTranscriptIpc } from "../transcripts/ipc";
 import { registerVisualIndexIpc } from "../visual-index/ipc";
 import { registerFrameIpc } from "../frames/ipc";
 import { registerVisualAnalysisIpc } from "../visual-analysis/ipc";
+import { registerExportIpc } from "../exports/ipc";
 import type { DevelopmentConfiguration } from "./development-configuration";
 import { configureIpcSecurity } from "./secure-ipc";
 import { desktopEvents } from "../../shared/contracts/events";
@@ -57,6 +58,12 @@ export class DesktopApplication implements ApplicationLifecycle {
         return true;
       },
       (requestId) => this.windows.sendPrimary(desktopEvents.visualAnalysisCanceled, { requestId }),
+      (request) => {
+        if (this.windows.size === 0) return false;
+        this.windows.sendPrimary(desktopEvents.exportRequested, request);
+        return true;
+      },
+      (jobId) => this.windows.sendPrimary(desktopEvents.exportCanceled, { jobId }),
     );
     configureIpcSecurity({ developmentUrl: development.rendererUrl });
   }
@@ -148,6 +155,9 @@ export class DesktopApplication implements ApplicationLifecycle {
     this.projectStore.transcripts.subscribe((snapshot) => {
       this.windows.broadcast(desktopEvents.transcriptsChanged, snapshot);
     });
+    this.projectStore.exports.subscribe((snapshot) => {
+      this.windows.broadcast(desktopEvents.exportChanged, snapshot);
+    });
   }
 
   async #createAgents(agentSettings: AgentSettingsStore): Promise<AgentManager> {
@@ -178,6 +188,7 @@ export class DesktopApplication implements ApplicationLifecycle {
     registerProjectIpc(this.projectStore, appState, agents, this.accountService, cloudMedia);
     registerDerivedMediaIpc(this.projectStore.derivedMedia);
     registerFrameIpc(this.projectStore.frames);
+    registerExportIpc(this.projectStore.exports);
     registerVisualAnalysisIpc(this.projectStore.visualAnalysis);
     registerTranscriptIpc(this.projectStore.transcripts);
     registerVisualIndexIpc(this.projectStore);

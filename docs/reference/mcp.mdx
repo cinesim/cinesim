@@ -86,6 +86,23 @@ compositor. A desktop-closed adapter can report an already cached frame but cann
 Generated frames are disposable, fingerprinted, capped at 16 MiB, and absent from canonical
 history.
 
+## Export services
+
+| Tool                  | Purpose                                                                 |
+| --------------------- | ----------------------------------------------------------------------- |
+| `export_capabilities` | List deterministic SDR presets and whether a live renderer is available |
+| `export_start`        | Start one accepted-IR timeline or range export                          |
+| `export_status`       | Inspect bounded progress, failures, byte size, and artifact paths       |
+| `export_cancel`       | Cancel the active job and remove its unpublished partial file           |
+
+The first two presets produce H.264/AAC Rec.709 SDR MP4 at either a 1920-pixel maximum long edge or
+the source composition size. The live renderer evaluates exact composition frame times through the
+same WebGPU graph used by preview and timeline `frame_get`; audio uses the same clip ranges, fades,
+gain, pan, transitions, and ducking automation. One export runs at a time. Chunks are bounded,
+validated, and atomically published under `.video/exports/`; these files remain derived artifacts,
+so copying a completed deliverable elsewhere is an explicit user-visible step. The disk-only MCP
+fallback can inspect capabilities and status but cannot encode or cancel a renderer job.
+
 ## What is not exposed
 
 There are no MCP tools for canonical asset deletion, source patches, timelines, tracks, clips,

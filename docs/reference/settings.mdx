@@ -37,3 +37,8 @@ Cloud originals always receive an edit proxy.
 
 Account-scoped transcription preferences remain in desktop application state, not in the project
 manifest, and therefore do not enter project history.
+
+Export settings are also intentionally absent from hidden application or project state. Every UI or
+MCP render request names one of the advertised presets, an accepted timeline, an optional exact
+microsecond range, and a bounded MP4 file name. The initial presets are H.264/AAC Rec.709 SDR at a
+1920-pixel maximum long edge or at the source composition size.

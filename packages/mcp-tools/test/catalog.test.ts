@@ -55,6 +55,15 @@ function catalogServer(onOperation: () => void = () => undefined): McpServer {
         capability: { compiler: "supported", preview: "supported", export: "unsupported" },
       },
     ],
+    exportCapabilities: async () => ({
+      rendererAvailable: true,
+      presets: [{ id: "h264-aac-sdr-1080p" }],
+    }),
+    exportStart: async (request) => ({
+      job: { id: "export_fixture", state: "rendering", ...request },
+    }),
+    exportStatus: async (jobId) => ({ jobs: [{ id: jobId ?? "export_fixture" }] }),
+    exportCancel: async (jobId) => ({ job: { id: jobId, state: "canceled" } }),
     transcriptGet: async (assetId) => ({ assetId, state: "missing", words: [] }),
     timelineTranscriptGet: async (sequenceId) => ({
       sequenceId: sequenceId ?? project.activeSequenceId,
@@ -118,6 +127,34 @@ describe("Cinesim inspection and perception MCP catalog", () => {
         query: "cutaway",
         results: [expect.objectContaining({ id: "recipe:fixture" })],
       },
+    });
+    await expect(
+      client.callTool({ name: "export_capabilities", arguments: {} }),
+    ).resolves.toMatchObject({
+      structuredContent: { rendererAvailable: true, presets: [{ id: "h264-aac-sdr-1080p" }] },
+    });
+    await expect(
+      client.callTool({
+        name: "export_start",
+        arguments: {
+          presetId: "h264-aac-sdr-1080p",
+          startUs: 0,
+          endUs: 1_000_000,
+          fileName: "fixture.mp4",
+        },
+      }),
+    ).resolves.toMatchObject({
+      structuredContent: {
+        job: { id: "export_fixture", state: "rendering", fileName: "fixture.mp4" },
+      },
+    });
+    await expect(
+      client.callTool({ name: "export_status", arguments: { jobId: "export_fixture" } }),
+    ).resolves.toMatchObject({ structuredContent: { jobs: [{ id: "export_fixture" }] } });
+    await expect(
+      client.callTool({ name: "export_cancel", arguments: { jobId: "export_fixture" } }),
+    ).resolves.toMatchObject({
+      structuredContent: { job: { id: "export_fixture", state: "canceled" } },
     });
     await expect(
       client.callTool({

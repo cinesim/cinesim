@@ -6,32 +6,42 @@ describe("language reference", () => {
     expect(LANGUAGE_REFERENCE.find(({ id }) => id === "element:colorgrade")?.capability).toEqual({
       compiler: "supported",
       preview: "supported",
-      export: "unsupported",
+      export: "supported",
     });
     expect(LANGUAGE_REFERENCE.find(({ id }) => id === "element:ducker")?.capability).toEqual({
       compiler: "supported",
       preview: "supported",
-      export: "unsupported",
+      export: "supported",
     });
     expect(LANGUAGE_REFERENCE.find(({ id }) => id === "element:blur")?.capability).toMatchObject({
       compiler: "supported",
       preview: "supported",
-      export: "unsupported",
+      export: "supported",
     });
     expect(LANGUAGE_REFERENCE.find(({ id }) => id === "element:captiontrack")?.capability).toEqual({
       compiler: "supported",
       preview: "supported",
-      export: "unsupported",
+      export: "supported",
     });
     expect(LANGUAGE_REFERENCE.some(({ id }) => id === "element:captions")).toBe(false);
     expect(LANGUAGE_REFERENCE.find(({ id }) => id === "element:transition")?.capability).toEqual({
       compiler: "supported",
       preview: "supported",
-      export: "unsupported",
+      export: "supported",
     });
     expect(
       LANGUAGE_REFERENCE.find(({ id }) => id === "element:audiocrossfade")?.capability,
-    ).toEqual({ compiler: "supported", preview: "supported", export: "unsupported" });
+    ).toEqual({ compiler: "supported", preview: "supported", export: "supported" });
+    expect(LANGUAGE_REFERENCE.find(({ id }) => id === "element:marker")?.capability).toMatchObject({
+      compiler: "supported",
+      preview: "partial",
+      export: "partial",
+    });
+    expect(LANGUAGE_REFERENCE.find(({ id }) => id === "element:lut")?.capability).toMatchObject({
+      compiler: "supported",
+      preview: "unsupported",
+      export: "unsupported",
+    });
   });
 
   it("fuzzy-searches recipes and property constraints with a hard result cap", () => {
