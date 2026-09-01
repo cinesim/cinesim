@@ -29,6 +29,7 @@ import {
 import {
   compositionDurationUs,
   findUpcomingLayers,
+  inputColorTransform,
   resolveSceneFrame,
   type PlaybackProject,
 } from "../playback/scene-resolver";
@@ -703,7 +704,15 @@ export class PlaybackRuntime {
       this.#lastActiveSourceKind = descriptor.kind;
       const frame = await this.#source(descriptor).getFrame(mode.sourceTimeUs);
       return {
-        layers: frame ? [{ frame, transform: DEFAULT_PREVIEW_TRANSFORM }] : [],
+        layers: frame
+          ? [
+              {
+                frame,
+                transform: DEFAULT_PREVIEW_TRANSFORM,
+                inputColor: inputColorTransform(asset, this.#project.colorPolicy),
+              },
+            ]
+          : [],
         graphics: [],
         text: [],
       };
@@ -721,6 +730,7 @@ export class PlaybackRuntime {
               frame,
               transform: layer.transform,
               cornerRadiusPx: layer.cornerRadiusPx,
+              inputColor: layer.inputColor,
               colorAdjustment: layer.colorAdjustment,
               ...(layer.visualEffects ? { visualEffects: layer.visualEffects } : {}),
               blendMode: layer.blendMode,
@@ -769,6 +779,7 @@ export class PlaybackRuntime {
                 frame,
                 transform: layer.transform,
                 cornerRadiusPx: layer.cornerRadiusPx,
+                inputColor: layer.inputColor,
                 colorAdjustment: layer.colorAdjustment,
                 ...(layer.visualEffects ? { visualEffects: layer.visualEffects } : {}),
                 blendMode: layer.blendMode,

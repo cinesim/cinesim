@@ -1,4 +1,4 @@
-import type { Project } from "@cinesim/core";
+import type { Project, ProjectSettings } from "@cinesim/core";
 import { PlaybackRuntime, WebGpuCompositor } from "@cinesim/engine";
 import type { IrProgram } from "@cinesim/ir";
 import type { DerivedProjectScope, FrameRenderRequest } from "../../shared/contracts";
@@ -18,6 +18,7 @@ function assertNotCanceled(signal: AbortSignal): void {
 /** Renders one accepted timeline sample through the production WebGPU preview path. */
 export async function renderTimelineFrame(input: {
   project: Project;
+  settings: ProjectSettings;
   program: IrProgram;
   projectScope: DerivedProjectScope;
   request: FrameRenderRequest;
@@ -34,6 +35,7 @@ export async function renderTimelineFrame(input: {
         activeCompositionId: input.request.target.sequenceId,
       },
       assets: input.project.assets,
+      colorPolicy: input.settings,
     },
     compositor,
     {

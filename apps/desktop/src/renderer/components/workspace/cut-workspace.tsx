@@ -99,6 +99,7 @@ export function CutWorkspace({ session, project, sequenceId, initialLayout }: Cu
               key={sequenceId}
               project={project}
               program={session.program}
+              settings={session.settings}
               projectDirectory={session.directory}
               derivedScope={session.derivedScope}
               sequenceId={sequenceId}

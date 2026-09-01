@@ -4,7 +4,11 @@ import type { Asset } from "@cinesim/core";
 import { applyCommand, createProject, projectToIr } from "../../core/test/project-fixtures";
 import { irTimeUs } from "@cinesim/ir";
 import type { IrSceneNode } from "@cinesim/ir";
-import { resolveScene, resolveSceneFrame } from "../src/playback/scene-resolver";
+import {
+  inputColorTransform,
+  resolveScene,
+  resolveSceneFrame,
+} from "../src/playback/scene-resolver";
 
 const asset: Asset = {
   id: "asset_layer",
@@ -15,6 +19,58 @@ const asset: Asset = {
 };
 
 describe("timeline visual layer order", () => {
+  it("derives reversible HDR input transforms from canonical metadata and policy", () => {
+    const hdrAsset: Asset = {
+      ...asset,
+      inputColor: { policy: "source-metadata" },
+      technical: {
+        containerMimeType: "video/mp4",
+        durationSeconds: 1,
+        compatibility: "supported",
+        video: {
+          decoderAvailability: "supported",
+          codedWidth: 1920,
+          codedHeight: 1080,
+          displayWidth: 1920,
+          displayHeight: 1080,
+          pixelAspectRatio: { numerator: 1, denominator: 1 },
+          rotationDegrees: 0,
+          frameRate: {
+            mode: "constant",
+            nominal: 30,
+            minimum: 30,
+            maximum: 30,
+            average: 30,
+            probedFrames: 30,
+          },
+          color: {
+            primaries: "bt2020",
+            transfer: "arib-std-b67",
+            matrix: "bt2020-ncl",
+            hdr: true,
+            uncertain: false,
+          },
+        },
+      },
+    };
+    expect(inputColorTransform(hdrAsset, DEFAULT_SETTINGS)).toEqual({
+      transfer: "hlg",
+      primaries: "rec2020",
+      toneMap: true,
+    });
+    expect(inputColorTransform(hdrAsset, { ...DEFAULT_SETTINGS, toneMapping: "off" })).toEqual({
+      transfer: "hlg",
+      primaries: "rec2020",
+      toneMap: false,
+    });
+    expect(
+      inputColorTransform(
+        { ...hdrAsset, inputColor: { policy: "assume-rec709" } },
+        DEFAULT_SETTINGS,
+      ),
+    ).toEqual({ transfer: "rec709", primaries: "rec709", toneMap: false });
+  });
+
   it("projects edit-point wipe and dip transitions into compositor layers", () => {
     const longAsset = { ...asset, durationUs: timeUs(5_000_000) };
     let project = applyCommand(createProject({ name: "Transitions" }), {

@@ -143,6 +143,7 @@ export class MediaJobCoordinator {
       projectScope,
       acceptedGeneration: this.#acceptedGeneration,
       program: this.#program,
+      settings: this.#settings,
       ...(options.timelineRenderer ? { timelineRenderer: options.timelineRenderer } : {}),
     });
     this.#visualAnalysis = new VisualAnalysisJobCoordinator(projectScope, this.#acceptedGeneration);
@@ -151,6 +152,7 @@ export class MediaJobCoordinator {
       scope: projectScope,
       acceptedGeneration: this.#acceptedGeneration,
       program: this.#program,
+      settings: this.#settings,
       ...(options.exportRenderer ? { renderer: options.exportRenderer } : {}),
     });
   }
@@ -222,8 +224,8 @@ export class MediaJobCoordinator {
     this.#settings = settings;
     this.#acceptedGeneration = acceptedGeneration;
     this.#program = program;
-    this.#frames.update(project, program, acceptedGeneration);
-    this.#exports.update(project, program, acceptedGeneration);
+    this.#frames.update(project, program, acceptedGeneration, settings);
+    this.#exports.update(project, program, acceptedGeneration, settings);
     this.#visualAnalysis.update(acceptedGeneration);
     if (this.#destroyed) return;
     const mediaIds = project.assets

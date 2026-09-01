@@ -1,5 +1,5 @@
 import { timeUs } from "@cinesim/core";
-import type { Asset, TimeUs, Transform } from "@cinesim/core";
+import type { Asset, ProjectSettings, TimeUs, Transform } from "@cinesim/core";
 import { createRenderPlan, findIrComposition } from "@cinesim/ir";
 import type {
   EvaluatedIrNode,
@@ -15,6 +15,13 @@ import type {
 export interface PlaybackProject {
   program: IrProgram;
   assets: readonly Asset[];
+  colorPolicy?: Pick<ProjectSettings, "toneMapping" | "uncertainColorHandling">;
+}
+
+export interface InputColorTransform {
+  transfer: "rec709" | "hlg" | "pq";
+  primaries: "rec709" | "rec2020";
+  toneMap: boolean;
 }
 
 export interface ColorAdjustment {
@@ -50,6 +57,7 @@ export interface ResolvedLayer {
   opacity: number;
   transform: Transform;
   cornerRadiusPx: number;
+  inputColor: InputColorTransform;
   colorAdjustment: ColorAdjustment;
   visualEffects?: VisualEffectSettings;
   blendMode: string;
@@ -171,6 +179,35 @@ const DEFAULT_VISUAL_EFFECTS: VisualEffectSettings = {
   shadowY: 0,
   shadowBlur: 0,
 };
+
+function transferKind(value: string | undefined): InputColorTransform["transfer"] {
+  const normalized = value?.toLowerCase() ?? "";
+  if (normalized.includes("hlg") || normalized.includes("arib-std-b67")) return "hlg";
+  if (normalized.includes("pq") || normalized.includes("2084")) return "pq";
+  return "rec709";
+}
+
+function primariesKind(value: string | undefined): InputColorTransform["primaries"] {
+  const normalized = value?.toLowerCase() ?? "";
+  return normalized.includes("2020") ? "rec2020" : "rec709";
+}
+
+/** Resolves canonical source interpretation independently of original/proxy selection. */
+export function inputColorTransform(
+  asset: Asset,
+  policy?: PlaybackProject["colorPolicy"],
+): InputColorTransform {
+  const metadata = asset.technical?.video?.color;
+  const assumeRec709 =
+    asset.inputColor?.policy === "assume-rec709" ||
+    (metadata?.uncertain === true && policy?.uncertainColorHandling === "assume-rec709");
+  const transfer = assumeRec709 ? "rec709" : transferKind(metadata?.transfer);
+  return {
+    transfer,
+    primaries: assumeRec709 ? "rec709" : primariesKind(metadata?.primaries),
+    toneMap: transfer !== "rec709" && policy?.toneMapping !== "off",
+  };
+}
 
 function numeric(value: IrValue | undefined, fallback: number): number {
   if (
@@ -307,6 +344,7 @@ interface ContentOutput {
   track: IrTrack;
   sourceTimeUs: TimeUs;
   assets: ReadonlyMap<string, Asset>;
+  colorPolicy?: PlaybackProject["colorPolicy"];
   media: ResolvedLayer[];
   graphics: ResolvedGraphicLayer[];
   text: ResolvedTextLayer[];
@@ -489,6 +527,7 @@ function resolveMediaNode(
       output.clip.transform,
     ),
     cornerRadiusPx: numeric(node.props.radius, numeric(node.props.cornerRadius, 0)),
+    inputColor: inputColorTransform(asset, output.colorPolicy),
     colorAdjustment: colorAdjustment(layout.effects),
     visualEffects: visualEffects(layout.effects),
     blendMode: stringValue(node.props.blendMode, output.clip.transform.blendMode),
@@ -626,8 +665,26 @@ export function resolveSceneFrame(project: PlaybackProject, timelineTimeUs: Time
     const resolved = clips.get(layer.clipId);
     if (!resolved) continue;
     appendTransitionDip(layer, composition, graphics, drawOrder);
-    appendPlanMediaLayer(layer, resolved, composition, assets, media, drawOrder);
-    appendPlanContentLayer(layer, resolved, composition, assets, media, graphics, text, drawOrder);
+    appendPlanMediaLayer(
+      layer,
+      resolved,
+      composition,
+      assets,
+      media,
+      drawOrder,
+      project.colorPolicy,
+    );
+    appendPlanContentLayer(
+      layer,
+      resolved,
+      composition,
+      assets,
+      media,
+      graphics,
+      text,
+      drawOrder,
+      project.colorPolicy,
+    );
   }
   appendPlanCaptions(plan.captions, composition, graphics, text, drawOrder);
   return {
@@ -803,6 +860,7 @@ function appendPlanMediaLayer(
   assets: Map<string, Asset>,
   media: ResolvedLayer[],
   drawOrder: { value: number },
+  colorPolicy?: PlaybackProject["colorPolicy"],
 ): void {
   if (layer.assetId === undefined) return;
   const asset = assets.get(layer.assetId);
@@ -817,6 +875,7 @@ function appendPlanMediaLayer(
     opacity: layer.opacity,
     transform: directTransform(clip.transform, layer.opacity, composition),
     cornerRadiusPx: clip.transform.cornerRadius,
+    inputColor: inputColorTransform(asset, colorPolicy),
     colorAdjustment: colorAdjustment(layer.effects),
     visualEffects: visualEffects(layer.effects),
     blendMode: clip.transform.blendMode,
@@ -883,6 +942,7 @@ function appendPlanContentLayer(
   graphics: ResolvedGraphicLayer[],
   text: ResolvedTextLayer[],
   drawOrder: { value: number },
+  colorPolicy?: PlaybackProject["colorPolicy"],
 ): void {
   if (layer.content === undefined) return;
   resolveContent(
@@ -904,6 +964,7 @@ function appendPlanContentLayer(
       track,
       sourceTimeUs: timeUs(layer.sourceTimeUs),
       assets,
+      colorPolicy,
       media,
       graphics,
       text,
@@ -964,6 +1025,7 @@ export function findUpcomingLayers(
                       composition,
                     ),
                     cornerRadiusPx: clip.transform.cornerRadius,
+                    inputColor: inputColorTransform(asset, project.colorPolicy),
                     colorAdjustment: colorAdjustment([...track.effects, ...clip.effects]),
                     visualEffects: visualEffects([...track.effects, ...clip.effects]),
                     blendMode: clip.transform.blendMode,

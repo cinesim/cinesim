@@ -1,4 +1,4 @@
-import type { Project } from "@cinesim/core";
+import type { Project, ProjectSettings } from "@cinesim/core";
 import type { IrProgram } from "@cinesim/ir";
 import type { DerivedProjectScope, FrameRenderRequest } from "../../shared/contracts";
 import type { DerivedWorkerRequest, DerivedWorkerResponse } from "./derived-worker-api";
@@ -23,6 +23,7 @@ export class FrameJobCoordinator {
   #project: Project;
   #program: IrProgram | null;
   #acceptedGeneration: string;
+  #settings: ProjectSettings;
   readonly #projectScope: DerivedProjectScope;
   readonly #timelineRenderer: TimelineRenderer;
   readonly #queue: FrameRenderRequest[] = [];
@@ -36,12 +37,14 @@ export class FrameJobCoordinator {
     project: Project;
     program: IrProgram | null;
     acceptedGeneration: string;
+    settings: ProjectSettings;
     projectScope: DerivedProjectScope;
     timelineRenderer?: TimelineRenderer;
   }) {
     this.#project = input.project;
     this.#program = input.program;
     this.#acceptedGeneration = input.acceptedGeneration;
+    this.#settings = input.settings;
     this.#projectScope = input.projectScope;
     this.#timelineRenderer = input.timelineRenderer ?? renderTimelineFrame;
   }
@@ -60,10 +63,16 @@ export class FrameJobCoordinator {
     };
   }
 
-  update(project: Project, program: IrProgram | null, acceptedGeneration: string): void {
+  update(
+    project: Project,
+    program: IrProgram | null,
+    acceptedGeneration: string,
+    settings: ProjectSettings,
+  ): void {
     this.#project = project;
     this.#program = program;
     this.#acceptedGeneration = acceptedGeneration;
+    this.#settings = settings;
   }
 
   setForegroundPressure(pressure: FrameForegroundPressure): void {
@@ -168,6 +177,7 @@ export class FrameJobCoordinator {
     try {
       const result = await this.#timelineRenderer({
         project: this.#project,
+        settings: this.#settings,
         program,
         projectScope: this.#projectScope,
         request,

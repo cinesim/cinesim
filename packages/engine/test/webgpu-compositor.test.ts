@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "vite-plus/test";
 import { DEFAULT_TRANSFORM } from "../../core/test/project-fixtures";
-import { WebGpuCompositor } from "../src";
+import { packLayerUniform, rec709ChannelToLinear, WebGpuCompositor } from "../src";
 
 const originalDescriptors = new Map(
   ["navigator", "window", "GPUShaderStage", "GPUBufferUsage", "GPUTextureUsage"].map((key) => [
@@ -17,8 +17,22 @@ afterEach(() => {
 });
 
 describe("WebGpuCompositor resource ownership", () => {
+  it("packs explicit linear-working color transforms without changing the texture bound", () => {
+    const uniform = packLayerUniform(DEFAULT_TRANSFORM, 1, 1, {
+      inputColor: { transfer: "pq", primaries: "rec2020", toneMap: true },
+    });
+    expect(uniform).toHaveLength(48);
+    expect(uniform[19]).toBe(1);
+    expect(uniform[35]).toBe(1);
+    expect(uniform[47]).toBe(3);
+    expect(rec709ChannelToLinear(0)).toBe(0);
+    expect(rec709ChannelToLinear(1)).toBeCloseTo(1);
+    expect(rec709ChannelToLinear(0.081)).toBeCloseTo(0.018, 3);
+  });
+
   it("captures a manually sized WebGPU output only after submitted work completes", async () => {
     let submittedWorkSettled = false;
+    const pipelineFormats = new Map<string, GPUTextureFormat | undefined>();
     const pass = {
       setPipeline: () => undefined,
       setBindGroup: () => undefined,
@@ -41,7 +55,13 @@ describe("WebGpuCompositor resource ownership", () => {
       createShaderModule: () => ({}),
       createBindGroupLayout: () => ({}),
       createPipelineLayout: () => ({}),
-      createRenderPipelineAsync: async () => ({ getBindGroupLayout: () => ({}) }),
+      createRenderPipelineAsync: async (descriptor: GPURenderPipelineDescriptor) => {
+        pipelineFormats.set(
+          descriptor.label?.toString() ?? "",
+          descriptor.fragment?.targets[0]?.format,
+        );
+        return { getBindGroupLayout: () => ({}) };
+      },
       createCommandEncoder: () => ({
         beginRenderPass: () => pass,
         finish: () => ({}),
@@ -89,6 +109,16 @@ describe("WebGpuCompositor resource ownership", () => {
     });
     compositor.setOutputSize(1280, 720);
     await compositor.initialize();
+    expect(pipelineFormats).toEqual(
+      new Map([
+        ["cinesim-preview-pipeline", "rgba16float"],
+        ["cinesim-preview-effect-pipeline", "rgba16float"],
+        ["cinesim-preview-graphic-pipeline", "rgba16float"],
+        ["cinesim-preview-text-pipeline", "rgba16float"],
+        ["cinesim-preview-output-pipeline", "bgra8unorm"],
+        ["cinesim-preview-composite-pipeline", "rgba16float"],
+      ]),
+    );
     compositor.render([], { width: 1920, height: 1080 });
 
     await expect(compositor.capturePng()).resolves.toEqual(new Uint8Array([1, 2, 3]).buffer);

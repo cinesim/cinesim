@@ -1,4 +1,4 @@
-import type { Project } from "@cinesim/core";
+import type { Project, ProjectSettings } from "@cinesim/core";
 import type { IrProgram } from "@cinesim/ir";
 import type { DerivedProjectScope, ExportRenderRequest } from "../../shared/contracts";
 import { renderAcceptedExport } from "./accepted-export-renderer";
@@ -14,6 +14,7 @@ export class ExportJobCoordinator {
   #project: Project;
   #program: IrProgram | null;
   #acceptedGeneration: string;
+  #settings: ProjectSettings;
   readonly #scope: DerivedProjectScope;
   readonly #renderer: AcceptedExportRenderer;
   #active: ActiveExportRender | null = null;
@@ -24,12 +25,14 @@ export class ExportJobCoordinator {
     project: Project;
     program: IrProgram | null;
     acceptedGeneration: string;
+    settings: ProjectSettings;
     scope: DerivedProjectScope;
     renderer?: AcceptedExportRenderer;
   }) {
     this.#project = input.project;
     this.#program = input.program;
     this.#acceptedGeneration = input.acceptedGeneration;
+    this.#settings = input.settings;
     this.#scope = input.scope;
     this.#renderer = input.renderer ?? renderAcceptedExport;
   }
@@ -44,10 +47,16 @@ export class ExportJobCoordinator {
     };
   }
 
-  update(project: Project, program: IrProgram | null, acceptedGeneration: string): void {
+  update(
+    project: Project,
+    program: IrProgram | null,
+    acceptedGeneration: string,
+    settings: ProjectSettings,
+  ): void {
     this.#project = project;
     this.#program = program;
     this.#acceptedGeneration = acceptedGeneration;
+    this.#settings = settings;
   }
 
   destroy(): void {
@@ -71,14 +80,16 @@ export class ExportJobCoordinator {
     await this.#render(active, accepted);
   }
 
-  #acceptedInput(request: ExportRenderRequest): { project: Project; program: IrProgram } | null {
+  #acceptedInput(
+    request: ExportRenderRequest,
+  ): { project: Project; program: IrProgram; settings: ProjectSettings } | null {
     if (!this.#matchesAcceptedProject(request) || !this.#program) return null;
-    return { project: this.#project, program: this.#program };
+    return { project: this.#project, program: this.#program, settings: this.#settings };
   }
 
   async #render(
     active: ActiveExportRender,
-    accepted: { project: Project; program: IrProgram },
+    accepted: { project: Project; program: IrProgram; settings: ProjectSettings },
   ): Promise<void> {
     const { request, abort } = active;
     try {

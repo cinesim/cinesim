@@ -1,5 +1,9 @@
 import type { Transform } from "@cinesim/core";
-import type { ColorAdjustment, VisualEffectSettings } from "../playback/scene-resolver";
+import type {
+  ColorAdjustment,
+  InputColorTransform,
+  VisualEffectSettings,
+} from "../playback/scene-resolver";
 import type { AtlasGlyph, ShapedAtlasGlyph, WebGpuGlyphAtlas } from "./glyph-atlas";
 import {
   buildRenderGraph,
@@ -7,6 +11,8 @@ import {
   type RenderGraphLayer,
 } from "./render-graph";
 import { BoundedRenderTexturePool } from "./texture-pool";
+
+const WORKING_TEXTURE_FORMAT: GPUTextureFormat = "rgba16float";
 
 const VIDEO_SHADER = /* wgsl */ `
 struct LayerUniforms {
@@ -119,7 +125,7 @@ fn randomGrain(uv: vec2f, size: f32) -> f32 {
 fn chromaAlpha(rgb: vec3f, alpha: f32) -> f32 {
   let tolerance = layer.effectTwo.y;
   if (tolerance <= 0.0) { return alpha; }
-  let distance = length(rgb - layer.chromaColor.rgb) / 1.7320508;
+  let distance = length(rgb - rec709ToLinear(layer.chromaColor.rgb)) / 1.7320508;
   return alpha * smoothstep(tolerance * 0.6, max(tolerance, 0.0001), distance);
 }
 
@@ -134,6 +140,72 @@ fn shadowSample(uv: vec2f) -> f32 {
   return alpha * layer.shadowColor.a;
 }
 
+fn rec709ToLinearChannel(value: f32) -> f32 {
+  let bounded = max(0.0, value);
+  if (bounded < 0.081) { return bounded / 4.5; }
+  return pow((bounded + 0.099) / 1.099, 1.0 / 0.45);
+}
+
+fn rec709ToLinear(rgb: vec3f) -> vec3f {
+  return vec3f(
+    rec709ToLinearChannel(rgb.r),
+    rec709ToLinearChannel(rgb.g),
+    rec709ToLinearChannel(rgb.b)
+  );
+}
+
+fn hlgToLinearChannel(value: f32) -> f32 {
+  let a = 0.17883277;
+  let b = 0.28466892;
+  let c = 0.55991073;
+  if (value <= 0.5) { return value * value / 3.0; }
+  return (exp((value - c) / a) + b) / 12.0;
+}
+
+fn pqToLinearChannel(value: f32) -> f32 {
+  let m1 = 0.1593017578125;
+  let m2 = 78.84375;
+  let c1 = 0.8359375;
+  let c2 = 18.8515625;
+  let c3 = 18.6875;
+  let raised = pow(max(value, 0.0), 1.0 / m2);
+  return pow(max(raised - c1, 0.0) / max(c2 - c3 * raised, 0.00001), 1.0 / m1);
+}
+
+fn toneMap(rgb: vec3f, referenceWhite: f32) -> vec3f {
+  let scene = rgb / referenceWhite;
+  return scene / (vec3f(1.0) + scene);
+}
+
+fn rec2020ToRec709(rgb: vec3f) -> vec3f {
+  return vec3f(
+    1.660491 * rgb.r - 0.587641 * rgb.g - 0.072850 * rgb.b,
+    -0.124550 * rgb.r + 1.132900 * rgb.g - 0.008349 * rgb.b,
+    -0.018151 * rgb.r - 0.100579 * rgb.g + 1.118730 * rgb.b
+  );
+}
+
+fn inputPrimariesToWorking(rgb: vec3f) -> vec3f {
+  if (layer.effectTwo.w > 0.5) { return rec2020ToRec709(rgb); }
+  return rgb;
+}
+
+fn inputToWorking(rgb: vec3f) -> vec3f {
+  let mode = layer.shadowParams.w;
+  if (mode < 0.5) { return rgb; }
+  if (mode < 1.5) { return inputPrimariesToWorking(rec709ToLinear(rgb)); }
+  if (mode < 2.5) {
+    let linear = vec3f(hlgToLinearChannel(rgb.r), hlgToLinearChannel(rgb.g), hlgToLinearChannel(rgb.b));
+    let working = inputPrimariesToWorking(linear);
+    if (layer.colorAdjustTwo.w > 0.5) { return toneMap(working, 0.2); }
+    return working;
+  }
+  let linear = vec3f(pqToLinearChannel(rgb.r), pqToLinearChannel(rgb.g), pqToLinearChannel(rgb.b));
+  let working = inputPrimariesToWorking(linear);
+  if (layer.colorAdjustTwo.w > 0.5) { return toneMap(working, 0.01); }
+  return working;
+}
+
 @fragment
 fn fragmentMain(input: VertexOutput) -> @location(0) vec4f {
   let uv = input.uv * layer.uvScaleAndOffset.xy + layer.uvScaleAndOffset.zw;
@@ -145,8 +217,9 @@ fn fragmentMain(input: VertexOutput) -> @location(0) vec4f {
   let tint = layer.colorAdjustTwo.x;
   let highlights = layer.colorAdjustTwo.y;
   let shadows = layer.colorAdjustTwo.z;
-  var rgb = sampled.rgb * exp2(exposure);
-  rgb = (rgb - vec3f(0.5)) * contrast + vec3f(0.5);
+  let sourceRgb = inputToWorking(sampled.rgb);
+  var rgb = sourceRgb * exp2(exposure);
+  rgb = (rgb - vec3f(0.18)) * contrast + vec3f(0.18);
   let luma = dot(rgb, vec3f(0.2126, 0.7152, 0.0722));
   rgb = mix(vec3f(luma), rgb, saturation);
   rgb += vec3f(temperature * 0.08, tint * 0.06, -temperature * 0.08);
@@ -158,9 +231,9 @@ fn fragmentMain(input: VertexOutput) -> @location(0) vec4f {
   );
   rgb = rgb * vignette + vec3f(randomGrain(input.uv, layer.effectTwo.x) * layer.effectOne.w);
   let shapeAlpha = layer.opacityAndRadius.x * roundedAlpha(input.uv, layer.opacityAndRadius.y) * transitionAlpha(input.uv);
-  let alpha = chromaAlpha(sampled.rgb, sampled.a) * shapeAlpha;
+  let alpha = chromaAlpha(sourceRgb, sampled.a) * shapeAlpha;
   let shadowAlpha = shadowSample(uv) * shapeAlpha * (1.0 - alpha);
-  return vec4f(mix(rgb, layer.shadowColor.rgb, shadowAlpha), alpha + shadowAlpha);
+  return vec4f(mix(rgb, rec709ToLinear(layer.shadowColor.rgb), shadowAlpha), alpha + shadowAlpha);
 }
 `;
 
@@ -217,10 +290,19 @@ fn graphicAlpha(uv: vec2f, radius: f32, feather: f32) -> f32 {
   return 1.0 - smoothstep(-edge, edge, distance);
 }
 
+fn rec709ToLinearChannel(value: f32) -> f32 {
+  if (value < 0.081) { return max(0.0, value) / 4.5; }
+  return pow((value + 0.099) / 1.099, 1.0 / 0.45);
+}
+
+fn rec709ToLinear(rgb: vec3f) -> vec3f {
+  return vec3f(rec709ToLinearChannel(rgb.r), rec709ToLinearChannel(rgb.g), rec709ToLinearChannel(rgb.b));
+}
+
 @fragment
 fn fragmentMain(input: VertexOutput) -> @location(0) vec4f {
   let alpha = graphic.color.a * graphic.params.z * graphicAlpha(input.uv, graphic.params.x, graphic.params.w);
-  return vec4f(graphic.color.rgb, alpha);
+  return vec4f(rec709ToLinear(graphic.color.rgb), alpha);
 }
 `;
 
@@ -277,6 +359,15 @@ fn over(backdrop: vec4f, source: vec4f) -> vec4f {
   return vec4f(color, alpha);
 }
 
+fn rec709ToLinearChannel(value: f32) -> f32 {
+  if (value < 0.081) { return max(0.0, value) / 4.5; }
+  return pow((value + 0.099) / 1.099, 1.0 / 0.45);
+}
+
+fn rec709ToLinear(rgb: vec3f) -> vec3f {
+  return vec3f(rec709ToLinearChannel(rgb.r), rec709ToLinearChannel(rgb.g), rec709ToLinearChannel(rgb.b));
+}
+
 @fragment
 fn fragmentMain(input: VertexOutput) -> @location(0) vec4f {
   let distance = textureSample(glyphAtlas, glyphSampler, atlasUv(input.uv)).r;
@@ -294,9 +385,9 @@ fn fragmentMain(input: VertexOutput) -> @location(0) vec4f {
     0.5 + glyph.params.z + edge,
     shadowDistance
   );
-  var result = vec4f(glyph.shadow.rgb, glyph.shadow.a * shadowAlpha);
-  result = over(result, vec4f(glyph.outline.rgb, glyph.outline.a * outlineAlpha));
-  result = over(result, vec4f(glyph.fill.rgb, glyph.fill.a * fillAlpha));
+  var result = vec4f(rec709ToLinear(glyph.shadow.rgb), glyph.shadow.a * shadowAlpha);
+  result = over(result, vec4f(rec709ToLinear(glyph.outline.rgb), glyph.outline.a * outlineAlpha));
+  result = over(result, vec4f(rec709ToLinear(glyph.fill.rgb), glyph.fill.a * fillAlpha));
   return vec4f(result.rgb, result.a * glyph.params.x);
 }
 `;
@@ -328,7 +419,11 @@ fn vertexMain(@builtin(vertex_index) index: u32) -> VertexOutput {
 
 @fragment
 fn fragmentMain(input: VertexOutput) -> @location(0) vec4f {
-  return textureSample(sceneTexture, sceneSampler, input.uv);
+  let sampled = textureSample(sceneTexture, sceneSampler, input.uv);
+  let bounded = max(sampled.rgb / max(sampled.a, 0.00001), vec3f(0.0));
+  let low = bounded * 4.5;
+  let high = 1.099 * pow(bounded, vec3f(0.45)) - 0.099;
+  return vec4f(select(low, high, bounded >= vec3f(0.018)) * sampled.a, sampled.a);
 }
 `;
 
@@ -411,6 +506,20 @@ function clockwiseRadians(rotation: number): number {
   return rotation === 0 ? 0 : (-rotation * Math.PI) / 180;
 }
 
+export function rec709ChannelToLinear(value: number): number {
+  const bounded = Math.max(0, value);
+  return bounded < 0.081 ? bounded / 4.5 : ((bounded + 0.099) / 1.099) ** (1 / 0.45);
+}
+
+function linearWorkingColor(color: CompositorColor): CompositorColor {
+  return [
+    rec709ChannelToLinear(color[0]),
+    rec709ChannelToLinear(color[1]),
+    rec709ChannelToLinear(color[2]),
+    color[3],
+  ];
+}
+
 export interface LayerUniformOptions {
   uvScaleX?: number;
   uvScaleY?: number;
@@ -420,6 +529,7 @@ export interface LayerUniformOptions {
   colorAdjustment?: ColorAdjustment;
   transition?: CompositorLayer["transition"];
   visualEffects?: VisualEffectSettings;
+  inputColor?: InputColorTransform | "linear";
   output?: { width: number; height: number };
 }
 
@@ -433,6 +543,10 @@ export function packLayerUniform(
   const transition = options.transition;
   const effects = options.visualEffects;
   const output = options.output ?? { width: 1, height: 1 };
+  const inputColor = options.inputColor ?? "linear";
+  const inputColorMode =
+    inputColor === "linear" ? 0 : { rec709: 1, hlg: 2, pq: 3 }[inputColor.transfer];
+  const inputPrimariesMode = inputColor === "linear" || inputColor.primaries === "rec709" ? 0 : 1;
   const direction = transition ? { left: 0, right: 1, up: 2, down: 3 }[transition.direction] : 0;
   return new Float32Array([
     transform.x,
@@ -454,7 +568,7 @@ export function packLayerUniform(
     adjustment.tint,
     adjustment.highlights ?? 0,
     adjustment.shadows ?? 0,
-    0,
+    inputColor === "linear" || !inputColor.toneMap ? 0 : 1,
     transition?.kind === "wipe" ? 1 : transition?.kind === "blur" ? 2 : 0,
     transition?.progress ?? 0,
     direction,
@@ -472,7 +586,7 @@ export function packLayerUniform(
     effects?.shadowBlur
       ? effects.shadowBlur / Math.max(1, Math.min(output.width, output.height))
       : 0,
-    0,
+    inputPrimariesMode,
     ...(effects?.chromaColor ?? [0, 1, 0, 1]),
     ...(effects?.shadowColor ?? [0, 0, 0, 0]),
     (effects?.shadowX ?? 0) / Math.max(1, Math.abs(transform.scaleX) * output.width),
@@ -480,7 +594,7 @@ export function packLayerUniform(
     effects?.shadowBlur
       ? effects.shadowBlur / Math.max(1, Math.min(output.width, output.height))
       : 0,
-    0,
+    inputColorMode,
   ]);
 }
 
@@ -490,6 +604,7 @@ export interface CompositorLayer {
   frame: VideoFrame;
   transform: Transform;
   cornerRadiusPx?: number;
+  inputColor?: InputColorTransform;
   colorAdjustment?: ColorAdjustment;
   visualEffects?: VisualEffectSettings;
   blendMode?: string;
@@ -1231,14 +1346,22 @@ export class WebGpuCompositor implements PreviewCompositor {
         label: "cinesim-preview-pipeline",
         layout: device.createPipelineLayout({ bindGroupLayouts: [videoLayout] }),
         vertex: { module: videoModule, entryPoint: "vertexMain" },
-        fragment: { module: videoModule, entryPoint: "fragmentMain", targets: [{ format, blend }] },
+        fragment: {
+          module: videoModule,
+          entryPoint: "fragmentMain",
+          targets: [{ format: WORKING_TEXTURE_FORMAT, blend }],
+        },
         primitive: { topology: "triangle-list" },
       });
       this.#effectPipeline = await device.createRenderPipelineAsync({
         label: "cinesim-preview-effect-pipeline",
         layout: device.createPipelineLayout({ bindGroupLayouts: [effectLayout] }),
         vertex: { module: effectModule, entryPoint: "vertexMain" },
-        fragment: { module: effectModule, entryPoint: "fragmentMain", targets: [{ format }] },
+        fragment: {
+          module: effectModule,
+          entryPoint: "fragmentMain",
+          targets: [{ format: WORKING_TEXTURE_FORMAT }],
+        },
         primitive: { topology: "triangle-list" },
       });
       this.#graphicPipeline = await device.createRenderPipelineAsync({
@@ -1248,7 +1371,7 @@ export class WebGpuCompositor implements PreviewCompositor {
         fragment: {
           module: graphicModule,
           entryPoint: "fragmentMain",
-          targets: [{ format, blend }],
+          targets: [{ format: WORKING_TEXTURE_FORMAT, blend }],
         },
         primitive: { topology: "triangle-list" },
       });
@@ -1259,7 +1382,7 @@ export class WebGpuCompositor implements PreviewCompositor {
         fragment: {
           module: textModule,
           entryPoint: "fragmentMain",
-          targets: [{ format, blend }],
+          targets: [{ format: WORKING_TEXTURE_FORMAT, blend }],
         },
         primitive: { topology: "triangle-list" },
       });
@@ -1274,7 +1397,11 @@ export class WebGpuCompositor implements PreviewCompositor {
         label: "cinesim-preview-composite-pipeline",
         layout: device.createPipelineLayout({ bindGroupLayouts: [compositeLayout] }),
         vertex: { module: compositeModule, entryPoint: "vertexMain" },
-        fragment: { module: compositeModule, entryPoint: "fragmentMain", targets: [{ format }] },
+        fragment: {
+          module: compositeModule,
+          entryPoint: "fragmentMain",
+          targets: [{ format: WORKING_TEXTURE_FORMAT }],
+        },
         primitive: { topology: "triangle-list" },
       });
       if (this.#textRendering === "production") {
@@ -1409,6 +1536,11 @@ export class WebGpuCompositor implements PreviewCompositor {
         uvOffsetY: (1 - fit.uvScaleY) / 2,
         cornerRadiusFraction: relativeRadius(layer.cornerRadiusPx ?? 0, layer.transform, output),
         ...(layer.colorAdjustment === undefined ? {} : { colorAdjustment: layer.colorAdjustment }),
+        inputColor: layer.inputColor ?? {
+          transfer: "rec709",
+          primaries: "rec709",
+          toneMap: false,
+        },
         ...(layer.transition === undefined ? {} : { transition: layer.transition }),
         ...(layer.visualEffects === undefined ? {} : { visualEffects: layer.visualEffects }),
         output,
@@ -1553,6 +1685,7 @@ export class WebGpuCompositor implements PreviewCompositor {
         {
           colorAdjustment: adjustment.colorAdjustment,
           visualEffects: adjustment.visualEffects,
+          inputColor: "linear",
           output,
         },
       ),
@@ -1640,7 +1773,7 @@ export class WebGpuCompositor implements PreviewCompositor {
     transientBuffers: GPUBuffer[],
   ): number {
     let sceneIndex = 0;
-    texturePass(encoder, scenes[sceneIndex]!, background).end();
+    texturePass(encoder, scenes[sceneIndex]!, linearWorkingColor(background)).end();
     for (const operation of operations) {
       const nextIndex = sceneIndex === 0 ? 1 : 0;
       if (operation.kind === "adjustment")
@@ -1719,11 +1852,23 @@ export class WebGpuCompositor implements PreviewCompositor {
       const width = Math.max(1, Math.round(output.width));
       const height = Math.max(1, Math.round(output.height));
       const scenes: [GPUTexture, GPUTexture] = [
-        this.#texturePool.acquire(this.#device, width, height, this.#format, "scene-a"),
-        this.#texturePool.acquire(this.#device, width, height, this.#format, "scene-b"),
+        this.#texturePool.acquire(this.#device, width, height, WORKING_TEXTURE_FORMAT, "scene-a"),
+        this.#texturePool.acquire(this.#device, width, height, WORKING_TEXTURE_FORMAT, "scene-b"),
       ];
-      const source = this.#texturePool.acquire(this.#device, width, height, this.#format, "source");
-      const effect = this.#texturePool.acquire(this.#device, width, height, this.#format, "effect");
+      const source = this.#texturePool.acquire(
+        this.#device,
+        width,
+        height,
+        WORKING_TEXTURE_FORMAT,
+        "source",
+      );
+      const effect = this.#texturePool.acquire(
+        this.#device,
+        width,
+        height,
+        WORKING_TEXTURE_FORMAT,
+        "effect",
+      );
       const operations = renderOperations(
         this.#orderedItems(layers, graphics, text, output),
         adjustments,

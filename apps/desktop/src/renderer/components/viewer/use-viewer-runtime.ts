@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react";
 import type { RefObject } from "react";
-import type { Project, TimeUs } from "@cinesim/core";
+import type { Project, ProjectSettings, TimeUs } from "@cinesim/core";
 import { PlaybackRuntime, WebGpuCompositor } from "@cinesim/engine";
 import type { PlaybackProject, ShuttleDirection } from "@cinesim/engine";
 import type { IrProgram } from "@cinesim/ir";
@@ -23,6 +23,7 @@ interface UseViewerRuntimeOptions {
   derivedScope: DerivedProjectScope;
   onController?: (controller: ViewerController | null) => void;
   project: Project;
+  settings: ProjectSettings;
   program: IrProgram;
   projectDirectory: string;
   sequenceId: string;
@@ -34,6 +35,7 @@ export function useViewerRuntime({
   onController,
   project,
   program,
+  settings,
   projectDirectory,
   sequenceId,
 }: UseViewerRuntimeOptions) {
@@ -42,6 +44,7 @@ export function useViewerRuntime({
   const projectRef = useRef<PlaybackProject>({
     program: { ...program, activeCompositionId: sequenceId },
     assets: project.assets,
+    colorPolicy: settings,
   });
   const store = useRendererStoreApi();
   const reportError = useRendererStore((state) => state.reportError);
@@ -57,6 +60,7 @@ export function useViewerRuntime({
     projectRef.current = {
       program: { ...program, activeCompositionId: sequenceId },
       assets: project.assets,
+      colorPolicy: settings,
     };
     const playback = playbackRef.current;
     playback?.setProject(projectRef.current);
@@ -67,7 +71,16 @@ export function useViewerRuntime({
           caught instanceof Error ? caught.message : "The preview could not be refreshed",
         ),
       );
-  }, [cacheKey, epoch, program, project.assets, projectDirectory, reportError, sequenceId]);
+  }, [
+    cacheKey,
+    epoch,
+    program,
+    project.assets,
+    projectDirectory,
+    reportError,
+    sequenceId,
+    settings,
+  ]);
 
   useEffect(() => {
     const canvas = canvasRef.current;

@@ -15,6 +15,12 @@ happens to your files, what gets generated, and the two cases where Cinesim make
 Each file becomes an asset with a stable ID. Cinesim reads its metadata, then queues background work
 to make it editable.
 
+The deterministic asset record includes container and codec parameters, coded and display geometry,
+rotation, pixel aspect ratio, frame-rate mode, audio layout, bit depth, decoder observations, and
+embedded color/HDR metadata. Missing or uncertain values remain `unknown`; Cinesim does not invent
+precision. A source that the Chromium runtime is known not to decode is reported before guaranteed-
+failing proxy work is queued.
+
 ## What happens to your files
 
 Nothing. Cinesim records the path you selected and reads from it in place. It does not copy, move,
@@ -75,6 +81,11 @@ Cinesim decodes what Chromium can decode. There is no bundled FFmpeg, so footage
 does not support cannot be proxied or played.
 
 Still-image import is not currently exposed in the media picker.
+
+Detected Rec.709, HLG/PQ, and Rec.2020 metadata follows the project's explicit color policy for both
+originals and proxies. The viewer and accepted export share the same linear Rec.709 WebGPU graph, so
+switching to a proxy cannot silently change the source interpretation. See
+[Project settings](../reference/settings.mdx) for tone mapping and uncertain-metadata controls.
 
 ## Next
 

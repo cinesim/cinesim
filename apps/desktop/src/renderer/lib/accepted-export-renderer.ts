@@ -1,4 +1,4 @@
-import { timeUs, type Project } from "@cinesim/core";
+import { timeUs, type Project, type ProjectSettings } from "@cinesim/core";
 import { PlaybackRuntime, WebGpuCompositor, type MediaSourceResolver } from "@cinesim/engine";
 import type { IrProgram } from "@cinesim/ir";
 import {
@@ -146,6 +146,7 @@ async function encodeRange(
 /** Encodes one explicit accepted-IR range through the production compositor and bounded audio mixer. */
 export async function renderAcceptedExport(input: {
   project: Project;
+  settings: ProjectSettings;
   program: IrProgram;
   request: ExportRenderRequest;
   signal: AbortSignal;
@@ -155,9 +156,11 @@ export async function renderAcceptedExport(input: {
   compositor.setOutputSize(input.request.job.width, input.request.job.height);
   const resolver = originalResolver(input.request.projectScope);
   const program = exportProgram(input.program, input.request.job.sequenceId);
-  const playback = new PlaybackRuntime({ program, assets: input.project.assets }, compositor, {
-    sourceResolver: resolver,
-  });
+  const playback = new PlaybackRuntime(
+    { program, assets: input.project.assets, colorPolicy: input.settings },
+    compositor,
+    { sourceResolver: resolver },
+  );
   const mixer = new ExportAudioMixer(program, resolver);
   const target = exportWritable(input.request.job.id);
   const output = new Output({
