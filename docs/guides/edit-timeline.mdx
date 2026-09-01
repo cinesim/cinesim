@@ -12,8 +12,9 @@ Select assets in the Media Pool in the order you want them, then create a timeli
 selection. Cinesim places them end to end, creates the tracks it needs, and makes the new sequence
 active — in one undo step.
 
-Video files with sound produce linked video and audio clips on separate tracks. They stay in sync
-through every subsequent edit.
+Video files with sound produce reciprocal linked video and audio clips on separate tracks. Ordinary
+move, trim, split, and delete edits keep the pair together. Their boundaries may differ for a split
+edit without losing the relationship.
 
 ## Choose a tool
 
@@ -30,6 +31,11 @@ feedback when a placement would overlap; the edit commits when you release.
 
 Drag a clip's edge to trim it. Trimming clamps any existing fades to the new duration.
 
+Option-drag a linked audio or video edge with the Trim tool to change only that component. Extending
+the next shot's audio before its picture makes a J-cut; extending the previous shot's audio beyond
+its picture makes an L-cut. The gesture is bounded by available source media and commits one command
+and one undo step.
+
 Split the selected clip at the playhead with <kbd>⌘&#92;</kbd>, or cut anywhere with the Blade tool. A
 split preserves the outer fades and clears the two new interior edges.
 
@@ -40,6 +46,23 @@ single edit.
 
 Drag a clip's fade handle to set a linear fade-in or fade-out — opacity on video, gain on audio.
 Combined fades cannot exceed the clip's duration, and the drag commits as one undo step.
+
+Select an audio clip to set its independent gain, stereo pan, and mute state in the Inspector.
+Overlapping clips are summed through the master stereo mix. For deterministic dialogue ducking,
+attach a direct effect to a music clip or audio track in JSX:
+
+```jsx
+<ducker
+  id="duck_music"
+  sidechain="track_dialogue"
+  reduction={db(-12)}
+  attack={milliseconds(80)}
+  release={milliseconds(250)}
+/>
+```
+
+The sidechain must name a different audio track. Cinesim ramps down before an active sidechain clip
+and releases afterward, so the same timeline always produces the same automation.
 
 ## Manage tracks
 

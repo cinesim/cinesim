@@ -9,6 +9,7 @@ import type {
   RenderPlan,
   TimelineProjection,
 } from "./types";
+import { audioDuckGainAt } from "./audio-mix";
 
 export function findIrComposition(
   program: IrProgram,
@@ -160,7 +161,10 @@ export function createAudioPlan(
                   trackId: track.id,
                   assetId: clip.assetId,
                   sourceTimeUs: irTimeUs(sourceTime(clip, playheadUs)),
-                  gain: Math.pow(10, clip.audio.gainDb / 20) * fadeGain(clip, playheadUs),
+                  gain:
+                    Math.pow(10, clip.audio.gainDb / 20) *
+                    fadeGain(clip, playheadUs) *
+                    audioDuckGainAt(composition, track, clip, playheadUs),
                   pan: clip.audio.pan,
                   effects: [...track.effects, ...clip.effects],
                 },

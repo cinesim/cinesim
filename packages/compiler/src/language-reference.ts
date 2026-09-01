@@ -41,6 +41,7 @@ const previewSupported = new Set([
   "rect",
   "ellipse",
   "colorgrade",
+  "ducker",
 ]);
 
 const previewPartial = new Set(["marker", "text", "span", "captions"]);
@@ -138,17 +139,23 @@ const recipes: LanguageReferenceEntry[] = [
     kind: "recipe",
     title: "Split edit / J-cut / L-cut",
     summary:
-      "Linked audio and video clips may use independent boundaries; dedicated relationship semantics remain incomplete.",
+      "Keep reciprocal A/V links while giving the audio and picture independent source and timeline boundaries.",
     syntax: "linked media clips with different start and duration values",
     example: '<clip id="clip_audio" linked="clip_video" media="audio" start={seconds(1)} ... />',
     tags: ["split edit", "j-cut", "l-cut", "audio lead", "audio trail"],
-    capability: {
-      compiler: "partial",
-      preview: "partial",
-      export: "unsupported",
-      detail:
-        "Independent linked boundaries work, but first-class split-edit validation is not implemented.",
-    },
+    capability: { compiler: "supported", preview: "supported", export: "unsupported" },
+  },
+  {
+    id: "recipe:dialogue-ducking",
+    kind: "recipe",
+    title: "Dialogue sidechain ducking",
+    summary:
+      "Reduce a music clip or track under active dialogue with deterministic look-ahead attack and release automation.",
+    syntax: '<ducker sidechain="track_dialogue" reduction={db(-12)} attack={...} release={...} />',
+    example:
+      '<ducker id="duck_music" sidechain="track_dialogue" reduction={db(-12)} attack={milliseconds(80)} release={milliseconds(250)} />',
+    tags: ["audio", "ducking", "dialogue", "music", "sidechain", "mix"],
+    capability: { compiler: "supported", preview: "supported", export: "unsupported" },
   },
 ];
 

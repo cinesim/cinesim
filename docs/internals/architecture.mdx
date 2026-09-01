@@ -132,10 +132,12 @@ objects are closed before composition.
 Temporary asset preview is kept separate from timeline transport, and React receives throttled
 snapshots and intents rather than frame objects.
 
-Audio uses Mediabunny's `AudioBufferSink` with Web Audio scheduling. The runtime consumes semantic
-IR audio tracks, source times, fades, mute state, and decibel gain. `AudioContext.currentTime` is the
-scheduling reference while transport time still comes from the replaceable clock abstraction. An
-AudioWorklet is deferred until profiling shows buffered main-thread scheduling is insufficient.
+Audio uses Mediabunny's `AudioBufferSink` with bounded Web Audio scheduling. The runtime consumes
+semantic IR audio tracks, independent split ranges, source times, fades, mute state, decibel gain,
+stereo pan, and shared deterministic sidechain-ducking automation. Active clip nodes sum through one
+stereo master and its bounded peak meters. `AudioContext.currentTime` is the scheduling reference
+while transport time still comes from the replaceable clock abstraction. An AudioWorklet is deferred
+until profiling shows buffered main-thread scheduling is insufficient.
 
 ## Composition
 

@@ -31,8 +31,9 @@ command rejects incompatible placements and malformed links.
 
 Adding a video asset carrying audio atomically creates reciprocal linked video and audio clips. The
 command picks an available audio track or creates one. Linked move, trim, split, and remove edits
-stay one command and one undo step. Pre-component project files are deterministically upgraded to
-this representation on load.
+stay one command and one undo step. A `clip.splitEdit` changes one requested component boundary while
+preserving the reciprocal same-asset link; its source handle and track overlap are validated before
+the one-step commit. Pre-component project files are deterministically upgraded on load.
 
 ## Fades
 
@@ -42,6 +43,10 @@ the clip duration.
 
 A timeline handle drag commits one command and one undo step. Trims clamp existing fades to the new
 duration; splits preserve the outer fades and clear the two new interior edges.
+
+Audio clips independently retain gain, pan, mute, fades, and split boundaries. Preview sums active
+audio clips into a stereo master. A direct `ducker` effect on an audio clip or track references a
+different audio track and produces deterministic presence-based attack/release gain automation.
 
 ## Track commands
 

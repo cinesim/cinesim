@@ -1,91 +1,83 @@
 ---
 title: MCP reference
-description: The tools Cinesim exposes to a connected coding agent, with their inputs and safety annotations.
+description: Inspection, perception, diagnostics, and disposable services exposed to coding agents.
 ---
 
-Cinesim ships an MCP server that exposes project inspection and timeline editing to a coding agent.
-Every tool delegates to the same [command layer](../concepts/commands-and-history.mdx) the desktop
-app uses — there is no separate agent editing path.
+Cinesim's MCP server helps agents understand an accepted project and invoke bounded local services.
+It has no canonical editing tools. Agents author `cinesim.toml`, `assets.toml`, and reachable JSX
+directly; the compiler validates each candidate before it becomes the accepted editor generation and
+an ordinary top-bar undo step.
 
-For connecting an agent in the app, see [Work with an agent](../guides/work-with-agents.mdx).
+For project-local setup, see [Work with an agent](../guides/work-with-agents.mdx).
 
 ## Transport and scope
 
-Inside the desktop app, Electron main owns the server and gives each agent session a
-bearer-authenticated endpoint bound to loopback, scoped to one session and one open project.
-
-Standalone, the server runs over stdio and reads `CINESIM_PROJECT` for the project directory,
-falling back to the current directory:
+Generated Claude and Codex project configuration launches the packaged stdio adapter in the project
+root:
 
 ```bash
-CINESIM_PROJECT=~/films/documentary-cut vp run mcp
+cinesim mcp --project .
 ```
 
-Run the standalone command from the Cinesim repository root.
+When the project is open, that adapter discovers the desktop's mode-`0600`, bearer-authenticated
+loopback broker descriptor. Credentials remain transient and never enter generated provider config.
+Without a live desktop it falls back to read-only disk inspection and does not create `.video/`.
 
-## Conventions
+All times are integer microseconds. Results are bounded structured content. Canonical IDs are stable
+prefixed strings such as `asset_…`, `clip_…`, `track_…`, and `sequence_…`.
 
-- IDs are prefixed strings and are validated by pattern: `asset_…`, `clip_…`, `track_…`,
-  `sequence_…`.
-- All times are integer microseconds. Unlike the CLI, MCP takes no friendly time strings.
-- Every tool returns a text block and structured content — a summary plus the IDs it created or
-  changed.
-- Failures return an error result carrying the validation message, and change nothing.
+## Project and language inspection
 
-## Inspection
+| Tool               | Purpose                                                                                                               |
+| ------------------ | --------------------------------------------------------------------------------------------------------------------- |
+| `project_inspect`  | Accepted identity, directory, revision, and timeline counts                                                           |
+| `project_status`   | Accepted generation, candidate validity, bounded diagnostics, last valid composition, jobs, and visual-index coverage |
+| `assets_list`      | Canonical asset references and technical metadata                                                                     |
+| `asset_inspect`    | One asset by stable ID                                                                                                |
+| `timeline_inspect` | Accepted tracks, clips, links, and exact timing                                                                       |
+| `notes_inspect`    | Structured project, asset, and timeline notes                                                                         |
+| `language_search`  | Fuzzy syntax, constraints, examples, recipes, and separate compiler/preview/export capability states                  |
 
-Read-only and idempotent.
+## Transcripts
 
-| Tool               | Input     | Returns                                           |
-| ------------------ | --------- | ------------------------------------------------- |
-| `project_inspect`  | —         | Project identity, directory, timeline counts      |
-| `assets_list`      | —         | Canonical media references and technical metadata |
-| `asset_inspect`    | `assetId` | One asset by stable ID                            |
-| `timeline_inspect` | —         | Tracks and clips with stable IDs and timing       |
+| Tool                      | Purpose                                                             |
+| ------------------------- | ------------------------------------------------------------------- |
+| `transcript_get`          | Bounded asset transcript range; may resolve a visual observation ID |
+| `timeline_transcript_get` | Bounded dialogue projected through accepted clip timing             |
+| `transcript_generate`     | Start missing disposable transcript jobs                            |
+| `transcript_regenerate`   | Force fresh disposable transcript jobs                              |
+| `transcript_cancel`       | Cancel active transcript jobs                                       |
 
-## Assets
+Transcript jobs change derived state only. They never compile or enter canonical history.
 
-| Tool           | Input        | Notes                                                               |
-| -------------- | ------------ | ------------------------------------------------------------------- |
-| `asset_delete` | `assetIds[]` | Destructive. Removes referencing clips; never deletes source media. |
+## Visual index
 
-## Timeline
+| Tool                      | Purpose                                                     |
+| ------------------------- | ----------------------------------------------------------- |
+| `visual_index_status`     | Coverage, freshness, source fingerprints, and compatibility |
+| `visual_index_get`        | Bounded timestamped observations for one asset/range        |
+| `visual_index_generate`   | Initialize or continue disposable perception work           |
+| `visual_index_regenerate` | Discard stale observations and start a compatible artifact  |
+| `visual_index_upsert`     | Add or correct validated timestamped observations           |
+| `visual_index_delete`     | Remove selected observation IDs or a bounded range          |
+| `visual_index_clear`      | Remove selected assets' disposable index artifacts          |
 
-| Tool                          | Input                 | Notes                                                 |
-| ----------------------------- | --------------------- | ----------------------------------------------------- |
-| `timeline_create_from_assets` | `assetIds[]`, `name?` | Places the ordered assets sequentially in one command |
-| `timeline_delete`             | `sequenceId`          | Destructive. Preserves the source assets.             |
+Visual-index mutations are intentionally allowed because `.video/visual-index` is disposable. They
+do not edit source, compile the project, or affect undo history.
 
-## Tracks
+## Media artifacts
 
-| Tool            | Input                                   | Notes                                          |
-| --------------- | --------------------------------------- | ---------------------------------------------- |
-| `track_add`     | `sequenceId`, `kind`, `name?`           | `kind` is `video`, `audio`, or `overlay`       |
-| `track_update`  | `trackId`, `name?`, `muted?`, `locked?` | Pass at least one change                       |
-| `track_reorder` | `trackId`, `index`                      | Zero-based; `0` is uppermost                   |
-| `track_delete`  | `trackId`                               | Destructive. Track must be unlocked and empty. |
+| Tool            | Purpose                                                                           |
+| --------------- | --------------------------------------------------------------------------------- |
+| `filmstrip_get` | Report the bounded derived contact-sheet artifact for an asset                    |
+| `frame_get`     | Resolve an asset time or observation midpoint and report its exact-frame artifact |
 
-## Clips
-
-| Tool          | Input                                                                                      | Notes                                                      |
-| ------------- | ------------------------------------------------------------------------------------------ | ---------------------------------------------------------- |
-| `clip_add`    | `trackId`, `assetId`, `timelineStartUs`, `audioTrackId?`, `sourceStartUs?`, `sourceEndUs?` | Creates the linked audio clip when the asset carries sound |
-| `clip_move`   | `clipId`, `timelineStartUs`, `trackId?`                                                    | Optionally moves to another compatible track               |
-| `clip_trim`   | `clipId`, `edge`, `atUs`                                                                   | `edge` is `start` or `end`. Destructive.                   |
-| `clip_split`  | `clipId`, `atUs`                                                                           | Preserves outer fades, clears the new interior edges       |
-| `clip_delete` | `clipId`                                                                                   | Destructive. Linked clips are removed together.            |
-
-## Derived media
-
-Read-only. These report where an artifact would be and whether it exists; they do not generate it.
-
-| Tool            | Input             | Returns                                           |
-| --------------- | ----------------- | ------------------------------------------------- |
-| `filmstrip_get` | `assetId`         | Path and availability of the contact sheet        |
-| `frame_get`     | `assetId`, `atUs` | Path and availability of an exact extracted frame |
+Exact-frame generation is still being connected to the bounded media worker; current calls report
+availability rather than fabricating a frame.
 
 ## What is not exposed
 
-There is no tool for creating or deleting projects, importing media, changing settings, moving
-files, or reaching outside the open project. An agent operating through MCP cannot write canonical
-files directly or bypass any validation an ordinary edit obeys.
+There are no MCP tools for canonical asset deletion, source patches, timelines, tracks, clips,
+properties, notes, captions, transitions, effects, keyframes, or batch edits. MCP cannot bypass the
+compiler or restore history. Use ordinary file tools to edit canonical sources, then inspect
+`project_status` for precise acceptance or candidate diagnostics.

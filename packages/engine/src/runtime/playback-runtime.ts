@@ -1,7 +1,7 @@
 import { timeUs } from "@cinesim/core";
 import type { Asset, AssetId, TimeUs, Transform } from "@cinesim/core";
-import { findIrComposition } from "@cinesim/ir";
-import type { IrClip, IrTrack } from "@cinesim/ir";
+import { audioDuckAutomation, findIrComposition } from "@cinesim/ir";
+import type { IrClip, IrComposition, IrTrack } from "@cinesim/ir";
 import type {
   CompositorColor,
   CompositorGraphicLayer,
@@ -849,6 +849,7 @@ export class PlaybackRuntime {
   }
 
   #audioWorkForClip(
+    composition: IrComposition,
     track: IrTrack,
     clip: IrClip,
     assets: ReadonlyMap<AssetId, Asset>,
@@ -883,6 +884,8 @@ export class PlaybackRuntime {
         fadeInUs: timeUs(clip.fades.inUs),
         fadeOutUs: timeUs(clip.fades.outUs),
         gain: 10 ** (clip.audio.gainDb / 20),
+        pan: clip.audio.pan,
+        ducking: audioDuckAutomation(composition, track, clip, timelineFromUs, timelineToUs),
       },
     );
   }
@@ -894,7 +897,7 @@ export class PlaybackRuntime {
     for (const track of composition.timeline.tracks) {
       if (track.muted) continue;
       for (const clip of track.clips) {
-        const scheduled = this.#audioWorkForClip(track, clip, assets, fromUs, toUs);
+        const scheduled = this.#audioWorkForClip(composition, track, clip, assets, fromUs, toUs);
         if (scheduled) work.push(scheduled);
       }
     }

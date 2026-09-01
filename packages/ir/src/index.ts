@@ -1,3 +1,4 @@
+export * from "./audio-mix";
 export * from "./evaluate";
 export * from "./projections";
 export * from "./serialize";

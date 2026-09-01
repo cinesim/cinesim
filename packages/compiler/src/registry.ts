@@ -250,6 +250,7 @@ export const BUILTIN_REGISTRY: Readonly<Record<string, BuiltinSchema>> = {
       "chromakey",
       "vignette",
       "grain",
+      "ducker",
     ],
   },
   clip: { name: "clip", category: "temporal", properties: clipProps, allowedChildren: "scene" },
@@ -464,6 +465,23 @@ export const BUILTIN_REGISTRY: Readonly<Record<string, BuiltinSchema>> = {
     amount: property("amount", "number", "effect", "slider"),
     size: property("size", "number", "effect", "number"),
   }),
+  ducker: effect("ducker", {
+    sidechain: required(property("sidechain", "string", "audio", "text", { animatable: false })),
+    reduction: property("reduction", "decibels", "audio", "number", {
+      defaultValue: value({ kind: "decibels", value: -12 }),
+      minimum: value({ kind: "decibels", value: -60 }),
+      maximum: value({ kind: "decibels", value: 0 }),
+      step: 0.1,
+    }),
+    attack: property("attack", "time", "audio", "number", {
+      animatable: false,
+      defaultValue: value({ kind: "time", valueUs: irTimeUs(80_000) }),
+    }),
+    release: property("release", "time", "audio", "number", {
+      animatable: false,
+      defaultValue: value({ kind: "time", valueUs: irTimeUs(250_000) }),
+    }),
+  }),
 };
 
 export const TEMPORAL_BUILTINS = new Set([
@@ -483,6 +501,7 @@ export const EFFECT_BUILTINS = new Set([
   "chromakey",
   "vignette",
   "grain",
+  "ducker",
 ]);
 
 export function getBuiltinSchema(kind: string): BuiltinSchema | undefined {

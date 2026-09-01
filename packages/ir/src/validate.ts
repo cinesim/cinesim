@@ -41,8 +41,11 @@ class ProgramValidator {
     }
   }
 
-  visitEffect(effect: IrEffect): void {
+  visitEffect(effect: IrEffect, allowDucker = false): void {
     this.claim(effect.id, "effect");
+    if (effect.kind === "ducker" && !allowDucker) {
+      throw new Error(`Ducker ${effect.id} must be directly attached to an audio clip or track.`);
+    }
     Object.values(effect.props).forEach((value) => this.referenceValue(value));
     effect.children.forEach((child) => this.visitScene(child));
   }
@@ -76,7 +79,9 @@ class ProgramValidator {
       this.referenceValue({ kind: "resource", assetId: clip.assetId });
     }
     if (clip.content) this.visitScene(clip.content);
-    clip.effects.forEach((effect) => this.visitEffect(effect));
+    clip.effects.forEach((effect) =>
+      this.visitEffect(effect, track.kind === "audio" && clip.mediaKind === "audio"),
+    );
     return {
       trackId: track.id,
       ...(clip.assetId === undefined ? {} : { assetId: clip.assetId }),
@@ -87,7 +92,37 @@ class ProgramValidator {
   validateTrack(track: IrTrack, clips: Map<string, ClipLinkRecord>): void {
     this.claim(track.id, "track");
     for (const clip of track.clips) clips.set(clip.id, this.validateClip(clip, track));
-    track.effects.forEach((effect) => this.visitEffect(effect));
+    track.effects.forEach((effect) => this.visitEffect(effect, track.kind === "audio"));
+  }
+
+  validateDucker(effect: IrEffect, target: IrTrack, tracks: ReadonlyMap<string, IrTrack>): void {
+    if (effect.kind !== "ducker") return;
+    const sidechain = effect.props.sidechain;
+    const source = sidechain?.kind === "string" ? tracks.get(sidechain.value) : undefined;
+    if (!source || source.kind !== "audio" || source.id === target.id) {
+      throw new Error(`Ducker ${effect.id} requires a different audio sidechain track.`);
+    }
+    const attack = effect.props.attack;
+    const release = effect.props.release;
+    if (attack?.kind === "time") assertTime(attack.valueUs, `${effect.id}.attack`);
+    if (release?.kind === "time") assertTime(release.valueUs, `${effect.id}.release`);
+    const reduction = effect.props.reduction;
+    if (
+      reduction?.kind === "decibels" &&
+      (!Number.isFinite(reduction.value) || reduction.value > 0)
+    ) {
+      throw new Error(`Ducker ${effect.id} reduction must be finite and non-positive.`);
+    }
+  }
+
+  validateDuckers(composition: IrComposition): void {
+    const tracks = new Map(composition.timeline.tracks.map((track) => [track.id, track]));
+    for (const track of composition.timeline.tracks) {
+      track.effects.forEach((effect) => this.validateDucker(effect, track, tracks));
+      track.clips.forEach((clip) =>
+        clip.effects.forEach((effect) => this.validateDucker(effect, track, tracks)),
+      );
+    }
   }
 
   validateClipLinks(clips: ReadonlyMap<string, ClipLinkRecord>): void {
@@ -116,6 +151,7 @@ class ProgramValidator {
     const clips = new Map<string, ClipLinkRecord>();
     for (const track of composition.timeline.tracks) this.validateTrack(track, clips);
     this.validateClipLinks(clips);
+    this.validateDuckers(composition);
     this.validateEditorialMetadata(composition.timeline, clips);
   }
 

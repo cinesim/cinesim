@@ -8,6 +8,11 @@ describe("language reference", () => {
       preview: "supported",
       export: "unsupported",
     });
+    expect(LANGUAGE_REFERENCE.find(({ id }) => id === "element:ducker")?.capability).toEqual({
+      compiler: "supported",
+      preview: "supported",
+      export: "unsupported",
+    });
     expect(LANGUAGE_REFERENCE.find(({ id }) => id === "element:blur")?.capability).toMatchObject({
       compiler: "supported",
       preview: "unsupported",
