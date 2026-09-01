@@ -4,10 +4,12 @@ import {
   compileVideo,
   DEFAULT_COMPILER_BUDGETS,
   parseCompilerConfig,
+  printNodeTemplate,
   rewriteSourceValue,
   type CompilerConfig,
   type CompilerHost,
 } from "@cinesim/compiler";
+import { irTimeUs } from "@cinesim/ir";
 
 const config: CompilerConfig = {
   languageVersion: 1,
@@ -159,6 +161,94 @@ describe("compiler", () => {
       },
     ]);
     expect(result.sourceMap.nodes.note_scene?.structural.nodeKind).toBe("note");
+  });
+
+  it("lowers dedicated editable caption tracks, cues, words, and typed animation", async () => {
+    const source = `export const main = <composition id="sequence_main" width={1920} height={1080} fps={30}><timeline id="timeline_main"><captiontrack id="captions_en" name="English" transcriptFingerprint="sha256:fixture" language="en" fontSize={px(64)} placement="bottom"><cue id="cue_intro" start={seconds(1)} duration={seconds(2)} text="Welcome home" speaker="HOST" scale={1}><captionword id="word_welcome" start={seconds(0)} duration={milliseconds(800)} text="Welcome" /><captionword id="word_home" start={milliseconds(800)} duration={milliseconds(700)} text="home" /><animate property="scale"><key at={seconds(0)} value={0.9} easing="ease-out" /><key at={milliseconds(150)} value={1} easing="ease-out" /></animate></cue></captiontrack></timeline></composition>; export default main;`;
+    const result = await compileVideo("main.jsx", config, host({ "main.jsx": source }));
+
+    expect(result.ir.compositions[0]!.timeline.captionTracks).toMatchObject([
+      {
+        id: "captions_en",
+        name: "English",
+        transcriptFingerprint: "sha256:fixture",
+        language: "en",
+        props: { fontSize: { kind: "length", unit: "px", value: 64 } },
+        cues: [
+          {
+            id: "cue_intro",
+            startUs: 1_000_000,
+            durationUs: 2_000_000,
+            text: "Welcome home",
+            speaker: "HOST",
+            words: [
+              { id: "word_welcome", startUs: 0, durationUs: 800_000, text: "Welcome" },
+              { id: "word_home", startUs: 800_000, durationUs: 700_000, text: "home" },
+            ],
+            animations: [
+              {
+                property: "scale",
+                keyframes: [
+                  { at: 0, value: { kind: "number", value: 0.9 }, easing: "ease-out" },
+                  { at: 150_000, value: { kind: "number", value: 1 }, easing: "ease-out" },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+    ]);
+    expect(result.sourceMap.nodes.cue_intro?.structural.nodeKind).toBe("cue");
+  });
+
+  it("compiles expressive caption presets into ordinary typed animation", async () => {
+    const source = `export const main = <composition id="sequence_main" width={1920} height={1080} fps={30}><timeline id="timeline_main"><captiontrack id="captions_en" name="English" animationPreset="word-emphasis"><cue id="cue_intro" start={seconds(1)} duration={seconds(2)} text="Welcome home"><captionword id="word_welcome" start={seconds(0)} duration={milliseconds(800)} text="Welcome" /><captionword id="word_home" start={milliseconds(800)} duration={milliseconds(700)} text="home" /></cue></captiontrack></timeline></composition>; export default main;`;
+    const result = await compileVideo("main.jsx", config, host({ "main.jsx": source }));
+
+    expect(result.ir.compositions[0]!.timeline.captionTracks[0]!.cues[0]!.animations).toEqual([
+      {
+        property: "wordProgress",
+        keyframes: [
+          { at: 0, value: { kind: "number", value: 0 }, easing: "hold" },
+          { at: 800_000, value: { kind: "number", value: 1 }, easing: "hold" },
+          { at: 1_500_000, value: { kind: "number", value: -1 }, easing: "hold" },
+        ],
+      },
+    ]);
+  });
+
+  it("prints generated caption tracks as canonical editable JSX", () => {
+    const source = printNodeTemplate({
+      kind: "captiontrack",
+      track: {
+        id: "captiontrack_generated",
+        name: "Generated captions",
+        transcriptFingerprint: "transcript-v1-source",
+        props: { fill: { kind: "color", value: "#ffffff" } },
+        cues: [
+          {
+            id: "cue_generated",
+            startUs: irTimeUs(1_000_000),
+            durationUs: irTimeUs(800_000),
+            text: "Hello",
+            props: {},
+            animations: [],
+            words: [
+              {
+                id: "captionword_generated",
+                startUs: irTimeUs(0),
+                durationUs: irTimeUs(800_000),
+                text: "Hello",
+              },
+            ],
+          },
+        ],
+      },
+    });
+
+    expect(source).toContain('<captiontrack id="captiontrack_generated"');
+    expect(source).toContain('transcriptFingerprint="transcript-v1-source"');
+    expect(source).toContain('<captionword id="captionword_generated"');
   });
 
   it("enforces component depth and source budgets", async () => {

@@ -1,5 +1,7 @@
 import type {
   IrClip,
+  IrCaptionCue,
+  IrCaptionTrack,
   IrComposition,
   IrEffect,
   IrProgram,
@@ -150,9 +152,56 @@ class ProgramValidator {
     }
     const clips = new Map<string, ClipLinkRecord>();
     for (const track of composition.timeline.tracks) this.validateTrack(track, clips);
+    for (const track of composition.timeline.captionTracks) this.validateCaptionTrack(track);
     this.validateClipLinks(clips);
     this.validateDuckers(composition);
     this.validateEditorialMetadata(composition.timeline, clips);
+  }
+
+  validateCaptionAnimations(cue: IrCaptionCue): void {
+    for (const animation of cue.animations) {
+      for (const keyframe of animation.keyframes) {
+        assertTime(keyframe.at, `${cue.id}.${animation.property}.keyframe`);
+        if (keyframe.at > cue.durationUs)
+          throw new Error(`Caption cue ${cue.id} has a keyframe beyond its duration.`);
+        this.referenceValue(keyframe.value);
+      }
+    }
+  }
+
+  validateCaptionWords(cue: IrCaptionCue): void {
+    for (const word of cue.words) {
+      this.claim(word.id, "caption word");
+      assertTime(word.startUs, `${word.id}.startUs`);
+      assertTime(word.durationUs, `${word.id}.durationUs`);
+      if (word.durationUs <= 0 || word.startUs + word.durationUs > cue.durationUs)
+        throw new Error(`Caption word ${word.id} must fit within cue ${cue.id}.`);
+      if (!word.text.trim()) throw new Error(`Caption word ${word.id} must contain text.`);
+    }
+  }
+
+  validateCaptionCue(cue: IrCaptionCue, previousEndUs: number): number {
+    this.claim(cue.id, "caption cue");
+    assertTime(cue.startUs, `${cue.id}.startUs`);
+    assertTime(cue.durationUs, `${cue.id}.durationUs`);
+    if (cue.durationUs <= 0) throw new Error(`Caption cue ${cue.id} duration must be positive.`);
+    if (!cue.text.trim()) throw new Error(`Caption cue ${cue.id} must contain text.`);
+    if (cue.startUs < previousEndUs)
+      throw new Error(`Caption cue ${cue.id} overlaps its predecessor.`);
+    Object.values(cue.props).forEach((value) => this.referenceValue(value));
+    this.validateCaptionAnimations(cue);
+    this.validateCaptionWords(cue);
+    return cue.startUs + cue.durationUs;
+  }
+
+  validateCaptionTrack(track: IrCaptionTrack): void {
+    this.claim(track.id, "caption track");
+    if (!track.name.trim()) throw new Error(`Caption track ${track.id} requires a name.`);
+    if ((track.transcriptFingerprint?.length ?? 0) > 256)
+      throw new Error(`Caption track ${track.id} has an invalid transcript fingerprint.`);
+    Object.values(track.props).forEach((value) => this.referenceValue(value));
+    let previousEndUs = 0;
+    for (const cue of track.cues) previousEndUs = this.validateCaptionCue(cue, previousEndUs);
   }
 
   validateEditorialMetadata(

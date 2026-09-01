@@ -99,6 +99,7 @@ function fixture(): {
     timeline: {
       id: "timeline_main",
       tracks: [music, dialogue],
+      captionTracks: [],
       notes: [],
       markers: [],
       transitions: [],

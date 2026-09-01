@@ -50,6 +50,10 @@ export function allIds(program: IrProgram): string[] {
       track.id,
       ...track.clips.map((clip) => clip.id),
     ]),
+    ...composition.timeline.captionTracks.flatMap((track) => [
+      track.id,
+      ...track.cues.flatMap((cue) => [cue.id, ...cue.words.map(({ id }) => id)]),
+    ]),
     ...composition.timeline.notes.map(({ id }) => id),
     ...composition.timeline.markers.map(({ id }) => id),
     ...composition.timeline.transitions.map(({ id }) => id),

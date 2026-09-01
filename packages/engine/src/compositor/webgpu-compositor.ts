@@ -1,5 +1,6 @@
 import type { Transform } from "@cinesim/core";
 import type { ColorAdjustment } from "../playback/scene-resolver";
+import type { AtlasGlyph, ShapedAtlasGlyph, WebGpuGlyphAtlas } from "./glyph-atlas";
 
 const VIDEO_SHADER = /* wgsl */ `
 struct LayerUniforms {
@@ -77,7 +78,6 @@ struct GraphicUniforms {
   color: vec4f,
   params: vec4f,
   transformParams: vec4f,
-  glyph: vec4u,
 }
 
 @group(0) @binding(0) var<uniform> graphic: GraphicUniforms;
@@ -120,24 +120,93 @@ fn graphicAlpha(uv: vec2f, radius: f32, feather: f32) -> f32 {
   return 1.0 - smoothstep(-edge, edge, distance);
 }
 
-fn glyphVisible(uv: vec2f) -> bool {
-  let column = min(4u, u32(floor(uv.x * 5.0)));
-  let row = min(6u, u32(floor(uv.y * 7.0)));
-  let bit = row * 5u + column;
-  if (bit < 32u) { return (graphic.glyph.x & (1u << bit)) != 0u; }
-  return (graphic.glyph.y & (1u << (bit - 32u))) != 0u;
-}
-
 @fragment
 fn fragmentMain(input: VertexOutput) -> @location(0) vec4f {
-  if (graphic.params.y > 0.5 && !glyphVisible(input.uv)) { discard; }
   let alpha = graphic.color.a * graphic.params.z * graphicAlpha(input.uv, graphic.params.x, graphic.params.w);
   return vec4f(graphic.color.rgb, alpha);
 }
 `;
 
+const TEXT_SHADER = /* wgsl */ `
+struct TextUniforms {
+  offsetAndScale: vec4f,
+  uvBounds: vec4f,
+  fill: vec4f,
+  outline: vec4f,
+  shadow: vec4f,
+  params: vec4f,
+  shadowAndTransform: vec4f,
+}
+
+@group(0) @binding(0) var glyphAtlas: texture_2d<f32>;
+@group(0) @binding(1) var glyphSampler: sampler;
+@group(0) @binding(2) var<uniform> glyph: TextUniforms;
+
+struct VertexOutput {
+  @builtin(position) position: vec4f,
+  @location(0) uv: vec2f,
+}
+
+@vertex
+fn vertexMain(@builtin(vertex_index) index: u32) -> VertexOutput {
+  var positions = array<vec2f, 6>(
+    vec2f(-1.0, -1.0), vec2f(1.0, -1.0), vec2f(-1.0, 1.0),
+    vec2f(-1.0, 1.0), vec2f(1.0, -1.0), vec2f(1.0, 1.0)
+  );
+  var uvs = array<vec2f, 6>(
+    vec2f(0.0, 1.0), vec2f(1.0, 1.0), vec2f(0.0, 0.0),
+    vec2f(0.0, 0.0), vec2f(1.0, 1.0), vec2f(1.0, 0.0)
+  );
+  let angle = glyph.shadowAndTransform.z;
+  let scaled = positions[index] * glyph.offsetAndScale.zw;
+  let rotated = vec2f(
+    scaled.x * cos(angle) - scaled.y * sin(angle),
+    scaled.x * sin(angle) + scaled.y * cos(angle)
+  );
+  var output: VertexOutput;
+  output.position = vec4f(rotated + glyph.offsetAndScale.xy, 0.0, 1.0);
+  output.uv = uvs[index];
+  return output;
+}
+
+fn atlasUv(localUv: vec2f) -> vec2f {
+  return mix(glyph.uvBounds.xy, glyph.uvBounds.zw, localUv);
+}
+
+fn over(backdrop: vec4f, source: vec4f) -> vec4f {
+  let alpha = source.a + backdrop.a * (1.0 - source.a);
+  if (alpha <= 0.00001) { return vec4f(0.0); }
+  let color = (source.rgb * source.a + backdrop.rgb * backdrop.a * (1.0 - source.a)) / alpha;
+  return vec4f(color, alpha);
+}
+
+@fragment
+fn fragmentMain(input: VertexOutput) -> @location(0) vec4f {
+  let distance = textureSample(glyphAtlas, glyphSampler, atlasUv(input.uv)).r;
+  let edge = max(0.003, fwidth(distance));
+  let fillAlpha = smoothstep(0.5 - edge, 0.5 + edge, distance);
+  let outlineAlpha = smoothstep(
+    0.5 - glyph.params.y - edge,
+    0.5 - glyph.params.y + edge,
+    distance
+  );
+  let shadowUv = input.uv - glyph.shadowAndTransform.xy;
+  let shadowDistance = textureSample(glyphAtlas, glyphSampler, atlasUv(shadowUv)).r;
+  let shadowAlpha = smoothstep(
+    0.5 - glyph.params.z - edge,
+    0.5 + glyph.params.z + edge,
+    shadowDistance
+  );
+  var result = vec4f(glyph.shadow.rgb, glyph.shadow.a * shadowAlpha);
+  result = over(result, vec4f(glyph.outline.rgb, glyph.outline.a * outlineAlpha));
+  result = over(result, vec4f(glyph.fill.rgb, glyph.fill.a * fillAlpha));
+  return vec4f(result.rgb, result.a * glyph.params.x);
+}
+`;
+
 export const LAYER_UNIFORM_BYTE_SIZE = 80;
-export const GRAPHIC_UNIFORM_BYTE_SIZE = 80;
+export const GRAPHIC_UNIFORM_BYTE_SIZE = 64;
+export const TEXT_UNIFORM_BYTE_SIZE = 112;
 
 const DEFAULT_ADJUSTMENT: ColorAdjustment = {
   exposure: 0,
@@ -200,12 +269,40 @@ export interface CompositorLayer {
 }
 
 export interface CompositorGraphicLayer {
-  kind: "solid" | "glyph";
+  kind: "solid";
   transform: Transform;
   color: readonly [number, number, number, number];
   cornerRadiusPx?: number;
   blurPx?: number;
-  glyph?: readonly [number, number];
+  order?: number;
+}
+
+export interface CompositorTextLayer {
+  text: string;
+  originX: number;
+  originY: number;
+  maxWidth: number;
+  fontSize: number;
+  fontWeight: number;
+  lineHeight: number;
+  letterSpacing: number;
+  align: "left" | "center" | "right";
+  color: CompositorColor;
+  outlineColor: CompositorColor;
+  outlineWidth: number;
+  shadowColor: CompositorColor;
+  shadowBlur: number;
+  shadowX: number;
+  shadowY: number;
+  opacity: number;
+  scale: number;
+  rotation: number;
+  emphasis?: {
+    start: number;
+    end: number;
+    color: CompositorColor;
+    scale: number;
+  };
   order?: number;
 }
 
@@ -227,6 +324,7 @@ export interface PreviewCompositor {
     output?: { width: number; height: number },
     graphics?: readonly CompositorGraphicLayer[],
     background?: CompositorColor,
+    text?: readonly CompositorTextLayer[],
   ): void;
   readonly metrics: CompositorMetrics;
   destroy(): void;
@@ -235,11 +333,25 @@ export interface PreviewCompositor {
 export interface WebGpuCompositorOptions {
   onError?: (error: Error) => void;
   autoResize?: boolean;
+  textRendering?: "production" | "disabled";
 }
 
 type DrawItem =
   | { kind: "media"; order: number; layer: CompositorLayer }
-  | { kind: "graphic"; order: number; graphic: CompositorGraphicLayer };
+  | { kind: "graphic"; order: number; graphic: CompositorGraphicLayer }
+  | { kind: "text"; order: number; glyph: TextGlyphDraw };
+
+interface TextGlyphDraw {
+  atlas: AtlasGlyph;
+  transform: Transform;
+  fill: CompositorColor;
+  outline: CompositorColor;
+  shadow: CompositorColor;
+  outlineDistance: number;
+  shadowDistance: number;
+  shadowOffset: readonly [number, number];
+  order: number;
+}
 
 function relativeRadius(
   radiusPx: number,
@@ -275,41 +387,285 @@ function packGraphicUniform(
   graphic: CompositorGraphicLayer,
   radiusFraction: number,
   blurFraction: number,
-): ArrayBuffer {
-  const buffer = new ArrayBuffer(GRAPHIC_UNIFORM_BYTE_SIZE);
-  const floats = new Float32Array(buffer);
-  floats.set(
-    [
-      graphic.transform.x,
-      -graphic.transform.y,
-      graphic.transform.scaleX,
-      graphic.transform.scaleY,
-      ...graphic.color,
-      radiusFraction,
-      graphic.kind === "glyph" ? 1 : 0,
-      graphic.transform.opacity,
-      blurFraction,
-      clockwiseRadians(graphic.transform.rotation),
-      0,
-      0,
-      0,
-    ],
+): Float32Array {
+  return new Float32Array([
+    graphic.transform.x,
+    -graphic.transform.y,
+    graphic.transform.scaleX,
+    graphic.transform.scaleY,
+    ...graphic.color,
+    radiusFraction,
+    0,
+    graphic.transform.opacity,
+    blurFraction,
+    clockwiseRadians(graphic.transform.rotation),
+    0,
+    0,
+    0,
+  ]);
+}
+
+function packTextUniform(glyph: TextGlyphDraw): Float32Array {
+  return new Float32Array([
+    glyph.transform.x,
+    -glyph.transform.y,
+    glyph.transform.scaleX,
+    glyph.transform.scaleY,
+    ...glyph.atlas.uv,
+    ...glyph.fill,
+    ...glyph.outline,
+    ...glyph.shadow,
+    glyph.transform.opacity,
+    glyph.outlineDistance,
+    glyph.shadowDistance,
+    0,
+    glyph.shadowOffset[0],
+    glyph.shadowOffset[1],
+    clockwiseRadians(glyph.transform.rotation),
+    0,
+  ]);
+}
+
+interface ShapedLine {
+  glyphs: ShapedAtlasGlyph[];
+  advance: number;
+  text: string;
+  start: number;
+}
+
+function shapeLine(
+  atlas: WebGpuGlyphAtlas,
+  text: string,
+  layer: CompositorTextLayer,
+  start: number,
+): ShapedLine {
+  const glyphs = atlas.shape(text, layer.fontWeight);
+  const fontScale = layer.fontSize / atlas.unitsPerEm;
+  const advance = glyphs.reduce(
+    (total, { shaped }, index) =>
+      total + shaped.xAdvance * fontScale + (index === glyphs.length - 1 ? 0 : layer.letterSpacing),
     0,
   );
-  const integers = new Uint32Array(buffer);
-  integers[16] = graphic.glyph?.[0] ?? 0;
-  integers[17] = graphic.glyph?.[1] ?? 0;
-  return buffer;
+  return { glyphs, advance, text, start };
+}
+
+function wrappedParagraph(
+  atlas: WebGpuGlyphAtlas,
+  paragraph: string,
+  layer: CompositorTextLayer,
+  paragraphStart: number,
+): ShapedLine[] {
+  const words = [...paragraph.matchAll(/\S+/gu)].slice(0, 500);
+  if (words.length === 0) return [shapeLine(atlas, "", layer, paragraphStart)];
+  const lines: ShapedLine[] = [];
+  let currentStart = words[0]!.index!;
+  let currentEnd = currentStart + words[0]![0].length;
+  for (const match of words.slice(1)) {
+    const wordEnd = match.index! + match[0].length;
+    const candidate = paragraph.slice(currentStart, wordEnd);
+    if (
+      shapeLine(atlas, candidate, layer, paragraphStart + currentStart).advance * layer.scale <=
+      layer.maxWidth
+    )
+      currentEnd = wordEnd;
+    else {
+      lines.push(
+        shapeLine(
+          atlas,
+          paragraph.slice(currentStart, currentEnd),
+          layer,
+          paragraphStart + currentStart,
+        ),
+      );
+      currentStart = match.index!;
+      currentEnd = wordEnd;
+    }
+  }
+  lines.push(
+    shapeLine(
+      atlas,
+      paragraph.slice(currentStart, currentEnd),
+      layer,
+      paragraphStart + currentStart,
+    ),
+  );
+  return lines;
+}
+
+function wrappedLines(atlas: WebGpuGlyphAtlas, layer: CompositorTextLayer): ShapedLine[] {
+  const text = layer.text.slice(0, 10_000);
+  const lines: ShapedLine[] = [];
+  let cursor = 0;
+  for (const paragraph of text.split(/\r?\n/u)) {
+    const start = text.indexOf(paragraph, cursor);
+    lines.push(...wrappedParagraph(atlas, paragraph, layer, start));
+    cursor = start + paragraph.length + 1;
+  }
+  return lines.slice(0, 100);
+}
+
+function emphasisByteRange(
+  layer: CompositorTextLayer,
+  line: ShapedLine,
+): readonly [number, number] | null {
+  const emphasis = layer.emphasis;
+  if (!emphasis || emphasis.end <= line.start || emphasis.start >= line.start + line.text.length)
+    return null;
+  const localStart = Math.max(0, emphasis.start - line.start);
+  const localEnd = Math.min(line.text.length, emphasis.end - line.start);
+  const encoder = new TextEncoder();
+  const byteStart = encoder.encode(line.text.slice(0, localStart)).length;
+  const byteEnd = encoder.encode(line.text.slice(0, localEnd)).length;
+  return [byteStart, byteEnd];
+}
+
+function glyphIsEmphasized(
+  range: readonly [number, number] | null,
+  glyph: ShapedAtlasGlyph,
+): boolean {
+  return Boolean(range && glyph.shaped.cluster >= range[0] && glyph.shaped.cluster < range[1]);
+}
+
+function lineStart(layer: CompositorTextLayer, line: ShapedLine): number {
+  const advance = line.advance * layer.scale;
+  if (layer.align === "center") return layer.originX + (layer.maxWidth - advance) / 2;
+  if (layer.align === "right") return layer.originX + layer.maxWidth - advance;
+  return layer.originX;
+}
+
+function rotatedCenter(
+  x: number,
+  y: number,
+  anchorX: number,
+  anchorY: number,
+  rotation: number,
+): { x: number; y: number } {
+  if (rotation === 0) return { x, y };
+  const radians = (rotation * Math.PI) / 180;
+  const dx = x - anchorX;
+  const dy = y - anchorY;
+  return {
+    x: anchorX + dx * Math.cos(radians) - dy * Math.sin(radians),
+    y: anchorY + dx * Math.sin(radians) + dy * Math.cos(radians),
+  };
+}
+
+function glyphTransform(
+  layer: CompositorTextLayer,
+  atlas: WebGpuGlyphAtlas,
+  glyph: ShapedAtlasGlyph,
+  cursorX: number,
+  baselineY: number,
+  anchor: { x: number; y: number },
+  output: { width: number; height: number },
+): Transform | null {
+  if (!glyph.atlas) return null;
+  const scale = (layer.fontSize / atlas.unitsPerEm) * layer.scale;
+  const plane = glyph.atlas.plane;
+  const left = cursorX + (glyph.shaped.xOffset + plane.left) * scale;
+  const top = baselineY - (glyph.shaped.yOffset + plane.top) * scale;
+  const width = (plane.right - plane.left) * scale;
+  const height = (plane.top - plane.bottom) * scale;
+  const center = rotatedCenter(
+    left + width / 2,
+    top + height / 2,
+    anchor.x,
+    anchor.y,
+    layer.rotation,
+  );
+  return {
+    x: (center.x / output.width) * 2 - 1,
+    y: (center.y / output.height) * 2 - 1,
+    scaleX: width / output.width,
+    scaleY: height / output.height,
+    rotation: layer.rotation,
+    opacity: layer.opacity,
+    fit: "fill",
+  };
+}
+
+function glyphDraw(
+  atlas: WebGpuGlyphAtlas,
+  layer: CompositorTextLayer,
+  glyph: ShapedAtlasGlyph,
+  transform: Transform | null,
+  output: { width: number; height: number },
+  order: number,
+  emphasized: boolean,
+): TextGlyphDraw | null {
+  if (!glyph.atlas || !transform) return null;
+  const emphasisScale = emphasized ? (layer.emphasis?.scale ?? 1) : 1;
+  const fontScale = (layer.fontSize * layer.scale) / atlas.unitsPerEm;
+  const distancePixels = Math.max(1, glyph.atlas.distanceRange * fontScale);
+  return {
+    atlas: glyph.atlas,
+    transform: {
+      ...transform,
+      scaleX: transform.scaleX * emphasisScale,
+      scaleY: transform.scaleY * emphasisScale,
+    },
+    fill: emphasized ? (layer.emphasis?.color ?? layer.color) : layer.color,
+    outline: layer.outlineColor,
+    shadow: layer.shadowColor,
+    outlineDistance: Math.min(0.3, Math.max(0, layer.outlineWidth / distancePixels)),
+    shadowDistance: Math.min(0.3, Math.max(0, layer.shadowBlur / distancePixels)),
+    shadowOffset: [
+      layer.shadowX / Math.max(1, Math.abs(transform.scaleX) * output.width),
+      layer.shadowY / Math.max(1, Math.abs(transform.scaleY) * output.height),
+    ],
+    order,
+  };
+}
+
+function textGlyphs(
+  atlas: WebGpuGlyphAtlas,
+  layer: CompositorTextLayer,
+  output: { width: number; height: number },
+): TextGlyphDraw[] {
+  const lines = wrappedLines(atlas, layer);
+  const lineHeight = layer.fontSize * layer.lineHeight * layer.scale;
+  const anchor = {
+    x: layer.originX + layer.maxWidth / 2,
+    y: layer.originY + (lines.length * lineHeight) / 2,
+  };
+  const result: TextGlyphDraw[] = [];
+  let glyphOrder = 0;
+  for (const [lineIndex, line] of lines.entries()) {
+    let cursorX = lineStart(layer, line);
+    const baselineY = layer.originY + layer.fontSize * layer.scale + lineIndex * lineHeight;
+    const emphasisRange = emphasisByteRange(layer, line);
+    for (const glyph of line.glyphs) {
+      const transform = glyphTransform(layer, atlas, glyph, cursorX, baselineY, anchor, output);
+      const draw = glyphDraw(
+        atlas,
+        layer,
+        glyph,
+        transform,
+        output,
+        (layer.order ?? 0) + glyphOrder / 10_000,
+        glyphIsEmphasized(emphasisRange, glyph),
+      );
+      if (draw) result.push(draw);
+      cursorX +=
+        (glyph.shaped.xAdvance / atlas.unitsPerEm) * layer.fontSize * layer.scale +
+        layer.letterSpacing * layer.scale;
+      glyphOrder += 1;
+    }
+  }
+  return result;
 }
 
 export class WebGpuCompositor implements PreviewCompositor {
   readonly #canvas: HTMLCanvasElement;
   readonly #onError: (error: Error) => void;
   readonly #autoResize: boolean;
+  readonly #textRendering: "production" | "disabled";
   #context: GPUCanvasContext | null = null;
   #device: GPUDevice | null = null;
   #pipeline: GPURenderPipeline | null = null;
   #graphicPipeline: GPURenderPipeline | null = null;
+  #textPipeline: GPURenderPipeline | null = null;
+  #glyphAtlas: WebGpuGlyphAtlas | null = null;
   #sampler: GPUSampler | null = null;
   #format: GPUTextureFormat | null = null;
   #deviceErrorListener: ((event: GPUUncapturedErrorEvent) => void) | null = null;
@@ -322,6 +678,7 @@ export class WebGpuCompositor implements PreviewCompositor {
     this.#canvas = canvas;
     this.#onError = options.onError ?? (() => undefined);
     this.#autoResize = options.autoResize ?? true;
+    this.#textRendering = options.textRendering ?? "production";
   }
 
   async initialize(): Promise<void> {
@@ -344,6 +701,7 @@ export class WebGpuCompositor implements PreviewCompositor {
       if (this.#device === device) {
         this.#pipeline = null;
         this.#graphicPipeline = null;
+        this.#textPipeline = null;
       }
       this.#reportError(new Error(`WebGPU validation failed: ${event.error.message}`));
     };
@@ -383,6 +741,23 @@ export class WebGpuCompositor implements PreviewCompositor {
           },
         ],
       });
+      const textModule = device.createShaderModule({ code: TEXT_SHADER });
+      const textLayout = device.createBindGroupLayout({
+        label: "cinesim-preview-text-layout",
+        entries: [
+          {
+            binding: 0,
+            visibility: GPUShaderStage.FRAGMENT,
+            texture: { sampleType: "float", viewDimension: "2d" },
+          },
+          { binding: 1, visibility: GPUShaderStage.FRAGMENT, sampler: { type: "filtering" } },
+          {
+            binding: 2,
+            visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT,
+            buffer: { type: "uniform", minBindingSize: TEXT_UNIFORM_BYTE_SIZE },
+          },
+        ],
+      });
       this.#pipeline = await device.createRenderPipelineAsync({
         label: "cinesim-preview-pipeline",
         layout: device.createPipelineLayout({ bindGroupLayouts: [videoLayout] }),
@@ -401,6 +776,21 @@ export class WebGpuCompositor implements PreviewCompositor {
         },
         primitive: { topology: "triangle-list" },
       });
+      this.#textPipeline = await device.createRenderPipelineAsync({
+        label: "cinesim-preview-text-pipeline",
+        layout: device.createPipelineLayout({ bindGroupLayouts: [textLayout] }),
+        vertex: { module: textModule, entryPoint: "vertexMain" },
+        fragment: {
+          module: textModule,
+          entryPoint: "fragmentMain",
+          targets: [{ format, blend }],
+        },
+        primitive: { topology: "triangle-list" },
+      });
+      if (this.#textRendering === "production") {
+        const { WebGpuGlyphAtlas } = await import("./glyph-atlas");
+        this.#glyphAtlas = await WebGpuGlyphAtlas.create(device);
+      }
     } catch (error) {
       device.removeEventListener("uncapturederror", deviceErrorListener);
       if (this.#device === device) {
@@ -412,6 +802,9 @@ export class WebGpuCompositor implements PreviewCompositor {
         this.#deviceErrorListener = null;
         this.#pipeline = null;
         this.#graphicPipeline = null;
+        this.#textPipeline = null;
+        this.#glyphAtlas?.destroy();
+        this.#glyphAtlas = null;
       }
       device.destroy();
       throw error;
@@ -429,6 +822,8 @@ export class WebGpuCompositor implements PreviewCompositor {
       this.#device = null;
       this.#pipeline = null;
       this.#graphicPipeline = null;
+      this.#textPipeline = null;
+      this.#glyphAtlas = null;
       if (!this.#destroyed && info.reason !== "destroyed")
         void this.initialize().catch((error: unknown) => this.#reportError(error));
     });
@@ -530,10 +925,35 @@ export class WebGpuCompositor implements PreviewCompositor {
     pass.draw(6);
   }
 
+  #drawText(pass: GPURenderPassEncoder, glyph: TextGlyphDraw, transientBuffers: GPUBuffer[]): void {
+    const uniform = this.#device!.createBuffer({
+      label: "cinesim-preview-text-uniform",
+      size: TEXT_UNIFORM_BYTE_SIZE,
+      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+    });
+    transientBuffers.push(uniform);
+    this.#device!.queue.writeBuffer(uniform, 0, packTextUniform(glyph));
+    pass.setPipeline(this.#textPipeline!);
+    pass.setBindGroup(
+      0,
+      this.#device!.createBindGroup({
+        label: "cinesim-preview-text-bind-group",
+        layout: this.#textPipeline!.getBindGroupLayout(0),
+        entries: [
+          { binding: 0, resource: glyph.atlas.texture.createView() },
+          { binding: 1, resource: this.#sampler! },
+          { binding: 2, resource: { buffer: uniform } },
+        ],
+      }),
+    );
+    pass.draw(6);
+  }
+
   #drawItems(
     pass: GPURenderPassEncoder,
     layers: readonly CompositorLayer[],
     graphics: readonly CompositorGraphicLayer[],
+    text: readonly CompositorTextLayer[],
     output: { width: number; height: number },
     transientBuffers: GPUBuffer[],
   ): void {
@@ -548,9 +968,19 @@ export class WebGpuCompositor implements PreviewCompositor {
         order: graphic.order ?? layers.length + index,
         graphic,
       })),
+      ...(this.#glyphAtlas
+        ? text.flatMap((layer) =>
+            textGlyphs(this.#glyphAtlas!, layer, output).map((glyph) => ({
+              kind: "text" as const,
+              order: glyph.order,
+              glyph,
+            })),
+          )
+        : []),
     ];
     for (const item of items.sort((left, right) => left.order - right.order)) {
       if (item.kind === "graphic") this.#drawGraphic(pass, item.graphic, output, transientBuffers);
+      else if (item.kind === "text") this.#drawText(pass, item.glyph, transientBuffers);
       else this.#drawMedia(pass, item.layer, output, transientBuffers);
     }
   }
@@ -560,12 +990,14 @@ export class WebGpuCompositor implements PreviewCompositor {
     output = { width: this.#canvas.width, height: this.#canvas.height },
     graphics: readonly CompositorGraphicLayer[] = [],
     background: CompositorColor = [0.035, 0.035, 0.043, 1],
+    text: readonly CompositorTextLayer[] = [],
   ): void {
     if (
       !this.#device ||
       !this.#context ||
       !this.#pipeline ||
       !this.#graphicPipeline ||
+      !this.#textPipeline ||
       !this.#sampler ||
       !this.#format
     ) {
@@ -589,7 +1021,7 @@ export class WebGpuCompositor implements PreviewCompositor {
           },
         ],
       });
-      this.#drawItems(pass, layers, graphics, output, transientBuffers);
+      this.#drawItems(pass, layers, graphics, text, output, transientBuffers);
       pass.end();
       this.#device.queue.submit([encoder.finish()]);
       submitted = true;
@@ -624,6 +1056,7 @@ export class WebGpuCompositor implements PreviewCompositor {
 
   destroy(): void {
     this.#destroyed = true;
+    this.#glyphAtlas?.destroy();
     if (this.#device && this.#deviceErrorListener)
       this.#device.removeEventListener("uncapturederror", this.#deviceErrorListener);
     this.#context?.unconfigure();
@@ -632,6 +1065,8 @@ export class WebGpuCompositor implements PreviewCompositor {
     this.#device = null;
     this.#pipeline = null;
     this.#graphicPipeline = null;
+    this.#textPipeline = null;
+    this.#glyphAtlas = null;
     this.#sampler = null;
     this.#format = null;
     this.#deviceErrorListener = null;

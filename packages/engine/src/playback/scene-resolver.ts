@@ -40,18 +40,48 @@ export interface ResolvedLayer {
 
 export interface ResolvedGraphicLayer {
   nodeId: string;
-  kind: "solid" | "glyph";
+  kind: "solid";
   transform: Transform;
   color: readonly [number, number, number, number];
   cornerRadiusPx: number;
   blurPx: number;
-  glyph?: readonly [number, number];
+  order: number;
+}
+
+export interface ResolvedTextLayer {
+  nodeId: string;
+  text: string;
+  originX: number;
+  originY: number;
+  maxWidth: number;
+  fontSize: number;
+  fontWeight: number;
+  lineHeight: number;
+  letterSpacing: number;
+  align: "left" | "center" | "right";
+  color: readonly [number, number, number, number];
+  outlineColor: readonly [number, number, number, number];
+  outlineWidth: number;
+  shadowColor: readonly [number, number, number, number];
+  shadowBlur: number;
+  shadowX: number;
+  shadowY: number;
+  opacity: number;
+  scale: number;
+  rotation: number;
+  emphasis?: {
+    start: number;
+    end: number;
+    color: readonly [number, number, number, number];
+    scale: number;
+  };
   order: number;
 }
 
 export interface ResolvedScene {
   media: ResolvedLayer[];
   graphics: ResolvedGraphicLayer[];
+  text: ResolvedTextLayer[];
   background: readonly [number, number, number, number];
 }
 
@@ -78,51 +108,6 @@ const DEFAULT_COLOR_ADJUSTMENT: ColorAdjustment = {
   saturation: 1,
   temperature: 0,
   tint: 0,
-};
-
-const GLYPH_ROWS: Readonly<Record<string, readonly string[]>> = {
-  A: ["01110", "10001", "10001", "11111", "10001", "10001", "10001"],
-  B: ["11110", "10001", "10001", "11110", "10001", "10001", "11110"],
-  C: ["01111", "10000", "10000", "10000", "10000", "10000", "01111"],
-  D: ["11110", "10001", "10001", "10001", "10001", "10001", "11110"],
-  E: ["11111", "10000", "10000", "11110", "10000", "10000", "11111"],
-  F: ["11111", "10000", "10000", "11110", "10000", "10000", "10000"],
-  G: ["01111", "10000", "10000", "10111", "10001", "10001", "01111"],
-  H: ["10001", "10001", "10001", "11111", "10001", "10001", "10001"],
-  I: ["11111", "00100", "00100", "00100", "00100", "00100", "11111"],
-  J: ["00111", "00010", "00010", "00010", "10010", "10010", "01100"],
-  K: ["10001", "10010", "10100", "11000", "10100", "10010", "10001"],
-  L: ["10000", "10000", "10000", "10000", "10000", "10000", "11111"],
-  M: ["10001", "11011", "10101", "10101", "10001", "10001", "10001"],
-  N: ["10001", "11001", "10101", "10011", "10001", "10001", "10001"],
-  O: ["01110", "10001", "10001", "10001", "10001", "10001", "01110"],
-  P: ["11110", "10001", "10001", "11110", "10000", "10000", "10000"],
-  Q: ["01110", "10001", "10001", "10001", "10101", "10010", "01101"],
-  R: ["11110", "10001", "10001", "11110", "10100", "10010", "10001"],
-  S: ["01111", "10000", "10000", "01110", "00001", "00001", "11110"],
-  T: ["11111", "00100", "00100", "00100", "00100", "00100", "00100"],
-  U: ["10001", "10001", "10001", "10001", "10001", "10001", "01110"],
-  V: ["10001", "10001", "10001", "10001", "10001", "01010", "00100"],
-  W: ["10001", "10001", "10001", "10101", "10101", "10101", "01010"],
-  X: ["10001", "10001", "01010", "00100", "01010", "10001", "10001"],
-  Y: ["10001", "10001", "01010", "00100", "00100", "00100", "00100"],
-  Z: ["11111", "00001", "00010", "00100", "01000", "10000", "11111"],
-  "0": ["01110", "10001", "10011", "10101", "11001", "10001", "01110"],
-  "1": ["00100", "01100", "00100", "00100", "00100", "00100", "01110"],
-  "2": ["01110", "10001", "00001", "00010", "00100", "01000", "11111"],
-  "3": ["11110", "00001", "00001", "01110", "00001", "00001", "11110"],
-  "4": ["00010", "00110", "01010", "10010", "11111", "00010", "00010"],
-  "5": ["11111", "10000", "10000", "11110", "00001", "00001", "11110"],
-  "6": ["01110", "10000", "10000", "11110", "10001", "10001", "01110"],
-  "7": ["11111", "00001", "00010", "00100", "01000", "01000", "01000"],
-  "8": ["01110", "10001", "10001", "01110", "10001", "10001", "01110"],
-  "9": ["01110", "10001", "10001", "01111", "00001", "00001", "01110"],
-  ".": ["00000", "00000", "00000", "00000", "00000", "00110", "00110"],
-  ",": ["00000", "00000", "00000", "00000", "00110", "00100", "01000"],
-  "-": ["00000", "00000", "00000", "11111", "00000", "00000", "00000"],
-  ":": ["00000", "00110", "00110", "00000", "00110", "00110", "00000"],
-  "/": ["00001", "00010", "00010", "00100", "01000", "01000", "10000"],
-  "?": ["01110", "10001", "00001", "00010", "00100", "00000", "00100"],
 };
 
 function numeric(value: IrValue | undefined, fallback: number): number {
@@ -158,21 +143,6 @@ function parseColor(value: string): readonly [number, number, number, number] {
     offset < expanded.length ? Number.parseInt(expanded.slice(offset, offset + 2), 16) / 255 : 1,
   );
   return channels as [number, number, number, number];
-}
-
-function glyphBits(character: string): readonly [number, number] {
-  const rows = GLYPH_ROWS[character.toUpperCase()] ?? GLYPH_ROWS["?"]!;
-  let low = 0;
-  let high = 0;
-  for (let row = 0; row < 7; row += 1) {
-    for (let column = 0; column < 5; column += 1) {
-      if (rows[row]![column] !== "1") continue;
-      const bit = row * 5 + column;
-      if (bit < 32) low = (low | (1 << bit)) >>> 0;
-      else high = (high | (1 << (bit - 32))) >>> 0;
-    }
-  }
-  return [low, high];
 }
 
 function normalizedTransform(
@@ -239,6 +209,7 @@ interface ContentOutput {
   assets: ReadonlyMap<string, Asset>;
   media: ResolvedLayer[];
   graphics: ResolvedGraphicLayer[];
+  text: ResolvedTextLayer[];
   drawOrder: { value: number };
 }
 
@@ -441,30 +412,32 @@ function resolveText(
   layout: NodeLayout,
   output: ContentOutput,
 ): void {
-  const fontSize = Math.max(1, numeric(node.props.fontSize, 32) * layout.scaleY);
-  const glyphWidth = fontSize * (5 / 7);
-  const advance = glyphWidth + numeric(node.props.letterSpacing, fontSize / 7) * layout.scaleX;
-  const color = parseColor(stringValue(node.props.color, stringValue(node.props.fill, "#ffffff")));
-  for (const [index, character] of stringValue(node.props.text, "").split("").entries()) {
-    if (character === " ") continue;
-    output.graphics.push({
-      nodeId: `${node.id}/glyph-${index}`,
-      kind: "glyph",
-      transform: normalizedTransform(
-        { x: box.x + index * advance, y: box.y, width: glyphWidth, height: fontSize },
-        output.composition.width,
-        output.composition.height,
-        "fill",
-        layout.opacity,
-        output.clip.transform,
-      ),
-      color,
-      cornerRadiusPx: 0,
-      blurPx: 0,
-      glyph: glyphBits(character),
-      order: output.drawOrder.value++,
-    });
-  }
+  const outer = output.clip.transform;
+  const fontSize = Math.max(1, numeric(node.props.fontSize, 32) * layout.scaleY * outer.scaleY);
+  output.text.push({
+    nodeId: node.id,
+    text: stringValue(node.props.text, ""),
+    originX: box.x + outer.x,
+    originY: box.y + outer.y,
+    maxWidth:
+      numeric(node.props.maxWidth, box.width) * Math.max(0.001, layout.scaleX * outer.scaleX),
+    fontSize,
+    fontWeight: numeric(node.props.fontWeight, 600),
+    lineHeight: numeric(node.props.lineHeight, 1.15),
+    letterSpacing: numeric(node.props.letterSpacing, 0) * layout.scaleX * outer.scaleX,
+    align: stringValue(node.props.align, "left") as ResolvedTextLayer["align"],
+    color: parseColor(stringValue(node.props.color, stringValue(node.props.fill, "#ffffff"))),
+    outlineColor: parseColor(stringValue(node.props.stroke, "#00000000")),
+    outlineWidth: numeric(node.props.outlineWidth, 0),
+    shadowColor: [0, 0, 0, 0],
+    shadowBlur: 0,
+    shadowX: 0,
+    shadowY: 0,
+    opacity: layout.opacity,
+    scale: 1,
+    rotation: outer.rotation,
+    order: output.drawOrder.value++,
+  });
 }
 
 function resolveContent(
@@ -492,14 +465,22 @@ function resolveContent(
 
 export function compositionDurationUs(project: PlaybackProject): TimeUs {
   const composition = findIrComposition(project.program);
+  const clipDuration = composition.timeline.tracks.reduce(
+    (maximum, track) =>
+      track.clips.reduce(
+        (trackMaximum, clip) => Math.max(trackMaximum, clip.timelineStartUs + clip.durationUs),
+        maximum,
+      ),
+    0,
+  );
   return timeUs(
-    composition.timeline.tracks.reduce(
+    composition.timeline.captionTracks.reduce(
       (maximum, track) =>
-        track.clips.reduce(
-          (trackMaximum, clip) => Math.max(trackMaximum, clip.timelineStartUs + clip.durationUs),
+        track.cues.reduce(
+          (cueMaximum, cue) => Math.max(cueMaximum, cue.startUs + cue.durationUs),
           maximum,
         ),
-      0,
+      clipDuration,
     ),
   );
 }
@@ -511,19 +492,157 @@ export function resolveSceneFrame(project: PlaybackProject, timelineTimeUs: Time
   const clips = clipsById(composition);
   const media: ResolvedLayer[] = [];
   const graphics: ResolvedGraphicLayer[] = [];
+  const text: ResolvedTextLayer[] = [];
   const drawOrder = { value: 0 };
 
   for (const layer of plan.layers) {
     const resolved = clips.get(layer.clipId);
     if (!resolved) continue;
     appendPlanMediaLayer(layer, resolved, composition, assets, media, drawOrder);
-    appendPlanContentLayer(layer, resolved, composition, assets, media, graphics, drawOrder);
+    appendPlanContentLayer(layer, resolved, composition, assets, media, graphics, text, drawOrder);
   }
-  return { media, graphics, background: parseColor(plan.background) };
+  appendPlanCaptions(plan.captions, composition, graphics, text, drawOrder);
+  return { media, graphics, text, background: parseColor(plan.background) };
 }
 
 type PlannedLayer = ReturnType<typeof createRenderPlan>["layers"][number];
+type PlannedCaption = ReturnType<typeof createRenderPlan>["captions"][number];
 type ResolvedClip = { clip: IrClip; track: IrTrack };
+
+function captionWordRange(caption: PlannedCaption, index: number) {
+  let cursor = 0;
+  for (const [wordIndex, word] of caption.cue.words.entries()) {
+    const start = caption.cue.text.indexOf(word.text, cursor);
+    if (start < 0) return undefined;
+    const end = start + word.text.length;
+    if (wordIndex === index) return { start, end };
+    cursor = end;
+  }
+  return undefined;
+}
+
+function captionEmphasis(caption: PlannedCaption, props: Record<string, IrValue>) {
+  const index = Math.round(numeric(props.wordProgress, -1));
+  const range = captionWordRange(caption, index);
+  if (!range) return undefined;
+  return {
+    ...range,
+    color: parseColor(stringValue(props.emphasisFill, "#ffd54a")),
+    scale: Math.max(1, numeric(props.emphasisScale, 1.08)),
+  };
+}
+
+function captionOriginY(
+  placement: string,
+  compositionHeight: number,
+  safeMargin: number,
+  estimatedHeight: number,
+): number {
+  if (placement === "top") return safeMargin;
+  if (placement === "center") return (compositionHeight - estimatedHeight) / 2;
+  return compositionHeight - safeMargin - estimatedHeight;
+}
+
+function captionBackground(
+  id: string,
+  color: readonly [number, number, number, number],
+  box: Box,
+  composition: IrComposition,
+  order: number,
+): ResolvedGraphicLayer | null {
+  if (color[3] <= 0) return null;
+  return {
+    nodeId: `${id}/background`,
+    kind: "solid",
+    transform: {
+      x: ((box.x + box.width / 2) / composition.width) * 2 - 1,
+      y: ((box.y + box.height / 2) / composition.height) * 2 - 1,
+      scaleX: box.width / composition.width,
+      scaleY: box.height / composition.height,
+      rotation: 0,
+      opacity: 1,
+      fit: "fill",
+    },
+    color,
+    cornerRadiusPx: 12,
+    blurPx: 0,
+    order,
+  };
+}
+
+function resolvedCaption(
+  caption: PlannedCaption,
+  composition: IrComposition,
+  order: number,
+): { text: ResolvedTextLayer; background: ResolvedGraphicLayer | null } {
+  const props = { ...caption.track.props, ...caption.props };
+  const safeX = (numeric(props.safeMarginX, 8) / 100) * composition.width;
+  const safeY = (numeric(props.safeMarginY, 8) / 100) * composition.height;
+  const fontSize = Math.max(8, numeric(props.fontSize, 64));
+  const lineHeight = Math.max(0.5, numeric(props.lineHeight, 1.15));
+  const estimatedHeight = fontSize * lineHeight * 2;
+  const emphasis = captionEmphasis(caption, props);
+  const box = {
+    x: safeX + numeric(props.x, 0),
+    y:
+      captionOriginY(
+        stringValue(props.placement, "bottom"),
+        composition.height,
+        safeY,
+        estimatedHeight,
+      ) + numeric(props.y, 0),
+    width: Math.max(1, composition.width - safeX * 2),
+    height: estimatedHeight,
+  };
+  return {
+    text: {
+      nodeId: caption.cue.id,
+      text: caption.cue.text,
+      originX: box.x,
+      originY: box.y,
+      maxWidth: box.width,
+      fontSize,
+      fontWeight: numeric(props.fontWeight, 600),
+      lineHeight,
+      letterSpacing: numeric(props.letterSpacing, 0),
+      align: stringValue(props.align, "center") as ResolvedTextLayer["align"],
+      color: parseColor(stringValue(props.fill, "#ffffff")),
+      outlineColor: parseColor(stringValue(props.outlineColor, "#000000")),
+      outlineWidth: Math.max(0, numeric(props.outlineWidth, 3)),
+      shadowColor: parseColor(stringValue(props.shadowColor, "#00000099")),
+      shadowBlur: Math.max(0, numeric(props.shadowBlur, 8)),
+      shadowX: numeric(props.shadowX, 0),
+      shadowY: numeric(props.shadowY, 4),
+      opacity: Math.min(1, Math.max(0, numeric(props.opacity, 1))),
+      scale: numeric(props.scale, 1),
+      rotation: numeric(props.rotation, 0),
+      ...(emphasis ? { emphasis } : {}),
+      order: order + 1,
+    },
+    background: captionBackground(
+      caption.cue.id,
+      parseColor(stringValue(props.background, "#00000000")),
+      box,
+      composition,
+      order,
+    ),
+  };
+}
+
+function appendPlanCaptions(
+  captions: readonly PlannedCaption[],
+  composition: IrComposition,
+  graphics: ResolvedGraphicLayer[],
+  text: ResolvedTextLayer[],
+  drawOrder: { value: number },
+): void {
+  for (const caption of captions) {
+    const resolved = resolvedCaption(caption, composition, drawOrder.value);
+    if (resolved.background) graphics.push(resolved.background);
+    text.push(resolved.text);
+    drawOrder.value += 2;
+  }
+}
 
 function clipsById(composition: IrComposition): Map<string, ResolvedClip> {
   const clips = new Map<string, ResolvedClip>();
@@ -564,6 +683,7 @@ function appendPlanContentLayer(
   assets: Map<string, Asset>,
   media: ResolvedLayer[],
   graphics: ResolvedGraphicLayer[],
+  text: ResolvedTextLayer[],
   drawOrder: { value: number },
 ): void {
   if (layer.content === undefined) return;
@@ -587,6 +707,7 @@ function appendPlanContentLayer(
       assets,
       media,
       graphics,
+      text,
       drawOrder,
     },
   );

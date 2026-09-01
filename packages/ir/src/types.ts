@@ -177,6 +177,33 @@ export interface IrTimelineNote {
   text: string;
 }
 
+export interface IrCaptionWord {
+  id: string;
+  startUs: IrTimeUs;
+  durationUs: IrTimeUs;
+  text: string;
+}
+
+export interface IrCaptionCue {
+  id: string;
+  startUs: IrTimeUs;
+  durationUs: IrTimeUs;
+  text: string;
+  speaker?: string;
+  props: Record<string, IrValue>;
+  animations: IrAnimation[];
+  words: IrCaptionWord[];
+}
+
+export interface IrCaptionTrack {
+  id: string;
+  name: string;
+  transcriptFingerprint?: string;
+  language?: string;
+  props: Record<string, IrValue>;
+  cues: IrCaptionCue[];
+}
+
 export interface IrTransition {
   id: string;
   fromClipId: string;
@@ -189,6 +216,7 @@ export interface IrTransition {
 export interface IrTimeline {
   id: string;
   tracks: IrTrack[];
+  captionTracks: IrCaptionTrack[];
   notes: IrTimelineNote[];
   markers: IrMarker[];
   transitions: IrTransition[];
@@ -291,6 +319,7 @@ export type IrSourceMap = IrEditMap;
 export type IrNodeTemplate =
   | { kind: "composition"; composition: IrComposition }
   | { kind: "track"; track: IrTrack }
+  | { kind: "captiontrack"; track: IrCaptionTrack }
   | { kind: "clip"; clip: IrClip }
   | { kind: "marker"; marker: IrMarker }
   | { kind: "note"; note: IrTimelineNote }
@@ -348,6 +377,7 @@ export interface TimelineProjection {
   frameRate: number;
   durationUs: IrTimeUs;
   tracks: TimelineTrackProjection[];
+  captionTracks: IrCaptionTrack[];
   notes: IrTimelineNote[];
   markers: IrMarker[];
   transitions: IrTransition[];
@@ -369,6 +399,12 @@ export interface RenderPlan {
   playheadUs: IrTimeUs;
   background: string;
   layers: RenderLayer[];
+  captions: Array<{
+    track: IrCaptionTrack;
+    cue: IrCaptionCue;
+    localTimeUs: IrTimeUs;
+    props: Record<string, IrValue>;
+  }>;
 }
 
 export interface AudioSourcePlan {

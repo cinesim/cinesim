@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { canSplitClipAt, getSequence, sequenceDurationUs, timeUs } from "@cinesim/core";
 import type { Project, TimelineRange } from "@cinesim/core";
 import type { Clip, Sequence, Track } from "@cinesim/core";
-import type { TimelineProjection } from "@cinesim/ir";
+import type { IrCaptionTrack, TimelineProjection } from "@cinesim/ir";
 import { timelineMajorSecondStep } from "../../lib/timeline-scale";
 import { useRendererStore } from "../../store/renderer-store-context";
 import { useEditorDnd } from "../workspace/editor-dnd-context";
@@ -52,7 +52,12 @@ export function Timeline({ project, timeline, selectedRanges = [] }: TimelinePro
     [project, timeline],
   );
   const sequence = getSequence(timelineProject);
-  const sequenceDuration = sequenceDurationUs(sequence);
+  const captionDuration = timeline.captionTracks.reduce(
+    (duration, track) =>
+      Math.max(duration, ...track.cues.map((cue) => cue.startUs + cue.durationUs)),
+    0,
+  );
+  const sequenceDuration = timeUs(Math.max(sequenceDurationUs(sequence), captionDuration));
   const {
     changeZoom,
     contentDurationUs,
@@ -206,6 +211,9 @@ export function Timeline({ project, timeline, selectedRanges = [] }: TimelinePro
               paletteId={paletteId}
             />
           ))}
+          {timeline.captionTracks.map((track) => (
+            <CaptionTrackHeader key={track.id} track={track} height={trackHeight} />
+          ))}
         </div>
         <div
           ref={scrollRef}
@@ -253,6 +261,16 @@ export function Timeline({ project, timeline, selectedRanges = [] }: TimelinePro
                 paletteId={paletteId}
               />
             ))}
+            {timeline.captionTracks.map((track) => (
+              <CaptionTrackRow
+                key={track.id}
+                track={track}
+                pixelsPerUs={pixelsPerUs}
+                trackHeight={trackHeight}
+                onBackgroundPointerDown={trackSeek}
+                onSeek={(atUs) => void transport.seekTimeline(timeUs(atUs))}
+              />
+            ))}
             {proposal?.snapPointUs !== undefined && snapGuideColor && (
               <div
                 aria-hidden="true"
@@ -285,6 +303,68 @@ export function Timeline({ project, timeline, selectedRanges = [] }: TimelinePro
         <MasterLevelMeter />
       </div>
     </section>
+  );
+}
+
+function CaptionTrackHeader({ track, height }: { track: IrCaptionTrack; height: number }) {
+  return (
+    <div className="grid content-center gap-0.5 px-2" style={{ height }}>
+      <div className="flex min-w-0 items-center gap-1.5">
+        <span className="grid size-5 shrink-0 place-items-center rounded bg-cyan-700 text-[9px] font-semibold text-white">
+          CC
+        </span>
+        <span className="min-w-0 flex-1 truncate text-[10px] font-medium text-secondary">
+          {track.name}
+        </span>
+      </div>
+      <span className="truncate pl-6 text-[9px] text-muted">
+        {track.language ?? "Timed text"} · {track.cues.length} cues
+      </span>
+    </div>
+  );
+}
+
+function CaptionTrackRow({
+  track,
+  pixelsPerUs,
+  trackHeight,
+  onBackgroundPointerDown,
+  onSeek,
+}: {
+  track: IrCaptionTrack;
+  pixelsPerUs: number;
+  trackHeight: number;
+  onBackgroundPointerDown: (event: React.PointerEvent<HTMLButtonElement>) => void;
+  onSeek: (atUs: number) => void;
+}) {
+  return (
+    <div className="relative border-t border-border/60" style={{ height: trackHeight }}>
+      <button
+        type="button"
+        aria-label={`Seek on ${track.name}`}
+        className="absolute inset-0"
+        onPointerDown={onBackgroundPointerDown}
+      />
+      {track.cues.map((cue) => (
+        <button
+          key={cue.id}
+          type="button"
+          className="absolute top-1 z-10 overflow-hidden rounded border border-cyan-500/50 bg-cyan-500/20 px-1.5 text-left text-[10px] text-primary hover:bg-cyan-500/30"
+          style={{
+            left: cue.startUs * pixelsPerUs + 1,
+            width: Math.max(8, cue.durationUs * pixelsPerUs - 2),
+            height: Math.max(1, trackHeight - 8),
+          }}
+          title={`${cue.speaker ? `${cue.speaker}: ` : ""}${cue.text}`}
+          onClick={() => onSeek(cue.startUs)}
+        >
+          <span className="block truncate font-medium">{cue.text}</span>
+          {cue.speaker && (
+            <span className="block truncate text-[9px] text-muted">{cue.speaker}</span>
+          )}
+        </button>
+      ))}
+    </div>
   );
 }
 

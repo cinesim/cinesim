@@ -1,11 +1,14 @@
-import type {
-  IrAnimation,
-  IrClip,
-  IrComposition,
-  IrEffect,
-  IrSceneNode,
-  IrTrack,
-  IrValue,
+import {
+  irTimeUs,
+  type IrAnimation,
+  type IrCaptionCue,
+  type IrCaptionTrack,
+  type IrClip,
+  type IrComposition,
+  type IrEffect,
+  type IrSceneNode,
+  type IrTrack,
+  type IrValue,
 } from "@cinesim/ir";
 import { fail } from "./compiler-errors";
 import type { BoundAnimation, BoundNode } from "./compiler-model";
@@ -146,6 +149,133 @@ function lowerTrack(node: BoundNode): IrTrack {
   };
 }
 
+function captionProps(node: BoundNode, excluded: ReadonlySet<string>): Record<string, IrValue> {
+  return Object.fromEntries(
+    Object.entries(node.props)
+      .filter(([name]) => !excluded.has(name))
+      .map(([name, property]) => [name, property.value]),
+  );
+}
+
+const CAPTION_TRACK_STRUCTURE = new Set(["id", "name", "transcriptFingerprint", "language"]);
+const CAPTION_CUE_STRUCTURE = new Set(["id", "start", "duration", "text", "speaker"]);
+
+function presetAnimation(
+  property: string,
+  values: Array<[number, IrValue, string]>,
+): IrCaptionCue["animations"][number] {
+  return {
+    property,
+    keyframes: values.map(([at, value, easing]) => ({ at: irTimeUs(at), value, easing })),
+  };
+}
+
+function wordEmphasisAnimation(node: BoundNode): IrCaptionCue["animations"][number] | null {
+  const words = node.children.filter((child) => child.kind === "captionword");
+  if (words.length === 0) return null;
+  const values: Array<[number, IrValue, string]> = words.map((word, index) => [
+    timeValue(word, "start"),
+    { kind: "number", value: index },
+    "hold",
+  ]);
+  const last = words.at(-1)!;
+  values.push([
+    timeValue(last, "start") + timeValue(last, "duration"),
+    { kind: "number", value: -1 },
+    "hold",
+  ]);
+  return presetAnimation("wordProgress", values);
+}
+
+function captionPresetAnimations(
+  node: BoundNode,
+  preset: string,
+  baseFill: IrValue,
+): IrCaptionCue["animations"] {
+  const time = 180_000;
+  if (preset === "word-emphasis") {
+    const animation = wordEmphasisAnimation(node);
+    return animation ? [animation] : [];
+  }
+  if (preset === "pop")
+    return [
+      presetAnimation("scale", [
+        [0, { kind: "number", value: 0.82 }, "linear"],
+        [time, { kind: "number", value: 1 }, "ease-out"],
+      ]),
+    ];
+  if (preset === "scale")
+    return [
+      presetAnimation("scale", [
+        [0, { kind: "number", value: 0.92 }, "linear"],
+        [time, { kind: "number", value: 1 }, "ease-out"],
+      ]),
+    ];
+  if (preset === "position")
+    return [
+      presetAnimation("y", [
+        [0, { kind: "length", unit: "px", value: 36 }, "linear"],
+        [time, { kind: "length", unit: "px", value: 0 }, "ease-out"],
+      ]),
+    ];
+  if (preset === "color")
+    return [
+      presetAnimation("fill", [
+        [0, { kind: "color", value: "#ffd54a" }, "hold"],
+        [time, baseFill, "ease-out"],
+      ]),
+    ];
+  return [];
+}
+
+function lowerCaptionCue(node: BoundNode, trackPreset: string, trackFill: IrValue): IrCaptionCue {
+  const cuePreset = propertyValue(node, "animationPreset");
+  const preset = cuePreset ? stringValue(node, "animationPreset") : trackPreset;
+  const explicit = node.animations.map(runtimeAnimation);
+  const explicitProperties = new Set(explicit.map(({ property }) => property));
+  const compiledPreset = captionPresetAnimations(node, preset, trackFill).filter(
+    ({ property }) => !explicitProperties.has(property),
+  );
+  return {
+    id: node.id,
+    startUs: timeValue(node, "start"),
+    durationUs: timeValue(node, "duration"),
+    text: stringValue(node, "text"),
+    ...(propertyValue(node, "speaker") === undefined
+      ? {}
+      : { speaker: stringValue(node, "speaker") }),
+    props: captionProps(node, CAPTION_CUE_STRUCTURE),
+    animations: [...compiledPreset, ...explicit],
+    words: node.children
+      .filter((child) => child.kind === "captionword")
+      .map((word) => ({
+        id: word.id,
+        startUs: timeValue(word, "start"),
+        durationUs: timeValue(word, "duration"),
+        text: stringValue(word, "text"),
+      })),
+  };
+}
+
+function lowerCaptionTrack(node: BoundNode): IrCaptionTrack {
+  const preset = stringValue(node, "animationPreset", "none");
+  const fill = propertyValue(node, "fill") ?? { kind: "color", value: "#ffffff" };
+  return {
+    id: node.id,
+    name: stringValue(node, "name"),
+    ...(propertyValue(node, "transcriptFingerprint") === undefined
+      ? {}
+      : { transcriptFingerprint: stringValue(node, "transcriptFingerprint") }),
+    ...(propertyValue(node, "language") === undefined
+      ? {}
+      : { language: stringValue(node, "language") }),
+    props: captionProps(node, CAPTION_TRACK_STRUCTURE),
+    cues: node.children
+      .filter((child) => child.kind === "cue")
+      .map((cue) => lowerCaptionCue(cue, preset, fill)),
+  };
+}
+
 function lowerTransitions(timeline: BoundNode): IrComposition["timeline"]["transitions"] {
   return timeline.children
     .filter((child) => child.kind === "transition")
@@ -221,6 +351,9 @@ function lowerComposition(node: BoundNode): IrComposition {
     timeline: {
       id: timeline.id,
       tracks: timeline.children.filter((child) => child.kind === "track").map(lowerTrack),
+      captionTracks: timeline.children
+        .filter((child) => child.kind === "captiontrack")
+        .map(lowerCaptionTrack),
       notes,
       markers,
       transitions: lowerTransitions(timeline),

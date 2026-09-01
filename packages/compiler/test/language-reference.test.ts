@@ -18,13 +18,12 @@ describe("language reference", () => {
       preview: "unsupported",
       export: "unsupported",
     });
-    expect(
-      LANGUAGE_REFERENCE.find(({ id }) => id === "element:captions")?.capability,
-    ).toMatchObject({
+    expect(LANGUAGE_REFERENCE.find(({ id }) => id === "element:captiontrack")?.capability).toEqual({
       compiler: "supported",
-      preview: "partial",
+      preview: "supported",
       export: "unsupported",
     });
+    expect(LANGUAGE_REFERENCE.some(({ id }) => id === "element:captions")).toBe(false);
   });
 
   it("fuzzy-searches recipes and property constraints with a hard result cap", () => {

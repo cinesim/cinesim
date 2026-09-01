@@ -6,6 +6,7 @@ import type {
   CompositorColor,
   CompositorGraphicLayer,
   CompositorLayer,
+  CompositorTextLayer,
   PreviewCompositor,
 } from "../compositor/webgpu-compositor";
 import { MediabunnyWebCodecsSource } from "../media/mediabunny-source";
@@ -93,6 +94,7 @@ interface RenderRequest {
 interface DecodedSceneFrame {
   layers: CompositorLayer[];
   graphics: readonly CompositorGraphicLayer[];
+  text: readonly CompositorTextLayer[];
   background?: CompositorColor;
 }
 
@@ -337,6 +339,7 @@ export class PlaybackRuntime {
         { width: composition.width, height: composition.height },
         decoded.graphics,
         decoded.background,
+        decoded.text,
       );
       this.#renderedSinceSnapshot += 1;
       this.#mode = request.mode;
@@ -653,6 +656,7 @@ export class PlaybackRuntime {
       { width: composition.width, height: composition.height },
       decoded.graphics,
       decoded.background,
+      decoded.text,
     );
     this.#renderedSinceSnapshot += 1;
     this.#playbackFramesPresented += 1;
@@ -689,7 +693,7 @@ export class PlaybackRuntime {
   async #decodeRandom(mode: PreviewMode): Promise<DecodedSceneFrame> {
     if (mode.kind === "asset") {
       const asset = this.#project.assets.find((candidate) => candidate.id === mode.assetId);
-      if (!asset || asset.kind !== "video") return { layers: [], graphics: [] };
+      if (!asset || asset.kind !== "video") return { layers: [], graphics: [], text: [] };
       const descriptor = this.#sourceResolver.resolve(asset.id);
       this.#lastActiveAssetId = asset.id;
       this.#lastActiveSourceKind = descriptor.kind;
@@ -697,6 +701,7 @@ export class PlaybackRuntime {
       return {
         layers: frame ? [{ frame, transform: DEFAULT_PREVIEW_TRANSFORM }] : [],
         graphics: [],
+        text: [],
       };
     }
     const scene = resolveSceneFrame(this.#project, mode.timeUs);
@@ -719,7 +724,12 @@ export class PlaybackRuntime {
     const active = layers.at(-1);
     this.#lastActiveAssetId = active?.asset.id ?? null;
     this.#lastActiveSourceKind = active ? this.#sourceResolver.resolve(active.asset.id).kind : null;
-    return { layers: frames, graphics: scene.graphics, background: scene.background };
+    return {
+      layers: frames,
+      graphics: scene.graphics,
+      text: scene.text,
+      background: scene.background,
+    };
   }
 
   async #decodeSequential(timeUs: TimeUs): Promise<DecodedSceneFrame> {
@@ -761,7 +771,12 @@ export class PlaybackRuntime {
     const active = layers.at(-1);
     this.#lastActiveAssetId = active?.asset.id ?? null;
     this.#lastActiveSourceKind = active ? this.#sourceResolver.resolve(active.asset.id).kind : null;
-    return { layers: frames, graphics: scene.graphics, background: scene.background };
+    return {
+      layers: frames,
+      graphics: scene.graphics,
+      text: scene.text,
+      background: scene.background,
+    };
   }
 
   #source(descriptor: MediaSourceDescriptor): VideoSource & Partial<AudioSource> {

@@ -86,5 +86,6 @@ export default defineConfig(({ command, mode }) => {
       emptyOutDir: false,
       sourcemap: true,
     },
+    worker: { format: "es" },
   };
 });

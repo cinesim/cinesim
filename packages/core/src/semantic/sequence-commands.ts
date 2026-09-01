@@ -115,6 +115,7 @@ function createSequence(
     timeline: {
       id: `timeline_${sequenceId.replace(/^sequence_/u, "")}`,
       tracks: [videoTrack, audioTrack],
+      captionTracks: [],
       notes: [],
       markers: [],
       transitions: [],

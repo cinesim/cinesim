@@ -149,6 +149,7 @@ export function projectToIr(
       background: settings.backgroundColor,
       timeline: {
         id: `timeline_${sequence.id.replace(/^sequence_/u, "")}`,
+        captionTracks: [],
         notes: sequence.notes.map(({ atUs, durationUs, ...note }) => ({
           ...note,
           atUs: irTimeUs(atUs),

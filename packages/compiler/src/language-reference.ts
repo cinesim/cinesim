@@ -42,9 +42,14 @@ const previewSupported = new Set([
   "ellipse",
   "colorgrade",
   "ducker",
+  "text",
+  "span",
+  "captiontrack",
+  "cue",
+  "captionword",
 ]);
 
-const previewPartial = new Set(["marker", "text", "span", "captions"]);
+const previewPartial = new Set(["marker"]);
 
 function elementCapability(name: string): LanguageCapability {
   if (previewSupported.has(name))
@@ -54,10 +59,7 @@ function elementCapability(name: string): LanguageCapability {
       compiler: "supported",
       preview: "partial",
       export: "unsupported",
-      detail:
-        name === "text" || name === "span" || name === "captions"
-          ? "Preview uses placeholder glyph rendering; production text shaping is not complete."
-          : "The construct is visible in editorial UI but has no compositor pass.",
+      detail: "The construct is visible in editorial UI but has no compositor pass.",
     };
   return {
     compiler: "supported",
@@ -155,6 +157,18 @@ const recipes: LanguageReferenceEntry[] = [
     example:
       '<ducker id="duck_music" sidechain="track_dialogue" reduction={db(-12)} attack={milliseconds(80)} release={milliseconds(250)} />',
     tags: ["audio", "ducking", "dialogue", "music", "sidechain", "mix"],
+    capability: { compiler: "supported", preview: "supported", export: "unsupported" },
+  },
+  {
+    id: "recipe:transcript-captions",
+    kind: "recipe",
+    title: "Editable transcript captions",
+    summary:
+      "Generate stable timed cues from selected transcript words, then edit canonical text and style independently.",
+    syntax: "<captiontrack> containing timed <cue> and optional <captionword> elements",
+    example:
+      '<captiontrack id="captiontrack_main" name="English" fontSize={px(64)} placement="bottom"><cue id="cue_intro" start={seconds(1)} duration={seconds(2)} text="Welcome." /></captiontrack>',
+    tags: ["captions", "subtitles", "transcript", "speaker", "timed text"],
     capability: { compiler: "supported", preview: "supported", export: "unsupported" },
   },
 ];

@@ -2,9 +2,11 @@ import type { IrProgram } from "@cinesim/ir";
 import type { Asset } from "../project/types";
 import { planAssetCommand } from "./asset-commands";
 import { planClipCommand } from "./clip-commands";
+import { planCaptionCommand } from "./caption-commands";
 import { createCommandContext } from "./command-helpers";
 import type {
   AssetCommand,
+  CaptionCommand,
   ClipCommand,
   NoteCommand,
   PropertyCommand,
@@ -40,6 +42,8 @@ export function planSemanticCommand(
       return planTrackCommand(context, command as TrackCommand);
     case "clip":
       return planClipCommand(context, command as ClipCommand);
+    case "caption":
+      return planCaptionCommand(context, command as CaptionCommand);
     case "sequence":
       return planSequenceCommand(context, command as SequenceCommand);
     default:

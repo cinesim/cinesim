@@ -1,4 +1,7 @@
 import type {
+  IrAnimation,
+  IrCaptionCue,
+  IrCaptionTrack,
   IrClip,
   IrComposition,
   IrEditTarget,
@@ -70,6 +73,60 @@ export function jsxAttribute(name: string, value: IrValue): string {
     : `${name}={${printIrExpression(value)}}`;
 }
 
+function propertyAttributes(props: Readonly<Record<string, IrValue>>): string[] {
+  return Object.entries(props).map(([name, value]) => jsxAttribute(name, value));
+}
+
+function animationSource(animation: IrAnimation, indent: string): string {
+  return [
+    `${indent}<animate property=${JSON.stringify(animation.property)}>`,
+    ...animation.keyframes.map(
+      (keyframe) =>
+        `${indent}  <key at={microseconds(${keyframe.at})} value={${printIrExpression(keyframe.value)}} easing=${JSON.stringify(keyframe.easing)} />`,
+    ),
+    `${indent}</animate>`,
+  ].join("\n");
+}
+
+function captionCueSource(cue: IrCaptionCue, indent: string): string {
+  const attributes = [
+    `id=${JSON.stringify(cue.id)}`,
+    `start={microseconds(${cue.startUs})}`,
+    `duration={microseconds(${cue.durationUs})}`,
+    `text=${JSON.stringify(cue.text)}`,
+    ...(cue.speaker ? [`speaker=${JSON.stringify(cue.speaker)}`] : []),
+    ...propertyAttributes(cue.props),
+  ];
+  const children = [
+    ...cue.words.map(
+      (word) =>
+        `${indent}  <captionword id=${JSON.stringify(word.id)} start={microseconds(${word.startUs})} duration={microseconds(${word.durationUs})} text=${JSON.stringify(word.text)} />`,
+    ),
+    ...cue.animations.map((animation) => animationSource(animation, `${indent}  `)),
+  ];
+  if (children.length === 0) return `${indent}<cue ${attributes.join(" ")} />`;
+  return [`${indent}<cue ${attributes.join(" ")}>`, ...children, `${indent}</cue>`].join("\n");
+}
+
+function captionTrackSource(track: IrCaptionTrack, indent: string): string {
+  const attributes = [
+    `id=${JSON.stringify(track.id)}`,
+    `name=${JSON.stringify(track.name)}`,
+    ...(track.transcriptFingerprint
+      ? [`transcriptFingerprint=${JSON.stringify(track.transcriptFingerprint)}`]
+      : []),
+    ...(track.language ? [`language=${JSON.stringify(track.language)}`] : []),
+    ...propertyAttributes(track.props),
+  ];
+  const opening = `<captiontrack ${attributes.join(" ")}`;
+  if (track.cues.length === 0) return `${indent}${opening} />`;
+  return [
+    `${indent}${opening}>`,
+    ...track.cues.map((cue) => captionCueSource(cue, `${indent}  `)),
+    `${indent}</captiontrack>`,
+  ].join("\n");
+}
+
 function sceneSource(node: IrSceneNode, indent: string): string {
   const properties = Object.entries(node.props).map(
     ([name, value]) =>
@@ -81,16 +138,7 @@ function sceneSource(node: IrSceneNode, indent: string): string {
     ...node.effects.map((effect) => effectSource(effect, `${indent}  `)),
   ];
   if (children.length === 0 && node.animations.length === 0) return `${indent}${opening} />`;
-  const animations = node.animations.map((animation) =>
-    [
-      `${indent}  <animate property=${JSON.stringify(animation.property)}>`,
-      ...animation.keyframes.map(
-        (keyframe) =>
-          `${indent}    <key at={microseconds(${keyframe.at})} value={${printIrExpression(keyframe.value)}} easing=${JSON.stringify(keyframe.easing)} />`,
-      ),
-      `${indent}  </animate>`,
-    ].join("\n"),
-  );
+  const animations = node.animations.map((animation) => animationSource(animation, `${indent}  `));
   return [`${indent}${opening}>`, ...animations, ...children, `${indent}</${node.kind}>`].join(
     "\n",
   );
@@ -172,6 +220,7 @@ function compositionSource(composition: IrComposition): string {
     `  <composition id=${JSON.stringify(composition.id)} name=${JSON.stringify(composition.name)} width={${composition.width}} height={${composition.height}} fps={${composition.frameRate}} background=${JSON.stringify(composition.background)}>`,
     `    <timeline id=${JSON.stringify(composition.timeline.id)}>`,
     ...tracks,
+    ...composition.timeline.captionTracks.map((track) => captionTrackSource(track, "      ")),
     ...composition.timeline.notes.map(
       (note) =>
         `      <note id=${JSON.stringify(note.id)} at={microseconds(${note.atUs})}${note.durationUs === undefined ? "" : ` duration={microseconds(${note.durationUs})}`} kind=${JSON.stringify(note.kind)} text=${JSON.stringify(note.text)} />`,
@@ -191,15 +240,22 @@ function compositionSource(composition: IrComposition): string {
 }
 
 export function printNodeTemplate(template: IrNodeTemplate, indent = ""): string {
-  if (template.kind === "composition") return compositionSource(template.composition);
-  if (template.kind === "track") return trackSource(template.track, indent);
-  if (template.kind === "clip") return clipSource(template.clip, indent);
-  if (template.kind === "scene") return sceneSource(template.node, indent);
-  if (template.kind === "marker") {
-    return `${indent}<marker id=${JSON.stringify(template.marker.id)} at={microseconds(${template.marker.atUs})} name=${JSON.stringify(template.marker.name)}${template.marker.color === undefined ? "" : ` color=${JSON.stringify(template.marker.color)}`} />`;
+  switch (template.kind) {
+    case "composition":
+      return compositionSource(template.composition);
+    case "track":
+      return trackSource(template.track, indent);
+    case "captiontrack":
+      return captionTrackSource(template.track, indent);
+    case "clip":
+      return clipSource(template.clip, indent);
+    case "scene":
+      return sceneSource(template.node, indent);
+    case "marker":
+      return `${indent}<marker id=${JSON.stringify(template.marker.id)} at={microseconds(${template.marker.atUs})} name=${JSON.stringify(template.marker.name)}${template.marker.color === undefined ? "" : ` color=${JSON.stringify(template.marker.color)}`} />`;
+    case "note":
+      return `${indent}<note id=${JSON.stringify(template.note.id)} at={microseconds(${template.note.atUs})}${template.note.durationUs === undefined ? "" : ` duration={microseconds(${template.note.durationUs})}`} kind=${JSON.stringify(template.note.kind)} text=${JSON.stringify(template.note.text)} />`;
+    case "transition":
+      return `${indent}<transition id=${JSON.stringify(template.transition.id)} from=${JSON.stringify(template.transition.fromClipId)} to=${JSON.stringify(template.transition.toClipId)} kind=${JSON.stringify(template.transition.kind)} duration={microseconds(${template.transition.durationUs})} />`;
   }
-  if (template.kind === "note") {
-    return `${indent}<note id=${JSON.stringify(template.note.id)} at={microseconds(${template.note.atUs})}${template.note.durationUs === undefined ? "" : ` duration={microseconds(${template.note.durationUs})}`} kind=${JSON.stringify(template.note.kind)} text=${JSON.stringify(template.note.text)} />`;
-  }
-  return `${indent}<transition id=${JSON.stringify(template.transition.id)} from=${JSON.stringify(template.transition.fromClipId)} to=${JSON.stringify(template.transition.toClipId)} kind=${JSON.stringify(template.transition.kind)} duration={microseconds(${template.transition.durationUs})} />`;
 }

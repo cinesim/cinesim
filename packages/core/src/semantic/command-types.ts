@@ -1,4 +1,4 @@
-import type { EditScope, IrProgram, IrValue, SemanticPatch } from "@cinesim/ir";
+import type { EditScope, IrCaptionTrack, IrProgram, IrValue, SemanticPatch } from "@cinesim/ir";
 import type { AssetId, ClipId, SequenceId, TrackId } from "../ids";
 import type { Asset, AssetSource, EditorialNote, TimeUs, Track, Transform } from "../project/types";
 
@@ -83,6 +83,11 @@ export class CommandError extends Error {
 export type SemanticEditorCommand =
   | EditorCommand
   | {
+      type: "caption.generate";
+      sequenceId: SequenceId;
+      track: IrCaptionTrack;
+    }
+  | {
       type: "note.upsert";
       target: "project" | "asset" | "timeline";
       assetId?: AssetId;
@@ -137,6 +142,7 @@ export type AssetCommand = Extract<
   { type: "asset.import" | "asset.remove" | "asset.setSource" }
 >;
 export type ClipCommand = Extract<SemanticEditorCommand, { type: `clip.${string}` }>;
+export type CaptionCommand = Extract<SemanticEditorCommand, { type: `caption.${string}` }>;
 export type PropertyCommand = Extract<SemanticEditorCommand, { type: `property.${string}` }>;
 export type NoteCommand = Extract<SemanticEditorCommand, { type: `note.${string}` }>;
 export type SequenceCommand = Extract<SemanticEditorCommand, { type: `sequence.${string}` }>;

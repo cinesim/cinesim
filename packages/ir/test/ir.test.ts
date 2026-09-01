@@ -59,6 +59,7 @@ function program(): IrProgram {
         background: "#000000",
         timeline: {
           id: "timeline_main",
+          captionTracks: [],
           notes: [],
           markers: [],
           transitions: [],
@@ -117,6 +118,42 @@ describe("semantic ir", () => {
       opacity: 0.5,
     });
     expect(createAudioPlan(ir, 250_000).sources).toEqual([]);
+  });
+
+  it("projects active caption cues with cue-local typed animation", () => {
+    const ir = program();
+    ir.compositions[0]!.timeline.captionTracks.push({
+      id: "captions_en",
+      name: "English",
+      transcriptFingerprint: "sha256:fixture",
+      props: { fill: { kind: "color", value: "#ffffff" } },
+      cues: [
+        {
+          id: "cue_intro",
+          startUs: irTimeUs(1_000_000),
+          durationUs: irTimeUs(2_000_000),
+          text: "Welcome home",
+          props: { scale: { kind: "number", value: 0.9 } },
+          animations: [
+            {
+              property: "scale",
+              keyframes: [
+                { at: irTimeUs(0), value: { kind: "number", value: 0.9 }, easing: "linear" },
+                { at: irTimeUs(1_000_000), value: { kind: "number", value: 1 }, easing: "linear" },
+              ],
+            },
+          ],
+          words: [],
+        },
+      ],
+    });
+
+    validateIrProgram(ir, new Set(["asset_camera"]));
+    expect(projectTimeline(ir).durationUs).toBe(3_000_000);
+    expect(createRenderPlan(ir, 1_500_000).captions).toMatchObject([
+      { cue: { id: "cue_intro" }, props: { scale: { kind: "number", value: 0.95 } } },
+    ]);
+    expect(createRenderPlan(ir, 3_000_000).captions).toEqual([]);
   });
 
   it("rejects invalid links and asset catalogs", () => {

@@ -15,6 +15,83 @@ const asset: Asset = {
 };
 
 describe("timeline visual layer order", () => {
+  it("projects active caption cues as shaped text with style, safe placement, and typed animation", () => {
+    const project = createProject({ name: "Caption preview" });
+    const program = projectToIr(project, DEFAULT_SETTINGS);
+    program.compositions[0]!.timeline.captionTracks.push({
+      id: "captiontrack_main",
+      name: "English",
+      transcriptFingerprint: "transcript-v1-source",
+      props: {
+        fontSize: { kind: "length", unit: "px", value: 72 },
+        placement: { kind: "string", value: "bottom" },
+        fill: { kind: "color", value: "#fefefe" },
+        outlineColor: { kind: "color", value: "#111111" },
+        outlineWidth: { kind: "length", unit: "px", value: 4 },
+        safeMarginX: { kind: "percent", value: 10 },
+        safeMarginY: { kind: "percent", value: 10 },
+        background: { kind: "color", value: "#00000088" },
+      },
+      cues: [
+        {
+          id: "cue_main",
+          startUs: irTimeUs(1_000_000),
+          durationUs: irTimeUs(2_000_000),
+          text: "Production captions",
+          props: {
+            wordProgress: { kind: "number", value: 0 },
+            emphasisFill: { kind: "color", value: "#ffd54a" },
+            emphasisScale: { kind: "number", value: 1.08 },
+          },
+          animations: [
+            {
+              property: "scale",
+              keyframes: [
+                { at: irTimeUs(0), value: { kind: "number", value: 0.8 }, easing: "linear" },
+                {
+                  at: irTimeUs(500_000),
+                  value: { kind: "number", value: 1 },
+                  easing: "linear",
+                },
+              ],
+            },
+          ],
+          words: [
+            {
+              id: "captionword_production",
+              startUs: irTimeUs(0),
+              durationUs: irTimeUs(800_000),
+              text: "Production",
+            },
+            {
+              id: "captionword_captions",
+              startUs: irTimeUs(800_000),
+              durationUs: irTimeUs(900_000),
+              text: "captions",
+            },
+          ],
+        },
+      ],
+    });
+
+    const resolved = resolveSceneFrame({ program, assets: [] }, timeUs(1_250_000));
+    expect(resolved.text).toEqual([
+      expect.objectContaining({
+        nodeId: "cue_main",
+        text: "Production captions",
+        fontSize: 72,
+        originX: 192,
+        maxWidth: 1536,
+        scale: 0.9,
+        color: [254 / 255, 254 / 255, 254 / 255, 1],
+        emphasis: { start: 0, end: 10, color: [1, 213 / 255, 74 / 255, 1], scale: 1.08 },
+      }),
+    ]);
+    expect(resolved.graphics).toEqual([
+      expect.objectContaining({ nodeId: "cue_main/background", kind: "solid" }),
+    ]);
+  });
+
   it("normalizes pixel clip offsets and preserves rotation for the compositor", () => {
     let project = applyCommand(createProject({ name: "Transforms" }), {
       type: "asset.import",
@@ -234,6 +311,13 @@ describe("timeline visual layer order", () => {
     expect(resolved.graphics.find((graphic) => graphic.nodeId === "panel")?.transform.opacity).toBe(
       0.5,
     );
-    expect(resolved.graphics.filter((graphic) => graphic.kind === "glyph")).toHaveLength(4);
+    expect(resolved.text).toEqual([
+      expect.objectContaining({
+        nodeId: "name",
+        text: "Maya",
+        fontSize: 42,
+        order: 7,
+      }),
+    ]);
   });
 });

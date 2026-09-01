@@ -63,9 +63,17 @@ export function projectTimeline(
       }),
   }));
   const durationUs = irTimeUs(
-    tracks.reduce(
-      (maximum, track) => track.clips.reduce((inner, clip) => Math.max(inner, clip.endUs), maximum),
-      0,
+    composition.timeline.captionTracks.reduce(
+      (maximum, track) =>
+        track.cues.reduce(
+          (cueMaximum, cue) => Math.max(cueMaximum, cue.startUs + cue.durationUs),
+          maximum,
+        ),
+      tracks.reduce(
+        (maximum, track) =>
+          track.clips.reduce((inner, clip) => Math.max(inner, clip.endUs), maximum),
+        0,
+      ),
     ),
   );
   return {
@@ -76,6 +84,7 @@ export function projectTimeline(
     frameRate: composition.frameRate,
     durationUs,
     tracks,
+    captionTracks: composition.timeline.captionTracks,
     notes: composition.timeline.notes,
     markers: composition.timeline.markers,
     transitions: composition.timeline.transitions,
@@ -136,11 +145,35 @@ export function createRenderPlan(
             };
           }),
   );
+  const captions = composition.timeline.captionTracks.flatMap((track) =>
+    track.cues
+      .filter((cue) => playheadUs >= cue.startUs && playheadUs < cue.startUs + cue.durationUs)
+      .map((cue) => {
+        const evaluated = evaluateIrFrame(
+          {
+            id: cue.id,
+            kind: "cue",
+            props: cue.props,
+            animations: cue.animations,
+            effects: [],
+            children: [],
+          },
+          playheadUs - cue.startUs,
+        );
+        return {
+          track,
+          cue,
+          localTimeUs: irTimeUs(playheadUs - cue.startUs),
+          props: evaluated.props,
+        };
+      }),
+  );
   return {
     compositionId,
     playheadUs: irTimeUs(playheadUs),
     background: composition.background,
     layers,
+    captions,
   };
 }
 

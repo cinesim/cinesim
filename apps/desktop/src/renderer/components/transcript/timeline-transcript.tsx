@@ -1,10 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { MoveHorizontal, Play, Trash2, X } from "@cinesim/ui";
+import { MoveHorizontal, Play, Sparkles, Trash2, X } from "@cinesim/ui";
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger } from "@cinesim/ui";
 import { timeUs, type Project, type TimelineRange, type TimeUs } from "@cinesim/core";
 import type { DerivedProjectScope } from "../../../shared/contracts";
 import { projectScreenplayEntries } from "../../../shared/screenplay";
-import { projectTimelineTranscript, transcriptDocumentSections } from "../../../shared/transcript";
+import {
+  captionTrackFromTranscriptSelection,
+  projectTimelineTranscript,
+  transcriptDocumentSections,
+} from "../../../shared/transcript";
 import { isEditableKeyboardTarget } from "../../lib/keyboard-target";
 import { useRendererStore } from "../../store/renderer-store-context";
 import { useEditorTransport } from "../workspace/editor-transport-context";
@@ -126,6 +130,10 @@ export function TimelineTranscript({
   );
   const selectionStart = selectedRanges[0]?.startUs;
   const selectionEnd = selectedRanges.at(-1)?.endUs;
+  const selectedCaptionWords = useMemo(
+    () => projection.words.filter(({ id }) => selection.selectedIds.has(id)),
+    [projection.words, selection.selectedIds],
+  );
 
   useEffect(() => {
     function deleteSelection(event: KeyboardEvent) {
@@ -159,6 +167,25 @@ export function TimelineTranscript({
       mode,
     });
     if (result.ok) clearSelection();
+  }
+
+  async function generateCaptions() {
+    if (!transcripts || selectedCaptionWords.length === 0) return;
+    try {
+      const track = captionTrackFromTranscriptSelection({
+        sequenceId,
+        words: selectedCaptionWords,
+        transcripts,
+      });
+      const result = await execute({
+        type: "caption.generate",
+        sequenceId: sequenceId as `sequence_${string}`,
+        track,
+      });
+      if (result.ok) clearSelection();
+    } catch (error) {
+      reportError(error instanceof Error ? error.message : String(error));
+    }
   }
 
   return (
@@ -249,6 +276,12 @@ export function TimelineTranscript({
             }}
           >
             <Play size={14} /> Play selection
+          </ContextMenuItem>
+          <ContextMenuItem
+            disabled={!transcripts || selectedCaptionWords.length === 0}
+            onClick={() => void generateCaptions()}
+          >
+            <Sparkles size={14} /> Generate caption track
           </ContextMenuItem>
           <ContextMenuItem onClick={() => void deleteRanges("ripple")}>
             <Trash2 size={14} /> Delete and close gap

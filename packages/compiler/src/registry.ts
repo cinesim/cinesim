@@ -219,7 +219,7 @@ export const BUILTIN_REGISTRY: Readonly<Record<string, BuiltinSchema>> = {
     name: "timeline",
     category: "temporal",
     properties: { id },
-    allowedChildren: ["track", "note", "marker", "transition"],
+    allowedChildren: ["track", "captiontrack", "note", "marker", "transition"],
   },
   track: {
     name: "track",
@@ -252,6 +252,115 @@ export const BUILTIN_REGISTRY: Readonly<Record<string, BuiltinSchema>> = {
       "grain",
       "ducker",
     ],
+  },
+  captiontrack: {
+    name: "captiontrack",
+    category: "temporal",
+    properties: {
+      id,
+      name: required(property("name", "string", "structure", "text", { animatable: false })),
+      transcriptFingerprint: property("transcriptFingerprint", "string", "structure", "text", {
+        animatable: false,
+      }),
+      language: property("language", "string", "structure", "text", { animatable: false }),
+      fontFamily: property("fontFamily", "string", "text", "text", {
+        defaultValue: value({ kind: "string", value: "Instrument Sans" }),
+      }),
+      fontSize: property("fontSize", "length", "text", "number", {
+        defaultValue: value({ kind: "length", unit: "px", value: 64 }),
+      }),
+      fontWeight: property("fontWeight", "number", "text", "number", {
+        defaultValue: value({ kind: "number", value: 600 }),
+      }),
+      lineHeight: property("lineHeight", "number", "text", "number", {
+        defaultValue: value({ kind: "number", value: 1.15 }),
+      }),
+      placement: property("placement", "string", "text", "select", {
+        defaultValue: value({ kind: "string", value: "bottom" }),
+        options: ["top", "center", "bottom"],
+      }),
+      align: property("align", "string", "text", "select", {
+        defaultValue: value({ kind: "string", value: "center" }),
+        options: ["left", "center", "right"],
+      }),
+      fill: property("fill", "color", "text", "color", {
+        defaultValue: value({ kind: "color", value: "#ffffff" }),
+      }),
+      outlineColor: property("outlineColor", "color", "text", "color", {
+        defaultValue: value({ kind: "color", value: "#000000" }),
+      }),
+      outlineWidth: property("outlineWidth", "length", "text", "number", {
+        defaultValue: value({ kind: "length", unit: "px", value: 3 }),
+      }),
+      shadowColor: property("shadowColor", "color", "text", "color", {
+        defaultValue: value({ kind: "color", value: "#00000099" }),
+      }),
+      shadowBlur: property("shadowBlur", "length", "text", "number", {
+        defaultValue: value({ kind: "length", unit: "px", value: 8 }),
+      }),
+      shadowX: property("shadowX", "length", "text", "number", {
+        defaultValue: value({ kind: "length", unit: "px", value: 0 }),
+      }),
+      shadowY: property("shadowY", "length", "text", "number", {
+        defaultValue: value({ kind: "length", unit: "px", value: 4 }),
+      }),
+      background: property("background", "color", "text", "color", {
+        defaultValue: value({ kind: "color", value: "#00000000" }),
+      }),
+      safeMarginX: property("safeMarginX", "percent", "text", "slider", {
+        defaultValue: value({ kind: "percent", value: 8 }),
+      }),
+      safeMarginY: property("safeMarginY", "percent", "text", "slider", {
+        defaultValue: value({ kind: "percent", value: 8 }),
+      }),
+      animationPreset: property("animationPreset", "string", "text", "select", {
+        defaultValue: value({ kind: "string", value: "none" }),
+        options: ["none", "word-emphasis", "pop", "scale", "color", "position"],
+      }),
+      emphasisFill: property("emphasisFill", "color", "text", "color", {
+        defaultValue: value({ kind: "color", value: "#ffd54a" }),
+      }),
+      emphasisScale: property("emphasisScale", "number", "text", "number", {
+        defaultValue: value({ kind: "number", value: 1.08 }),
+      }),
+    },
+    allowedChildren: ["cue"],
+  },
+  cue: {
+    name: "cue",
+    category: "temporal",
+    properties: {
+      ...scene,
+      start: required(property("start", "time", "timing", "number", { animatable: false })),
+      duration: required(property("duration", "time", "timing", "number", { animatable: false })),
+      text: required(property("text", "string", "text", "text", { animatable: false })),
+      speaker: property("speaker", "string", "structure", "text", { animatable: false }),
+      fontSize: property("fontSize", "length", "text", "number"),
+      fontWeight: property("fontWeight", "number", "text", "number"),
+      fill: property("fill", "color", "text", "color"),
+      outlineColor: property("outlineColor", "color", "text", "color"),
+      outlineWidth: property("outlineWidth", "length", "text", "number"),
+      background: property("background", "color", "text", "color"),
+      animationPreset: property("animationPreset", "string", "text", "select", {
+        options: ["none", "word-emphasis", "pop", "scale", "color", "position"],
+      }),
+      emphasisFill: property("emphasisFill", "color", "text", "color"),
+      emphasisScale: property("emphasisScale", "number", "text", "number"),
+      wordProgress: property("wordProgress", "number", "text", "number", {
+        defaultValue: value({ kind: "number", value: -1 }),
+      }),
+    },
+    allowedChildren: ["captionword", "animate"],
+  },
+  captionword: {
+    name: "captionword",
+    category: "temporal",
+    properties: {
+      id,
+      start: required(property("start", "time", "timing", "number", { animatable: false })),
+      duration: required(property("duration", "time", "timing", "number", { animatable: false })),
+      text: required(property("text", "string", "text", "text", { animatable: false })),
+    },
   },
   clip: { name: "clip", category: "temporal", properties: clipProps, allowedChildren: "scene" },
   marker: {
@@ -369,14 +478,6 @@ export const BUILTIN_REGISTRY: Readonly<Record<string, BuiltinSchema>> = {
       fontWeight: property("fontWeight", "number", "text", "number"),
     },
   },
-  captions: {
-    name: "captions",
-    category: "content",
-    properties: {
-      ...scene,
-      source: required(property("source", "resource", "structure", "asset", { animatable: false })),
-    },
-  },
   group: { name: "group", category: "layout", properties: scene, allowedChildren: "scene" },
   grid: {
     name: "grid",
@@ -488,6 +589,9 @@ export const TEMPORAL_BUILTINS = new Set([
   "composition",
   "timeline",
   "track",
+  "captiontrack",
+  "cue",
+  "captionword",
   "clip",
   "note",
   "marker",

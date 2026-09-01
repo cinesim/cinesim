@@ -82,6 +82,7 @@ describe("WebGpuCompositor resource ownership", () => {
     });
     const compositor = new WebGpuCompositor(canvas as unknown as HTMLCanvasElement, {
       autoResize: false,
+      textRendering: "disabled",
     });
     compositor.setOutputSize(1280, 720);
     await compositor.initialize();
@@ -167,6 +168,7 @@ describe("WebGpuCompositor resource ownership", () => {
       });
       const compositor = new WebGpuCompositor(canvas as unknown as HTMLCanvasElement, {
         onError: (error) => reported.push(error),
+        textRendering: "disabled",
       });
       await compositor.initialize();
 
