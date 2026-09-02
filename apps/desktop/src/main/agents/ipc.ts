@@ -1,6 +1,5 @@
 import { execFile } from "node:child_process";
 import { clipboard, dialog } from "electron";
-import type { AgentProviderKind } from "../../shared/contracts";
 import type { AgentManager } from "./manager";
 import { detectProvider } from "./provider-detection";
 import { inspectAgentExecutable } from "./executable-trust";
@@ -15,18 +14,7 @@ function quoteShellArgument(value: string): string {
 
 export function registerAgentIpc(agents: AgentManager, settingsStore: AgentSettingsStore): void {
   registerIpcHandler(agentContracts.settingsGet, () => settingsStore.snapshot());
-  registerIpcHandler(agentContracts.settingsUpdate, async ({ update }) => {
-    if (update.provider && update.permissionMode === "auto-edit") {
-      await requireUserIntent({
-        title: "Allow automatic edits?",
-        message: `Let ${update.provider === "claude" ? "Claude Code" : "Codex"} edit the open project without individual approvals?`,
-        detail:
-          "This trust setting applies to new sessions. You can return to supervised mode at any time.",
-        confirmLabel: "Enable auto-edit",
-      });
-    }
-    return settingsStore.update(update);
-  });
+  registerIpcHandler(agentContracts.settingsUpdate, ({ update }) => settingsStore.update(update));
   registerIpcHandler(agentContracts.providersRefresh, async () => {
     const settings = settingsStore.snapshot();
     const statuses = await Promise.all(
@@ -68,18 +56,11 @@ export function registerAgentIpc(agents: AgentManager, settingsStore: AgentSetti
   registerIpcHandler(agentContracts.get, ({ projectDirectory }) =>
     agents.snapshot(projectDirectory),
   );
-  registerIpcHandler(agentContracts.create, async ({ input }) => {
-    if (input.permissionMode === "auto-edit") await confirmSessionAutoEdit(input.provider);
-    return agents.create(input);
-  });
-  registerIpcHandler(agentContracts.ensure, async ({ input }) => {
-    if (input.permissionMode === "auto-edit") await confirmSessionAutoEdit(input.provider);
-    return agents.ensure(input);
-  });
-  registerIpcHandler(agentContracts.update, async ({ sessionId, update }) => {
-    if (update.permissionMode === "auto-edit") await confirmSessionAutoEdit();
-    return agents.update(sessionId, update);
-  });
+  registerIpcHandler(agentContracts.create, ({ input }) => agents.create(input));
+  registerIpcHandler(agentContracts.ensure, ({ input }) => agents.ensure(input));
+  registerIpcHandler(agentContracts.update, ({ sessionId, update }) =>
+    agents.update(sessionId, update),
+  );
   registerIpcHandler(agentContracts.select, ({ projectDirectory, sessionId }) => {
     return agents.select(projectDirectory, sessionId);
   });
@@ -91,37 +72,5 @@ export function registerAgentIpc(agents: AgentManager, settingsStore: AgentSetti
   });
   registerIpcHandler(agentContracts.interrupt, ({ sessionId }) => {
     return agents.interrupt(sessionId);
-  });
-  registerIpcHandler(agentContracts.approval, async ({ sessionId, requestId, decision }) => {
-    if (decision === "accept") {
-      const intent = agents.approvalIntent(sessionId, requestId);
-      await requireUserIntent({
-        title: "Approve agent operation?",
-        message: `Allow ${intent.toolName.replaceAll("_", " ")}?`,
-        detail: intent.detail,
-        confirmLabel: "Approve once",
-      });
-    }
-    return agents.respondApproval(sessionId, requestId, decision);
-  });
-  registerIpcHandler(agentContracts.revert, async ({ sessionId, turnId }) => {
-    const intent = agents.revertIntent(sessionId, turnId);
-    await requireUserIntent({
-      title: "Restore agent checkpoint?",
-      message: `Restore the project to before agent turn ${intent.turnNumber}?`,
-      detail: `${intent.summary}\nCanonical project files will be replaced with the checkpoint state.`,
-      confirmLabel: "Restore checkpoint",
-    });
-    return agents.revert(sessionId, turnId);
-  });
-}
-
-async function confirmSessionAutoEdit(provider?: AgentProviderKind): Promise<void> {
-  await requireUserIntent({
-    title: "Allow automatic edits?",
-    message: `Let ${provider ? (provider === "claude" ? "Claude Code" : "Codex") : "this agent"} edit the open project without individual approvals?`,
-    detail:
-      "Automatic edits still use validated Cinesim commands and remain undoable, but individual changes will not ask first.",
-    confirmLabel: "Enable auto-edit",
   });
 }

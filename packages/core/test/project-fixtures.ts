@@ -16,7 +16,7 @@ import type {
   ProjectSettings,
   Transform,
 } from "../src/project/types";
-import { DEFAULT_SETTINGS } from "../src/project/types";
+import { DEFAULT_SETTINGS } from "../src/project/settings";
 import { planSemanticCommand } from "../src/semantic/commands";
 import type { SemanticCommandPlan, SemanticEditorCommand } from "../src/semantic/command-types";
 
@@ -50,6 +50,7 @@ export function createProject(options: CreateProjectOptions): Project {
     name: options.name.trim() || "Untitled project",
     activeSequenceId: sequenceId,
     assets: [],
+    notes: [],
     sequences: [
       {
         id: sequenceId,
@@ -57,6 +58,7 @@ export function createProject(options: CreateProjectOptions): Project {
         width: options.width ?? 1920,
         height: options.height ?? 1080,
         frameRate: options.frameRate ?? 30,
+        notes: [],
         tracks: [
           {
             id: videoTrackId,
@@ -117,7 +119,7 @@ function clipToIr(clip: Clip, trackId: string): IrClip {
     loop: false,
     fades: { inUs: irTimeUs(clip.fadeInUs ?? 0), outUs: irTimeUs(clip.fadeOutUs ?? 0) },
     transform: transformToIr(clip.transform),
-    audio: { gainDb: 0, pan: 0, muted: false },
+    audio: { gainDb: clip.gainDb ?? 0, pan: clip.pan ?? 0, muted: clip.muted ?? false },
     effects: [],
   };
 }
@@ -147,8 +149,15 @@ export function projectToIr(
       background: settings.backgroundColor,
       timeline: {
         id: `timeline_${sequence.id.replace(/^sequence_/u, "")}`,
+        captionTracks: [],
+        notes: sequence.notes.map(({ atUs, durationUs, ...note }) => ({
+          ...note,
+          atUs: irTimeUs(atUs),
+          ...(durationUs === undefined ? {} : { durationUs: irTimeUs(durationUs) }),
+        })),
         markers: [],
         transitions: [],
+        audioTransitions: [],
         tracks: sequence.tracks.map((track) => ({
           id: track.id,
           kind: track.kind,

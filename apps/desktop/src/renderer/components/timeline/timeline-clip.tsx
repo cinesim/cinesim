@@ -176,6 +176,9 @@ export function TimelineClipBlock({
       snapCandidatesUs: snappingEnabled ? snapCandidatesUs : [],
       snapToleranceUs: timeUs(snappingEnabled ? Math.round(8 / pixelsPerUs) : 0),
       clip,
+      ...(event.altKey && clip.linkedClipId && asset
+        ? { splitComponent: clip.mediaKind, assetDurationUs: asset.durationUs }
+        : {}),
     });
     trimGestureRef.current = transition.state;
     setTrimGesture(transition.state);
@@ -389,7 +392,8 @@ export function TimelineClipBlock({
         <>
           <button
             type="button"
-            aria-label="Trim clip start"
+            aria-label="Trim clip start; Option-drag for a split edit"
+            title="Trim start · Option-drag this component for a split edit"
             className="absolute inset-y-0 left-0 w-1.5 cursor-ew-resize hover:bg-primary"
             onPointerDown={(event) => trim("start", event)}
             onPointerMove={moveTrim}
@@ -399,7 +403,8 @@ export function TimelineClipBlock({
           />
           <button
             type="button"
-            aria-label="Trim clip end"
+            aria-label="Trim clip end; Option-drag for a split edit"
+            title="Trim end · Option-drag this component for a split edit"
             className="absolute inset-y-0 right-0 w-1.5 cursor-ew-resize hover:bg-primary"
             onPointerDown={(event) => trim("end", event)}
             onPointerMove={moveTrim}

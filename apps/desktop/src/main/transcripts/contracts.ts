@@ -48,6 +48,10 @@ export const transcriptContracts = {
     invokeChannels.transcripts.request,
     z.tuple([z.object({ scope: derivedProjectScopeSchema, assetIds: assetIdsSchema }).strict()]),
   ),
+  regenerate: snapshotContract(
+    invokeChannels.transcripts.regenerate,
+    z.tuple([z.object({ scope: derivedProjectScopeSchema, assetIds: assetIdsSchema }).strict()]),
+  ),
   cancel: snapshotContract(
     invokeChannels.transcripts.cancel,
     z.tuple([z.object({ scope: derivedProjectScopeSchema, assetIds: assetIdsSchema }).strict()]),

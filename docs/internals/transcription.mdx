@@ -96,6 +96,21 @@ User-authored speaker names, merges, and text corrections are intentionally not 
 artifact schema. If introduced, they must use a versioned deterministic canonical source form and
 be changed only by validated commands; disposable transcript artifacts must not become authority.
 
+## Canonical caption generation
+
+A selected set of projected transcript words can become a dedicated JSX `<captiontrack>` through
+one validated `caption.generate` command. Generation sorts the selection by exact timeline time,
+groups bounded readable cues at speaker, clip, silence, duration, word-count, and character limits,
+and assigns deterministic track, cue, and word IDs. The track records a stable fingerprint of the
+participating transcript sources and generator versions, but copies all text and timings into the
+canonical cue model. Deleting or regenerating `.video/transcripts/` therefore cannot change an
+accepted caption track.
+
+Repeating generation for the same selection replaces the same stable track atomically instead of
+duplicating it. Track/cue style and expressive preset data compile to normal typed properties and
+keyframes. Preview shapes the resulting text with HarfBuzz and renders it from a bounded WebGPU
+signed-distance glyph atlas.
+
 ## Deterministic projection decisions
 
 - A word is included in a clip when its midpoint lies in the clip's source range. Its mapped seek

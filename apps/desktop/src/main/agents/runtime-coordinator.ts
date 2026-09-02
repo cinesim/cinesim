@@ -15,7 +15,6 @@ interface AgentRuntimeHost {
     detail?: string,
   ): void;
   tokenUsage(sessionId: string, usage: Omit<AgentTokenUsage, "updatedAt">): void;
-  approval(sessionId: string, title: string, detail: string): Promise<boolean>;
   exited(sessionId: string, detail?: string): void;
 }
 
@@ -26,7 +25,6 @@ export class AgentRuntimeCoordinator {
     private readonly settings: AgentSettingsStore,
     private readonly mcpServer: AgentMcpServer,
     private readonly host: AgentRuntimeHost,
-    private readonly instructions: string,
   ) {}
 
   async send(session: AgentSessionSnapshot, message: string): Promise<void> {
@@ -59,7 +57,6 @@ export class AgentRuntimeCoordinator {
     const credential = this.mcpServer.registerSession({
       sessionId: session.id,
       projectDirectory: session.projectDirectory,
-      permissionMode: session.permissionMode,
     });
     const runtime = createAgentRuntime(
       session.provider,
@@ -71,7 +68,6 @@ export class AgentRuntimeCoordinator {
         ...(session.providerSessionId ? { providerSessionId: session.providerSessionId } : {}),
         mcpUrl: credential.url,
         mcpToken: credential.token,
-        instructions: this.instructions,
       },
       {
         onEvent: (event) => this.host.event(session.id, event),
@@ -80,7 +76,6 @@ export class AgentRuntimeCoordinator {
         onTurnStarted: (providerTurnId) => this.host.turnStarted(session.id, providerTurnId),
         onTurnCompleted: (status, detail) => this.host.turnCompleted(session.id, status, detail),
         onTokenUsage: (usage) => this.host.tokenUsage(session.id, usage),
-        onApproval: (title, detail) => this.host.approval(session.id, title, detail),
         onExit: (detail) => this.#providerExited(session.id, detail),
       },
     );

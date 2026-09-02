@@ -175,6 +175,24 @@ export class TranscriptJobCoordinator {
     return this.#serialize(() => this.#requestJobsNow(scope, assetIds));
   }
 
+  async regenerateJobs(scope: DerivedProjectScope, assetIds: readonly string[]) {
+    return this.#serialize(() => this.#regenerateJobsNow(scope, assetIds));
+  }
+
+  async #regenerateJobsNow(scope: DerivedProjectScope, assetIds: readonly string[]) {
+    this.#assertScope(scope);
+    this.#requireTranscriptionService();
+    if (assetIds.length === 0 || assetIds.length > MAX_REQUEST_IDS)
+      throw new Error(`Select between 1 and ${MAX_REQUEST_IDS} assets to regenerate`);
+    for (const assetId of new Set(assetIds)) {
+      await this.#cancelAsset(assetId);
+      await this.#queueAsset(assetId, true);
+    }
+    await this.#persistIndex();
+    this.#emit();
+    return this.#snapshot(scope);
+  }
+
   async #requestJobsNow(scope: DerivedProjectScope, assetIds: readonly string[]) {
     this.#assertScope(scope);
     this.#requireTranscriptionService();
@@ -195,7 +213,7 @@ export class TranscriptJobCoordinator {
     return this.#snapshot(scope);
   }
 
-  async #queueAsset(assetId: string): Promise<void> {
+  async #queueAsset(assetId: string, force = false): Promise<void> {
     const asset = this.#requireAsset(assetId);
     if (asset.kind === "image" || (asset.kind === "video" && asset.hasAudio !== true)) return;
     const fingerprint = await this.fingerprintForAsset(asset.id);
@@ -208,7 +226,7 @@ export class TranscriptJobCoordinator {
       current?.state === "ready" &&
       current.sourceFingerprint &&
       fingerprintsEqual(current.sourceFingerprint, fingerprint);
-    if (!currentArtifact)
+    if (force || !currentArtifact)
       this.#index.assets[asset.id] = { state: "queued", sourceFingerprint: fingerprint };
   }
 

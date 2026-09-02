@@ -19,12 +19,18 @@ undo and redo, and the full command set: asset import and cascading removal; tim
 ordered assets and safe removal; track add, update, remove, and reorder; clip add, remove, move,
 trim, and split.
 
-**Command pathway.** Zod-validated protocol commands dispatched to one implementation in
-`@cinesim/core`, shared by the desktop app, CLI, and MCP adapters.
+**Authoring pathway.** Zod-validated UI commands and directly edited source converge at one compile
+acceptance boundary. Invalid disk candidates retain last-known-good playback. MCP exposes no
+canonical edits.
 
 **Playback engine.** Monotonic clock, frame-cadenced scheduling, bounded sequential cursors,
 latest-only seek coalescing, source-preview isolation and restoration, WebGPU composition, and Web
 Audio scheduling.
+
+**Finishing and export.** Split edits, captions, validated picture/audio transitions, adjustment
+layers, typed effects and keyframes, deterministic scoped WebGPU render passes, and explicit
+H.264/AAC Rec.709 SDR MP4 export with bounded interleaved video/audio encoding and atomic
+publication. UI and MCP expose preset, range, progress, status, and cancellation controls.
 
 **Derived media.** Bounded thumbnail, filmstrip, and waveform generation with atomic publication,
 storage accounting, recovery, and eviction ordering.
@@ -40,8 +46,9 @@ source and timeline modes, display scales, grids, safe-area guides, fullscreen, 
 transport shortcuts; Metrics and Agents sidebars; settings.
 
 **Local agents.** Claude Code and Codex sessions with normalized transcripts, per-session model and
-effort controls, approval modes, a session-scoped MCP endpoint, and Git-object turn checkpoints with
-diff and restore.
+effort controls, approval modes, direct project-local file/shell capabilities, managed shared
+guidance, and an authenticated project-scoped MCP endpoint. Read-only change summaries remain in
+chat; accepted source generations enter only ordinary top-bar project history.
 
 Verification currently passing: whole-repository TypeScript check, Vite+ format and lint with no
 warnings, the automated test suite, production builds for main, preload, renderer, API, and web, and
@@ -61,26 +68,28 @@ measurements need the interactive pass above.
 ## Known limitations
 
 **Editing model.** The source format supports multiple explicit compositions, typed animations,
-effects, transitions in IR, generated visual content, and linked/unlinked A/V commands. Nested
-composition playback and final export/render remain future work.
+effects, transitions, generated visual content, captions, adjustment layers, masks, and linked or
+split A/V commands. Nested composition playback remains future work.
 
-**Concurrency.** Desktop, CLI, and MCP writers share a cross-process project lock and reject stale
-generations instead of overwriting a newer edit. The desktop watches the manifest and source module
-graph, retains its last-known-good program through invalid saves, publishes diagnostics, and
-live-refreshes when external source becomes valid again.
+**Concurrency.** Desktop commands and the legacy CLI command adapter share a cross-process project
+lock and reject stale generations instead of overwriting a newer edit. MCP is not a canonical writer.
+The desktop watches the complete canonical file graph, retains its last-known-good program through
+invalid saves, publishes diagnostics, and live-refreshes when external source becomes valid again.
 
-**Media.** Exact-frame artifact generation is lookup-only. There is no bundled FFmpeg, so footage
+**Media.** Exact-frame jobs generate bounded asset frames through Mediabunny/WebCodecs and accepted
+timeline frames through the production WebGPU compositor. There is no bundled FFmpeg, so footage
 Chromium cannot decode cannot be proxied. Still-image import is not exposed in the media picker.
 
-**Audio.** Scheduling is a rolling Web Audio buffer, not an AudioWorklet mixer.
+**Audio.** The rolling Web Audio mix and bounded export mixer execute exact clip ranges, fades, gain,
+stereo pan, mute, equal-power crossfades, and deterministic sidechain ducking. Interactive playback
+is not an AudioWorklet.
 
-**Other.** The Lexical notes surface is a working draft and does not write `AGENTS.md` or
-`script.md`. The renderer application chunk is around 1.5 MB minified; lazy route and vendor
-splitting is pending.
+**Other.** The Notes panel projects canonical project and asset TOML records plus lowercase
+timeline `<note>` elements; edits use validated commands and accepted project history. The
+renderer application chunk is around 1.5 MB minified; lazy route and vendor splitting is pending.
 
 ## Next steps
 
 1. Exercise playback across representative operating systems, codec profiles, and GPU drivers,
    then capture interactive playback and Web Audio metrics.
-2. Tune proxy profiles from those measurements, and add exact-frame jobs to the existing bounded
-   worker and storage path.
+2. Tune proxy and color policies from those measurements and expand the verified codec/GPU matrix.

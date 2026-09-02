@@ -22,9 +22,16 @@ export function registerProjectIpc(
   registerIpcHandler(projectContracts.create, ({ name, kind, locationToken }) =>
     controller.create(name, kind, locationToken),
   );
+  registerIpcHandler(projectContracts.guidanceGet, () => store.agentGuidance());
+  registerIpcHandler(projectContracts.guidanceUpdate, ({ customInstructions }) =>
+    store.updateAgentGuidance(customInstructions),
+  );
   registerIpcHandler(projectContracts.open, () => controller.open());
   registerIpcHandler(projectContracts.openRecent, ({ directory }) =>
     controller.openRecent(directory),
+  );
+  registerIpcHandler(projectContracts.revealAsset, ({ assetId }) =>
+    controller.revealAsset(assetId),
   );
   registerIpcHandler(projectContracts.session, () => (store.project ? store.session() : null));
   registerIpcHandler(projectContracts.recentDetails, () => controller.recentDetails());
@@ -38,7 +45,10 @@ export function registerProjectIpc(
   registerIpcHandler(projectContracts.openWith, ({ target }) => controller.openWith(target));
   registerIpcHandler(projectContracts.forget, ({ directory }) => controller.forget(directory));
   registerIpcHandler(projectContracts.trash, ({ directory }) => controller.trash(directory));
-  registerIpcHandler(projectContracts.importMedia, () => controller.importMedia());
+  registerIpcHandler(projectContracts.importMedia, () => controller.prepareMediaImport());
+  registerIpcHandler(projectContracts.importMediaCommit, ({ token, results }) =>
+    controller.commitMediaImport(token, results),
+  );
   registerIpcHandler(projectContracts.execute, ({ command, expectedGeneration }) =>
     store.execute(command, expectedGeneration),
   );

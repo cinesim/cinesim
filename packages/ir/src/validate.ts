@@ -1,20 +1,63 @@
 import type {
   IrClip,
+  IrCaptionCue,
+  IrCaptionTrack,
   IrComposition,
   IrEffect,
   IrProgram,
   IrSceneNode,
+  IrTimeline,
   IrTrack,
   IrValue,
 } from "./types";
 
 interface ClipLinkRecord {
   trackId: string;
+  trackKind: IrTrack["kind"];
   assetId?: string;
   linkedClipId?: string;
-  start: number;
-  duration: number;
-  source: number;
+  timelineStartUs: number;
+  sourceStartUs: number;
+  durationUs: number;
+  enabled: boolean;
+}
+
+interface AdjustmentRecord {
+  id: string;
+  startUs: number;
+  endUs: number;
+  targetIds: string[];
+}
+
+function adjustmentRecords(composition: IrComposition): AdjustmentRecord[] {
+  const tracks = composition.timeline.tracks;
+  return tracks.flatMap((track, ownerIndex) =>
+    (track.adjustments ?? []).map((adjustment) => ({
+      id: adjustment.id,
+      startUs: adjustment.timelineStartUs,
+      endUs: adjustment.timelineStartUs + adjustment.durationUs,
+      targetIds:
+        adjustment.scope === "tracks"
+          ? adjustment.targetTrackIds
+          : tracks
+              .slice(ownerIndex + 1)
+              .filter((candidate) => candidate.kind !== "audio")
+              .slice(0, adjustment.depth)
+              .map((candidate) => candidate.id),
+    })),
+  );
+}
+
+function validateAdjustmentOverlap(composition: IrComposition): void {
+  const records = adjustmentRecords(composition);
+  for (const [index, left] of records.entries()) {
+    for (const right of records.slice(index + 1)) {
+      const timeOverlaps = left.startUs < right.endUs && right.startUs < left.endUs;
+      const targetOverlaps = left.targetIds.some((id) => right.targetIds.includes(id));
+      if (timeOverlaps && targetOverlaps)
+        throw new Error(`Adjustment layers ${left.id} and ${right.id} overlap the same target.`);
+    }
+  }
 }
 
 function assertTime(value: number, name: string): void {
@@ -43,9 +86,20 @@ class ProgramValidator {
     }
   }
 
-  visitEffect(effect: IrEffect): void {
+  visitEffect(effect: IrEffect, allowDucker = false): void {
     this.claim(effect.id, "effect");
+    if (effect.kind === "ducker" && !allowDucker) {
+      throw new Error(`Ducker ${effect.id} must be directly attached to an audio clip or track.`);
+    }
     Object.values(effect.props).forEach((value) => this.referenceValue(value));
+    for (const animation of effect.animations ?? []) {
+      if (effect.props[animation.property] === undefined)
+        throw new Error(`Effect ${effect.id} animation targets an unknown property.`);
+      for (const keyframe of animation.keyframes) {
+        assertTime(keyframe.at, `${effect.id}.${animation.property}.keyframe`);
+        this.referenceValue(keyframe.value);
+      }
+    }
     effect.children.forEach((child) => this.visitScene(child));
   }
 
@@ -78,35 +132,109 @@ class ProgramValidator {
       this.referenceValue({ kind: "resource", assetId: clip.assetId });
     }
     if (clip.content) this.visitScene(clip.content);
-    clip.effects.forEach((effect) => this.visitEffect(effect));
+    for (const animation of clip.animations ?? []) {
+      for (const keyframe of animation.keyframes)
+        assertTime(keyframe.at, `${clip.id}.${animation.property}.keyframe`);
+    }
+    clip.effects.forEach((effect) =>
+      this.visitEffect(effect, track.kind === "audio" && clip.mediaKind === "audio"),
+    );
     return {
       trackId: track.id,
+      trackKind: track.kind,
       ...(clip.assetId === undefined ? {} : { assetId: clip.assetId }),
       ...(clip.linkedClipId === undefined ? {} : { linkedClipId: clip.linkedClipId }),
-      start: clip.timelineStartUs,
-      duration: clip.durationUs,
-      source: clip.sourceStartUs,
+      timelineStartUs: clip.timelineStartUs,
+      sourceStartUs: clip.sourceStartUs,
+      durationUs: clip.durationUs,
+      enabled: clip.enabled,
     };
   }
 
   validateTrack(track: IrTrack, clips: Map<string, ClipLinkRecord>): void {
     this.claim(track.id, "track");
     for (const clip of track.clips) clips.set(clip.id, this.validateClip(clip, track));
-    track.effects.forEach((effect) => this.visitEffect(effect));
+    for (const adjustment of track.adjustments ?? []) {
+      this.claim(adjustment.id, "adjustment layer");
+      if (adjustment.trackId !== track.id)
+        throw new Error(`Adjustment layer ${adjustment.id} has the wrong trackId.`);
+      assertTime(adjustment.timelineStartUs, `${adjustment.id}.timelineStartUs`);
+      assertTime(adjustment.durationUs, `${adjustment.id}.durationUs`);
+      if (adjustment.durationUs <= 0)
+        throw new Error(`Adjustment layer ${adjustment.id} duration must be positive.`);
+      if (!Number.isSafeInteger(adjustment.depth) || adjustment.depth <= 0)
+        throw new Error(`Adjustment layer ${adjustment.id} depth must be a positive integer.`);
+      adjustment.effects.forEach((effect) => this.visitEffect(effect));
+    }
+    track.effects.forEach((effect) => this.visitEffect(effect, track.kind === "audio"));
+  }
+
+  validateAdjustmentTargets(
+    adjustment: NonNullable<IrTrack["adjustments"]>[number],
+    ownerIndex: number,
+    byId: ReadonlyMap<string, { track: IrTrack; index: number }>,
+  ): void {
+    for (const targetId of adjustment.targetTrackIds) {
+      const target = byId.get(targetId);
+      if (!target || target.track.kind === "audio" || target.index <= ownerIndex)
+        throw new Error(
+          `Adjustment layer ${adjustment.id} target ${targetId} must be a visual track below it.`,
+        );
+    }
+  }
+
+  validateAdjustments(composition: IrComposition): void {
+    const tracks = composition.timeline.tracks;
+    const byId = new Map(tracks.map((track, index) => [track.id, { track, index }]));
+    for (const [ownerIndex, owner] of tracks.entries()) {
+      if (owner.kind === "audio" && (owner.adjustments?.length ?? 0) > 0)
+        throw new Error(`Audio track ${owner.id} cannot contain adjustment layers.`);
+      for (const adjustment of owner.adjustments ?? []) {
+        if (adjustment.scope === "tracks" && adjustment.targetTrackIds.length === 0)
+          throw new Error(`Adjustment layer ${adjustment.id} requires explicit target tracks.`);
+        this.validateAdjustmentTargets(adjustment, ownerIndex, byId);
+      }
+    }
+    validateAdjustmentOverlap(composition);
+  }
+
+  validateDucker(effect: IrEffect, target: IrTrack, tracks: ReadonlyMap<string, IrTrack>): void {
+    if (effect.kind !== "ducker") return;
+    const sidechain = effect.props.sidechain;
+    const source = sidechain?.kind === "string" ? tracks.get(sidechain.value) : undefined;
+    if (!source || source.kind !== "audio" || source.id === target.id) {
+      throw new Error(`Ducker ${effect.id} requires a different audio sidechain track.`);
+    }
+    const attack = effect.props.attack;
+    const release = effect.props.release;
+    if (attack?.kind === "time") assertTime(attack.valueUs, `${effect.id}.attack`);
+    if (release?.kind === "time") assertTime(release.valueUs, `${effect.id}.release`);
+    const reduction = effect.props.reduction;
+    if (
+      reduction?.kind === "decibels" &&
+      (!Number.isFinite(reduction.value) || reduction.value > 0)
+    ) {
+      throw new Error(`Ducker ${effect.id} reduction must be finite and non-positive.`);
+    }
+  }
+
+  validateDuckers(composition: IrComposition): void {
+    const tracks = new Map(composition.timeline.tracks.map((track) => [track.id, track]));
+    for (const track of composition.timeline.tracks) {
+      track.effects.forEach((effect) => this.validateDucker(effect, track, tracks));
+      track.clips.forEach((clip) =>
+        clip.effects.forEach((effect) => this.validateDucker(effect, track, tracks)),
+      );
+    }
   }
 
   validateClipLinks(clips: ReadonlyMap<string, ClipLinkRecord>): void {
     for (const [id, clip] of clips) {
       if (!clip.linkedClipId) continue;
       const linked = clips.get(clip.linkedClipId);
-      const reciprocalAndEquivalent =
-        linked?.linkedClipId === id &&
-        linked.assetId === clip.assetId &&
-        linked.start === clip.start &&
-        linked.duration === clip.duration &&
-        linked.source === clip.source;
-      if (!reciprocalAndEquivalent) {
-        throw new Error(`Clip link is not reciprocal and range-equivalent: ${id}`);
+      const reciprocalSameAsset = linked?.linkedClipId === id && linked.assetId === clip.assetId;
+      if (!reciprocalSameAsset) {
+        throw new Error(`Clip link is not reciprocal and asset-equivalent: ${id}`);
       }
     }
   }
@@ -125,18 +253,134 @@ class ProgramValidator {
     }
     const clips = new Map<string, ClipLinkRecord>();
     for (const track of composition.timeline.tracks) this.validateTrack(track, clips);
+    for (const track of composition.timeline.captionTracks) this.validateCaptionTrack(track);
     this.validateClipLinks(clips);
-    for (const marker of composition.timeline.markers) {
+    this.validateAdjustments(composition);
+    this.validateDuckers(composition);
+    this.validateEditorialMetadata(composition.timeline, clips);
+  }
+
+  validateCaptionAnimations(cue: IrCaptionCue): void {
+    for (const animation of cue.animations) {
+      for (const keyframe of animation.keyframes) {
+        assertTime(keyframe.at, `${cue.id}.${animation.property}.keyframe`);
+        if (keyframe.at > cue.durationUs)
+          throw new Error(`Caption cue ${cue.id} has a keyframe beyond its duration.`);
+        this.referenceValue(keyframe.value);
+      }
+    }
+  }
+
+  validateCaptionWords(cue: IrCaptionCue): void {
+    for (const word of cue.words) {
+      this.claim(word.id, "caption word");
+      assertTime(word.startUs, `${word.id}.startUs`);
+      assertTime(word.durationUs, `${word.id}.durationUs`);
+      if (word.durationUs <= 0 || word.startUs + word.durationUs > cue.durationUs)
+        throw new Error(`Caption word ${word.id} must fit within cue ${cue.id}.`);
+      if (!word.text.trim()) throw new Error(`Caption word ${word.id} must contain text.`);
+    }
+  }
+
+  validateCaptionCue(cue: IrCaptionCue, previousEndUs: number): number {
+    this.claim(cue.id, "caption cue");
+    assertTime(cue.startUs, `${cue.id}.startUs`);
+    assertTime(cue.durationUs, `${cue.id}.durationUs`);
+    if (cue.durationUs <= 0) throw new Error(`Caption cue ${cue.id} duration must be positive.`);
+    if (!cue.text.trim()) throw new Error(`Caption cue ${cue.id} must contain text.`);
+    if (cue.startUs < previousEndUs)
+      throw new Error(`Caption cue ${cue.id} overlaps its predecessor.`);
+    Object.values(cue.props).forEach((value) => this.referenceValue(value));
+    this.validateCaptionAnimations(cue);
+    this.validateCaptionWords(cue);
+    return cue.startUs + cue.durationUs;
+  }
+
+  validateCaptionTrack(track: IrCaptionTrack): void {
+    this.claim(track.id, "caption track");
+    if (!track.name.trim()) throw new Error(`Caption track ${track.id} requires a name.`);
+    if ((track.transcriptFingerprint?.length ?? 0) > 256)
+      throw new Error(`Caption track ${track.id} has an invalid transcript fingerprint.`);
+    Object.values(track.props).forEach((value) => this.referenceValue(value));
+    let previousEndUs = 0;
+    for (const cue of track.cues) previousEndUs = this.validateCaptionCue(cue, previousEndUs);
+  }
+
+  validateEditorialMetadata(
+    timeline: IrTimeline,
+    clips: ReadonlyMap<string, ClipLinkRecord>,
+  ): void {
+    for (const note of timeline.notes) {
+      this.claim(note.id, "note");
+      assertTime(note.atUs, `${note.id}.atUs`);
+      if (note.durationUs !== undefined) assertTime(note.durationUs, `${note.id}.durationUs`);
+      if (!note.text.trim()) throw new Error(`Timeline note ${note.id} must contain text.`);
+    }
+    for (const marker of timeline.markers) {
       this.claim(marker.id, "marker");
       assertTime(marker.atUs, `${marker.id}.atUs`);
     }
-    for (const transition of composition.timeline.transitions) {
-      this.claim(transition.id, "transition");
-      assertTime(transition.durationUs, `${transition.id}.durationUs`);
-      if (!clips.has(transition.fromClipId) || !clips.has(transition.toClipId)) {
-        throw new Error(`Transition ${transition.id} references a missing clip.`);
-      }
-    }
+    timeline.transitions.forEach((transition) => this.validateVisualTransition(transition, clips));
+    timeline.audioTransitions.forEach((transition) =>
+      this.validateAudioTransition(transition, clips),
+    );
+  }
+
+  validateTransitionClips(
+    id: string,
+    fromClipId: string,
+    toClipId: string,
+    durationUs: number,
+    clips: ReadonlyMap<string, ClipLinkRecord>,
+  ): { from: ClipLinkRecord; to: ClipLinkRecord } {
+    assertTime(durationUs, `${id}.durationUs`);
+    const from = clips.get(fromClipId);
+    const to = clips.get(toClipId);
+    if (!from || !to) throw new Error(`Transition ${id} references a missing clip.`);
+    if (!from.enabled || !to.enabled || from.trackId !== to.trackId)
+      throw new Error(`Transition ${id} requires enabled clips on the same track.`);
+    if (from.timelineStartUs + from.durationUs !== to.timelineStartUs)
+      throw new Error(`Transition ${id} requires adjacent clips at one edit point.`);
+    if (durationUs > from.durationUs || durationUs > to.sourceStartUs)
+      throw new Error(`Transition ${id} does not have sufficient source handles.`);
+    return { from, to };
+  }
+
+  validateVisualTransition(
+    transition: IrTimeline["transitions"][number],
+    clips: ReadonlyMap<string, ClipLinkRecord>,
+  ): void {
+    this.claim(transition.id, "transition");
+    const { from, to } = this.validateTransitionClips(
+      transition.id,
+      transition.fromClipId,
+      transition.toClipId,
+      transition.durationUs,
+      clips,
+    );
+    if (from.trackKind === "audio" || to.trackKind === "audio")
+      throw new Error(`Visual transition ${transition.id} requires visual clips.`);
+    if (transition.kind !== "cut" && transition.durationUs === 0)
+      throw new Error(`Transition ${transition.id} duration must be positive.`);
+    Object.values(transition.props).forEach((value) => this.referenceValue(value));
+  }
+
+  validateAudioTransition(
+    transition: IrTimeline["audioTransitions"][number],
+    clips: ReadonlyMap<string, ClipLinkRecord>,
+  ): void {
+    this.claim(transition.id, "audio transition");
+    const { from, to } = this.validateTransitionClips(
+      transition.id,
+      transition.fromClipId,
+      transition.toClipId,
+      transition.durationUs,
+      clips,
+    );
+    if (from.trackKind !== "audio" || to.trackKind !== "audio")
+      throw new Error(`Audio crossfade ${transition.id} requires audio clips.`);
+    if (transition.durationUs === 0)
+      throw new Error(`Audio crossfade ${transition.id} duration must be positive.`);
   }
 
   validate(program: IrProgram): void {

@@ -14,7 +14,7 @@ apps/api          Hono server: Better Auth, cloud media control plane
 apps/web          Next.js marketing site and documentation
 packages/core     Deterministic project model, commands, history, serialization
 packages/engine   Mediabunny sources, playback clock, Web Audio, WebGPU
-packages/mcp-tools Canonical MCP tool catalog, schemas, and command translations
+packages/mcp-tools Read-only inspection/perception and disposable-service MCP catalog
 packages/project-io Symlink-safe project paths, transactions, writer locks
 packages/protocol Zod contracts, dispatcher, queries, events, errors
 packages/ui       Base UI + CVA primitives
@@ -58,8 +58,9 @@ clarity remains the acceptance criterion.
 ## Project state
 
 `cinesim.toml` is the stable entry point. It contains format/language versions, project identity,
-settings, compiler policy, and the stable asset catalog. Compositions, timelines, tracks, clips,
-graphics, effects, and animation live in reachable `.js`/`.jsx` source modules. The compiler parses
+settings, compiler policy, and project notes. `assets.toml` owns the stable asset catalog, technical
+metadata, input-color interpretation, and deliberate asset notes. Compositions, timelines, tracks,
+clips, graphics, effects, and animation live in reachable `.js`/`.jsx` source modules. The compiler parses
 a bounded deterministic subset and never executes it. The generated `.video/` tree holds only
 disposable or recoverable runtime state and is ignored as a unit.
 
@@ -73,25 +74,28 @@ serializes processes, content-derived generations reject stale writers, every pr
 is recompiled and compared with the validated expected IR before publication, and opening a project
 deterministically recovers an interrupted publication.
 
-Undo and redo store bounded source transactions per committed command. A gesture keeps an ephemeral
-projection override while the pointer moves and publishes one source transaction on release. An
-accepted external source save clears local command history so undo can never overwrite a newer
-text-editor revision.
+Undo and redo store a bounded, deduplicated journal of accepted full canonical generations. A
+gesture keeps an ephemeral projection override while the pointer moves and publishes one source
+transaction on release. Valid quiet external saves append through the same history; invalid disk
+candidates never enter it. Restores atomically cover the project manifest, asset manifest, and every
+reachable source module.
 
-## Command pathway
+## Authoring and command pathways
 
-React, the CLI, and MCP submit the same Zod-validated semantic commands. Pure core logic validates
-the current IR and produces generic semantic patches. The compiler maps those patches through
-revision-bound edit lenses to minimal source replacements. Only Electron main or a Node adapter
-recompiles, verifies, and atomically persists the result.
+Editor gestures submit Zod-validated semantic commands. Pure core logic validates accepted IR and
+produces semantic patches; the compiler maps them through revision-bound edit lenses to minimal
+source replacements, then Electron main recompiles and atomically persists one undoable edit.
 
-There is deliberately no second write path. An agent, a script, and a mouse drag are the same
-command by the time they reach core.
+People, scripts, and agents instead edit canonical TOML and reachable JavaScript/JSX directly. The
+watcher parses, binds, validates, and compiles each quiet candidate generation. A valid generation
+becomes canonical and enters project-wide accepted history; invalid disk source remains available to
+repair while playback and inspection retain the last accepted program. These are two inputs to one
+compile-acceptance boundary, not parallel semantic implementations.
 
-Both the embedded desktop MCP server and the stdio MCP server register the catalog from
-`packages/mcp-tools`. The package owns tool names, descriptions, input schemas, and command
-translation; each adapter supplies only transport, approval, project-loading, and persistence
-policy. Exhaustive command-support metadata makes intentionally unsupported commands explicit.
+Both MCP transports register the inspection, perception, diagnostics, and noncanonical-service
+catalog from `packages/mcp-tools`. That package owns tool names, descriptions, and schemas but no
+canonical editing commands. The embedded adapter supplies authenticated live services; the stdio
+adapter bridges to it when available and otherwise performs bounded read-only disk inspection.
 
 Every privileged Electron request is registered through one IPC wrapper. It accepts only the
 trusted editor web contents, rejects subframes and unexpected origins, and validates untrusted
@@ -132,20 +136,30 @@ objects are closed before composition.
 Temporary asset preview is kept separate from timeline transport, and React receives throttled
 snapshots and intents rather than frame objects.
 
-Audio uses Mediabunny's `AudioBufferSink` with Web Audio scheduling. The runtime consumes semantic
-IR audio tracks, source times, fades, mute state, and decibel gain. `AudioContext.currentTime` is the
-scheduling reference while transport time still comes from the replaceable clock abstraction. An
-AudioWorklet is deferred until profiling shows buffered main-thread scheduling is insufficient.
+Audio uses Mediabunny's `AudioBufferSink` with bounded Web Audio scheduling. The runtime consumes
+semantic IR audio tracks, independent split ranges, source times, fades, mute state, decibel gain,
+stereo pan, and shared deterministic sidechain-ducking automation. Active clip nodes sum through one
+stereo master and its bounded peak meters. `AudioContext.currentTime` is the scheduling reference
+while transport time still comes from the replaceable clock abstraction. An AudioWorklet is deferred
+until profiling shows buffered main-thread scheduling is insufficient.
 
 ## Composition
 
-The preview compositor is WebGPU-first.
-`GPUDevice.importExternalTexture({ source: videoFrame })` feeds a WGSL pipeline with no CPU pixel
-readback. Transform and opacity are uniforms. The pipeline accepts multiple IR-resolved layers.
-Frames close after submission, canvas resize is
-explicit, and device loss triggers reinitialization.
+Composition is WebGPU-first. Accepted IR resolves into one deterministic bounded graph used by
+preview, exact timeline frames, and export. Isolated media, graphics, shaped glyphs, masks, custom
+blend passes, transition inputs, and scoped adjustment groups draw through a fixed pool of four
+intermediate textures. `GPUDevice.importExternalTexture({ source: videoFrame })` supplies decoded
+picture without CPU readback; decoded frames close after submission. Canvas resize is explicit and
+device loss triggers reinitialization.
 
-Canvas2D is limited to filmstrip and thumbnail generation, where a CPU-readable image is the point.
+Canvas2D is limited to disposable perception artifacts such as thumbnails, filmstrips, and bounded
+visual-analysis metrics, where a CPU-readable image is the point. It never composes normal preview.
+
+Explicit export requests drive exact accepted-IR frame times through this same compositor. A hidden
+renderer canvas feeds Mediabunny `CanvasSource` H.264 and a bounded deterministic audio mixer feeds
+AAC; both are interleaved into fragmented MP4 chunks with encoder backpressure. Preload transfers
+only bounded encoded chunks, never decoded frames or base64 media. Electron main verifies complete
+byte coverage, fsyncs a mode-`0600` partial, and publishes without overwriting an existing artifact.
 
 ## Workers and derived media
 
@@ -195,19 +209,11 @@ Cinesim treats Claude Code and Codex as local provider runtimes rather than reim
 loop. Claude is driven with newline-delimited streaming JSON, Codex with the `app-server` JSON-RPC
 protocol, and a small normalization layer converts both into one persistent UI event model.
 
-Provider session IDs are retained for normal continuation. Reverting a checkpoint deliberately
-clears provider context so conversation state cannot silently disagree with restored project state.
-
-Providers get no direct canonical write access. They connect to a bearer-authenticated loopback MCP
-endpoint scoped to one agent session and one open project. Electron main owns that endpoint and
-submits every mutation to `DesktopProjectStore`, preserving the same validation, command history,
-renderer notification, and single-writer boundary as a manual edit.
-
-Agent checkpoints borrow T3 Code's Git-object approach without creating worktrees. A temporary index
-snapshots `cinesim.toml` and the compiler's reachable source-module graph into hidden refs in an
-ignored bare repository under `.video/runtime/`. Media is referenced in place and never copied.
-Turn diffs and restoration stay cheap, local, inspectable, and independent of the user's branch or
-working tree.
+Provider session IDs are retained for normal continuation. Claude Code and Codex run with supervised
+or automatic project-local filesystem and shell capabilities, so internal and external agents use
+the same direct-file authoring rules. A project-scoped bearer-authenticated loopback MCP endpoint
+adds compiler inspection, perception, exact frames, and disposable jobs; it cannot write canonical
+source. Accepted source generations—not chat turns—own project history and ordinary top-bar undo.
 
 ## Research basis
 

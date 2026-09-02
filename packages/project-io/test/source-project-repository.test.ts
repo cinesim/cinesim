@@ -1,15 +1,17 @@
-import { mkdtemp, mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { access, mkdtemp, mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { timeUs } from "@cinesim/core";
+import { DEFAULT_SETTINGS, timeUs } from "@cinesim/core";
 import { afterEach, describe, expect, it } from "vite-plus/test";
 import {
+  parseAssetManifest,
   parseProjectManifest,
-  patchManifestAddAsset,
-  patchManifestAssetSource,
-  patchManifestRemoveAsset,
+  patchAssetManifestAdd,
+  patchAssetManifestRemove,
+  patchAssetManifestSource,
   patchManifestSetting,
   nodeProjectFileSystem,
+  serializeAssetManifest,
   serializeProjectManifest,
   sourceRevision,
   SourceProjectConflictError,
@@ -42,11 +44,55 @@ const asset = {
   height: 2160,
   frameRate: 23.976,
   hasAudio: true,
+  inputColor: { policy: "source-metadata" as const },
+  technical: {
+    containerMimeType: 'video/quicktime; codecs="hvc1,mp4a.40.2"',
+    durationSeconds: 12,
+    compatibility: "supported" as const,
+    video: {
+      codec: "hevc",
+      codecParameters: "hvc1.2.4.L153.B0",
+      internalCodecId: "hvc1",
+      decoderAvailability: "supported" as const,
+      codedWidth: 3840,
+      codedHeight: 2160,
+      displayWidth: 3840,
+      displayHeight: 2160,
+      rotationDegrees: 0,
+      pixelAspectRatio: { numerator: 1, denominator: 1 },
+      frameRate: {
+        mode: "constant" as const,
+        nominal: 23.976,
+        minimum: 23.976,
+        maximum: 23.976,
+        average: 23.976,
+        probedFrames: 256,
+      },
+      color: {
+        primaries: "bt2020",
+        transfer: "hlg",
+        matrix: "bt2020-ncl",
+        fullRange: false,
+        bitDepth: 10,
+        hdr: true,
+        uncertain: false,
+      },
+    },
+    audio: {
+      codec: "aac",
+      codecParameters: "mp4a.40.2",
+      internalCodecId: "mp4a",
+      decoderAvailability: "supported" as const,
+      sampleRate: 48_000,
+      channels: 2,
+      channelLayout: "stereo",
+    },
+  },
 };
 
 function emptyManifest(): ProjectManifest {
   return {
-    formatVersion: 2,
+    formatVersion: 3,
     languageVersion: 1,
     project: {
       id: "project_test",
@@ -54,24 +100,17 @@ function emptyManifest(): ProjectManifest {
       entry: "main.jsx",
       activeCompositionId: "sequence_main",
     },
-    settings: {
-      autosave: true,
-      previewQuality: "half",
-      backgroundColor: "#09090b",
-      defaultFilmstripIntervalSeconds: 5,
-      proxyGeneration: "automatic",
-      proxyProfile: "balanced",
-      proxyMaxLongEdge: 1280,
-      proxyFrameRateCap: 60,
-      proxyQuality: "medium",
-    },
-    compiler: { strict: true },
-    assets: [],
+    settings: DEFAULT_SETTINGS,
+    notes: [],
   };
 }
 
 function withSourcePublishFailure(directory: string, failAt: number): ProjectFileSystem {
-  const canonicalTargets = new Set([join(directory, "cinesim.toml"), join(directory, "main.jsx")]);
+  const canonicalTargets = new Set([
+    join(directory, "cinesim.toml"),
+    join(directory, "assets.toml"),
+    join(directory, "main.jsx"),
+  ]);
   let publishes = 0;
   return {
     ...nodeProjectFileSystem,
@@ -87,32 +126,48 @@ function withSourcePublishFailure(directory: string, failAt: number): ProjectFil
 }
 
 describe("project manifest", () => {
+  it("rejects obsolete format-two projects with a precise split-manifest error", () => {
+    expect(() => parseProjectManifest("format_version = 2\nlanguage_version = 1\n")).toThrow(
+      /requires format 3 with a separate assets\.toml file/u,
+    );
+  });
+
   it("serializes deterministically and preserves comments/unknown tables during targeted edits", () => {
-    const initial = `${serializeProjectManifest(emptyManifest())}\n# user note\n[user.custom]\nkeep = "yes"\n`;
+    const manifest = emptyManifest();
+    manifest.notes = [
+      { id: "note_story", kind: "story-intent", text: "Keep the opening intimate" },
+    ];
+    const initial = `${serializeProjectManifest(manifest)}\n# user note\n[user.custom]\nkeep = "yes"\n`;
+    expect(parseProjectManifest(initial).notes).toEqual(manifest.notes);
     const withSetting = patchManifestSetting(
       initial,
-      "preview_quality",
+      "previewQuality",
       "quarter",
       sourceRevision(initial),
     );
     expect(withSetting).toContain("# user note");
     expect(withSetting).toContain('[user.custom]\nkeep = "yes"');
-    const withAsset = patchManifestAddAsset(withSetting, asset, sourceRevision(withSetting));
-    expect(parseProjectManifest(withAsset).assets).toEqual([asset]);
+    const emptyAssets = serializeAssetManifest({ formatVersion: 1, assets: [] });
+    const notedAsset = {
+      ...asset,
+      notes: [{ id: "note_asset", kind: "continuity" as const, text: "Watch eyeline" }],
+    };
+    const withAsset = patchAssetManifestAdd(emptyAssets, notedAsset, sourceRevision(emptyAssets));
+    expect(parseAssetManifest(withAsset).assets).toEqual([notedAsset]);
     expect(withAsset).toContain("/Volumes/Footage with spaces/α.mov");
-    const relinked = patchManifestAssetSource(
+    const relinked = patchAssetManifestSource(
       withAsset,
       asset.id,
       { kind: "cloud", cloudAssetId: "cloud_asset_abcdefgh" },
       sourceRevision(withAsset),
     );
-    expect(parseProjectManifest(relinked).assets[0]!.source).toEqual({
+    expect(parseAssetManifest(relinked).assets[0]!.source).toEqual({
       kind: "cloud",
       cloudAssetId: "cloud_asset_abcdefgh",
     });
-    const removed = patchManifestRemoveAsset(relinked, asset.id, sourceRevision(relinked));
-    expect(parseProjectManifest(removed).assets).toEqual([]);
-    expect(removed).toContain("# user note");
+    const removed = patchAssetManifestRemove(relinked, asset.id, sourceRevision(relinked));
+    expect(parseAssetManifest(removed).assets).toEqual([]);
+    expect(withSetting).toContain("# user note");
     expect(() => patchManifestSetting(initial, "autosave", false, "stale")).toThrow(
       StaleSourceRevisionError,
     );
@@ -120,24 +175,61 @@ describe("project manifest", () => {
 });
 
 describe("SourceProjectRepository", () => {
+  it("inspects valid canonical files without creating derived state or writer locks", async () => {
+    const directory = await temporaryDirectory();
+    await Promise.all([
+      writeFile(join(directory, "cinesim.toml"), serializeProjectManifest(emptyManifest())),
+      writeFile(
+        join(directory, "assets.toml"),
+        serializeAssetManifest({ formatVersion: 1, assets: [] }),
+      ),
+      writeFile(
+        join(directory, "main.jsx"),
+        'export default <composition id="sequence_main" width={1920} height={1080} fps={30}><timeline id="timeline_main" /></composition>;\n',
+      ),
+    ]);
+
+    await expect(SourceProjectRepository.inspect(directory)).resolves.toMatchObject({
+      manifest: { formatVersion: 3 },
+    });
+    await expect(access(join(directory, ".video"))).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
   it("creates canonical source files, compiles, imports an asset, and reopens deterministically", async () => {
     const directory = await temporaryDirectory();
     const created = await SourceProjectRepository.create(directory, {
       id: "project_test",
       name: "Source project",
+      agentInstructions: "Keep dialogue edits natural.",
     });
     expect(created.compilation.ir.activeCompositionId).toBe("sequence_main");
     await expect(readFile(join(directory, "cinesim.toml"), "utf8")).resolves.toContain(
-      "format_version = 2",
+      "format_version = 3",
+    );
+    await expect(readFile(join(directory, "assets.toml"), "utf8")).resolves.toContain(
+      "format_version = 1",
     );
     await expect(readFile(join(directory, "main.jsx"), "utf8")).resolves.toContain("<timeline");
     await expect(readFile(join(directory, "AGENTS.md"), "utf8")).resolves.toContain(
       "Canonical state is `cinesim.toml`",
     );
+    await expect(readFile(join(directory, "AGENTS.md"), "utf8")).resolves.toContain(
+      "Keep dialogue edits natural.",
+    );
+    await expect(readFile(join(directory, "AGENTS.md"), "utf8")).resolves.toContain(
+      "`[settings].tone_mapping`",
+    );
+    await expect(readFile(join(directory, "CLAUDE.md"), "utf8")).resolves.toBe("@AGENTS.md\n");
+    await expect(readFile(join(directory, ".mcp.json"), "utf8")).resolves.toContain(
+      '"command": "cinesim"',
+    );
+    await expect(readFile(join(directory, ".codex/config.toml"), "utf8")).resolves.toContain(
+      "[mcp_servers.cinesim]",
+    );
     await expect(readFile(join(directory, ".gitignore"), "utf8")).resolves.toBe(".video/\n");
     const repository = await SourceProjectRepository.open(directory);
     const imported = await repository.importAsset(asset, created.generation);
-    expect(imported.manifest.assets[0]).toEqual(asset);
+    expect(imported.assets[0]).toEqual(asset);
     const reopened = await repository.load();
     expect(reopened.generation).toBe(imported.generation);
     expect(reopened.manifestSource).toBe(imported.manifestSource);

@@ -5,24 +5,18 @@ import {
   type SemanticEditorCommand,
 } from "@cinesim/core";
 import {
-  patchManifestAddAsset,
-  patchManifestAssetSource,
-  patchManifestProjectKey,
-  patchManifestRemoveAsset,
-  sourceRevision,
-} from "./project-manifest";
+  patchAssetManifestAdd,
+  patchAssetManifestRemove,
+  patchAssetManifestSource,
+  patchAssetNote,
+} from "./asset-manifest";
+import { AcceptedProjectHistory, type AcceptedProjectState } from "./accepted-history";
+import { patchManifestProjectKey, patchProjectNote, sourceRevision } from "./project-manifest";
 import {
   SourceProjectConflictError,
   SourceProjectRepository,
   type SourceProjectSnapshot,
 } from "./source-project-repository";
-
-interface SourceHistoryTransaction {
-  command: SemanticEditorCommand;
-  summary: string;
-  before: SourceProjectSnapshot;
-  after: SourceProjectSnapshot;
-}
 
 export interface SourceCommandResult extends SemanticCommandPlan {
   snapshot: SourceProjectSnapshot;
@@ -30,65 +24,111 @@ export interface SourceCommandResult extends SemanticCommandPlan {
 
 function changedSources(
   current: SourceProjectSnapshot,
-  target: SourceProjectSnapshot,
-): Record<string, string> {
+  target: Pick<AcceptedProjectState, "sources">,
+): Record<string, string | null> {
+  const paths = new Set([...Object.keys(current.sources), ...Object.keys(target.sources)]);
   return Object.fromEntries(
-    Object.entries(target.sources).filter(([uri, source]) => current.sources[uri] !== source),
+    [...paths]
+      .filter((uri) => current.sources[uri] !== target.sources[uri])
+      .map((uri) => [uri, target.sources[uri] ?? null]),
   );
 }
 
-function patchManifestForCommand(
-  snapshot: SourceProjectSnapshot,
+function editorialNote(command: Extract<SemanticEditorCommand, { type: "note.upsert" }>) {
+  const { atUs: _atUs, durationUs: _durationUs, ...note } = command.note;
+  return note;
+}
+
+function isNoteCommand(
   command: SemanticEditorCommand,
-  plan: SemanticCommandPlan,
-): string | undefined {
-  let source = snapshot.manifestSource;
-  let changed = false;
-  if (command.type === "asset.import") {
-    source = patchManifestAddAsset(source, command.asset, sourceRevision(source));
-    changed = true;
-  } else if (command.type === "asset.setSource") {
-    source = patchManifestAssetSource(
+): command is Extract<SemanticEditorCommand, { type: `note.${string}` }> {
+  return command.type === "note.upsert" || command.type === "note.remove";
+}
+
+function patchAssetDocument(source: string, command: SemanticEditorCommand): string | undefined {
+  if (command.type === "asset.import")
+    return patchAssetManifestAdd(source, command.asset, sourceRevision(source));
+  if (command.type === "asset.setSource")
+    return patchAssetManifestSource(
       source,
       command.assetId,
       command.source,
       sourceRevision(source),
     );
-    changed = true;
-  } else if (command.type === "asset.remove") {
-    for (const assetId of command.assetIds) {
-      source = patchManifestRemoveAsset(source, assetId, sourceRevision(source));
-      changed = true;
-    }
+  if (command.type === "asset.remove") {
+    let next = source;
+    for (const assetId of command.assetIds)
+      next = patchAssetManifestRemove(next, assetId, sourceRevision(next));
+    return next;
   }
-  if (plan.manifest.activeCompositionId !== undefined) {
-    source = patchManifestProjectKey(
-      source,
-      "active_composition",
-      plan.manifest.activeCompositionId,
-      sourceRevision(source),
+  if (!isNoteCommand(command) || command.target !== "asset") return undefined;
+  if (!command.assetId) throw new Error("Asset note command is missing assetId");
+  return patchAssetNote(
+    source,
+    command.assetId,
+    command.type === "note.upsert" ? command.note.id : command.noteId,
+    command.type === "note.upsert" ? editorialNote(command) : null,
+    sourceRevision(source),
+  );
+}
+
+function patchProjectDocument(
+  source: string,
+  command: SemanticEditorCommand,
+  plan: SemanticCommandPlan,
+): string | undefined {
+  let next = source;
+  let changed = false;
+  if (isNoteCommand(command) && command.target === "project") {
+    next = patchProjectNote(
+      next,
+      command.type === "note.upsert" ? command.note.id : command.noteId,
+      command.type === "note.upsert" ? editorialNote(command) : null,
+      sourceRevision(next),
     );
     changed = true;
   }
-  return changed ? source : undefined;
+  if (plan.manifest.activeCompositionId !== undefined) {
+    next = patchManifestProjectKey(
+      next,
+      "active_composition",
+      plan.manifest.activeCompositionId,
+      sourceRevision(next),
+    );
+    changed = true;
+  }
+  return changed ? next : undefined;
+}
+
+function patchDocumentsForCommand(
+  snapshot: SourceProjectSnapshot,
+  command: SemanticEditorCommand,
+  plan: SemanticCommandPlan,
+): { manifestSource?: string; assetManifestSource?: string } {
+  const manifestSource = patchProjectDocument(snapshot.manifestSource, command, plan);
+  const assetManifestSource = patchAssetDocument(snapshot.assetManifestSource, command);
+  return {
+    ...(manifestSource ? { manifestSource } : {}),
+    ...(assetManifestSource ? { assetManifestSource } : {}),
+  };
 }
 
 export class SourceCommandService {
-  readonly #undo: SourceHistoryTransaction[] = [];
-  readonly #redo: SourceHistoryTransaction[] = [];
   #snapshot: SourceProjectSnapshot;
 
   private constructor(
     readonly repository: SourceProjectRepository,
     snapshot: SourceProjectSnapshot,
-    private readonly historyLimit = 100,
+    private readonly history: AcceptedProjectHistory,
   ) {
     this.#snapshot = snapshot;
   }
 
   static async open(directory: string, historyLimit = 100): Promise<SourceCommandService> {
     const repository = await SourceProjectRepository.open(directory);
-    return new SourceCommandService(repository, await repository.load(), historyLimit);
+    const snapshot = await repository.load();
+    const history = await AcceptedProjectHistory.open(repository, snapshot, historyLimit);
+    return new SourceCommandService(repository, snapshot, history);
   }
 
   get snapshot(): SourceProjectSnapshot {
@@ -96,24 +136,24 @@ export class SourceCommandService {
   }
 
   get canUndo(): boolean {
-    return this.#undo.length > 0;
+    return this.history.canUndo;
   }
 
   get canRedo(): boolean {
-    return this.#redo.length > 0;
+    return this.history.canRedo;
   }
 
   async refresh(): Promise<SourceProjectSnapshot> {
-    this.#snapshot = await this.repository.load();
+    const snapshot = await this.repository.load();
+    await this.acceptExternal(snapshot);
     return this.#snapshot;
   }
 
-  /** Accepts a watcher-validated external snapshot and invalidates local source history. */
-  acceptExternal(snapshot: SourceProjectSnapshot): void {
+  /** Records a watcher-validated generation in the same project-wide history as UI commands. */
+  async acceptExternal(snapshot: SourceProjectSnapshot): Promise<void> {
     if (snapshot.generation === this.#snapshot.generation) return;
+    await this.history.append(snapshot);
     this.#snapshot = snapshot;
-    this.#undo.length = 0;
-    this.#redo.length = 0;
   }
 
   async execute(
@@ -124,7 +164,12 @@ export class SourceCommandService {
       throw new SourceProjectConflictError(expectedGeneration, this.#snapshot.generation);
     }
     const before = this.#snapshot;
-    const plan = planSemanticCommand(before.compilation.ir, before.manifest.assets, command);
+    const plan = planSemanticCommand(
+      before.compilation.ir,
+      before.assets,
+      command,
+      before.manifest.notes,
+    );
     const sourcePlan = planSemanticSourceEdits(
       plan.patches,
       before.compilation.sourceMap,
@@ -134,53 +179,48 @@ export class SourceCommandService {
     const sourceReplacements = Object.fromEntries(
       sourcePlan.touchedUris.map((uri) => [uri, nextSources[uri]!]),
     );
-    const manifestSource = patchManifestForCommand(before, command, plan);
+    const documentChanges = patchDocumentsForCommand(before, command, plan);
     const after = await this.repository.commit({
       expectedGeneration,
       ...(Object.keys(sourceReplacements).length === 0 ? {} : { sources: sourceReplacements }),
-      ...(manifestSource === undefined ? {} : { manifestSource }),
+      ...documentChanges,
       expectedProgram: plan.program,
     });
     this.#snapshot = after;
-    this.#undo.push({ command, summary: plan.summary, before, after });
-    if (this.#undo.length > this.historyLimit) this.#undo.shift();
-    this.#redo.length = 0;
+    await this.history.append(after);
     return { ...plan, snapshot: after };
   }
 
   async undo(): Promise<SourceProjectSnapshot> {
-    const transaction = this.#undo.at(-1);
-    if (!transaction) throw new Error("Nothing to undo.");
-    if (this.#snapshot.generation !== transaction.after.generation) {
-      throw new SourceProjectConflictError(transaction.after.generation, this.#snapshot.generation);
-    }
+    const target = await this.history.destination("undo");
     const snapshot = await this.repository.commit({
       expectedGeneration: this.#snapshot.generation,
-      ...(this.#snapshot.manifestSource === transaction.before.manifestSource
+      ...(this.#snapshot.manifestSource === target.manifestSource
         ? {}
-        : { manifestSource: transaction.before.manifestSource }),
-      sources: changedSources(this.#snapshot, transaction.before),
-      expectedProgram: transaction.before.compilation.ir,
+        : { manifestSource: target.manifestSource }),
+      ...(this.#snapshot.assetManifestSource === target.assetManifestSource
+        ? {}
+        : { assetManifestSource: target.assetManifestSource }),
+      sources: changedSources(this.#snapshot, target),
     });
-    this.#undo.pop();
-    this.#redo.push(transaction);
+    await this.history.acceptMove("undo", snapshot);
     this.#snapshot = snapshot;
     return snapshot;
   }
 
   async redo(): Promise<SourceProjectSnapshot> {
-    const transaction = this.#redo.at(-1);
-    if (!transaction) throw new Error("Nothing to redo.");
+    const target = await this.history.destination("redo");
     const snapshot = await this.repository.commit({
       expectedGeneration: this.#snapshot.generation,
-      ...(this.#snapshot.manifestSource === transaction.after.manifestSource
+      ...(this.#snapshot.manifestSource === target.manifestSource
         ? {}
-        : { manifestSource: transaction.after.manifestSource }),
-      sources: changedSources(this.#snapshot, transaction.after),
-      expectedProgram: transaction.after.compilation.ir,
+        : { manifestSource: target.manifestSource }),
+      ...(this.#snapshot.assetManifestSource === target.assetManifestSource
+        ? {}
+        : { assetManifestSource: target.assetManifestSource }),
+      sources: changedSources(this.#snapshot, target),
     });
-    this.#redo.pop();
-    this.#undo.push({ ...transaction, before: this.#snapshot, after: snapshot });
+    await this.history.acceptMove("redo", snapshot);
     this.#snapshot = snapshot;
     return snapshot;
   }

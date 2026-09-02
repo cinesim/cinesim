@@ -24,6 +24,7 @@ export function projectSectionForShortcut(
   if (event.key === "1") return "media";
   if (event.key === "2") return "cut";
   if (event.key === "3") return "edit";
+  if (event.key === "4") return "effects";
   return null;
 }
 

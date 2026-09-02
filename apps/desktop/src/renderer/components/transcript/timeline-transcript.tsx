@@ -1,8 +1,14 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { MoveHorizontal, Play, Trash2, X } from "@cinesim/ui";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { MoveHorizontal, Play, Sparkles, Trash2, X } from "@cinesim/ui";
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger } from "@cinesim/ui";
-import type { Project, TimelineRange, TimeUs } from "@cinesim/core";
-import { projectTimelineTranscript, transcriptDocumentSections } from "../../../shared/transcript";
+import { timeUs, type Project, type TimelineRange, type TimeUs } from "@cinesim/core";
+import type { DerivedProjectScope } from "../../../shared/contracts";
+import { projectScreenplayEntries } from "../../../shared/screenplay";
+import {
+  captionTrackFromTranscriptSelection,
+  projectTimelineTranscript,
+  transcriptDocumentSections,
+} from "../../../shared/transcript";
 import { isEditableKeyboardTarget } from "../../lib/keyboard-target";
 import { useRendererStore } from "../../store/renderer-store-context";
 import { useEditorTransport } from "../workspace/editor-transport-context";
@@ -13,16 +19,21 @@ import {
   TranscriptToolbar,
   transcriptSpeakerOptions,
 } from "./transcript-toolbar";
+import { useScreenplayVisuals } from "./use-screenplay-visuals";
 
 interface TimelineTranscriptProps {
   project: Project;
   sequenceId: string;
+  derivedScope: DerivedProjectScope;
+  markers: readonly { id: string; atUs: number; name: string }[];
   onSelectionChange: (ranges: TimelineRange[]) => void;
 }
 
 export function TimelineTranscript({
   project,
   sequenceId,
+  derivedScope,
+  markers,
   onSelectionChange,
 }: TimelineTranscriptProps) {
   const account = useRendererStore((state) => state.account);
@@ -32,6 +43,8 @@ export function TimelineTranscript({
   const requestTranscripts = useRendererStore((state) => state.requestTranscripts);
   const transcripts = useRendererStore((state) => state.transcripts);
   const transport = useEditorTransport();
+  const reportError = useRendererStore((state) => state.reportError);
+  const screenplay = useScreenplayVisuals(project, sequenceId, derivedScope);
   const projection = useMemo(
     () => projectTimelineTranscript({ project, sequenceId, transcripts }),
     [project, sequenceId, transcripts],
@@ -47,6 +60,9 @@ export function TimelineTranscript({
   );
   const [query, setQuery] = useState("");
   const [speakerFilter, setSpeakerFilter] = useState<string | null>(null);
+  const [screenplayRange, setScreenplayRange] = useState<TimelineRange | null>(null);
+  const [selectedScreenplayId, setSelectedScreenplayId] = useState<string | null>(null);
+  const screenplayRangeRef = useRef<TimelineRange | null>(null);
   const seekTimeline = useCallback(
     (timeUs: TimeUs) => void transport.seekTimeline(timeUs),
     [transport],
@@ -55,15 +71,69 @@ export function TimelineTranscript({
     () => filterTranscriptSections(sections, query, speakerFilter),
     [query, sections, speakerFilter],
   );
+  const screenplayEntries = useMemo(
+    () => projectScreenplayEntries(project, sequenceId, screenplay.visuals, markers),
+    [markers, project, screenplay.visuals, sequenceId],
+  );
+  const acceptTranscriptSelection = useCallback(
+    (ranges: TimelineRange[]) => {
+      if (!screenplayRangeRef.current) onSelectionChange(ranges);
+    },
+    [onSelectionChange],
+  );
   const selection = useTranscriptSelection({
     blocks: projection.blocks,
     onSeek: seekTimeline,
-    onSelectionChange,
+    onSelectionChange: acceptTranscriptSelection,
   });
-  const clearSelection = selection.clear;
-  const selectedRanges = selection.ranges;
+  const clearTranscriptSelection = selection.clear;
+  const selectScreenplayEntry = useCallback(
+    (id: string, startUs: number, endUs: number) => {
+      const range = { startUs: timeUs(startUs), endUs: timeUs(endUs) };
+      screenplayRangeRef.current = range;
+      setScreenplayRange(range);
+      setSelectedScreenplayId(id);
+      clearTranscriptSelection();
+      onSelectionChange([range]);
+      seekTimeline(range.startUs);
+    },
+    [clearTranscriptSelection, onSelectionChange, seekTimeline],
+  );
+  const clearSelection = useCallback(() => {
+    screenplayRangeRef.current = null;
+    setScreenplayRange(null);
+    setSelectedScreenplayId(null);
+    clearTranscriptSelection();
+    onSelectionChange([]);
+  }, [clearTranscriptSelection, onSelectionChange]);
+  const transcriptSelection = useMemo(
+    () => ({
+      ...selection,
+      begin: (id: string, event: Parameters<typeof selection.begin>[1]) => {
+        screenplayRangeRef.current = null;
+        setScreenplayRange(null);
+        setSelectedScreenplayId(null);
+        selection.begin(id, event);
+      },
+      selectThrough: (id: string, extend: boolean) => {
+        screenplayRangeRef.current = null;
+        setScreenplayRange(null);
+        setSelectedScreenplayId(null);
+        selection.selectThrough(id, extend);
+      },
+    }),
+    [selection],
+  );
+  const selectedRanges = useMemo(
+    () => (screenplayRange ? [screenplayRange] : selection.ranges),
+    [screenplayRange, selection.ranges],
+  );
   const selectionStart = selectedRanges[0]?.startUs;
   const selectionEnd = selectedRanges.at(-1)?.endUs;
+  const selectedCaptionWords = useMemo(
+    () => projection.words.filter(({ id }) => selection.selectedIds.has(id)),
+    [projection.words, selection.selectedIds],
+  );
 
   useEffect(() => {
     function deleteSelection(event: KeyboardEvent) {
@@ -99,6 +169,25 @@ export function TimelineTranscript({
     if (result.ok) clearSelection();
   }
 
+  async function generateCaptions() {
+    if (!transcripts || selectedCaptionWords.length === 0) return;
+    try {
+      const track = captionTrackFromTranscriptSelection({
+        sequenceId,
+        words: selectedCaptionWords,
+        transcripts,
+      });
+      const result = await execute({
+        type: "caption.generate",
+        sequenceId: sequenceId as `sequence_${string}`,
+        track,
+      });
+      if (result.ok) clearSelection();
+    } catch (error) {
+      reportError(error instanceof Error ? error.message : String(error));
+    }
+  }
+
   return (
     <section
       className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden bg-panel"
@@ -132,9 +221,46 @@ export function TimelineTranscript({
             hasTranscriptContent={projection.blocks.length > 0}
             playheadUs={playheadUs}
             sections={visibleSections}
-            selection={selection}
+            selection={transcriptSelection}
             signedIn={account.status === "signed-in"}
             speakerColors={speakerColors}
+            screenplay={{
+              entries: screenplayEntries,
+              loading: screenplay.loading,
+              error: screenplay.error,
+              selectedId: selectedScreenplayId,
+              onSelect: selectScreenplayEntry,
+              onCorrect: (assetId, observation, description) =>
+                void screenplay
+                  .correct(assetId, observation, description)
+                  .catch((error) =>
+                    reportError(error instanceof Error ? error.message : String(error)),
+                  ),
+              onSplit: (assetId, observation) =>
+                void screenplay
+                  .split(assetId, observation)
+                  .catch((error) =>
+                    reportError(error instanceof Error ? error.message : String(error)),
+                  ),
+              onMergeNext: (assetId, observation) =>
+                void screenplay
+                  .mergeNext(assetId, observation)
+                  .catch((error) =>
+                    reportError(error instanceof Error ? error.message : String(error)),
+                  ),
+              onGenerate: (assetId, force) =>
+                void screenplay
+                  .generate(assetId, force)
+                  .catch((error) =>
+                    reportError(error instanceof Error ? error.message : String(error)),
+                  ),
+              onClear: (assetId) =>
+                void screenplay
+                  .clear(assetId)
+                  .catch((error) =>
+                    reportError(error instanceof Error ? error.message : String(error)),
+                  ),
+            }}
             onCancelTranscript={(assetId) => void cancelTranscripts([assetId])}
             onRequestTranscript={(assetId) => void requestTranscripts([assetId])}
           />
@@ -150,6 +276,12 @@ export function TimelineTranscript({
             }}
           >
             <Play size={14} /> Play selection
+          </ContextMenuItem>
+          <ContextMenuItem
+            disabled={!transcripts || selectedCaptionWords.length === 0}
+            onClick={() => void generateCaptions()}
+          >
+            <Sparkles size={14} /> Generate caption track
           </ContextMenuItem>
           <ContextMenuItem onClick={() => void deleteRanges("ripple")}>
             <Trash2 size={14} /> Delete and close gap

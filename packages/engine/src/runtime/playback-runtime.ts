@@ -1,11 +1,13 @@
 import { timeUs } from "@cinesim/core";
 import type { Asset, AssetId, TimeUs, Transform } from "@cinesim/core";
-import { findIrComposition } from "@cinesim/ir";
-import type { IrClip, IrTrack } from "@cinesim/ir";
+import { audioDuckAutomation, findIrComposition } from "@cinesim/ir";
+import type { IrClip, IrComposition, IrTrack } from "@cinesim/ir";
 import type {
   CompositorColor,
   CompositorGraphicLayer,
   CompositorLayer,
+  CompositorAdjustmentGroup,
+  CompositorTextLayer,
   PreviewCompositor,
 } from "../compositor/webgpu-compositor";
 import { MediabunnyWebCodecsSource } from "../media/mediabunny-source";
@@ -27,6 +29,7 @@ import {
 import {
   compositionDurationUs,
   findUpcomingLayers,
+  inputColorTransform,
   resolveSceneFrame,
   type PlaybackProject,
 } from "../playback/scene-resolver";
@@ -93,7 +96,9 @@ interface RenderRequest {
 interface DecodedSceneFrame {
   layers: CompositorLayer[];
   graphics: readonly CompositorGraphicLayer[];
+  text: readonly CompositorTextLayer[];
   background?: CompositorColor;
+  adjustments?: readonly CompositorAdjustmentGroup[];
 }
 
 export type ShuttleDirection = -1 | 0 | 1;
@@ -337,6 +342,8 @@ export class PlaybackRuntime {
         { width: composition.width, height: composition.height },
         decoded.graphics,
         decoded.background,
+        decoded.text,
+        decoded.adjustments,
       );
       this.#renderedSinceSnapshot += 1;
       this.#mode = request.mode;
@@ -653,6 +660,8 @@ export class PlaybackRuntime {
       { width: composition.width, height: composition.height },
       decoded.graphics,
       decoded.background,
+      decoded.text,
+      decoded.adjustments,
     );
     this.#renderedSinceSnapshot += 1;
     this.#playbackFramesPresented += 1;
@@ -689,14 +698,23 @@ export class PlaybackRuntime {
   async #decodeRandom(mode: PreviewMode): Promise<DecodedSceneFrame> {
     if (mode.kind === "asset") {
       const asset = this.#project.assets.find((candidate) => candidate.id === mode.assetId);
-      if (!asset || asset.kind !== "video") return { layers: [], graphics: [] };
+      if (!asset || asset.kind !== "video") return { layers: [], graphics: [], text: [] };
       const descriptor = this.#sourceResolver.resolve(asset.id);
       this.#lastActiveAssetId = asset.id;
       this.#lastActiveSourceKind = descriptor.kind;
       const frame = await this.#source(descriptor).getFrame(mode.sourceTimeUs);
       return {
-        layers: frame ? [{ frame, transform: DEFAULT_PREVIEW_TRANSFORM }] : [],
+        layers: frame
+          ? [
+              {
+                frame,
+                transform: DEFAULT_PREVIEW_TRANSFORM,
+                inputColor: inputColorTransform(asset, this.#project.colorPolicy),
+              },
+            ]
+          : [],
         graphics: [],
+        text: [],
       };
     }
     const scene = resolveSceneFrame(this.#project, mode.timeUs);
@@ -707,10 +725,18 @@ export class PlaybackRuntime {
         const frame = await this.#source(descriptor).getFrame(layer.sourceTimeUs);
         return frame
           ? {
+              id: layer.nodeId,
+              trackId: layer.track.id,
               frame,
               transform: layer.transform,
               cornerRadiusPx: layer.cornerRadiusPx,
+              inputColor: layer.inputColor,
               colorAdjustment: layer.colorAdjustment,
+              ...(layer.visualEffects ? { visualEffects: layer.visualEffects } : {}),
+              blendMode: layer.blendMode,
+              groupDepth: layer.groupDepth,
+              ...(layer.maskRect ? { maskRect: layer.maskRect } : {}),
+              ...(layer.transition ? { transition: layer.transition } : {}),
               order: layer.order,
             }
           : null;
@@ -719,7 +745,13 @@ export class PlaybackRuntime {
     const active = layers.at(-1);
     this.#lastActiveAssetId = active?.asset.id ?? null;
     this.#lastActiveSourceKind = active ? this.#sourceResolver.resolve(active.asset.id).kind : null;
-    return { layers: frames, graphics: scene.graphics, background: scene.background };
+    return {
+      layers: frames,
+      graphics: scene.graphics,
+      text: scene.text,
+      background: scene.background,
+      adjustments: scene.adjustments,
+    };
   }
 
   async #decodeSequential(timeUs: TimeUs): Promise<DecodedSceneFrame> {
@@ -742,10 +774,18 @@ export class PlaybackRuntime {
           const frame = await cursor.frameAt(layer.sourceTimeUs);
           return frame
             ? {
+                id: layer.nodeId,
+                trackId: layer.track.id,
                 frame,
                 transform: layer.transform,
                 cornerRadiusPx: layer.cornerRadiusPx,
+                inputColor: layer.inputColor,
                 colorAdjustment: layer.colorAdjustment,
+                ...(layer.visualEffects ? { visualEffects: layer.visualEffects } : {}),
+                blendMode: layer.blendMode,
+                groupDepth: layer.groupDepth,
+                ...(layer.maskRect ? { maskRect: layer.maskRect } : {}),
+                ...(layer.transition ? { transition: layer.transition } : {}),
                 order: layer.order,
               }
             : null;
@@ -761,7 +801,13 @@ export class PlaybackRuntime {
     const active = layers.at(-1);
     this.#lastActiveAssetId = active?.asset.id ?? null;
     this.#lastActiveSourceKind = active ? this.#sourceResolver.resolve(active.asset.id).kind : null;
-    return { layers: frames, graphics: scene.graphics, background: scene.background };
+    return {
+      layers: frames,
+      graphics: scene.graphics,
+      text: scene.text,
+      background: scene.background,
+      adjustments: scene.adjustments,
+    };
   }
 
   #source(descriptor: MediaSourceDescriptor): VideoSource & Partial<AudioSource> {
@@ -849,6 +895,7 @@ export class PlaybackRuntime {
   }
 
   #audioWorkForClip(
+    composition: IrComposition,
     track: IrTrack,
     clip: IrClip,
     assets: ReadonlyMap<AssetId, Asset>,
@@ -883,6 +930,8 @@ export class PlaybackRuntime {
         fadeInUs: timeUs(clip.fades.inUs),
         fadeOutUs: timeUs(clip.fades.outUs),
         gain: 10 ** (clip.audio.gainDb / 20),
+        pan: clip.audio.pan,
+        ducking: audioDuckAutomation(composition, track, clip, timelineFromUs, timelineToUs),
       },
     );
   }
@@ -894,7 +943,7 @@ export class PlaybackRuntime {
     for (const track of composition.timeline.tracks) {
       if (track.muted) continue;
       for (const clip of track.clips) {
-        const scheduled = this.#audioWorkForClip(track, clip, assets, fromUs, toUs);
+        const scheduled = this.#audioWorkForClip(composition, track, clip, assets, fromUs, toUs);
         if (scheduled) work.push(scheduled);
       }
     }

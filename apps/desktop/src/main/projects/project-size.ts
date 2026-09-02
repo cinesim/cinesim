@@ -7,6 +7,7 @@ const EXCLUDED_DIRECTORIES = new Set([".video", ".git", "node_modules"]);
 function isCanonicalFile(relative: string): boolean {
   return (
     relative === "cinesim.toml" ||
+    relative === "assets.toml" ||
     relative === "AGENTS.md" ||
     relative === ".gitignore" ||
     /\.(?:js|jsx)$/u.test(relative)

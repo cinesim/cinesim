@@ -1,4 +1,6 @@
 export * from "./compositor/webgpu-compositor";
+export * from "./compositor/render-graph";
+export * from "./compositor/texture-pool";
 export * from "./media/mediabunny-source";
 export * from "./media/video-source";
 export * from "./perception/sampling";

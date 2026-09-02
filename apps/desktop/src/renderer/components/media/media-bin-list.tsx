@@ -5,9 +5,8 @@ import type { Asset, AssetId, Sequence } from "@cinesim/core";
 import type { CloudTransferSnapshot } from "../../../shared/contracts";
 import { formatDuration } from "../../lib/format";
 import { LibraryList, LibraryListRow } from "../shared/library-card";
-import { assetSourceMetadataLabel } from "./asset-source-metadata";
 import { assetStoragePresentation } from "./media-bin-model";
-import { MediaSkimSurface } from "./media-skim-surface";
+import { MediaAssetRow } from "./media-asset-presentation";
 
 const MEDIA_LIST_COLUMNS =
   "grid-cols-[minmax(280px,1.5fr)_110px_120px_minmax(190px,0.8fr)_minmax(220px,1fr)]";
@@ -26,10 +25,6 @@ interface MediaBinListProps {
 }
 
 const CELL_CLASS_NAME = "px-3 py-2.5";
-
-function kindLabel(kind: Asset["kind"]): string {
-  return `${kind.charAt(0).toUpperCase()}${kind.slice(1)}`;
-}
 
 function sequenceFormat(sequence: Sequence): string {
   return `${sequence.width} × ${sequence.height} · ${Number(sequence.frameRate.toFixed(2))} fps`;
@@ -83,35 +78,15 @@ export function MediaBinList({
           downloadedCloudOriginals.includes(asset.id),
         );
         return (
-          <LibraryListRow
+          <MediaAssetRow
             key={asset.id}
-            data-asset-id={asset.id}
+            asset={asset}
             columnsClassName={MEDIA_LIST_COLUMNS}
             selected={selected}
-            aria-label={`Select ${asset.name}`}
             onClick={(event) => onSelectAsset(asset.id, event)}
             onDoubleClick={() => onAddAsset(asset)}
-          >
-            <div className="flex min-w-0 items-center gap-3 px-3 py-2.5">
-              <div
-                className={cn(
-                  "media-thumbnail block aspect-video w-14 shrink-0 overflow-hidden rounded",
-                  selected && "ring-2 ring-accent/70",
-                )}
-              >
-                <MediaSkimSurface asset={asset} />
-              </div>
-              <span className="truncate font-medium text-primary">{asset.name}</span>
-            </div>
-            <span className={CELL_CLASS_NAME}>{kindLabel(asset.kind)}</span>
-            <span className={cn(CELL_CLASS_NAME, "tabular-nums")}>
-              {formatDuration(asset.durationUs)}
-            </span>
-            <span className={cn(CELL_CLASS_NAME, "tabular-nums")}>
-              {assetSourceMetadataLabel(asset) ?? "—"}
-            </span>
-            <span className={cn(CELL_CLASS_NAME, "truncate text-muted")}>{storage.label}</span>
-          </LibraryListRow>
+            storage={storage}
+          />
         );
       })}
 

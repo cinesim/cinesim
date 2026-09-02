@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { canSplitClipAt, getSequence, sequenceDurationUs, timeUs } from "@cinesim/core";
 import type { Project, TimelineRange } from "@cinesim/core";
 import type { Clip, Sequence, Track } from "@cinesim/core";
-import type { TimelineProjection } from "@cinesim/ir";
+import type { IrCaptionTrack, TimelineProjection } from "@cinesim/ir";
 import { timelineMajorSecondStep } from "../../lib/timeline-scale";
 import { useRendererStore } from "../../store/renderer-store-context";
 import { useEditorDnd } from "../workspace/editor-dnd-context";
@@ -52,7 +52,12 @@ export function Timeline({ project, timeline, selectedRanges = [] }: TimelinePro
     [project, timeline],
   );
   const sequence = getSequence(timelineProject);
-  const sequenceDuration = sequenceDurationUs(sequence);
+  const captionDuration = timeline.captionTracks.reduce(
+    (duration, track) =>
+      Math.max(duration, ...track.cues.map((cue) => cue.startUs + cue.durationUs)),
+    0,
+  );
+  const sequenceDuration = timeUs(Math.max(sequenceDurationUs(sequence), captionDuration));
   const {
     changeZoom,
     contentDurationUs,
@@ -206,6 +211,9 @@ export function Timeline({ project, timeline, selectedRanges = [] }: TimelinePro
               paletteId={paletteId}
             />
           ))}
+          {timeline.captionTracks.map((track) => (
+            <CaptionTrackHeader key={track.id} track={track} height={trackHeight} />
+          ))}
         </div>
         <div
           ref={scrollRef}
@@ -239,6 +247,10 @@ export function Timeline({ project, timeline, selectedRanges = [] }: TimelinePro
               <TimelineTrackRow
                 key={track.id}
                 track={track}
+                adjustments={
+                  timeline.tracks.find((projection) => projection.id === track.id)?.adjustments ??
+                  []
+                }
                 assets={assets}
                 clipEditability={clipEditability}
                 derived={derived}
@@ -253,6 +265,22 @@ export function Timeline({ project, timeline, selectedRanges = [] }: TimelinePro
                 paletteId={paletteId}
               />
             ))}
+            {timeline.captionTracks.map((track) => (
+              <CaptionTrackRow
+                key={track.id}
+                track={track}
+                pixelsPerUs={pixelsPerUs}
+                trackHeight={trackHeight}
+                onBackgroundPointerDown={trackSeek}
+                onSeek={(atUs) => void transport.seekTimeline(timeUs(atUs))}
+              />
+            ))}
+            <TransitionOverlays
+              timeline={timeline}
+              pixelsPerUs={pixelsPerUs}
+              trackHeight={trackHeight}
+              onSeek={(atUs) => void transport.seekTimeline(timeUs(atUs))}
+            />
             {proposal?.snapPointUs !== undefined && snapGuideColor && (
               <div
                 aria-hidden="true"
@@ -288,6 +316,113 @@ export function Timeline({ project, timeline, selectedRanges = [] }: TimelinePro
   );
 }
 
+function TransitionOverlays({
+  timeline,
+  pixelsPerUs,
+  trackHeight,
+  onSeek,
+}: {
+  timeline: TimelineProjection;
+  pixelsPerUs: number;
+  trackHeight: number;
+  onSeek: (atUs: number) => void;
+}) {
+  const clips = new Map(
+    timeline.tracks.flatMap((track, trackIndex) =>
+      track.clips.map((clip) => [clip.id, { clip, trackIndex }] as const),
+    ),
+  );
+  const transitions = [
+    ...timeline.transitions.map((transition) => ({ ...transition, audio: false })),
+    ...timeline.audioTransitions.map((transition) => ({
+      ...transition,
+      kind: "audio",
+      audio: true,
+    })),
+  ];
+  return transitions.flatMap((transition) => {
+    const target = clips.get(transition.toClipId);
+    if (!target) return [];
+    const label = transition.audio ? "Audio crossfade" : transition.kind;
+    return [
+      <button
+        key={transition.id}
+        type="button"
+        className="absolute z-[24] grid size-4 -translate-x-1/2 -translate-y-1/2 rotate-45 place-items-center rounded-[2px] border border-white/70 bg-violet-600 shadow-sm"
+        style={{
+          left: target.clip.startUs * pixelsPerUs,
+          top: 24 + target.trackIndex * trackHeight + trackHeight / 2,
+        }}
+        title={`${label} · ${(transition.durationUs / 1_000_000).toFixed(2)}s`}
+        aria-label={`${label} at ${(target.clip.startUs / 1_000_000).toFixed(2)} seconds`}
+        onClick={() => onSeek(target.clip.startUs)}
+      />,
+    ];
+  });
+}
+
+function CaptionTrackHeader({ track, height }: { track: IrCaptionTrack; height: number }) {
+  return (
+    <div className="grid content-center gap-0.5 px-2" style={{ height }}>
+      <div className="flex min-w-0 items-center gap-1.5">
+        <span className="grid size-5 shrink-0 place-items-center rounded bg-cyan-700 text-[9px] font-semibold text-white">
+          CC
+        </span>
+        <span className="min-w-0 flex-1 truncate text-[10px] font-medium text-secondary">
+          {track.name}
+        </span>
+      </div>
+      <span className="truncate pl-6 text-[9px] text-muted">
+        {track.language ?? "Timed text"} · {track.cues.length} cues
+      </span>
+    </div>
+  );
+}
+
+function CaptionTrackRow({
+  track,
+  pixelsPerUs,
+  trackHeight,
+  onBackgroundPointerDown,
+  onSeek,
+}: {
+  track: IrCaptionTrack;
+  pixelsPerUs: number;
+  trackHeight: number;
+  onBackgroundPointerDown: (event: React.PointerEvent<HTMLButtonElement>) => void;
+  onSeek: (atUs: number) => void;
+}) {
+  return (
+    <div className="relative border-t border-border/60" style={{ height: trackHeight }}>
+      <button
+        type="button"
+        aria-label={`Seek on ${track.name}`}
+        className="absolute inset-0"
+        onPointerDown={onBackgroundPointerDown}
+      />
+      {track.cues.map((cue) => (
+        <button
+          key={cue.id}
+          type="button"
+          className="absolute top-1 z-10 overflow-hidden rounded border border-cyan-500/50 bg-cyan-500/20 px-1.5 text-left text-[10px] text-primary hover:bg-cyan-500/30"
+          style={{
+            left: cue.startUs * pixelsPerUs + 1,
+            width: Math.max(8, cue.durationUs * pixelsPerUs - 2),
+            height: Math.max(1, trackHeight - 8),
+          }}
+          title={`${cue.speaker ? `${cue.speaker}: ` : ""}${cue.text}`}
+          onClick={() => onSeek(cue.startUs)}
+        >
+          <span className="block truncate font-medium">{cue.text}</span>
+          {cue.speaker && (
+            <span className="block truncate text-[9px] text-muted">{cue.speaker}</span>
+          )}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 function projectFromTimelineProjection(project: Project, timeline: TimelineProjection): Project {
   const sequence: Sequence = {
     id: timeline.compositionId as Sequence["id"],
@@ -295,6 +430,13 @@ function projectFromTimelineProjection(project: Project, timeline: TimelineProje
     width: timeline.width,
     height: timeline.height,
     frameRate: timeline.frameRate,
+    notes: timeline.notes.map((note) => ({
+      id: note.id,
+      kind: note.kind,
+      text: note.text,
+      atUs: timeUs(note.atUs),
+      ...(note.durationUs === undefined ? {} : { durationUs: timeUs(note.durationUs) }),
+    })),
     tracks: timeline.tracks.map((track): Track => ({
       id: track.id as Track["id"],
       kind: track.kind,
@@ -313,6 +455,9 @@ function projectFromTimelineProjection(project: Project, timeline: TimelineProje
         sourceEndUs: timeUs(clip.sourceEndUs),
         ...(clip.fadeInUs === 0 ? {} : { fadeInUs: timeUs(clip.fadeInUs) }),
         ...(clip.fadeOutUs === 0 ? {} : { fadeOutUs: timeUs(clip.fadeOutUs) }),
+        ...(clip.audio.gainDb === 0 ? {} : { gainDb: clip.audio.gainDb }),
+        ...(clip.audio.pan === 0 ? {} : { pan: clip.audio.pan }),
+        ...(clip.audio.muted ? { muted: true } : {}),
         transform: {
           x: clip.transform.x,
           y: clip.transform.y,

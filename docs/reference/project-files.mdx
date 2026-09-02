@@ -10,13 +10,18 @@ For the model behind this layout, see [Projects](../concepts/projects.mdx).
 ```text
 documentary-cut/
 ├── cinesim.toml
+├── assets.toml
 ├── main.jsx
 ├── components/             optional relative source modules
 ├── AGENTS.md
+├── CLAUDE.md
+├── .mcp.json
+├── .codex/config.toml
 ├── .gitignore
 └── .video/
     ├── cache/
     ├── compiler/
+    ├── exports/
     ├── filmstrips/
     ├── frames/
     ├── originals/
@@ -24,19 +29,22 @@ documentary-cut/
     ├── runtime/
     ├── thumbnails/
     ├── transcripts/
+    ├── visual-index/
     └── waveforms/
 ```
 
-| Path                                          | Contents                                                                                             | Canonical |
-| --------------------------------------------- | ---------------------------------------------------------------------------------------------------- | --------- |
-| `cinesim.toml`                                | Format/language versions, identity, active composition, settings, compiler policy, and asset catalog | Yes       |
-| `main.jsx` and reachable `.js`/`.jsx` modules | Compositions, timelines, tracks, clips, graphics, effects, and animation                             | Yes       |
-| `AGENTS.md`                                   | Project guidance for connected agents                                                                | Yes       |
-| `.gitignore`                                  | Excludes `.video/`                                                                                   | Yes       |
-| `.video/`                                     | Generated media, compiler artifacts, and runtime state                                               | No        |
+| Path                                           | Contents                                                                                             | Canonical |
+| ---------------------------------------------- | ---------------------------------------------------------------------------------------------------- | --------- |
+| `cinesim.toml`                                 | Format/language versions, identity, active composition, settings, compiler policy, and project notes | Yes       |
+| `assets.toml`                                  | Asset catalog, technical metadata, input-color policy, and deliberate asset notes                    | Yes       |
+| `main.jsx` and reachable `.js`/`.jsx` modules  | Compositions, timelines, tracks, clips, captions, graphics, effects, and animation                   | Yes       |
+| `AGENTS.md`                                    | Deterministically managed project guidance plus custom instructions                                  | No        |
+| `CLAUDE.md`, `.mcp.json`, `.codex/config.toml` | Deterministically merged provider integration that points at the project-scoped MCP server           | No        |
+| `.gitignore`                                   | Excludes `.video/`                                                                                   | No        |
+| `.video/`                                      | Generated media, compiler artifacts, and runtime state                                               | No        |
 
-There is no separate asset file or JSON timeline. Timeline structure exists once in
-source and compiles to deterministic semantic IR in memory. Source imports must be relative, stay
+There is no JSON timeline. Timeline structure exists once in source and compiles to deterministic
+semantic IR in memory. Source imports must be relative, stay
 inside the real project root, and may not resolve packages or symlink escapes.
 
 ## `cinesim.toml`
@@ -44,7 +52,7 @@ inside the real project root, and may not resolve packages or symlink escapes.
 The manifest is the non-video-source authority:
 
 ```toml
-format_version = 2
+format_version = 3
 language_version = 1
 
 [project]
@@ -66,6 +74,14 @@ proxy_quality = "medium"
 
 [compiler]
 strict = true
+```
+
+## `assets.toml`
+
+The asset manifest is the deterministic media catalog:
+
+```toml
+format_version = 1
 
 [assets.asset_interview]
 kind = "video"
@@ -81,9 +97,9 @@ kind = "local"
 path = "/Volumes/Footage/interview.mov"
 ```
 
-Asset table keys are stable IDs used by source expressions such as
-`asset("asset_interview")`. Cinesim patches owned keys and asset blocks with expected revisions, so
-comments and unknown tables survive unrelated edits.
+Asset table keys are stable IDs used by source expressions such as `asset("asset_interview")`.
+Cinesim patches owned keys and asset blocks with expected revisions, so comments and unknown tables
+survive unrelated edits.
 
 ## Video source
 
@@ -114,12 +130,49 @@ export default main;
 Capitalized imports are reusable user components. Components may generate visual content inside an
 explicit clip; editable composition, timeline, track, and clip structure remains explicit.
 
+Timed captions are ordinary canonical source, independent from the disposable transcript after
+generation:
+
+```jsx
+<captiontrack
+  id="captiontrack_en"
+  name="English"
+  transcriptFingerprint="transcript-v1-8f67b5d1c12a30e4"
+  fontSize={px(64)}
+  placement="bottom"
+  animationPreset="word-emphasis"
+>
+  <cue id="cue_welcome" start={seconds(1)} duration={seconds(2)} text="Welcome home.">
+    <captionword
+      id="captionword_welcome"
+      start={seconds(0)}
+      duration={milliseconds(800)}
+      text="Welcome"
+    />
+    <captionword
+      id="captionword_home"
+      start={milliseconds(800)}
+      duration={milliseconds(700)}
+      text="home."
+    />
+  </cue>
+</captiontrack>
+```
+
+Track styles cover placement, safe margins, fill, outline, shadow, background, and expressive
+presets. Cues may override those properties or contain explicit typed animation. Caption text uses
+the bundled Instrument Sans variable font, HarfBuzz shaping, a bounded signed-distance glyph atlas,
+and WebGPU composition; Canvas2D and bitmap-font preview paths are not used.
+
 ## `.video/`
 
-`.video/` contains caches, proxies, perception artifacts, compiler transactions, and runtime
-checkpoints. It is ignored as a unit and must not become creative source of truth. Source media is
-referenced in place by the manifest; no project-level `media/` or `exports/` directory is required.
+`.video/` contains caches, proxies, perception artifacts, compiler transactions, runtime state, and
+atomically published export artifacts. It is ignored as a unit and must not become creative source
+of truth. Source media is referenced in place by the manifest; no project-level `media/` or
+canonical `exports/` directory is required. Copy a finished `.video/exports/*.mp4` deliverable to a
+user-chosen destination before clearing derived data.
 
 ## Version control
 
-Commit `cinesim.toml`, video source, and ordinary project documents. Do not commit `.video/`.
+Commit `cinesim.toml`, `assets.toml`, reachable video source, and ordinary project documents. Do
+not commit `.video/`.

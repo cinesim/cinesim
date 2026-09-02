@@ -18,7 +18,6 @@ function sessionFixture(): AgentSessionSnapshot {
     provider: "codex",
     model: "gpt-5",
     effort: "high",
-    permissionMode: "supervised",
     title: "Long edit",
     status: "working",
     createdAt: timestamp,
@@ -32,7 +31,6 @@ function sessionFixture(): AgentSessionSnapshot {
       createdAt: timestamp,
       text: index === 599 ? "a".repeat(500_000) : `historical event ${index}`,
     })),
-    checkpoints: [],
   };
 }
 

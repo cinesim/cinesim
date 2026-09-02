@@ -1,4 +1,5 @@
 export * from "./transcript/artifact";
+export * from "./transcript/captions";
 export * from "./transcript/constants";
 export * from "./transcript/projection";
 export * from "./transcript/projection-types";

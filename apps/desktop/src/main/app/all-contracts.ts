@@ -2,8 +2,12 @@ import { accountContracts } from "../account/contracts";
 import { agentContracts } from "../agents/contracts";
 import { cloudContracts } from "../cloud/contracts";
 import { derivedContracts } from "../derived-media/contracts";
+import { frameContracts } from "../frames/contracts";
+import { exportContracts } from "../exports/contracts";
 import { projectContracts } from "../projects/contracts";
 import { transcriptContracts } from "../transcripts/contracts";
+import { visualIndexContracts } from "../visual-index/contracts";
+import { visualAnalysisContracts } from "../visual-analysis/contracts";
 import { appContracts } from "./contracts";
 import type { InvokeContract } from "./ipc-contract";
 
@@ -17,6 +21,10 @@ export const allInvokeContracts = Object.freeze([
   ...values(appContracts),
   ...values(cloudContracts),
   ...values(derivedContracts),
+  ...values(exportContracts),
+  ...values(frameContracts),
   ...values(projectContracts),
   ...values(transcriptContracts),
+  ...values(visualAnalysisContracts),
+  ...values(visualIndexContracts),
 ]);

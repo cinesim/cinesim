@@ -33,10 +33,25 @@ function supportsDerivedArtifacts(asset: Asset | undefined): asset is Asset {
   return asset?.kind === "video" || asset?.kind === "audio";
 }
 
+export function supportsProxyGeneration(asset: Asset): boolean {
+  const technical = asset.technical;
+  if (!technical) return true;
+  if (asset.kind === "video" && technical.video?.decoderAvailability === "unsupported")
+    return false;
+  if (asset.kind === "audio" && technical.audio?.decoderAvailability === "unsupported")
+    return false;
+  return technical.audio?.decoderAvailability !== "unsupported";
+}
+
 function perceptionKinds(asset: Asset): DerivedArtifactKind[] {
   const kinds: DerivedArtifactKind[] = [];
-  if (asset.kind === "video") kinds.push("thumbnail", "filmstrip");
-  if (asset.kind === "audio" || asset.hasAudio === true) kinds.push("waveform");
+  if (asset.kind === "video" && asset.technical?.video?.decoderAvailability !== "unsupported")
+    kinds.push("thumbnail", "filmstrip");
+  if (
+    (asset.kind === "audio" || asset.hasAudio === true) &&
+    asset.technical?.audio?.decoderAvailability !== "unsupported"
+  )
+    kinds.push("waveform");
   return kinds;
 }
 
@@ -141,6 +156,10 @@ export class DerivedJobCoordinator {
 
   async queueProxyRecord(asset: Asset, required = false): Promise<void> {
     if (!supportsDerivedArtifacts(asset)) return;
+    if (!supportsProxyGeneration(asset)) {
+      if (required) throw new Error("The source decoder does not support this asset");
+      return;
+    }
     if (!this.artifacts.diskHeadroomAvailable) {
       if (required) throw new Error("Insufficient disk headroom for a proxy");
       return;

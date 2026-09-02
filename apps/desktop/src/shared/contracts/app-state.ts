@@ -33,4 +33,6 @@ export interface DesktopAppState {
   editorLayoutsByProject: Record<string, EditorLayoutState>;
   cutLayoutsByProject: Record<string, CutLayoutState>;
   transcriptionSettings: TranscriptionSettings;
+  newProjectSettings: ProjectSettings;
 }
+import type { ProjectSettings } from "@cinesim/core";

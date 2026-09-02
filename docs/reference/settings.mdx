@@ -17,23 +17,56 @@ proxy_profile = "balanced"
 proxy_max_long_edge = 1280
 proxy_frame_rate_cap = 60
 proxy_quality = "medium"
+working_color_space = "linear-rec709"
+output_color_space = "rec709-sdr"
+tone_mapping = "automatic"
+uncertain_color_handling = "warn"
+
+[compiler]
+strict = true
 ```
 
-| Key                          | Values or type                                      | Default     |
-| ---------------------------- | --------------------------------------------------- | ----------- |
-| `autosave`                   | boolean                                             | `true`      |
-| `preview_quality`            | `full`, `half`, `quarter`                           | `half`      |
-| `background_color`           | `#rrggbb`                                           | `#09090b`   |
-| `filmstrip_interval_seconds` | positive number                                     | `5`         |
-| `proxy_generation`           | `automatic`, `manual`                               | `automatic` |
-| `proxy_profile`              | `space-saver`, `balanced`, `high-quality`, `custom` | `balanced`  |
-| `proxy_max_long_edge`        | integer 320–7680                                    | `1280`      |
-| `proxy_frame_rate_cap`       | `30` or `60`                                        | `60`        |
-| `proxy_quality`              | `low`, `medium`, `high`                             | `medium`    |
+| Key                          | Values or type                                      | Default         |
+| ---------------------------- | --------------------------------------------------- | --------------- |
+| `autosave`                   | boolean                                             | `true`          |
+| `preview_quality`            | `full`, `half`, `quarter`                           | `half`          |
+| `background_color`           | `#rrggbb`                                           | `#09090b`       |
+| `filmstrip_interval_seconds` | positive number                                     | `5`             |
+| `proxy_generation`           | `automatic`, `manual`                               | `automatic`     |
+| `proxy_profile`              | `space-saver`, `balanced`, `high-quality`, `custom` | `balanced`      |
+| `proxy_max_long_edge`        | integer 320–7680                                    | `1280`          |
+| `proxy_frame_rate_cap`       | `30` or `60`                                        | `60`            |
+| `proxy_quality`              | `low`, `medium`, `high`                             | `medium`        |
+| `working_color_space`        | `linear-rec709`                                     | `linear-rec709` |
+| `output_color_space`         | `rec709-sdr`                                        | `rec709-sdr`    |
+| `tone_mapping`               | `automatic`, `off`                                  | `automatic`     |
+| `uncertain_color_handling`   | `warn`, `assume-rec709`                             | `warn`          |
+
+`[compiler].strict` is a boolean and defaults to `true`.
 
 Lower preview quality trades image detail for decode headroom and does not alter rendered output.
 Named proxy profiles set the final three proxy keys; choose `custom` to control them independently.
 Cloud originals always receive an edit proxy.
 
+The production compositor samples decoded frames through WebGPU, interprets the canonical asset
+transfer and primaries metadata, converts Rec.2020 when present, and performs grades, effects,
+blends, graphics, and text in linear Rec.709 `rgba16float` intermediates. The output pass encodes
+Rec.709 SDR once. `tone_mapping = "automatic"` maps detected HLG/PQ input into that SDR output;
+`off` is an explicit reversible policy change. If metadata is incomplete, keep `warn` to preserve
+the source interpretation and surface a warning, or choose `assume-rec709` for an explicit project
+fallback. A per-asset input-color override takes precedence. Because interpretation comes from the
+canonical asset record rather than the selected media path, original and proxy playback use the
+same transform.
+
 Account-scoped transcription preferences remain in desktop application state, not in the project
 manifest, and therefore do not enter project history.
+
+The desktop also keeps a device-wide application default for every project setting. **Use current
+settings** copies the open project's validated settings into that default, and **Reset defaults**
+restores the values in the table above. Project creation copies the current application default
+into the new `cinesim.toml`; changing it never changes an existing project or its history.
+
+Export settings are also intentionally absent from hidden application or project state. Every UI or
+MCP render request names one of the advertised presets, an accepted timeline, an optional exact
+microsecond range, and a bounded MP4 file name. The initial presets are H.264/AAC Rec.709 SDR at a
+1920-pixel maximum long edge or at the source composition size.

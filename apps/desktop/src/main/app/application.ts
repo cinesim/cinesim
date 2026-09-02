@@ -19,6 +19,10 @@ import type { DesktopAccountService } from "../account/service";
 import { registerCloudIpc } from "../cloud/ipc";
 import { CloudMediaManager } from "../cloud/manager";
 import { registerTranscriptIpc } from "../transcripts/ipc";
+import { registerVisualIndexIpc } from "../visual-index/ipc";
+import { registerFrameIpc } from "../frames/ipc";
+import { registerVisualAnalysisIpc } from "../visual-analysis/ipc";
+import { registerExportIpc } from "../exports/ipc";
 import type { DevelopmentConfiguration } from "./development-configuration";
 import { configureIpcSecurity } from "./secure-ipc";
 import { desktopEvents } from "../../shared/contracts/events";
@@ -39,7 +43,28 @@ export class DesktopApplication implements ApplicationLifecycle {
     private readonly development: DevelopmentConfiguration,
     private readonly windows: EditorWindowRegistry,
   ) {
-    this.projectStore = new DesktopProjectStore(accountService);
+    this.projectStore = new DesktopProjectStore(
+      accountService,
+      () => this.windows.broadcast(desktopEvents.visualIndexChanged),
+      (request) => {
+        if (this.windows.size === 0) return false;
+        this.windows.sendPrimary(desktopEvents.frameRequested, request);
+        return true;
+      },
+      (requestId) => this.windows.sendPrimary(desktopEvents.frameCanceled, { requestId }),
+      (request) => {
+        if (this.windows.size === 0) return false;
+        this.windows.sendPrimary(desktopEvents.visualAnalysisRequested, request);
+        return true;
+      },
+      (requestId) => this.windows.sendPrimary(desktopEvents.visualAnalysisCanceled, { requestId }),
+      (request) => {
+        if (this.windows.size === 0) return false;
+        this.windows.sendPrimary(desktopEvents.exportRequested, request);
+        return true;
+      },
+      (jobId) => this.windows.sendPrimary(desktopEvents.exportCanceled, { jobId }),
+    );
     configureIpcSecurity({ developmentUrl: development.rendererUrl });
   }
 
@@ -49,6 +74,10 @@ export class DesktopApplication implements ApplicationLifecycle {
     this.#configureEditorSession();
 
     const { appState, agentSettings } = await this.#loadLocalState();
+    this.projectStore.setDefaultAgentInstructions(
+      () => agentSettings.snapshot().projectInstructions,
+    );
+    this.projectStore.setDefaultProjectSettings(() => appState.snapshot().newProjectSettings);
     const cloudMedia = await this.#createCloudMedia(appState);
     await this.#openDiagnosticProject();
     await this.#registerMedia(cloudMedia);
@@ -127,6 +156,9 @@ export class DesktopApplication implements ApplicationLifecycle {
     this.projectStore.transcripts.subscribe((snapshot) => {
       this.windows.broadcast(desktopEvents.transcriptsChanged, snapshot);
     });
+    this.projectStore.exports.subscribe((snapshot) => {
+      this.windows.broadcast(desktopEvents.exportChanged, snapshot);
+    });
   }
 
   async #createAgents(agentSettings: AgentSettingsStore): Promise<AgentManager> {
@@ -156,7 +188,11 @@ export class DesktopApplication implements ApplicationLifecycle {
   ): void {
     registerProjectIpc(this.projectStore, appState, agents, this.accountService, cloudMedia);
     registerDerivedMediaIpc(this.projectStore.derivedMedia);
+    registerFrameIpc(this.projectStore.frames);
+    registerExportIpc(this.projectStore.exports);
+    registerVisualAnalysisIpc(this.projectStore.visualAnalysis);
     registerTranscriptIpc(this.projectStore.transcripts);
+    registerVisualIndexIpc(this.projectStore);
     registerAppStateIpc(appState, this.projectStore);
     registerAgentIpc(agents, agentSettings);
     registerAppIpc(log, this.#eventLoopMonitor);

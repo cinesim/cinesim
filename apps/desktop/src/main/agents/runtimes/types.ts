@@ -9,7 +9,7 @@ export interface AgentRuntimeEvent {
   title?: string;
   detail?: string;
   toolName?: string;
-  status?: "running" | "completed" | "failed" | "declined";
+  status?: "running" | "completed" | "failed" | "interrupted";
 }
 
 export interface AgentRuntimeCallbacks {
@@ -18,7 +18,6 @@ export interface AgentRuntimeCallbacks {
   onTurnStarted(providerTurnId?: string): void;
   onTurnCompleted(status: "completed" | "failed" | "interrupted", detail?: string): void;
   onTokenUsage(usage: Omit<AgentTokenUsage, "updatedAt">): void;
-  onApproval(title: string, detail: string): Promise<boolean>;
   onExit(detail?: string): void;
 }
 
@@ -37,7 +36,6 @@ export interface AgentRuntimeLaunchOptions {
   providerSessionId?: string;
   mcpUrl: string;
   mcpToken: string;
-  instructions: string;
 }
 
 export function asRecord(value: unknown): Record<string, unknown> | null {

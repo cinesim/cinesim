@@ -6,6 +6,7 @@
   "type": "module",
   "dependencies": {
     "@cinesim/cli": "workspace:*",
+    "@cinesim/compiler": "workspace:*",
     "@cinesim/logging": "workspace:*",
     "@cinesim/mcp-tools": "workspace:*",
     "@cinesim/project-io": "workspace:*",

@@ -18,7 +18,7 @@ const log = createCinesimLogger({ service: "cli" });
 
 const program = new Command()
   .name("cinesim")
-  .description("Inspect and edit a Cinesim project through its canonical command pathway")
+  .description("Compile and inspect open Cinesim projects")
   .version("0.1.0")
   .option("-p, --project <directory>", "Cinesim project directory");
 
@@ -38,6 +38,14 @@ function directory(): string {
     program.opts<{ project?: string }>().project ?? process.env.CINESIM_PROJECT ?? process.cwd()
   );
 }
+
+program
+  .command("mcp")
+  .description("Run the project-scoped Cinesim MCP server over stdio")
+  .action(async () => {
+    const { runMcpServer } = await import("../../mcp/src/server");
+    await runMcpServer(directory());
+  });
 
 async function store(): Promise<DiskProjectStore> {
   return new DiskProjectStore(directory()).load();

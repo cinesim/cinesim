@@ -1,7 +1,12 @@
 import { timeUs } from "@cinesim/core";
+import { irTimeUs } from "@cinesim/ir";
 import { describe, expect, it } from "vite-plus/test";
 import type { AudioSource } from "../src/media/video-source";
-import { audioFadeGainAt, WebAudioScheduler } from "../src/playback/audio-scheduler";
+import {
+  audioFadeGainAt,
+  audioMixGainAt,
+  WebAudioScheduler,
+} from "../src/playback/audio-scheduler";
 
 class FakeBufferSourceNode {
   buffer: AudioBuffer | null = null;
@@ -30,7 +35,15 @@ class FakeBufferSourceNode {
   }
 }
 
-function audioContext(node: FakeBufferSourceNode): AudioContext {
+interface AudioObservations {
+  gains: number[];
+  pans: number[];
+}
+
+function audioContext(
+  node: FakeBufferSourceNode,
+  observations: AudioObservations = { gains: [], pans: [] },
+): AudioContext {
   const createGain = () =>
     ({
       channelCount: 0,
@@ -38,8 +51,8 @@ function audioContext(node: FakeBufferSourceNode): AudioContext {
       channelInterpretation: "speakers",
       gain: {
         value: 1,
-        setValueAtTime: () => undefined,
-        linearRampToValueAtTime: () => undefined,
+        setValueAtTime: (value: number) => observations.gains.push(value),
+        linearRampToValueAtTime: (value: number) => observations.gains.push(value),
       },
       connect: () => undefined,
       disconnect: () => undefined,
@@ -58,6 +71,19 @@ function audioContext(node: FakeBufferSourceNode): AudioContext {
     createBufferSource: () => node as unknown as AudioBufferSourceNode,
     createChannelSplitter: () => ({ connect: () => undefined }) as unknown as ChannelSplitterNode,
     createGain,
+    createStereoPanner: () =>
+      ({
+        pan: {
+          get value() {
+            return observations.pans.at(-1) ?? 0;
+          },
+          set value(value: number) {
+            observations.pans.push(value);
+          },
+        },
+        connect: () => undefined,
+        disconnect: () => undefined,
+      }) as unknown as StereoPannerNode,
     resume: async () => undefined,
     close: async () => undefined,
   } as unknown as AudioContext;
@@ -89,6 +115,22 @@ describe("audio fade envelope", () => {
     expect(audioFadeGainAt(envelope, timeUs(5_000_000))).toBe(1);
     expect(audioFadeGainAt(envelope, timeUs(9_000_000))).toBe(0.5);
     expect(audioFadeGainAt(envelope, timeUs(11_000_000))).toBe(0);
+  });
+
+  it("combines base, fade, and interpolated ducking gain", () => {
+    expect(
+      audioMixGainAt(
+        {
+          ...envelope,
+          gain: 0.5,
+          ducking: [
+            { timelineUs: irTimeUs(1_000_000), gain: 1 },
+            { timelineUs: irTimeUs(3_000_000), gain: 0.25 },
+          ],
+        },
+        timeUs(2_000_000),
+      ),
+    ).toBeCloseTo(0.15625);
   });
 });
 
@@ -124,5 +166,29 @@ describe("WebAudioScheduler", () => {
     expect(() => scheduler.stop()).not.toThrow();
     expect(node.stops).toBe(0);
     expect(node.disconnects).toBe(1);
+  });
+
+  it("applies canonical pan and ducking automation before the master mix", async () => {
+    const node = new FakeBufferSourceNode();
+    const observations: AudioObservations = { gains: [], pans: [] };
+    const scheduler = new WebAudioScheduler(audioContext(node, observations));
+    scheduler.startTransport(timeUs(0));
+
+    await scheduler.schedule(audioSource(0, 2), timeUs(0), timeUs(0), timeUs(2_000_000), {
+      timelineStartUs: timeUs(0),
+      timelineEndUs: timeUs(2_000_000),
+      fadeInUs: timeUs(0),
+      fadeOutUs: timeUs(0),
+      gain: 0.5,
+      pan: 0.75,
+      ducking: [
+        { timelineUs: irTimeUs(0), gain: 1 },
+        { timelineUs: irTimeUs(1_000_000), gain: 0.25 },
+        { timelineUs: irTimeUs(2_000_000), gain: 1 },
+      ],
+    });
+
+    expect(observations.pans.at(-1)).toBe(0.75);
+    expect(observations.gains).toEqual([0.5, 0.125, 0.5]);
   });
 });

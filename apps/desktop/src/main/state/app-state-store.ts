@@ -1,5 +1,6 @@
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
+import { DEFAULT_SETTINGS, settingsSchema, type ProjectSettings } from "@cinesim/core";
 import {
   CUT_LAYOUT_LIMITS,
   DEFAULT_CUT_LAYOUT,
@@ -24,6 +25,7 @@ const EMPTY_STATE: DesktopAppState = {
   editorLayoutsByProject: {},
   cutLayoutsByProject: {},
   transcriptionSettings: DEFAULT_TRANSCRIPTION_SETTINGS,
+  newProjectSettings: DEFAULT_SETTINGS,
 };
 
 interface PersistedDesktopState {
@@ -145,6 +147,11 @@ export function parseTranscriptionSettings(value: unknown): TranscriptionSetting
   return { generation: value.generation, model: value.model };
 }
 
+export function parseNewProjectSettings(value: unknown): ProjectSettings | null {
+  const result = settingsSchema.safeParse(value);
+  return result.success ? result.data : null;
+}
+
 function parseState(value: unknown): DesktopAppState {
   if (!isRecord(value) || value.version !== 1) return emptyState();
 
@@ -159,6 +166,8 @@ function parseState(value: unknown): DesktopAppState {
     transcriptionSettings:
       parseTranscriptionSettings(value.transcriptionSettings) ??
       structuredClone(DEFAULT_TRANSCRIPTION_SETTINGS),
+    newProjectSettings:
+      parseNewProjectSettings(value.newProjectSettings) ?? structuredClone(DEFAULT_SETTINGS),
   };
 }
 
@@ -223,6 +232,7 @@ export class DesktopAppStateStore {
         ...cloud?.cutLayoutsByProject,
       },
       transcriptionSettings: cloud?.transcriptionSettings ?? this.#local.transcriptionSettings,
+      newProjectSettings: this.#local.newProjectSettings,
     });
   }
 
@@ -281,6 +291,11 @@ export class DesktopAppStateStore {
 
   async setTranscriptionSettings(settings: TranscriptionSettings): Promise<void> {
     this.#requireCloud().transcriptionSettings = structuredClone(settings);
+    await this.#queueSave();
+  }
+
+  async setNewProjectSettings(settings: ProjectSettings): Promise<void> {
+    this.#local.newProjectSettings = structuredClone(settings);
     await this.#queueSave();
   }
 

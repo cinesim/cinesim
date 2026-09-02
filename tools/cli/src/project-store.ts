@@ -13,6 +13,7 @@ export class DiskProjectStore {
   program!: IrProgram;
   editMap!: IrEditMap;
   settings!: ProjectSettings;
+  generation!: string;
   #service: SourceCommandService | null = null;
 
   constructor(directory = process.env.CINESIM_PROJECT || process.cwd()) {
@@ -66,11 +67,13 @@ export class DiskProjectStore {
   #projectFromSnapshot(): void {
     const snapshot = this.#requireService().snapshot;
     this.settings = snapshot.manifest.settings;
+    this.generation = snapshot.generation;
     this.program = structuredClone(snapshot.compilation.ir);
     this.editMap = structuredClone(snapshot.compilation.sourceMap);
     this.project = projectViewFromIr(snapshot.compilation.ir, {
       name: snapshot.manifest.project.name,
-      assets: snapshot.manifest.assets,
+      assets: snapshot.assets,
+      notes: snapshot.manifest.notes,
       ...(snapshot.manifest.project.cloudProjectId === undefined
         ? {}
         : {

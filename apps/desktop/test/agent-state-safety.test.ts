@@ -1,8 +1,7 @@
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it, vi } from "vite-plus/test";
-import { AgentApprovalBroker } from "../src/main/agents/approval-broker";
+import { afterEach, describe, expect, it } from "vite-plus/test";
 import { AgentSessionStore } from "../src/main/agents/session-store";
 import type { PersistedAgentState } from "../src/main/agents/session-store";
 import {
@@ -14,7 +13,6 @@ import {
 const directories: string[] = [];
 
 afterEach(async () => {
-  vi.useRealTimers();
   await Promise.all(directories.splice(0).map((directory) => rm(directory, { recursive: true })));
 });
 
@@ -30,13 +28,11 @@ function stateFixture(): PersistedAgentState {
         provider: "codex",
         model: "gpt-5",
         effort: "high",
-        permissionMode: "supervised",
         title: "Fixture",
         status: "idle",
         createdAt: timestamp,
         updatedAt: timestamp,
         events: [],
-        checkpoints: [],
       },
     ],
   };
@@ -77,21 +73,34 @@ describe("agent state safety", () => {
     });
   });
 
-  it("binds approval leases to their session and turn and expires them", async () => {
-    vi.useFakeTimers();
-    const broker = new AgentApprovalBroker(100);
-    let expired = false;
-    const { lease, decision } = broker.request({
-      sessionId: "session-1",
-      turnId: "turn-1",
-      toolName: "project_edit",
-      detail: "Move clip",
-      expired: () => {
-        expired = true;
+  it("migrates obsolete approval and checkpoint state out of persisted sessions", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "cinesim-agent-state-"));
+    directories.push(directory);
+    const path = join(directory, "sessions.json");
+    const legacy = stateFixture() as unknown as {
+      sessions: Array<Record<string, unknown> & { events: unknown[] }>;
+    };
+    legacy.sessions[0]!.permissionMode = "supervised";
+    legacy.sessions[0]!.checkpoints = [];
+    legacy.sessions[0]!.status = "waiting";
+    legacy.sessions[0]!.activeTurnId = "legacy-turn";
+    legacy.sessions[0]!.events = [
+      {
+        id: "legacy-approval",
+        sessionId: "session-fixture",
+        kind: "approval-requested",
+        createdAt: "2026-08-30T12:00:00.000Z",
+        requestId: "request-1",
+        status: "running",
       },
-    });
-    expect(() => broker.intent("session-1", lease.requestId, "turn-2")).toThrow(/no longer active/);
-    await expect(decision).resolves.toBe(false);
-    expect(expired).toBe(true);
+    ];
+    await writeFile(path, JSON.stringify(legacy));
+
+    const migrated = await new AgentSessionStore(path).read();
+    expect(migrated.sessions[0]).not.toHaveProperty("permissionMode");
+    expect(migrated.sessions[0]).not.toHaveProperty("checkpoints");
+    expect(migrated.sessions[0]).toMatchObject({ status: "interrupted" });
+    expect(migrated.sessions[0]?.activeTurnId).toBeUndefined();
+    expect(migrated.sessions[0]?.events).toEqual([]);
   });
 });

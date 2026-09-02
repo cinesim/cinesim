@@ -59,8 +59,11 @@ function program(): IrProgram {
         background: "#000000",
         timeline: {
           id: "timeline_main",
+          captionTracks: [],
+          notes: [],
           markers: [],
           transitions: [],
+          audioTransitions: [],
           tracks: [
             {
               id: "track_video",
@@ -107,6 +110,38 @@ describe("semantic ir", () => {
 
   it("evaluates typed keyframes and produces timeline/render/audio projections", () => {
     const ir = program();
+    ir.compositions[0]!.timeline.tracks[0]!.clips[0]!.animations = [
+      {
+        property: "width",
+        keyframes: [
+          {
+            at: irTimeUs(0),
+            value: { kind: "length", unit: "px", value: 640 },
+            easing: "linear",
+          },
+          {
+            at: irTimeUs(1_000_000),
+            value: { kind: "length", unit: "px", value: 1280 },
+            easing: "linear",
+          },
+        ],
+      },
+      {
+        property: "cornerRadius",
+        keyframes: [
+          {
+            at: irTimeUs(0),
+            value: { kind: "length", unit: "px", value: 0 },
+            easing: "linear",
+          },
+          {
+            at: irTimeUs(1_000_000),
+            value: { kind: "length", unit: "px", value: 40 },
+            easing: "linear",
+          },
+        ],
+      },
+    ];
     validateIrProgram(ir, new Set(["asset_camera"]));
     expect(evaluateIrFrame(scene, 500_000).props.opacity).toEqual({ kind: "number", value: 0.5 });
     expect(projectTimeline(ir).durationUs).toBe(3_000_000);
@@ -114,13 +149,155 @@ describe("semantic ir", () => {
       clipId: "clip_camera",
       sourceTimeUs: 2_250_000,
       opacity: 0.5,
+      transform: { width: 800, cornerRadius: 10 },
     });
     expect(createAudioPlan(ir, 250_000).sources).toEqual([]);
+  });
+
+  it("targets active time-bounded adjustment layers below their owner", () => {
+    const ir = program();
+    ir.compositions[0]!.timeline.tracks.unshift({
+      id: "track_adjustments",
+      kind: "overlay",
+      name: "Adjustments",
+      muted: false,
+      locked: false,
+      clips: [],
+      effects: [],
+      adjustments: [
+        {
+          id: "adjustment_grade",
+          trackId: "track_adjustments",
+          timelineStartUs: irTimeUs(100_000),
+          durationUs: irTimeUs(500_000),
+          scope: "below",
+          depth: 1,
+          targetTrackIds: [],
+          enabled: true,
+          animations: [],
+          effects: [
+            {
+              id: "adjustment_grade/color",
+              kind: "colorgrade",
+              enabled: true,
+              props: { exposure: { kind: "number", value: 0.5 } },
+              animations: [
+                {
+                  property: "exposure",
+                  keyframes: [
+                    { at: irTimeUs(0), value: { kind: "number", value: 0 }, easing: "linear" },
+                    {
+                      at: irTimeUs(300_000),
+                      value: { kind: "number", value: 1 },
+                      easing: "linear",
+                    },
+                  ],
+                },
+              ],
+              children: [],
+            },
+          ],
+        },
+      ],
+    });
+    validateIrProgram(ir, new Set(["asset_camera"]));
+    expect(createRenderPlan(ir, 50_000).adjustments).toEqual([]);
+    const plan = createRenderPlan(ir, 250_000);
+    expect(plan.adjustments[0]).toMatchObject({
+      id: "adjustment_grade",
+      targetTrackIds: ["track_video"],
+    });
+    expect(plan.layers[0]!.effects).toEqual([]);
+    expect(plan.adjustments[0]!.effects[0]!.props.exposure).toEqual({
+      kind: "number",
+      value: 0.5,
+    });
+    expect(projectTimeline(ir).tracks[0]!.adjustments[0]?.id).toBe("adjustment_grade");
+    ir.compositions[0]!.timeline.tracks[0]!.adjustments!.push({
+      id: "adjustment_conflict",
+      trackId: "track_adjustments",
+      timelineStartUs: irTimeUs(200_000),
+      durationUs: irTimeUs(100_000),
+      scope: "tracks",
+      depth: 1,
+      targetTrackIds: ["track_video"],
+      enabled: true,
+      animations: [],
+      effects: [],
+    });
+    expect(() => validateIrProgram(ir, new Set(["asset_camera"]))).toThrow(
+      /overlap the same target/,
+    );
+  });
+
+  it("projects active caption cues with cue-local typed animation", () => {
+    const ir = program();
+    ir.compositions[0]!.timeline.captionTracks.push({
+      id: "captions_en",
+      name: "English",
+      transcriptFingerprint: "sha256:fixture",
+      props: { fill: { kind: "color", value: "#ffffff" } },
+      cues: [
+        {
+          id: "cue_intro",
+          startUs: irTimeUs(1_000_000),
+          durationUs: irTimeUs(2_000_000),
+          text: "Welcome home",
+          props: { scale: { kind: "number", value: 0.9 } },
+          animations: [
+            {
+              property: "scale",
+              keyframes: [
+                { at: irTimeUs(0), value: { kind: "number", value: 0.9 }, easing: "linear" },
+                { at: irTimeUs(1_000_000), value: { kind: "number", value: 1 }, easing: "linear" },
+              ],
+            },
+          ],
+          words: [],
+        },
+      ],
+    });
+
+    validateIrProgram(ir, new Set(["asset_camera"]));
+    expect(projectTimeline(ir).durationUs).toBe(3_000_000);
+    expect(createRenderPlan(ir, 1_500_000).captions).toMatchObject([
+      { cue: { id: "cue_intro" }, props: { scale: { kind: "number", value: 0.95 } } },
+    ]);
+    expect(createRenderPlan(ir, 3_000_000).captions).toEqual([]);
   });
 
   it("rejects invalid links and asset catalogs", () => {
     const ir = program();
     ir.compositions[0]!.timeline.tracks[0]!.clips[0]!.linkedClipId = "clip_missing";
     expect(() => validateIrProgram(ir, new Set(["asset_camera"]))).toThrow(/reciprocal/);
+  });
+
+  it("preserves reciprocal A/V links when split-edit ranges differ", () => {
+    const ir = program();
+    const video = ir.compositions[0]!.timeline.tracks[0]!.clips[0]!;
+    const { content: _content, ...audioFields } = structuredClone(video);
+    video.linkedClipId = "clip_audio";
+    ir.compositions[0]!.timeline.tracks.push({
+      id: "track_audio",
+      kind: "audio",
+      name: "Audio",
+      muted: false,
+      locked: false,
+      effects: [],
+      clips: [
+        {
+          ...audioFields,
+          id: "clip_audio",
+          trackId: "track_audio",
+          mediaKind: "audio",
+          linkedClipId: video.id,
+          timelineStartUs: irTimeUs(1_000_000),
+          sourceStartUs: irTimeUs(1_000_000),
+          durationUs: irTimeUs(4_000_000),
+        },
+      ],
+    });
+
+    expect(() => validateIrProgram(ir, new Set(["asset_camera"]))).not.toThrow();
   });
 });

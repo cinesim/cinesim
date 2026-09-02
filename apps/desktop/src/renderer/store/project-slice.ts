@@ -20,6 +20,7 @@ export function createProjectSlice(context: RendererStoreContext): ProjectSlice 
     destination: "home",
     projectSection: "media",
     activeSequenceId: null,
+    selectedAssetIds: [],
     mediaPoolOpen: true,
     inspectorOpen: true,
     notesOpen: true,
@@ -133,6 +134,7 @@ export function createProjectSlice(context: RendererStoreContext): ProjectSlice 
           project: { status: "idle" },
           destination: "home",
           activeSequenceId: null,
+          selectedAssetIds: [],
           selectedClipId: null,
           playbackRuntime: null,
           derivedMedia: null,
@@ -175,6 +177,7 @@ export function createProjectSlice(context: RendererStoreContext): ProjectSlice 
         playbackRuntime: null,
       });
     },
+    setSelectedAssetIds: (assetIds) => set({ selectedAssetIds: [...new Set(assetIds)] }),
     setSettingsSection: (settingsSection) => set({ settingsSection }),
     setAuxiliaryMode: (auxiliaryMode) => {
       storage?.setItem("cinesim.agentsSidebarOpen", String(auxiliaryMode === "agents"));

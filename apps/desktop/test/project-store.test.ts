@@ -1,11 +1,11 @@
-import { timeUs } from "@cinesim/core";
+import { DEFAULT_SETTINGS, timeUs } from "@cinesim/core";
 import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vite-plus/test";
 import { DesktopProjectStore } from "../src/main/projects/project-store";
 import { canonicalProjectSizeBytes } from "../src/main/projects/project-size";
-import { isTemporaryMediaSelection } from "../src/main/projects/media-import";
+import { inferCodecBitDepth, isTemporaryMediaSelection } from "../src/main/projects/media-import";
 
 const temporaryDirectories: string[] = [];
 const projectStores: DesktopProjectStore[] = [];
@@ -50,6 +50,58 @@ afterEach(async () => {
 });
 
 describe("DesktopProjectStore", () => {
+  it("copies application defaults into each newly created project", async () => {
+    const parentDirectory = await mkdtemp(join(tmpdir(), "cinesim-project-defaults-test-"));
+    temporaryDirectories.push(parentDirectory);
+    const store = createProjectStore();
+    store.setDefaultProjectSettings(() => ({
+      ...DEFAULT_SETTINGS,
+      autosave: false,
+      previewQuality: "quarter",
+    }));
+
+    const created = await store.create(parentDirectory, "Defaults fixture");
+
+    expect(created.settings).toMatchObject({ autosave: false, previewQuality: "quarter" });
+    await expect(readFile(join(created.directory, "cinesim.toml"), "utf8")).resolves.toContain(
+      'preview_quality = "quarter"',
+    );
+  });
+
+  it("uses one managed guidance block and regenerates project custom instructions", async () => {
+    const parentDirectory = await mkdtemp(join(tmpdir(), "cinesim-guidance-test-"));
+    temporaryDirectories.push(parentDirectory);
+    let defaultInstructions = "Keep interview pauses.";
+    const store = createProjectStore();
+    store.setDefaultAgentInstructions(() => defaultInstructions);
+    const created = await store.create(parentDirectory, "Guidance fixture");
+
+    await expect(store.agentGuidance()).resolves.toMatchObject({
+      defaultCustomInstructions: "Keep interview pauses.",
+      projectCustomInstructions: "Keep interview pauses.",
+    });
+    await store.updateAgentGuidance("Prefer direct cuts.");
+    await expect(readFile(join(created.directory, "AGENTS.md"), "utf8")).resolves.toContain(
+      "Prefer direct cuts.",
+    );
+
+    defaultInstructions = "Use the team default.";
+    await store.updateAgentGuidance(defaultInstructions);
+    await expect(store.agentGuidance()).resolves.toMatchObject({
+      defaultCustomInstructions: "Use the team default.",
+      projectCustomInstructions: "Use the team default.",
+    });
+
+    await rm(join(created.directory, "AGENTS.md"));
+    await store.close();
+    const reopened = createProjectStore();
+    reopened.setDefaultAgentInstructions(() => defaultInstructions);
+    await reopened.open(created.directory);
+    await expect(readFile(join(created.directory, "AGENTS.md"), "utf8")).resolves.toContain(
+      "Use the team default.",
+    );
+  });
+
   it("creates immutable local and cloud project kinds", async () => {
     const parentDirectory = await mkdtemp(join(tmpdir(), "cinesim-account-project-test-"));
     temporaryDirectories.push(parentDirectory);
@@ -134,7 +186,25 @@ describe("DesktopProjectStore", () => {
       source: { kind: "local", path: mediaPath },
       durationUs: timeUs(1_000_000),
       hasAudio: true,
+      technical: {
+        containerMimeType: "audio/wav",
+        durationSeconds: 1,
+        compatibility: "supported",
+        audio: {
+          codec: "pcm-s16",
+          decoderAvailability: "supported",
+          sampleRate: 8_000,
+          channels: 1,
+          channelLayout: "mono",
+        },
+      },
     });
+  });
+
+  it("extracts bit depth only from codec parameter formats that carry it", () => {
+    expect(inferCodecBitDepth("vp09.02.10.10.01")).toBe(10);
+    expect(inferCodecBitDepth("av01.0.08M.08.0.110.01.01.01.0")).toBe(8);
+    expect(inferCodecBitDepth("avc1.640028")).toBeUndefined();
   });
 
   it("copies temporary picker media into disposable originals without modifying the source", async () => {

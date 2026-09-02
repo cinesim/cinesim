@@ -1,5 +1,5 @@
 import { irTimeUs } from "./types";
-import type { EvaluatedIrNode, IrAnimation, IrSceneNode, IrValue } from "./types";
+import type { EvaluatedIrNode, IrAnimation, IrEffect, IrSceneNode, IrValue } from "./types";
 
 function interpolateNumber(from: number, to: number, progress: number): number {
   return from + (to - from) * progress;
@@ -71,7 +71,7 @@ function applyEasing(progress: number, easing: string): number {
   return progress;
 }
 
-function evaluateAnimation(animation: IrAnimation, timeUs: number): IrValue | undefined {
+export function evaluateAnimation(animation: IrAnimation, timeUs: number): IrValue | undefined {
   const [first] = animation.keyframes;
   if (first === undefined) return undefined;
   if (timeUs <= first.at) return first.value;
@@ -87,10 +87,22 @@ function evaluateAnimation(animation: IrAnimation, timeUs: number): IrValue | un
   return animation.keyframes.at(-1)!.value;
 }
 
-export function evaluateIrFrame(node: IrSceneNode, localTimeUs: number): EvaluatedIrNode {
-  if (!Number.isSafeInteger(localTimeUs) || localTimeUs < 0) {
-    throw new Error("Frame time must be a non-negative integer number of microseconds.");
-  }
+export function evaluateIrEffects(effects: readonly IrEffect[], localTimeUs: number): IrEffect[] {
+  return effects.map((effect) => {
+    const props = { ...effect.props };
+    for (const animation of effect.animations ?? []) {
+      const value = evaluateAnimation(animation, localTimeUs);
+      if (value !== undefined) props[animation.property] = value;
+    }
+    return {
+      ...effect,
+      props,
+      children: effect.children,
+    };
+  });
+}
+
+function evaluatedSceneNode(node: IrSceneNode, localTimeUs: number): EvaluatedIrNode {
   const props = { ...node.props };
   for (const animation of node.animations) {
     const value = evaluateAnimation(animation, localTimeUs);
@@ -100,7 +112,14 @@ export function evaluateIrFrame(node: IrSceneNode, localTimeUs: number): Evaluat
     id: node.id,
     kind: node.kind,
     props,
-    effects: node.effects,
-    children: node.children.map((child) => evaluateIrFrame(child, localTimeUs)),
+    effects: evaluateIrEffects(node.effects, localTimeUs),
+    children: node.children.map((child) => evaluatedSceneNode(child, localTimeUs)),
   };
+}
+
+export function evaluateIrFrame(node: IrSceneNode, localTimeUs: number): EvaluatedIrNode {
+  if (!Number.isSafeInteger(localTimeUs) || localTimeUs < 0) {
+    throw new Error("Frame time must be a non-negative integer number of microseconds.");
+  }
+  return evaluatedSceneNode(node, localTimeUs);
 }

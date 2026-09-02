@@ -22,12 +22,47 @@ describe("renderer helpers", () => {
   });
 
   it("builds the next agent turn from current editor context", () => {
-    expect(buildAgentTurnContext("sequence_cut", 2_500_000, "clip_selected")).toEqual({
+    const session = {
+      diskValid: false,
+      diagnostics: [],
+      candidateDiagnostics: [{ severity: "error", code: "CS100", message: "Broken source" }],
+    } satisfies Parameters<typeof buildAgentTurnContext>[0]["session"];
+    expect(
+      buildAgentTurnContext({
+        workspace: "edit",
+        activeSequenceId: "sequence_cut",
+        playheadUs: 2_500_000,
+        selectedAssetIds: ["asset_selected"],
+        selectedClipId: "clip_selected",
+        session,
+      }),
+    ).toEqual({
+      workspace: "edit",
       activeSequenceId: "sequence_cut",
       playheadUs: 2_500_000,
-      selectedIds: ["clip_selected"],
+      selectedIds: ["asset_selected", "clip_selected"],
+      selectedAssetIds: ["asset_selected"],
+      selectedClipIds: ["clip_selected"],
+      compiler: {
+        diskValid: false,
+        diagnosticCount: 1,
+        diagnostics: [{ code: "CS100", message: "Broken source" }],
+      },
     });
-    expect(buildAgentTurnContext(null, 0, null)).toEqual({ playheadUs: 0 });
+    expect(
+      buildAgentTurnContext({
+        workspace: "media",
+        activeSequenceId: null,
+        playheadUs: 0,
+        selectedAssetIds: [],
+        selectedClipId: null,
+        session: { ...session, diskValid: true, diagnostics: [], candidateDiagnostics: [] },
+      }),
+    ).toEqual({
+      workspace: "media",
+      playheadUs: 0,
+      compiler: { diskValid: true, diagnosticCount: 0, diagnostics: [] },
+    });
   });
 
   it("uses shared diagnostic formatters", () => {

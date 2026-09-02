@@ -58,6 +58,29 @@ fades cannot exceed the clip's duration.
 Editing around a fade keeps it coherent: trimming clamps existing fades to the new length, and
 splitting keeps the outer fades while clearing the two new interior edges.
 
+### Edit-point transitions
+
+A visual `<transition>` references two enabled adjacent clips on one visual track. The clips remain
+strictly non-overlapping; the render plan decodes the incoming clip's declared pre-roll handle over
+the transition window. The validator rejects a missing edit relationship, a duration longer than
+the outgoing clip, or an incoming source range without enough handle.
+
+Supported preview kinds are dissolve, dip, wipe, slide, push, zoom, and blur. Direction, dip color,
+wipe softness, blur intensity, duration, and easing are typed source properties. The same evaluated
+plan feeds ordinary preview and exact timeline frame sampling.
+
+Audio is deliberately separate. An `<audiocrossfade>` references adjacent clips on an audio track
+and chooses linear or equal-power gain curves, so a hard picture cut may use a smooth audio edit or
+a picture transition may retain a hard audio cut.
+
+### Adjustment layers
+
+An `<adjustmentlayer>` is time bounded and belongs to a visual track. With `scope="below"`, its
+positive integer `depth` selects that many lower visual tracks. With `scope="tracks"`, its
+comma-separated `tracks` list names explicit lower visual tracks. Audio tracks, unknown targets,
+and targets above the adjustment are rejected. Enabled grade, blur, vignette, chroma-key, shadow,
+and grain children execute in canonical order through the shared bounded WebGPU render plan.
+
 ## Timing
 
 All semantic timing is integer microseconds. Source helpers such as `seconds()` and `milliseconds()`

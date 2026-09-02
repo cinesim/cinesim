@@ -2,6 +2,7 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vite-plus/test";
+import { DEFAULT_SETTINGS } from "@cinesim/core";
 import { DesktopAppStateStore } from "../src/main/state/app-state-store";
 import { DEFAULT_EDITOR_LAYOUT, DEFAULT_TRANSCRIPTION_SETTINGS } from "../src/shared/contracts";
 
@@ -84,6 +85,21 @@ describe("DesktopAppStateStore", () => {
       generation: "manual",
       model: "deepgram/nova-3",
     });
+  });
+
+  it("persists device-wide defaults for newly created projects", async () => {
+    const { path } = await stateFixture();
+    const store = new DesktopAppStateStore(path);
+    await store.load();
+    expect(store.snapshot().newProjectSettings).toEqual(DEFAULT_SETTINGS);
+
+    await store.setNewProjectSettings({ ...DEFAULT_SETTINGS, previewQuality: "quarter" });
+    store.setAccount("user_one");
+    expect(store.snapshot().newProjectSettings.previewQuality).toBe("quarter");
+
+    const restored = new DesktopAppStateStore(path);
+    await restored.load();
+    expect(restored.snapshot().newProjectSettings.previewQuality).toBe("quarter");
   });
 
   it("keeps valid persisted fields and discards malformed entries", async () => {
@@ -173,6 +189,7 @@ describe("DesktopAppStateStore", () => {
         generation: "manual",
         model: "deepgram/nova-3",
       },
+      newProjectSettings: DEFAULT_SETTINGS,
     });
   });
 });

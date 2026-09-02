@@ -78,9 +78,7 @@ export class CodexRuntime implements AgentProviderRuntime {
     const params = {
       cwd: this.options.cwd,
       approvalPolicy: "never",
-      approvalsReviewer: "user",
-      sandbox: "read-only",
-      developerInstructions: this.options.instructions,
+      sandbox: "workspace-write",
       ...(this.options.model ? { model: this.options.model } : {}),
     };
     const opened = asRecord(
@@ -105,8 +103,11 @@ export class CodexRuntime implements AgentProviderRuntime {
         threadId: this.#threadId,
         input: [{ type: "text", text: message }],
         approvalPolicy: "never",
-        approvalsReviewer: "user",
-        sandboxPolicy: { type: "readOnly" },
+        sandboxPolicy: {
+          type: "workspaceWrite",
+          writableRoots: [this.options.cwd],
+          networkAccess: true,
+        },
         effort: this.options.effort,
         ...(this.options.model ? { model: this.options.model } : {}),
       }),
@@ -309,14 +310,10 @@ export class CodexRuntime implements AgentProviderRuntime {
   async #handleServerRequest(
     id: number | string,
     method: string,
-    params: Record<string, unknown> | null,
+    _params: Record<string, unknown> | null,
   ): Promise<void> {
     if (method.includes("requestApproval")) {
-      const accepted = await this.callbacks.onApproval(
-        method.includes("fileChange") ? "Allow file change?" : "Allow command?",
-        JSON.stringify(params ?? {}, null, 2),
-      );
-      this.#respond(id, { decision: accepted ? "accept" : "decline" });
+      this.#respond(id, { decision: "accept" });
       return;
     }
     this.#respondError(id, -32_601, `Unsupported Codex request: ${method}`);

@@ -8,6 +8,7 @@ import {
   trackIdSchema,
   timeUsSchema,
   transformSchema,
+  editorialNoteSchema,
 } from "@cinesim/core";
 import type { SemanticEditorCommand } from "@cinesim/core";
 import type { IrValue } from "@cinesim/ir";
@@ -92,6 +93,13 @@ const editorCommandShapeSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("clip.trimStart"), clipId: clipIdSchema, atUs: timeUsSchema }),
   z.object({ type: z.literal("clip.trimEnd"), clipId: clipIdSchema, atUs: timeUsSchema }),
   z.object({
+    type: z.literal("clip.splitEdit"),
+    clipId: clipIdSchema,
+    component: z.enum(["audio", "video"]),
+    edge: z.enum(["start", "end"]),
+    atUs: timeUsSchema,
+  }),
+  z.object({
     type: z.literal("clip.setFade"),
     clipId: clipIdSchema,
     edge: z.enum(["in", "out"]),
@@ -119,6 +127,47 @@ export const irValueSchema = z.discriminatedUnion("kind", [
 ]) as unknown as z.ZodType<IrValue>;
 
 const semanticOnlyCommandSchema = z.discriminatedUnion("type", [
+  z
+    .object({
+      type: z.literal("note.upsert"),
+      target: z.enum(["project", "asset", "timeline"]),
+      assetId: assetIdSchema.optional(),
+      sequenceId: sequenceIdSchema.optional(),
+      note: editorialNoteSchema.extend({
+        atUs: timeUsSchema.optional(),
+        durationUs: timeUsSchema.optional(),
+      }),
+    })
+    .strict()
+    .refine(
+      (command) =>
+        (command.target === "project" && !command.assetId && !command.sequenceId) ||
+        (command.target === "asset" && Boolean(command.assetId) && !command.sequenceId) ||
+        (command.target === "timeline" && Boolean(command.sequenceId) && !command.assetId),
+      { message: "Note target identifiers do not match the target kind" },
+    )
+    .refine((command) => command.target !== "timeline" || command.note.atUs !== undefined, {
+      message: "Timeline notes require atUs",
+    }),
+  z
+    .object({
+      type: z.literal("note.remove"),
+      target: z.enum(["project", "asset", "timeline"]),
+      assetId: assetIdSchema.optional(),
+      sequenceId: sequenceIdSchema.optional(),
+      noteId: z
+        .string()
+        .regex(/^note_[a-zA-Z0-9][a-zA-Z0-9_-]*$/u)
+        .max(128),
+    })
+    .strict()
+    .refine(
+      (command) =>
+        (command.target === "project" && !command.assetId && !command.sequenceId) ||
+        (command.target === "asset" && Boolean(command.assetId) && !command.sequenceId) ||
+        (command.target === "timeline" && Boolean(command.sequenceId) && !command.assetId),
+      { message: "Note target identifiers do not match the target kind" },
+    ),
   z
     .object({
       type: z.literal("property.set"),
@@ -151,6 +200,42 @@ const semanticOnlyCommandSchema = z.discriminatedUnion("type", [
         new Set(command.updates.map((update) => update.property)).size === command.updates.length,
       { message: "Property batch contains duplicate properties" },
     ),
+  z
+    .object({
+      type: z.literal("keyframe.set"),
+      nodeId: z.string().min(1).max(512),
+      property: z.string().min(1).max(120),
+      index: z.number().int().nonnegative().safe(),
+      atUs: timeUsSchema.optional(),
+      value: irValueSchema.optional(),
+      easing: z.enum(["linear", "hold", "ease-in", "ease-out", "ease-in-out"]).optional(),
+    })
+    .strict()
+    .refine(
+      (command) =>
+        command.atUs !== undefined || command.value !== undefined || command.easing !== undefined,
+      {
+        message: "Keyframe edit must change time or value",
+      },
+    ),
+  z
+    .object({
+      type: z.literal("keyframe.add"),
+      nodeId: z.string().min(1).max(512),
+      property: z.string().min(1).max(120),
+      atUs: timeUsSchema,
+      value: irValueSchema,
+      easing: z.enum(["linear", "hold", "ease-in", "ease-out", "ease-in-out"]).optional(),
+    })
+    .strict(),
+  z
+    .object({
+      type: z.literal("keyframe.remove"),
+      nodeId: z.string().min(1).max(512),
+      property: z.string().min(1).max(120),
+      index: z.number().int().nonnegative().safe(),
+    })
+    .strict(),
   z
     .object({ type: z.literal("clip.slip"), clipId: clipIdSchema, sourceStartUs: timeUsSchema })
     .strict(),

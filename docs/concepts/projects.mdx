@@ -10,11 +10,13 @@ files you can read, diff, move, and commit.
 
 Every file in a project is one of two kinds, and the distinction governs almost everything else.
 
-**Canonical** state is `cinesim.toml` plus the reachable JavaScript/JSX-shaped video source.
-The manifest holds identity, settings, and stable asset references; source holds compositions,
-tracks, clips, graphics, effects, and animation. Cinesim changes these only through validated
-semantic commands and minimal revision-checked patches, so a Git diff shows the edit you made and
-nothing else.
+**Canonical** state is `cinesim.toml`, `assets.toml`, and the reachable JavaScript/JSX-shaped video
+source. The project manifest holds identity, policies, settings, and project notes; the asset
+manifest holds stable media references, technical metadata, input-color policy, and deliberate
+asset notes; source holds compositions, tracks, clips, captions, notes, graphics, effects, and
+animation. UI changes use validated semantic commands and minimal revision-checked patches.
+People and agents may edit those files directly; only a fully parsed, bound, validated, compiled
+quiet generation becomes active.
 
 **Derived** state lives entirely under `.video/`: proxies, thumbnails, filmstrips, waveforms,
 caches, and runtime scratch data. It exists to make editing fast. You can delete the whole directory
@@ -23,10 +25,14 @@ excludes it.
 
 ```text
 documentary-cut/
-├── cinesim.toml          canonical manifest and asset catalog
+├── cinesim.toml          canonical project manifest
+├── assets.toml           canonical asset catalog and metadata
 ├── main.jsx              canonical video source
 ├── components/           optional canonical source modules
-├── AGENTS.md             canonical, yours to write
+├── AGENTS.md             managed guidance plus custom instructions
+├── CLAUDE.md             provider import of AGENTS.md
+├── .mcp.json             merged Claude MCP configuration
+├── .codex/config.toml    merged Codex MCP configuration
 └── .video/               derived — disposable
 ```
 

@@ -1,4 +1,4 @@
-import { timeUs } from "@cinesim/core";
+import { DEFAULT_SETTINGS, timeUs } from "@cinesim/core";
 import type { ClipId, Sequence } from "@cinesim/core";
 import type { TimelineProjection } from "@cinesim/ir";
 import {
@@ -24,6 +24,7 @@ export const EMPTY_APP_STATE: DesktopAppState = {
   editorLayoutsByProject: {},
   cutLayoutsByProject: {},
   transcriptionSettings: DEFAULT_TRANSCRIPTION_SETTINGS,
+  newProjectSettings: DEFAULT_SETTINGS,
 };
 
 export const INITIAL_ACCOUNT_STATE: AccountSnapshot = {
@@ -89,6 +90,7 @@ export function hydratedProjectState(
     destination: "project",
     projectSection: "media",
     activeSequenceId: session.timeline.compositionId,
+    selectedAssetIds: [],
     mediaPoolOpen: appState.mediaPoolOpenByProject[session.directory] ?? true,
     inspectorOpen: appState.inspectorOpenByProject[session.directory] ?? true,
     notesOpen: appState.notesOpenByProject[session.directory] ?? true,

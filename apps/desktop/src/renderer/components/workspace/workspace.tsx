@@ -12,6 +12,7 @@ import { MediaBin } from "../media/media-bin";
 import { CutWorkspace } from "./cut-workspace";
 import { EditorTransportProvider } from "./editor-transport-context";
 import { EditWorkspace } from "./edit-workspace";
+import { EffectsWorkspace } from "./effects-workspace";
 
 interface WorkspaceProps {
   session: DesktopProjectSession;
@@ -81,6 +82,16 @@ function ProjectWorkspace({ session }: WorkspaceProps) {
               project={editorProject}
               sequenceId={activeSequence.id}
               initialLayout={cutLayout}
+            />
+          ) : section === "effects" ? (
+            <EffectsWorkspace
+              session={session}
+              project={editorProject}
+              sequenceId={activeSequence.id}
+              initialLayout={editorLayout}
+              mediaPoolOpen={mediaPoolOpen}
+              inspectorOpen={inspectorOpen}
+              notesOpen={notesOpen}
             />
           ) : (
             <EditWorkspace

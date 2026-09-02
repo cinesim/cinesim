@@ -1,118 +1,218 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import type { SemanticEditorCommand } from "@cinesim/core";
 import { createProject, projectToIr } from "../../core/test/project-fixtures";
 import { describe, expect, it } from "vite-plus/test";
-import {
-  CINESIM_MCP_COMMAND_SUPPORT,
-  CINESIM_MCP_TOOL_NAMES,
-  registerCinesimMcpTools,
-} from "../src";
+import { CINESIM_MCP_TOOL_NAMES, registerCinesimMcpTools } from "../src";
+
+const FORBIDDEN_CANONICAL_TOOLS = [
+  "asset_delete",
+  "timeline_create_from_assets",
+  "timeline_delete",
+  "timeline_delete_ranges",
+  "track_add",
+  "track_update",
+  "track_reorder",
+  "track_delete",
+  "clip_add",
+  "clip_move",
+  "clip_slip",
+  "clip_duplicate",
+  "clip_link",
+  "clip_unlink",
+  "clip_trim",
+  "clip_fade",
+  "clip_split",
+  "clip_delete",
+  "property_set",
+] as const;
 
 const textResult = (value: Record<string, unknown>) => ({
   content: [{ type: "text" as const, text: JSON.stringify(value) }],
   structuredContent: value,
 });
 
-describe("canonical Cinesim MCP catalog", () => {
-  it("registers one complete catalog and translates newer commands", async () => {
-    const commands: SemanticEditorCommand[] = [];
-    const project = createProject({ name: "Tool catalog" });
-    const server = new McpServer({ name: "catalog-test", version: "0.1.0" });
-    const converted = projectToIr(project);
-    registerCinesimMcpTools(server, {
-      project: () => project,
-      program: () => converted,
-      editMap: () => ({ version: 2, entry: "main.jsx", sources: [], nodes: {} }),
-      directory: () => "/project",
-      execute: async (command) => {
-        commands.push(command);
-        return { summary: command.type, changedIds: [], createdIds: [] };
+function catalogServer(onOperation: () => void = () => undefined): McpServer {
+  const project = createProject({ name: "Tool catalog" });
+  const server = new McpServer({ name: "catalog-test", version: "0.1.0" });
+  registerCinesimMcpTools(server, {
+    project: () => project,
+    program: () => projectToIr(project),
+    editMap: () => ({ version: 2, entry: "main.jsx", sources: [], nodes: {} }),
+    directory: () => "/project",
+    projectStatus: async () => ({
+      acceptedGeneration: "a".repeat(64),
+      diskValid: true,
+      candidateDiagnostics: [],
+      lastValidComposition: project.activeSequenceId,
+    }),
+    languageSearch: async (query) => [
+      {
+        id: "recipe:fixture",
+        kind: "recipe",
+        feature: "recipe",
+        title: "Fixture recipe",
+        summary: query,
+        capability: { compiler: "supported", preview: "supported", export: "unsupported" },
       },
-      perform: async (_tool, operation) => textResult(await operation()),
-      derivedFile: async (relativePath) => ({ path: `/project/${relativePath}`, exists: false }),
-    });
-    const client = new Client({ name: "catalog-client", version: "0.1.0" });
-    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
-    await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
+    ],
+    exportCapabilities: async () => ({
+      rendererAvailable: true,
+      presets: [{ id: "h264-aac-sdr-1080p" }],
+    }),
+    exportStart: async (request) => ({
+      job: { id: "export_fixture", state: "rendering", ...request },
+    }),
+    exportStatus: async (jobId) => ({ jobs: [{ id: jobId ?? "export_fixture" }] }),
+    exportCancel: async (jobId) => ({ job: { id: jobId, state: "canceled" } }),
+    transcriptGet: async (assetId) => ({ assetId, state: "missing", words: [] }),
+    timelineTranscriptGet: async (sequenceId) => ({
+      sequenceId: sequenceId ?? project.activeSequenceId,
+      words: [],
+    }),
+    transcriptJobs: async (action, assetIds) => ({ action, assetIds }),
+    visualIndexStatus: async (assetIds) => ({ assetIds: assetIds ?? [], state: "current" }),
+    visualIndexGet: async (assetId, fromUs, toUs, limit) => ({
+      assetId,
+      fromUs,
+      toUs,
+      limit,
+      observations: [],
+    }),
+    visualIndexGenerate: async (action, assetIds) => ({ action, assetIds }),
+    visualIndexUpsert: async (assetId, observations) => ({ assetId, observations }),
+    visualIndexDelete: async (assetId, selector) => ({ assetId, selector }),
+    visualIndexClear: async (assetIds) => ({ assetIds }),
+    visualIndexObservationRange: async () => ({ sourceInUs: 0, sourceOutUs: 1_000_000 }),
+    frameGet: async (target, atUs, quality) => ({
+      target,
+      requestedTimeUs: atUs,
+      normalizedTimeUs: atUs,
+      quality,
+      path: "/project/.video/frames/frame.png",
+      cached: false,
+      derived: true,
+    }),
+    perform: async (_tool, operation) => {
+      onOperation();
+      return textResult(await operation());
+    },
+    derivedFile: async (relativePath) => ({ path: `/project/${relativePath}`, exists: false }),
+  });
+  return server;
+}
 
+async function connectedCatalog() {
+  const server = catalogServer();
+  const client = new Client({ name: "catalog-client", version: "0.1.0" });
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
+  return { client, server };
+}
+
+describe("Cinesim inspection and perception MCP catalog", () => {
+  it("lists only the explicit noncanonical catalog and serves inspection", async () => {
+    const { client, server } = await connectedCatalog();
     const tools = await client.listTools();
     expect(tools.tools.map((tool) => tool.name).sort()).toEqual([...CINESIM_MCP_TOOL_NAMES].sort());
+    expect(tools.tools.map((tool) => tool.name)).not.toEqual(
+      expect.arrayContaining([...FORBIDDEN_CANONICAL_TOOLS]),
+    );
     await expect(
       client.callTool({ name: "project_inspect", arguments: {} }),
+    ).resolves.toMatchObject({ structuredContent: { version: 2 } });
+    await expect(
+      client.callTool({ name: "language_search", arguments: { query: "cutaway", limit: 4 } }),
     ).resolves.toMatchObject({
-      structuredContent: { version: 2, activeCompositionId: project.activeSequenceId },
-    });
-    await client.callTool({
-      name: "clip_fade",
-      arguments: { clipId: "clip_fixture", edge: "out", durationUs: 250_000 },
-    });
-    await client.callTool({
-      name: "property_set",
-      arguments: {
-        nodeId: "clip_fixture",
-        property: "opacity",
-        value: { kind: "number", value: 0.5 },
+      structuredContent: {
+        query: "cutaway",
+        results: [expect.objectContaining({ id: "recipe:fixture" })],
       },
     });
-    await client.callTool({
-      name: "timeline_delete_ranges",
-      arguments: {
-        sequenceId: project.activeSequenceId,
-        ranges: [{ startUs: 0, endUs: 1_000_000 }],
-        mode: "ripple",
+    await expect(
+      client.callTool({ name: "export_capabilities", arguments: {} }),
+    ).resolves.toMatchObject({
+      structuredContent: { rendererAvailable: true, presets: [{ id: "h264-aac-sdr-1080p" }] },
+    });
+    await expect(
+      client.callTool({
+        name: "export_start",
+        arguments: {
+          presetId: "h264-aac-sdr-1080p",
+          startUs: 0,
+          endUs: 1_000_000,
+          fileName: "fixture.mp4",
+        },
+      }),
+    ).resolves.toMatchObject({
+      structuredContent: {
+        job: { id: "export_fixture", state: "rendering", fileName: "fixture.mp4" },
       },
     });
-    expect(commands).toEqual([
-      {
-        type: "clip.setFade",
-        clipId: "clip_fixture",
-        edge: "out",
-        durationUs: 250_000,
+    await expect(
+      client.callTool({ name: "export_status", arguments: { jobId: "export_fixture" } }),
+    ).resolves.toMatchObject({ structuredContent: { jobs: [{ id: "export_fixture" }] } });
+    await expect(
+      client.callTool({ name: "export_cancel", arguments: { jobId: "export_fixture" } }),
+    ).resolves.toMatchObject({
+      structuredContent: { job: { id: "export_fixture", state: "canceled" } },
+    });
+    await expect(
+      client.callTool({
+        name: "visual_index_upsert",
+        arguments: {
+          assetId: "asset_fixture",
+          observations: [
+            {
+              id: "observation_opening",
+              sourceInUs: 0,
+              sourceOutUs: 1_000_000,
+              description: "Opening image",
+            },
+          ],
+        },
+      }),
+    ).resolves.toMatchObject({
+      structuredContent: { observations: [expect.objectContaining({ id: "observation_opening" })] },
+    });
+    await expect(
+      client.callTool({
+        name: "frame_get",
+        arguments: { assetId: "asset_fixture", observationId: "observation_opening" },
+      }),
+    ).resolves.toMatchObject({
+      structuredContent: {
+        atUs: 500_000,
+        normalizedTimeUs: 500_000,
+        observationId: "observation_opening",
+        path: "/project/.video/frames/frame.png",
       },
-      {
-        type: "property.set",
-        nodeId: "clip_fixture",
-        property: "opacity",
-        value: { kind: "number", value: 0.5 },
-      },
-      {
-        type: "sequence.deleteRanges",
-        sequenceId: project.activeSequenceId,
-        ranges: [{ startUs: 0, endUs: 1_000_000 }],
-        mode: "ripple",
-      },
-    ]);
+    });
     await client.close();
     await server.close();
   });
 
-  it("rejects traversal-shaped IDs before a tool runtime is called", async () => {
+  it("does not register or call any former canonical editing tool", async () => {
+    const { client, server } = await connectedCatalog();
+    for (const name of FORBIDDEN_CANONICAL_TOOLS) {
+      await expect(client.callTool({ name, arguments: {} })).resolves.toMatchObject({
+        isError: true,
+      });
+    }
+    await client.close();
+    await server.close();
+  });
+
+  it("rejects traversal-shaped IDs before a runtime operation", async () => {
     let operations = 0;
-    const project = createProject({ name: "Tool validation" });
-    const server = new McpServer({ name: "validation-test", version: "0.1.0" });
-    registerCinesimMcpTools(server, {
-      project: () => project,
-      program: () => projectToIr(project),
-      editMap: () => ({ version: 2, entry: "main.jsx", sources: [], nodes: {} }),
-      directory: () => "/project",
-      execute: async () => ({ summary: "unexpected", changedIds: [], createdIds: [] }),
-      perform: async (_tool, operation) => {
-        operations += 1;
-        return textResult(await operation());
-      },
-      derivedFile: async (relativePath) => ({ path: relativePath, exists: false }),
+    const server = catalogServer(() => {
+      operations += 1;
     });
     const client = new Client({ name: "validation-client", version: "0.1.0" });
     const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
     await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
-
     await expect(
-      client.callTool({
-        name: "filmstrip_get",
-        arguments: { assetId: "asset_../../outside" },
-      }),
+      client.callTool({ name: "filmstrip_get", arguments: { assetId: "asset_../../outside" } }),
     ).resolves.toMatchObject({ isError: true });
     await expect(
       client.callTool({ name: "asset_inspect", arguments: { assetId: "asset_" } }),
@@ -120,14 +220,5 @@ describe("canonical Cinesim MCP catalog", () => {
     expect(operations).toBe(0);
     await client.close();
     await server.close();
-  });
-
-  it("makes every canonical command either supported or explicitly unsupported", () => {
-    expect(Object.keys(CINESIM_MCP_COMMAND_SUPPORT)).toHaveLength(23);
-    expect(
-      Object.entries(CINESIM_MCP_COMMAND_SUPPORT)
-        .filter(([, support]) => support.kind === "unsupported")
-        .map(([type]) => type),
-    ).toEqual(["asset.import", "asset.setSource", "property.setMany"]);
   });
 });

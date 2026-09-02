@@ -1,8 +1,7 @@
 import {
-  Check,
-  ChevronRight,
+  Brain,
   CircleAlert,
-  Clock3,
+  Copy,
   FilePenLine,
   FileSearch,
   Film,
@@ -12,7 +11,6 @@ import {
   ListVideo,
   Move,
   Plus,
-  RotateCcw,
   Scissors,
   Search,
   Terminal,
@@ -22,12 +20,11 @@ import {
 import ReactMarkdown from "react-markdown";
 import { cn, Notice } from "@cinesim/ui";
 import type { AgentEvent, AgentSessionSnapshot } from "../../../shared/contracts";
+import { formatTurnClock, formatTurnDuration, turnStartedAt } from "./agent-event-format";
 
 interface AgentEventViewProps {
   event: AgentEvent;
   session: AgentSessionSnapshot;
-  onApproval: (requestId: string, decision: "accept" | "decline") => void;
-  onRevert: (turnId: string) => void;
 }
 
 function UserMessage({ event }: Pick<AgentEventViewProps, "event">) {
@@ -63,88 +60,55 @@ function AssistantMessage({ event }: Pick<AgentEventViewProps, "event">) {
 
 function ReasoningEvent({ event }: Pick<AgentEventViewProps, "event">) {
   return (
-    <details className="group rounded-lg border border-border bg-panel-muted">
-      <summary className="flex list-none items-center gap-2 px-2.5 py-2 text-ui-xs text-muted">
-        <ChevronRight size={12} className="transition-transform group-open:rotate-90" /> Thinking
-      </summary>
-      <p className="whitespace-pre-wrap border-t border-border px-3 py-2 text-ui-xs leading-4 text-muted">
-        {event.text}
-      </p>
-    </details>
+    <div className="px-1 py-1 text-muted">
+      <div className="flex items-center gap-2 text-ui">
+        <Brain size={15} />
+        <span className="font-medium text-secondary">Thinking</span>
+      </div>
+      <p className="mt-2 whitespace-pre-wrap text-ui leading-6">{event.text}</p>
+    </div>
   );
 }
 
-function ApprovalEvent({ event, session, onApproval }: Omit<AgentEventViewProps, "onRevert">) {
-  const resolution = session.events.find(
-    (candidate) =>
-      candidate.kind === "approval-resolved" && candidate.requestId === event.requestId,
+function TurnResultEvent({ event, session }: AgentEventViewProps) {
+  const completedAt = Date.parse(event.createdAt);
+  const startedAt = turnStartedAt(session, event.turnId);
+  const lastAssistantMessage = session.events.findLast(
+    (candidate) => candidate.turnId === event.turnId && candidate.kind === "assistant-message",
   );
-  if (resolution) {
-    return (
-      <div className="flex items-center gap-2 px-2 py-1 text-ui-xs text-muted">
-        <Check size={12} /> {resolution.title}: {event.title}
-      </div>
-    );
-  }
-  const requestId = event.requestId!;
   return (
-    <div className="rounded-lg border border-border-strong bg-panel p-3">
-      <div className="flex items-start gap-2">
-        <CircleAlert size={14} className="mt-0.5 shrink-0 text-secondary" />
-        <div className="min-w-0">
-          <p className="text-ui font-medium text-primary">{event.title}</p>
-          <p className="mt-1 break-words text-ui-xs leading-4 text-muted">{event.detail}</p>
+    <div className="space-y-2 px-1 py-1 text-muted">
+      {event.status !== "completed" && (
+        <div
+          className={cn(
+            "w-fit rounded-md border px-2 py-1 font-mono text-ui-xs uppercase tracking-wider",
+            event.status === "failed"
+              ? "border-danger/40 text-danger"
+              : "border-border-strong text-secondary",
+          )}
+        >
+          {event.status === "failed" ? "Turn failed" : "Interrupted by user"}
         </div>
-      </div>
-      <div className="mt-3 flex justify-end gap-2">
-        <button
-          className="h-7 rounded-md border border-border px-2.5 text-ui-xs text-secondary hover:bg-surface hover:text-primary"
-          onClick={() => onApproval(requestId, "decline")}
-        >
-          Decline
-        </button>
-        <button
-          className="h-7 rounded-md bg-accent px-2.5 text-ui-xs text-on-accent hover:bg-accent-hover"
-          onClick={() => onApproval(requestId, "accept")}
-        >
-          Allow once
-        </button>
-      </div>
-    </div>
-  );
-}
-
-function CheckpointEvent({ event, session, onRevert }: Omit<AgentEventViewProps, "onApproval">) {
-  const checkpoint = session.checkpoints.find((candidate) => candidate.turnId === event.turnId);
-  return (
-    <div className="flex min-w-0 items-center gap-2 px-1 py-1 text-ui-xs text-muted">
-      <Clock3 size={13} className="shrink-0" />
-      <p className="min-w-0 flex-1 truncate" title={event.detail ?? event.title}>
-        <span className="font-medium text-secondary">{event.title}</span>
-        {event.detail && <span> · {event.detail}</span>}
-      </p>
-      {checkpoint && (
-        <button
-          className="grid size-7 shrink-0 place-items-center rounded-md text-muted hover:bg-surface hover:text-primary"
-          aria-label="Revert turn"
-          title="Revert this turn"
-          onClick={() => onRevert(checkpoint.turnId)}
-        >
-          <RotateCcw size={13} />
-        </button>
       )}
+      {event.status === "failed" && event.detail && (
+        <p className="break-words text-ui-xs leading-4 text-muted">{event.detail}</p>
+      )}
+      <div className="flex items-center gap-2 text-ui-xs tabular-nums">
+        <span>{formatTurnDuration(startedAt, completedAt)}</span>
+        <span aria-hidden="true">·</span>
+        <span>{formatTurnClock(event.createdAt)}</span>
+        {event.status === "completed" && lastAssistantMessage?.text && (
+          <button
+            className="ml-1 grid size-5 place-items-center rounded text-muted hover:bg-surface hover:text-primary"
+            aria-label="Copy response"
+            title="Copy response"
+            onClick={() => void navigator.clipboard.writeText(lastAssistantMessage.text ?? "")}
+          >
+            <Copy size={13} />
+          </button>
+        )}
+      </div>
     </div>
-  );
-}
-
-function ToolStatus({ status }: { status: AgentEvent["status"] }) {
-  if (status === "running") {
-    return <span className="size-1.5 shrink-0 animate-pulse rounded-full bg-muted" />;
-  }
-  return status === "failed" ? (
-    <CircleAlert size={12} className="shrink-0 text-muted" />
-  ) : (
-    <Check size={12} className="shrink-0 text-muted" />
   );
 }
 
@@ -153,21 +117,28 @@ function ToolEvent({ event }: Pick<AgentEventViewProps, "event">) {
   const showDetail = detail && !["completed", "running"].includes(detail.toLowerCase());
   const toolTitle = event.title ?? event.toolName ?? "Tool";
   return (
-    <div className="flex min-w-0 items-center gap-2 px-1 py-1 text-ui-xs text-muted">
-      <ToolEventIcon toolName={event.toolName} title={toolTitle} />
-      <span className="shrink-0 font-medium text-secondary">
-        {toolEventLabel(event.toolName ?? toolTitle)}
-      </span>
+    <div
+      className={cn(
+        "flex min-w-0 items-center gap-2 rounded-md px-2 py-1.5 text-ui text-muted",
+        event.status === "running" && "bg-surface/60",
+      )}
+    >
+      {event.status === "running" ? (
+        <span className="w-4 shrink-0 text-center font-mono text-secondary">+</span>
+      ) : event.status === "failed" ? (
+        <CircleAlert size={14} className="w-4 shrink-0 text-muted" />
+      ) : (
+        <ToolEventIcon toolName={event.toolName} title={toolTitle} />
+      )}
+      <span className="shrink-0 text-secondary">{toolEventLabel(event.toolName ?? toolTitle)}</span>
       {showDetail && (
         <span
-          className="min-w-0 truncate rounded bg-surface px-1.5 py-0.5 text-disabled"
+          className="min-w-0 truncate rounded-sm bg-surface px-1.5 py-0.5 font-mono text-ui-xs text-muted"
           title={detail}
         >
           {detail}
         </span>
       )}
-      <span className="min-w-0 flex-1" />
-      <ToolStatus status={event.status} />
     </div>
   );
 }
@@ -190,10 +161,8 @@ export function AgentEventView(props: AgentEventViewProps) {
       return <AssistantMessage event={event} />;
     case "reasoning":
       return <ReasoningEvent event={event} />;
-    case "approval-requested":
-      return event.requestId ? <ApprovalEvent {...props} /> : <NoticeEvent event={event} />;
-    case "checkpoint":
-      return <CheckpointEvent {...props} />;
+    case "turn-result":
+      return <TurnResultEvent {...props} />;
     case "tool-started":
     case "tool-completed":
       return <ToolEvent event={event} />;

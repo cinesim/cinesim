@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "@cinesim/ui";
 import { getSequence, sequenceDurationUs } from "@cinesim/core";
-import type { Project } from "@cinesim/core";
+import type { Project, ProjectSettings } from "@cinesim/core";
 import type { IrProgram, IrTransform } from "@cinesim/ir";
 import type { DerivedProjectScope } from "../../../shared/contracts";
 import { useEditorTransport } from "../workspace/editor-transport-context";
@@ -19,6 +19,7 @@ import { programWithClipTransform, selectedVisualClip } from "./viewer-transform
 interface ViewerProps {
   derivedScope: DerivedProjectScope;
   project: Project;
+  settings: ProjectSettings;
   program: IrProgram;
   projectDirectory: string;
   sequenceId: string;
@@ -35,6 +36,7 @@ export function Viewer({
   program,
   projectDirectory,
   derivedScope,
+  settings,
   sequenceId,
 }: ViewerProps) {
   const sectionRef = useRef<HTMLElement>(null);
@@ -68,6 +70,7 @@ export function Viewer({
     canvasRef,
     derivedScope,
     project,
+    settings,
     program: displayedProgram,
     projectDirectory,
     sequenceId,

@@ -1,0 +1,343 @@
+import { BUILTIN_REGISTRY } from "./registry";
+
+export type CapabilityState = "supported" | "partial" | "unsupported";
+
+export interface LanguageCapability {
+  compiler: CapabilityState;
+  preview: CapabilityState;
+  export: CapabilityState;
+  detail?: string;
+}
+
+export type LanguageFeature =
+  | "node"
+  | "property"
+  | "effect"
+  | "blend-mode"
+  | "animation"
+  | "transition"
+  | "recipe";
+
+export interface LanguageReferenceEntry {
+  id: string;
+  kind: "element" | "recipe";
+  feature: Exclude<LanguageFeature, "property">;
+  title: string;
+  summary: string;
+  syntax: string;
+  example: string;
+  tags: string[];
+  properties?: Array<{
+    name: string;
+    type: string;
+    required: boolean;
+    animatable: boolean;
+    options?: string[];
+    feature: "property";
+    capability: LanguageCapability;
+  }>;
+  capability: LanguageCapability;
+}
+
+const previewSupported = new Set([
+  "composition",
+  "timeline",
+  "track",
+  "adjustmentlayer",
+  "clip",
+  "video",
+  "audio",
+  "image",
+  "group",
+  "grid",
+  "stack",
+  "rect",
+  "ellipse",
+  "colorgrade",
+  "blur",
+  "shadow",
+  "chromakey",
+  "vignette",
+  "grain",
+  "ducker",
+  "text",
+  "span",
+  "captiontrack",
+  "cue",
+  "captionword",
+  "transition",
+  "audiocrossfade",
+]);
+
+const previewPartial = new Set(["marker"]);
+
+function elementCapability(name: string): LanguageCapability {
+  if (previewSupported.has(name))
+    return { compiler: "supported", preview: "supported", export: "supported" };
+  if (previewPartial.has(name))
+    return {
+      compiler: "supported",
+      preview: "partial",
+      export: "partial",
+      detail: "The construct is editorial metadata and is not embedded in picture output.",
+    };
+  return {
+    compiler: "supported",
+    preview: "unsupported",
+    export: "unsupported",
+    detail: "Accepted by the compiler but not executed by the current compositor.",
+  };
+}
+
+function elementSyntax(name: string, requiredProperties: readonly string[]): string {
+  const properties = requiredProperties.map((property) => `${property}={...}`).join(" ");
+  return properties ? `<${name} ${properties} />` : `<${name} />`;
+}
+
+function elementFeature(name: string, category: string): LanguageReferenceEntry["feature"] {
+  if (name === "transition" || name === "audiocrossfade") return "transition";
+  return category === "effect" ? "effect" : "node";
+}
+
+function elementEntries(): LanguageReferenceEntry[] {
+  return Object.values(BUILTIN_REGISTRY).map((schema) => {
+    const capability = elementCapability(schema.name);
+    const properties = Object.values(schema.properties).map((property) => ({
+      name: property.name,
+      type: property.type,
+      required: property.required,
+      animatable: property.animatable,
+      feature: "property" as const,
+      capability,
+      ...(property.options ? { options: property.options } : {}),
+    }));
+    const required = properties.filter((property) => property.required).map(({ name }) => name);
+    const syntax = elementSyntax(schema.name, required);
+    return {
+      id: `element:${schema.name}`,
+      kind: "element",
+      feature: elementFeature(schema.name, schema.category),
+      title: `<${schema.name}>`,
+      summary: `${schema.category} element with ${properties.length} typed properties.`,
+      syntax,
+      example: syntax,
+      tags: [schema.name, schema.category, ...properties.map(({ name }) => name)],
+      properties,
+      capability,
+    };
+  });
+}
+
+const recipes: LanguageReferenceEntry[] = [
+  {
+    id: "recipe:cutaway",
+    kind: "recipe",
+    feature: "recipe",
+    title: "B-roll cutaway",
+    summary:
+      "Place a visual-only clip above continuing dialogue audio to preserve narrative continuity.",
+    syntax: "linked A/V clips plus an overlay video clip",
+    example:
+      '<track id="track_broll" kind="video" name="B-roll"><clip id="clip_cutaway" asset={asset("asset_broll")} media="video" start={seconds(4)} in={seconds(2)} duration={seconds(3)} /></track>',
+    tags: ["b-roll", "cutaway", "dialogue", "reaction", "continuity"],
+    capability: { compiler: "supported", preview: "supported", export: "supported" },
+  },
+  {
+    id: "recipe:montage",
+    kind: "recipe",
+    feature: "recipe",
+    title: "Montage pacing",
+    summary:
+      "Use short adjacent clips with deliberate source selections and vary shot scale or action.",
+    syntax: "adjacent <clip> elements on one video track",
+    example:
+      '<clip id="clip_beat_1" asset={asset("asset_a")} media="video" start={seconds(0)} in={seconds(3)} duration={seconds(1.5)} />',
+    tags: ["montage", "pacing", "rhythm", "shots"],
+    capability: { compiler: "supported", preview: "supported", export: "supported" },
+  },
+  {
+    id: "recipe:dialogue-cleanup",
+    kind: "recipe",
+    feature: "recipe",
+    title: "Dialogue cleanup",
+    summary:
+      "Trim pauses at word boundaries, retain room tone, and use short audio fades to avoid clicks.",
+    syntax: "audio <clip> with in, duration, fadeIn, fadeOut, gain, and pan",
+    example:
+      '<clip id="clip_dialogue" asset={asset("asset_interview")} media="audio" start={seconds(0)} in={seconds(12)} duration={seconds(5)} fadeIn={milliseconds(12)} fadeOut={milliseconds(18)} gain={db(-1.5)} />',
+    tags: ["dialogue", "audio", "cleanup", "fade", "room tone"],
+    capability: { compiler: "supported", preview: "supported", export: "supported" },
+  },
+  {
+    id: "recipe:split-edit",
+    kind: "recipe",
+    feature: "recipe",
+    title: "Split edit / J-cut / L-cut",
+    summary:
+      "Keep reciprocal A/V links while giving the audio and picture independent source and timeline boundaries.",
+    syntax: "linked media clips with different start and duration values",
+    example: '<clip id="clip_audio" linked="clip_video" media="audio" start={seconds(1)} ... />',
+    tags: ["split edit", "j-cut", "l-cut", "audio lead", "audio trail"],
+    capability: { compiler: "supported", preview: "supported", export: "supported" },
+  },
+  {
+    id: "recipe:dialogue-ducking",
+    kind: "recipe",
+    feature: "recipe",
+    title: "Dialogue sidechain ducking",
+    summary:
+      "Reduce a music clip or track under active dialogue with deterministic look-ahead attack and release automation.",
+    syntax: '<ducker sidechain="track_dialogue" reduction={db(-12)} attack={...} release={...} />',
+    example:
+      '<ducker id="duck_music" sidechain="track_dialogue" reduction={db(-12)} attack={milliseconds(80)} release={milliseconds(250)} />',
+    tags: ["audio", "ducking", "dialogue", "music", "sidechain", "mix"],
+    capability: { compiler: "supported", preview: "supported", export: "supported" },
+  },
+  {
+    id: "recipe:transcript-captions",
+    kind: "recipe",
+    feature: "recipe",
+    title: "Editable transcript captions",
+    summary:
+      "Generate stable timed cues from selected transcript words, then edit canonical text and style independently.",
+    syntax: "<captiontrack> containing timed <cue> and optional <captionword> elements",
+    example:
+      '<captiontrack id="captiontrack_main" name="English" fontSize={px(64)} placement="bottom"><cue id="cue_intro" start={seconds(1)} duration={seconds(2)} text="Welcome." /></captiontrack>',
+    tags: ["captions", "subtitles", "transcript", "speaker", "timed text"],
+    capability: { compiler: "supported", preview: "supported", export: "supported" },
+  },
+  {
+    id: "recipe:adjustment-look",
+    kind: "recipe",
+    feature: "recipe",
+    title: "Time-bounded adjustment look",
+    summary:
+      "Apply a deterministic effect chain to a bounded number of visual tracks below, or to explicit lower visual tracks.",
+    syntax: "<adjustmentlayer> containing visual effects under an overlay or video track",
+    example:
+      '<adjustmentlayer id="look_night" start={seconds(2)} duration={seconds(5)} scope="below" depth={2}><colorgrade id="look_night/grade" exposure={-0.2} saturation={0.8} /><vignette id="look_night/edge" amount={0.35} softness={0.4} /></adjustmentlayer>',
+    tags: ["adjustment", "effects", "grade", "blur", "vignette", "chroma key", "shadow", "grain"],
+    capability: { compiler: "supported", preview: "supported", export: "supported" },
+  },
+  {
+    id: "recipe:edit-point-transition",
+    kind: "recipe",
+    feature: "recipe",
+    title: "Edit-point picture and audio transitions",
+    summary:
+      "Reference adjacent clips without overlapping their canonical ranges; picture and audio transitions remain independent.",
+    syntax: "<transition> and optional separate <audiocrossfade> under the timeline",
+    example:
+      '<transition id="transition_scene" from="clip_a" to="clip_b" kind="dissolve" duration={seconds(1)} easing="ease-in-out" />',
+    tags: ["transition", "dissolve", "wipe", "slide", "push", "zoom", "blur", "crossfade"],
+    capability: { compiler: "supported", preview: "supported", export: "supported" },
+  },
+  {
+    id: "recipe:typed-keyframes",
+    kind: "recipe",
+    feature: "recipe",
+    title: "Typed stable keyframes",
+    summary:
+      "Animate an existing typed property on clips, effects, caption cues, masks, scene nodes, or adjustment effects with exact local times.",
+    syntax: '<animate property="..."><key at={...} value={...} easing="..." /></animate>',
+    example:
+      '<blur id="blur_focus" radius={px(0)}><animate property="radius"><key at={seconds(0)} value={px(0)} easing="linear" /><key at={seconds(1)} value={px(24)} easing="ease-in-out" /></animate></blur>',
+    tags: ["animation", "keyframe", "effects", "caption style", "mask", "transform", "easing"],
+    capability: { compiler: "supported", preview: "supported", export: "supported" },
+  },
+];
+
+const supportedCapability: LanguageCapability = {
+  compiler: "supported",
+  preview: "supported",
+  export: "supported",
+};
+
+function valueEntry(input: {
+  id: string;
+  feature: "blend-mode" | "animation" | "transition";
+  title: string;
+  summary: string;
+  syntax: string;
+  example: string;
+  tags: string[];
+}): LanguageReferenceEntry {
+  return { ...input, kind: "element", capability: supportedCapability };
+}
+
+const capabilityValues: LanguageReferenceEntry[] = [
+  ...["normal", "multiply", "screen", "overlay", "darken", "lighten"].map((mode) =>
+    valueEntry({
+      id: `blend-mode:${mode}`,
+      feature: "blend-mode",
+      title: `${mode} blend mode`,
+      summary: "Linear-Rec.709 WebGPU compositing mode supported by preview, sampling, and export.",
+      syntax: `blendMode="${mode}"`,
+      example: `<video id="layer" source={asset("asset_id")} blendMode="${mode}" />`,
+      tags: ["blend", "composite", mode],
+    }),
+  ),
+  ...["linear", "hold", "ease-in", "ease-out", "ease-in-out"].map((easing) =>
+    valueEntry({
+      id: `animation:easing:${easing}`,
+      feature: "animation",
+      title: `${easing} keyframe easing`,
+      summary:
+        "Typed keyframe interpolation evaluated identically in preview, sampling, and export.",
+      syntax: `<key at={...} value={...} easing="${easing}" />`,
+      example: `<animate property="opacity"><key at={seconds(0)} value={0} easing="${easing}" /><key at={seconds(1)} value={1} /></animate>`,
+      tags: ["animation", "keyframe", "interpolation", "easing", easing],
+    }),
+  ),
+  ...["cut", "dissolve", "dip", "wipe", "slide", "push", "zoom", "blur"].map((kind) =>
+    valueEntry({
+      id: `transition:picture:${kind}`,
+      feature: "transition",
+      title: `${kind} transition`,
+      summary: "Validated adjacent-clip transition with deterministic WebGPU preview and export.",
+      syntax: `<transition from="..." to="..." kind="${kind}" duration={...} />`,
+      example: `<transition id="transition_main" from="clip_a" to="clip_b" kind="${kind}" duration={seconds(1)} />`,
+      tags: ["transition", "picture", "adjacent clips", kind],
+    }),
+  ),
+  ...["linear", "equal-power"].map((curve) =>
+    valueEntry({
+      id: `transition:audio:${curve}`,
+      feature: "transition",
+      title: `${curve} audio crossfade`,
+      summary:
+        "Independent adjacent-audio crossfade supported by playback and exact-range export mixing.",
+      syntax: `<audiocrossfade from="..." to="..." curve="${curve}" duration={...} />`,
+      example: `<audiocrossfade id="crossfade_main" from="clip_a" to="clip_b" curve="${curve}" duration={milliseconds(250)} />`,
+      tags: ["transition", "audio", "crossfade", curve],
+    }),
+  ),
+];
+
+export const LANGUAGE_REFERENCE: readonly LanguageReferenceEntry[] = [
+  ...elementEntries(),
+  ...capabilityValues,
+  ...recipes,
+];
+
+function relevance(entry: LanguageReferenceEntry, query: string): number {
+  if (!query) return entry.kind === "recipe" ? 2 : 1;
+  const title = entry.title.toLowerCase();
+  const searchable = [entry.id, entry.title, entry.summary, entry.syntax, ...entry.tags]
+    .join(" ")
+    .toLowerCase();
+  if (title === query) return 100;
+  if (title.includes(query)) return 60;
+  const words = query.split(/\s+/u).filter(Boolean);
+  const matches = words.filter((word) => searchable.includes(word)).length;
+  return matches === words.length ? 20 + matches : matches;
+}
+
+export function searchLanguageReference(query: string, limit = 10): LanguageReferenceEntry[] {
+  const normalized = query.trim().toLowerCase().slice(0, 200);
+  return LANGUAGE_REFERENCE.map((entry) => ({ entry, score: relevance(entry, normalized) }))
+    .filter(({ score }) => score > 0)
+    .sort((left, right) => right.score - left.score || left.entry.id.localeCompare(right.entry.id))
+    .slice(0, Math.max(1, Math.min(20, limit)))
+    .map(({ entry }) => entry);
+}

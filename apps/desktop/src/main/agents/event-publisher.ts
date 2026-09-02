@@ -10,7 +10,6 @@ const SESSION_METADATA_KEYS = [
   "provider",
   "model",
   "effort",
-  "permissionMode",
   "title",
   "status",
   "createdAt",
@@ -87,12 +86,6 @@ function sessionDeltaOperations(
 ): AgentProjectDeltaOperation[] {
   const operations = metadataOperations(previous, next);
   operations.push(...eventOperations(previous, next));
-  if (!equal(previous.checkpoints, next.checkpoints))
-    operations.push({
-      type: "checkpoints-replaced",
-      sessionId: next.id,
-      checkpoints: structuredClone(next.checkpoints),
-    });
   return operations;
 }
 

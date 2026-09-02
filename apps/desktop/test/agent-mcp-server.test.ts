@@ -1,5 +1,5 @@
 import { timeUs } from "@cinesim/core";
-import { mkdtemp, rm } from "node:fs/promises";
+import { access, lstat, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
@@ -37,21 +37,65 @@ describe("AgentMcpServer", () => {
         hasAudio: false,
       },
     });
-    const approvals: string[] = [];
     const server = new AgentMcpServer(projectStore, {
       onToolStarted: async () => crypto.randomUUID(),
       onToolCompleted: async () => undefined,
-      requestApproval: async (_sessionId, toolName) => {
-        approvals.push(toolName);
-        return false;
-      },
       onProjectChanged: () => undefined,
     });
     await server.start();
+    const brokerPath = join(project.directory, ".video", "mcp", "broker.json");
+    const broker = JSON.parse(await readFile(brokerPath, "utf8")) as {
+      url: string;
+      token: string;
+      projectDirectory: string;
+    };
+    expect(broker).toMatchObject({
+      projectDirectory: project.directory,
+      url: expect.stringMatching(/^http:\/\/127\.0\.0\.1:/u),
+      token: expect.stringMatching(/^[a-f0-9]{64}$/u),
+    });
+    expect((await lstat(brokerPath)).mode & 0o077).toBe(0);
+    const externalClient = new Client({ name: "external-cinesim-test", version: "0.1.0" });
+    await externalClient.connect(
+      new StreamableHTTPClientTransport(new URL(broker.url), {
+        requestInit: { headers: { Authorization: `Bearer ${broker.token}` } },
+      }) as Parameters<typeof externalClient.connect>[0],
+    );
+    await expect(externalClient.listTools()).resolves.toMatchObject({
+      tools: expect.arrayContaining([expect.objectContaining({ name: "project_status" })]),
+    });
+    const generationBeforeVisualIndex = projectStore.session().generation;
+    await expect(
+      externalClient.callTool({
+        name: "visual_index_upsert",
+        arguments: {
+          assetId: "asset_fixture",
+          observations: [
+            {
+              id: "observation_fixture",
+              sourceInUs: 0,
+              sourceOutUs: 1_000_000,
+              description: "Fixture image",
+            },
+          ],
+        },
+      }),
+    ).resolves.toMatchObject({
+      structuredContent: { asset: { state: "current", observationCount: 1 } },
+    });
+    await expect(
+      externalClient.callTool({
+        name: "visual_index_get",
+        arguments: { assetId: "asset_fixture", fromUs: 0, limit: 10 },
+      }),
+    ).resolves.toMatchObject({
+      structuredContent: { observations: [{ id: "observation_fixture" }] },
+    });
+    expect(projectStore.session().generation).toBe(generationBeforeVisualIndex);
+    await externalClient.close();
     const credential = server.registerSession({
       sessionId: "session-1",
       projectDirectory: project.directory,
-      permissionMode: "supervised",
     });
     const client = new Client({ name: "cinesim-test", version: "0.1.0" });
     const transport = new StreamableHTTPClientTransport(new URL(credential.url), {
@@ -63,16 +107,41 @@ describe("AgentMcpServer", () => {
     expect(tools.tools.map((tool) => tool.name).sort()).toEqual([...CINESIM_MCP_TOOL_NAMES].sort());
     const inspection = await client.callTool({ name: "project_inspect", arguments: {} });
     expect(inspection.isError).not.toBe(true);
-    const denied = await client.callTool({
-      name: "clip_add",
-      arguments: {
-        trackId: project.project.sequences[0]!.tracks[0]!.id,
-        assetId: "asset_fixture",
-        timelineStartUs: timeUs(0),
+    await expect(client.callTool({ name: "project_status", arguments: {} })).resolves.toMatchObject(
+      {
+        structuredContent: {
+          acceptedGeneration: projectStore.session().generation,
+          diskValid: true,
+          candidateDiagnostics: [],
+          lastValidComposition: project.project.activeSequenceId,
+        },
+      },
+    );
+
+    const invalidCandidate = new Promise<void>((resolve) => {
+      const unsubscribe = projectStore.subscribe((session) => {
+        if (session.diskValid) return;
+        unsubscribe();
+        resolve();
+      });
+    });
+    await writeFile(join(project.directory, "main.jsx"), "export const main = <composition");
+    await invalidCandidate;
+    const invalidStatus = await client.callTool({ name: "project_status", arguments: {} });
+    expect(invalidStatus).toMatchObject({
+      structuredContent: {
+        acceptedGeneration: projectStore.session().generation,
+        diskValid: false,
+        candidateDiagnostics: [expect.objectContaining({ severity: "error" })],
+        lastValidComposition: project.project.activeSequenceId,
       },
     });
-    expect(denied.isError).toBe(true);
-    expect(approvals).toEqual(["clip_add"]);
+    const unavailableEdit = await client.callTool({
+      name: "clip_add",
+      arguments: {},
+    });
+    expect(unavailableEdit.isError).toBe(true);
+    expect(projectStore.project?.sequences[0]?.tracks[0]?.clips).toHaveLength(0);
     await expect(
       client.callTool({
         name: "filmstrip_get",
@@ -82,32 +151,8 @@ describe("AgentMcpServer", () => {
 
     await client.close();
 
-    const automaticCredential = server.registerSession({
-      sessionId: "session-2",
-      projectDirectory: project.directory,
-      permissionMode: "auto-edit",
-    });
-    const automaticClient = new Client({ name: "cinesim-test-auto", version: "0.1.0" });
-    const automaticTransport = new StreamableHTTPClientTransport(new URL(automaticCredential.url), {
-      requestInit: {
-        headers: { Authorization: `Bearer ${automaticCredential.token}` },
-      },
-    });
-    await automaticClient.connect(
-      automaticTransport as Parameters<typeof automaticClient.connect>[0],
-    );
-    const edited = await automaticClient.callTool({
-      name: "clip_add",
-      arguments: {
-        trackId: project.project.sequences[0]!.tracks[0]!.id,
-        assetId: "asset_fixture",
-        timelineStartUs: timeUs(0),
-      },
-    });
-    expect(edited.isError).not.toBe(true);
-    expect(projectStore.project?.sequences[0]?.tracks[0]?.clips).toHaveLength(1);
-
-    await automaticClient.close();
     await server.close();
+    await expect(access(brokerPath)).rejects.toMatchObject({ code: "ENOENT" });
+    await projectStore.close();
   });
 });

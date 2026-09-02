@@ -48,6 +48,14 @@ function RendererControllerEffects({ api, store }: { api: DesktopApi; store: Ren
     store,
     (state) => sessionFromLifecycle(state.project)?.derivedScope.epoch ?? null,
   );
+  const acceptedGeneration = useStore(
+    store,
+    (state) => sessionFromLifecycle(state.project)?.generation ?? null,
+  );
+  const acceptedProgram = useStore(
+    store,
+    (state) => sessionFromLifecycle(state.project)?.program ?? null,
+  );
   const projectSettingsKey = useStore(store, (state) =>
     JSON.stringify(sessionFromLifecycle(state.project)?.settings ?? null),
   );
@@ -66,10 +74,14 @@ function RendererControllerEffects({ api, store }: { api: DesktopApi; store: Ren
     : DEFAULT_TRANSCRIPTION_SETTINGS;
   const mediaJobsRef = useRef<MediaJobCoordinator | null>(null);
   const projectRef = useRef(project);
+  const acceptedGenerationRef = useRef(acceptedGeneration);
+  const acceptedProgramRef = useRef(acceptedProgram);
 
   useEffect(() => {
     projectRef.current = project;
-  }, [project]);
+    acceptedGenerationRef.current = acceptedGeneration;
+    acceptedProgramRef.current = acceptedProgram;
+  }, [acceptedGeneration, acceptedProgram, project]);
 
   useEffect(() => {
     void store.getState().initialize();
@@ -108,8 +120,14 @@ function RendererControllerEffects({ api, store }: { api: DesktopApi; store: Ren
       initialProject,
       { cacheKey: derivedCacheKey, epoch: derivedEpoch },
       (snapshot) => store.getState().setDerivedMedia(projectDirectory, snapshot),
-      projectSettings,
-      (snapshot) => store.getState().setTranscripts(projectDirectory, snapshot),
+      {
+        settings: projectSettings,
+        onTranscriptSnapshot: (snapshot) =>
+          store.getState().setTranscripts(projectDirectory, snapshot),
+        transcriptionSettings: DEFAULT_TRANSCRIPTION_SETTINGS,
+        acceptedGeneration: acceptedGenerationRef.current ?? "",
+        program: acceptedProgramRef.current,
+      },
     );
     mediaJobsRef.current = coordinator;
     void coordinator.start().catch(() => {
@@ -131,8 +149,10 @@ function RendererControllerEffects({ api, store }: { api: DesktopApi; store: Ren
   useEffect(() => {
     const projectSettings = sessionFromLifecycle(store.getState().project)?.settings;
     if (project && projectSettings)
-      void mediaJobsRef.current?.updateProject(project, projectSettings).catch(() => undefined);
-  }, [project, projectSettingsKey, store]);
+      void mediaJobsRef.current
+        ?.updateProject(project, projectSettings, acceptedGeneration ?? "", acceptedProgram)
+        .catch(() => undefined);
+  }, [acceptedGeneration, acceptedProgram, project, projectSettingsKey, store]);
 
   useEffect(() => {
     void mediaJobsRef.current

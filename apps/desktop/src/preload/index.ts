@@ -3,6 +3,8 @@ import type { AccountSnapshot, DesktopApi } from "../shared/contracts";
 import { eventChannels, invokeChannels } from "../shared/contracts/channels";
 import type { DesktopIpcResult } from "../shared/contracts/ipc";
 import { unwrapDesktopIpcResult } from "../shared/contracts/ipc";
+import { probeMediaDecoders } from "../shared/media-decoder-probe";
+import type { PreparedMediaImport } from "../shared/contracts";
 
 async function invoke<TResult>(channel: string, ...arguments_: unknown[]): Promise<TResult> {
   const result = (await ipcRenderer.invoke(channel, ...arguments_)) as DesktopIpcResult<TResult>;
@@ -66,9 +68,21 @@ const api: DesktopApi = {
     chooseCreateLocation: () => invoke(invokeChannels.project.chooseCreateLocation),
     create: (name, kind, locationToken) =>
       invoke(invokeChannels.project.create, { name, kind, locationToken }),
+    getAgentGuidance: () => invoke(invokeChannels.project.guidanceGet),
+    updateAgentGuidance: (customInstructions) =>
+      invoke(invokeChannels.project.guidanceUpdate, { customInstructions }),
     open: () => invoke(invokeChannels.project.open),
     openRecent: (directory) => invoke(invokeChannels.project.openRecent, { directory }),
-    importMedia: () => invoke(invokeChannels.project.importMedia),
+    revealAsset: (assetId) => invoke(invokeChannels.project.revealAsset, { assetId }),
+    importMedia: async () => {
+      const prepared = await invoke<PreparedMediaImport | null>(invokeChannels.project.importMedia);
+      if (!prepared) return null;
+      const results = await probeMediaDecoders(prepared.probes);
+      return invoke(invokeChannels.project.importMediaCommit, {
+        token: prepared.token,
+        results,
+      });
+    },
     execute: (command, expectedGeneration) =>
       invoke(invokeChannels.project.execute, { command, expectedGeneration }),
     undo: () => invoke(invokeChannels.project.undo),
@@ -104,10 +118,33 @@ const api: DesktopApi = {
       invoke(invokeChannels.derived.performance, { scope, observation }),
     onChanged: (callback) => subscribe(eventChannels.derivedChanged, callback),
   },
+  frames: {
+    complete: (scope, completion) => invoke(invokeChannels.frames.complete, { scope, completion }),
+    fail: (scope, failure) => invoke(invokeChannels.frames.fail, { scope, failure }),
+    onRequested: (callback) => subscribe(eventChannels.frameRequested, callback),
+    onCanceled: (callback) => subscribe(eventChannels.frameCanceled, callback),
+  },
+  exports: {
+    capabilities: () => invoke(invokeChannels.exports.capabilities),
+    start: (request) => invoke(invokeChannels.exports.start, request),
+    status: (jobId) => invoke(invokeChannels.exports.status, { jobId }),
+    cancel: (jobId) => invoke(invokeChannels.exports.cancel, { jobId }),
+    writeChunk: (jobId, offset, data) =>
+      invoke(invokeChannels.exports.writeChunk, { jobId, offset, data }),
+    updateProgress: (jobId, progress) =>
+      invoke(invokeChannels.exports.progress, { jobId, progress }),
+    complete: (completion) => invoke(invokeChannels.exports.complete, completion),
+    fail: (failure) => invoke(invokeChannels.exports.fail, failure),
+    onRequested: (callback) => subscribe(eventChannels.exportRequested, callback),
+    onCanceled: (callback) => subscribe(eventChannels.exportCanceled, callback),
+    onChanged: (callback) => subscribe(eventChannels.exportChanged, callback),
+  },
   transcripts: {
     get: (scope, assetIds) => invoke(invokeChannels.transcripts.get, { scope, assetIds }),
     requestJobs: (scope, assetIds) =>
       invoke(invokeChannels.transcripts.request, { scope, assetIds }),
+    regenerateJobs: (scope, assetIds) =>
+      invoke(invokeChannels.transcripts.regenerate, { scope, assetIds }),
     cancelJobs: (scope, assetIds) => invoke(invokeChannels.transcripts.cancel, { scope, assetIds }),
     beginJob: (scope, assetId) => invoke(invokeChannels.transcripts.begin, { scope, assetId }),
     transcribeChunk: (scope, input) => invoke(invokeChannels.transcripts.chunk, { scope, input }),
@@ -115,6 +152,29 @@ const api: DesktopApi = {
     failJob: (scope, jobId, failureCode, detail) =>
       invoke(invokeChannels.transcripts.fail, { scope, jobId, failureCode, detail }),
     onChanged: (callback) => subscribe(eventChannels.transcriptsChanged, callback),
+  },
+  visualIndex: {
+    status: (scope, assetIds) => invoke(invokeChannels.visualIndex.status, { scope, assetIds }),
+    get: (scope, assetId, range) =>
+      invoke(invokeChannels.visualIndex.get, { scope, assetId, range }),
+    generate: (scope, assetIds, force = false) =>
+      invoke(force ? invokeChannels.visualIndex.regenerate : invokeChannels.visualIndex.generate, {
+        scope,
+        assetIds,
+      }),
+    upsert: (scope, assetId, observations) =>
+      invoke(invokeChannels.visualIndex.upsert, { scope, assetId, observations }),
+    delete: (scope, assetId, selector) =>
+      invoke(invokeChannels.visualIndex.delete, { scope, assetId, selector }),
+    clear: (scope, assetIds) => invoke(invokeChannels.visualIndex.clear, { scope, assetIds }),
+    onChanged: (callback) => subscribe(eventChannels.visualIndexChanged, callback),
+  },
+  visualAnalysis: {
+    complete: (scope, completion) =>
+      invoke(invokeChannels.visualAnalysis.complete, { scope, completion }),
+    fail: (scope, failure) => invoke(invokeChannels.visualAnalysis.fail, { scope, failure }),
+    onRequested: (callback) => subscribe(eventChannels.visualAnalysisRequested, callback),
+    onCanceled: (callback) => subscribe(eventChannels.visualAnalysisCanceled, callback),
   },
   appState: {
     get: () => invoke(invokeChannels.appState.get),
@@ -125,6 +185,8 @@ const api: DesktopApi = {
     setCutLayout: (layout) => invoke(invokeChannels.appState.setCutLayout, { layout }),
     setTranscriptionSettings: (settings) =>
       invoke(invokeChannels.appState.setTranscriptionSettings, { settings }),
+    setNewProjectSettings: (settings) =>
+      invoke(invokeChannels.appState.setNewProjectSettings, { settings }),
   },
   agents: {
     getSettings: () => invoke(invokeChannels.agents.settingsGet),
@@ -143,9 +205,6 @@ const api: DesktopApi = {
     send: (sessionId, message, context) =>
       invoke(invokeChannels.agents.send, { sessionId, message, context }),
     interrupt: (sessionId) => invoke(invokeChannels.agents.interrupt, { sessionId }),
-    respondApproval: (sessionId, requestId, decision) =>
-      invoke(invokeChannels.agents.approval, { sessionId, requestId, decision }),
-    revertTurn: (sessionId, turnId) => invoke(invokeChannels.agents.revert, { sessionId, turnId }),
     onDelta: (callback) => subscribe(eventChannels.agentsDelta, callback),
   },
   health: { get: () => invoke(invokeChannels.app.health) },

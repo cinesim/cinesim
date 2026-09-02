@@ -85,7 +85,21 @@ export interface IrEffect {
     | "ducker";
   enabled: boolean;
   props: Record<string, IrValue>;
+  animations?: IrAnimation[];
   children: IrSceneNode[];
+}
+
+export interface IrAdjustmentLayer {
+  id: string;
+  trackId: string;
+  timelineStartUs: IrTimeUs;
+  durationUs: IrTimeUs;
+  scope: "below" | "tracks";
+  depth: number;
+  targetTrackIds: string[];
+  enabled: boolean;
+  animations: IrAnimation[];
+  effects: IrEffect[];
 }
 
 export interface IrSceneNode {
@@ -150,6 +164,7 @@ export interface IrClip {
   audio: IrAudioProperties;
   content?: IrSceneNode;
   effects: IrEffect[];
+  animations?: IrAnimation[];
 }
 
 export interface IrTrack {
@@ -159,6 +174,7 @@ export interface IrTrack {
   muted: boolean;
   locked: boolean;
   clips: IrClip[];
+  adjustments?: IrAdjustmentLayer[];
   effects: IrEffect[];
 }
 
@@ -169,20 +185,68 @@ export interface IrMarker {
   color?: string;
 }
 
+export interface IrTimelineNote {
+  id: string;
+  atUs: IrTimeUs;
+  durationUs?: IrTimeUs;
+  kind: "story-intent" | "scene" | "continuity" | "edit-task" | "review-feedback" | "general";
+  text: string;
+}
+
+export interface IrCaptionWord {
+  id: string;
+  startUs: IrTimeUs;
+  durationUs: IrTimeUs;
+  text: string;
+}
+
+export interface IrCaptionCue {
+  id: string;
+  startUs: IrTimeUs;
+  durationUs: IrTimeUs;
+  text: string;
+  speaker?: string;
+  props: Record<string, IrValue>;
+  animations: IrAnimation[];
+  words: IrCaptionWord[];
+}
+
+export interface IrCaptionTrack {
+  id: string;
+  name: string;
+  transcriptFingerprint?: string;
+  language?: string;
+  props: Record<string, IrValue>;
+  cues: IrCaptionCue[];
+}
+
 export interface IrTransition {
   id: string;
   fromClipId: string;
   toClipId: string;
   kind: "cut" | "dissolve" | "dip" | "wipe" | "slide" | "push" | "zoom" | "blur";
   durationUs: IrTimeUs;
+  easing: string;
   props: Record<string, IrValue>;
+}
+
+export interface IrAudioTransition {
+  id: string;
+  fromClipId: string;
+  toClipId: string;
+  durationUs: IrTimeUs;
+  easing: string;
+  curve: "linear" | "equal-power";
 }
 
 export interface IrTimeline {
   id: string;
   tracks: IrTrack[];
+  captionTracks: IrCaptionTrack[];
+  notes: IrTimelineNote[];
   markers: IrMarker[];
   transitions: IrTransition[];
+  audioTransitions: IrAudioTransition[];
 }
 
 export interface IrComposition {
@@ -263,8 +327,10 @@ export interface IrEditMapNode {
     origin: SourceSpan;
     keyframes: Array<{
       origin: SourceSpan;
+      atUs: IrTimeUs;
       at: IrEditTarget;
       value: IrEditTarget;
+      easing?: IrEditTarget;
     }>;
   }>;
 }
@@ -282,8 +348,10 @@ export type IrSourceMap = IrEditMap;
 export type IrNodeTemplate =
   | { kind: "composition"; composition: IrComposition }
   | { kind: "track"; track: IrTrack }
+  | { kind: "captiontrack"; track: IrCaptionTrack }
   | { kind: "clip"; clip: IrClip }
   | { kind: "marker"; marker: IrMarker }
+  | { kind: "note"; note: IrTimelineNote }
   | { kind: "transition"; transition: IrTransition }
   | { kind: "scene"; node: IrSceneNode };
 
@@ -296,6 +364,24 @@ export type SemanticPatch =
       scope: EditScope;
     }
   | { type: "property.remove"; nodeId: string; property: string }
+  | {
+      type: "keyframe.set";
+      nodeId: string;
+      property: string;
+      index: number;
+      atUs?: IrTimeUs;
+      value?: IrValue;
+      easing?: string;
+    }
+  | {
+      type: "keyframe.add";
+      nodeId: string;
+      property: string;
+      atUs: IrTimeUs;
+      value: IrValue;
+      easing: string;
+    }
+  | { type: "keyframe.remove"; nodeId: string; property: string; index: number }
   | { type: "node.insert"; parentId: string; node: IrNodeTemplate; anchor?: string }
   | { type: "node.remove"; nodeId: string }
   | { type: "node.move"; nodeId: string; parentId: string; anchor?: string }
@@ -315,6 +401,7 @@ export interface TimelineClipProjection {
   enabled: boolean;
   fadeInUs: IrTimeUs;
   fadeOutUs: IrTimeUs;
+  audio: IrAudioProperties;
   transform: IrTransform;
   editable: boolean;
   generated: boolean;
@@ -327,6 +414,7 @@ export interface TimelineTrackProjection {
   muted: boolean;
   locked: boolean;
   clips: TimelineClipProjection[];
+  adjustments: IrAdjustmentLayer[];
 }
 
 export interface TimelineProjection {
@@ -337,8 +425,22 @@ export interface TimelineProjection {
   frameRate: number;
   durationUs: IrTimeUs;
   tracks: TimelineTrackProjection[];
+  captionTracks: IrCaptionTrack[];
+  notes: IrTimelineNote[];
   markers: IrMarker[];
   transitions: IrTransition[];
+  audioTransitions: IrAudioTransition[];
+}
+
+export interface RenderTransition {
+  id: string;
+  fromClipId: string;
+  toClipId: string;
+  kind: IrTransition["kind"];
+  startUs: IrTimeUs;
+  durationUs: IrTimeUs;
+  progress: number;
+  props: Record<string, IrValue>;
 }
 
 export interface RenderLayer {
@@ -350,6 +452,13 @@ export interface RenderLayer {
   transform: IrTransform;
   content?: EvaluatedIrNode;
   effects: IrEffect[];
+  transition?: {
+    id: string;
+    kind: IrTransition["kind"];
+    role: "from" | "to";
+    progress: number;
+    props: Record<string, IrValue>;
+  };
 }
 
 export interface RenderPlan {
@@ -357,6 +466,19 @@ export interface RenderPlan {
   playheadUs: IrTimeUs;
   background: string;
   layers: RenderLayer[];
+  transitions: RenderTransition[];
+  adjustments: Array<{
+    id: string;
+    trackId: string;
+    targetTrackIds: string[];
+    effects: IrEffect[];
+  }>;
+  captions: Array<{
+    track: IrCaptionTrack;
+    cue: IrCaptionCue;
+    localTimeUs: IrTimeUs;
+    props: Record<string, IrValue>;
+  }>;
 }
 
 export interface AudioSourcePlan {

@@ -3,6 +3,7 @@ import { Button, Tooltip, TooltipContent, TooltipTrigger } from "@cinesim/ui";
 import { sessionFromLifecycle } from "../../store/renderer-store";
 import { useRendererStore } from "../../store/renderer-store-context";
 import { toggleAuxiliaryMode } from "../../hooks/use-shell-shortcuts";
+import { ExportControl } from "./export-control";
 import { ProjectOpenButton } from "./project-open-button";
 
 export function TopBar() {
@@ -80,6 +81,7 @@ export function TopBar() {
         </TooltipTrigger>
         <TooltipContent>{agentsOpen ? "Close Agents" : "Open Agents"}</TooltipContent>
       </Tooltip>
+      <ExportControl />
       <ProjectOpenButton />
     </div>
   );

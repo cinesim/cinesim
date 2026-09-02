@@ -14,7 +14,7 @@ import type {
 import type { TranscriptSnapshot } from "../../shared/transcript";
 
 export type Destination = "home" | "project" | "settings";
-export type ProjectSection = "media" | "cut" | "edit";
+export type ProjectSection = "media" | "cut" | "edit" | "effects";
 export type SettingsSection =
   | "general"
   | "media"
@@ -51,6 +51,7 @@ export interface ProjectSlice {
   destination: Destination;
   projectSection: ProjectSection;
   activeSequenceId: string | null;
+  selectedAssetIds: AssetId[];
   mediaPoolOpen: boolean;
   inspectorOpen: boolean;
   notesOpen: boolean;
@@ -80,6 +81,7 @@ export interface ProjectSlice {
   navigate: (destination: Destination) => void;
   showProjectSection: (section: ProjectSection) => void;
   showTimeline: (sequenceId: string) => void;
+  setSelectedAssetIds: (assetIds: AssetId[]) => void;
   setSettingsSection: (section: SettingsSection) => void;
   setAuxiliaryMode: (mode: AuxiliarySidebarMode) => void;
   togglePanel: (panel: PanelKind) => Promise<ActionResult<DesktopAppState>>;
@@ -126,6 +128,7 @@ export interface PlaybackMediaSlice {
   setTranscripts: (projectDirectory: string, snapshot: TranscriptSnapshot | null) => void;
   loadTranscripts: (assetIds: AssetId[]) => Promise<ActionResult<TranscriptSnapshot>>;
   requestTranscripts: (assetIds: AssetId[]) => Promise<ActionResult<TranscriptSnapshot>>;
+  regenerateTranscripts: (assetIds: AssetId[]) => Promise<ActionResult<TranscriptSnapshot>>;
   cancelTranscripts: (assetIds: AssetId[]) => Promise<ActionResult<TranscriptSnapshot>>;
   setElectronHealth: (snapshot: ElectronHealthSnapshot | null) => void;
 }

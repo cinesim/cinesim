@@ -2,7 +2,7 @@ export const rendererContentSecurityPolicyPlaceholder = "__CINESIM_RENDERER_CSP_
 
 const commonDirectives = [
   "default-src 'self'",
-  "script-src 'self'",
+  "script-src 'self' 'wasm-unsafe-eval'",
   "style-src 'self' 'unsafe-inline'",
   "img-src 'self' data: blob: cinesim-media:",
   "media-src 'self' blob: cinesim-media:",

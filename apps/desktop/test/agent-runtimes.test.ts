@@ -39,7 +39,6 @@ function callbacks(
     onTurnStarted: () => undefined,
     onTurnCompleted: () => completed(),
     onTokenUsage: (usage) => usages.push(usage),
-    onApproval: async () => false,
     onExit: () => undefined,
   };
 }
@@ -51,7 +50,6 @@ const launchOptions = (executablePath: string) => ({
   effort: "high" as const,
   mcpUrl: "http://127.0.0.1:9876/mcp",
   mcpToken: "test-token",
-  instructions: "Use Cinesim tools.",
 });
 
 describe("local provider runtimes", () => {
@@ -60,12 +58,13 @@ describe("local provider runtimes", () => {
       "fake-claude",
       `const readline = require("node:readline");
 if (!process.argv.includes("--effort") || !process.argv.includes("high")) process.exit(3);
+if (!process.argv.includes("bypassPermissions") || !process.argv.includes("--dangerously-skip-permissions")) process.exit(4);
 console.log(JSON.stringify({type:"system",subtype:"init",session_id:"claude-session"}));
 readline.createInterface({input:process.stdin}).on("line", () => {
   console.log(JSON.stringify({type:"stream_event",event:{type:"message_start"}}));
   console.log(JSON.stringify({type:"stream_event",event:{type:"content_block_delta",delta:{type:"thinking_delta",thinking:"Checking the cut"}}}));
   console.log(JSON.stringify({type:"stream_event",event:{type:"content_block_delta",delta:{type:"text_delta",text:"Done"}}}));
-  console.log(JSON.stringify({type:"assistant",message:{content:[{type:"text",text:"Duplicate final text"},{type:"tool_use",name:"Read"},{type:"tool_use",name:"mcp__cinesim__project_inspect"}]}}));
+  console.log(JSON.stringify({type:"assistant",message:{content:[{type:"text",text:"Duplicate final text"},{type:"tool_use",name:"Read",input:{file_path:"cinesim.toml"}},{type:"tool_use",name:"mcp__cinesim__project_inspect"}]}}));
   console.log(JSON.stringify({type:"result",subtype:"success",session_id:"claude-session",usage:{input_tokens:1200,cache_read_input_tokens:800,output_tokens:200},modelUsage:{"test-model":{contextWindow:200000}}}));
 });`,
     );
@@ -95,6 +94,8 @@ readline.createInterface({input:process.stdin}).on("line", () => {
       kind: "tool-started",
       toolName: "Read",
       title: "Read",
+      detail: "cinesim.toml",
+      status: "running",
     });
     expect(events.some((event) => event.toolName?.startsWith("mcp__cinesim__"))).toBe(false);
     expect(usages).toContainEqual({
@@ -156,16 +157,17 @@ readline.createInterface({input:process.stdin}).on("line", line => {
   const request = JSON.parse(line);
   if (request.method === "initialize") send({id:request.id,result:{}});
   if (request.method === "thread/start") {
+    if (request.params.approvalPolicy !== "never" || request.params.approvalsReviewer) process.exit(4);
     send({id:request.id,result:{thread:{id:"codex-thread"}}});
     send({method:"thread/started",params:{thread:{id:"codex-thread"}}});
   }
   if (request.method === "turn/start") {
-    if (request.params.effort !== "high") process.exit(3);
+    if (request.params.effort !== "high" || request.params.approvalPolicy !== "never" || request.params.approvalsReviewer) process.exit(3);
     send({id:request.id,result:{turn:{id:"codex-turn"}}});
     send({method:"turn/started",params:{turn:{id:"codex-turn"}}});
     send({id:"approval-1",method:"item/commandExecution/requestApproval",params:{command:"echo test"}});
   }
-  if (request.id === "approval-1" && request.result?.decision === "decline") {
+  if (request.id === "approval-1" && request.result?.decision === "accept") {
     send({method:"item/reasoning/summaryTextDelta",params:{delta:"Checking the timeline."}});
     send({method:"item/started",params:{item:{type:"commandExecution",command:"echo test"}}});
     send({method:"item/completed",params:{item:{type:"commandExecution",command:"echo test"}}});
@@ -182,16 +184,11 @@ readline.createInterface({input:process.stdin}).on("line", line => {
     const completed = new Promise<void>((resolve) => {
       finish = resolve;
     });
-    let approvalRequested = false;
     const providerSessionIds: string[] = [];
     const startedTurnIds: Array<string | undefined> = [];
     const runtimeCallbacks = callbacks(finish, events, usages);
     runtimeCallbacks.onProviderSessionId = (id) => providerSessionIds.push(id);
     runtimeCallbacks.onTurnStarted = (id) => startedTurnIds.push(id);
-    runtimeCallbacks.onApproval = async () => {
-      approvalRequested = true;
-      return false;
-    };
     const runtime = new CodexRuntime(launchOptions(path), runtimeCallbacks);
     await runtime.start();
     await runtime.send("Move the clip");
@@ -219,7 +216,6 @@ readline.createInterface({input:process.stdin}).on("line", line => {
       title: "Codex error",
       detail: "Nonfatal provider notice",
     });
-    expect(approvalRequested).toBe(true);
     expect(usages).toContainEqual({
       usedTokens: 3_500,
       maxTokens: 258_400,

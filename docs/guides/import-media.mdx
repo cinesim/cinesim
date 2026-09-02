@@ -15,11 +15,26 @@ happens to your files, what gets generated, and the two cases where Cinesim make
 Each file becomes an asset with a stable ID. Cinesim reads its metadata, then queues background work
 to make it editable.
 
+The deterministic asset record includes container and codec parameters, coded and display geometry,
+rotation, pixel aspect ratio, frame-rate mode, audio layout, bit depth, decoder observations, and
+embedded color/HDR metadata. Missing or uncertain values remain `unknown`; Cinesim does not invent
+precision. During the same import, the sandboxed preload checks the exact bounded track decoder
+configs against the active Chromium WebCodecs runtime, then main validates and commits the result
+with the asset. A source that runtime is known not to decode is reported before guaranteed-failing
+proxy work is queued; source paths and decoder authority remain in main.
+
 ## What happens to your files
 
 Nothing. Cinesim records the path you selected and reads from it in place. It does not copy, move,
 rename, or delete your media, and removing an asset from a project never deletes the underlying
 file.
+
+The same asset card, compact transcript status, storage/compatibility indicators, and right-click
+actions appear in Media, Cut, Edit, and Effects. Depending on the asset state, the menu can add or
+assemble it, generate a proxy, start/cancel/force-regenerate transcription, retry cloud transfer,
+keep/remove a cloud download, reveal a local source in Finder, or remove selected assets from the
+project. Finder reveal sends only the validated stable asset ID across preload; the main process
+resolves the canonical source path.
 
 Keep your footage at the path you imported it from. If you move it, the project still opens, but
 clips referencing it cannot resolve their media.
@@ -75,6 +90,11 @@ Cinesim decodes what Chromium can decode. There is no bundled FFmpeg, so footage
 does not support cannot be proxied or played.
 
 Still-image import is not currently exposed in the media picker.
+
+Detected Rec.709, HLG/PQ, and Rec.2020 metadata follows the project's explicit color policy for both
+originals and proxies. The viewer and accepted export share the same linear Rec.709 WebGPU graph, so
+switching to a proxy cannot silently change the source interpretation. See
+[Project settings](../reference/settings.mdx) for tone mapping and uncertain-metadata controls.
 
 ## Next
 

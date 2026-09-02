@@ -1,5 +1,5 @@
 import type { IrClip, IrProgram, IrTransform } from "@cinesim/ir";
-import type { Asset, Clip, Project, Sequence, Track, Transform } from "./types";
+import type { Asset, Clip, EditorialNote, Project, Sequence, Track, Transform } from "./types";
 import { timeUs } from "./types";
 
 function transformFromIr(transform: IrTransform): Transform {
@@ -30,6 +30,9 @@ function clipFromIr(clip: IrClip): Clip {
     playbackRate: clip.playbackRate,
     ...(clip.fades.inUs === 0 ? {} : { fadeInUs: timeUs(clip.fades.inUs) }),
     ...(clip.fades.outUs === 0 ? {} : { fadeOutUs: timeUs(clip.fades.outUs) }),
+    ...(clip.audio.gainDb === 0 ? {} : { gainDb: clip.audio.gainDb }),
+    ...(clip.audio.pan === 0 ? {} : { pan: clip.audio.pan }),
+    ...(clip.audio.muted ? { muted: true } : {}),
     transform: transformFromIr(clip.transform),
   };
 }
@@ -37,6 +40,7 @@ function clipFromIr(clip: IrClip): Clip {
 export interface ProjectViewContext {
   name: string;
   assets: readonly Asset[];
+  notes?: readonly EditorialNote[];
   cloudProjectId?: Project["cloudProjectId"];
 }
 
@@ -48,12 +52,20 @@ export function projectViewFromIr(program: IrProgram, context: ProjectViewContex
     name: context.name,
     activeSequenceId: program.activeCompositionId as Project["activeSequenceId"],
     assets: structuredClone([...context.assets]),
+    notes: structuredClone([...(context.notes ?? [])]),
     sequences: program.compositions.map((composition): Sequence => ({
       id: composition.id as Sequence["id"],
       name: composition.name,
       width: composition.width,
       height: composition.height,
       frameRate: composition.frameRate,
+      notes: composition.timeline.notes.map((note) => ({
+        id: note.id,
+        kind: note.kind,
+        text: note.text,
+        atUs: timeUs(note.atUs),
+        ...(note.durationUs === undefined ? {} : { durationUs: timeUs(note.durationUs) }),
+      })),
       tracks: composition.timeline.tracks.map((track): Track => ({
         id: track.id as Track["id"],
         kind: track.kind,

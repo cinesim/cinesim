@@ -17,9 +17,7 @@ const eventSchema = z
       "reasoning",
       "tool-started",
       "tool-completed",
-      "approval-requested",
-      "approval-resolved",
-      "checkpoint",
+      "turn-result",
       "notice",
       "error",
     ]),
@@ -28,19 +26,7 @@ const eventSchema = z
     title: z.string().max(4_096).optional(),
     detail: z.string().max(1_048_576).optional(),
     toolName: z.string().max(256).optional(),
-    requestId: boundedId.optional(),
-    destructive: z.boolean().optional(),
-    status: z.enum(["running", "completed", "failed", "declined"]).optional(),
-  })
-  .strict();
-const checkpointSchema = z
-  .object({
-    turnId: boundedId,
-    turnNumber: z.number().int().positive().safe(),
-    beforeRef: z.string().min(1).max(2_048),
-    afterRef: z.string().min(1).max(2_048),
-    summary: z.string().max(100_000),
-    createdAt: timestamp,
+    status: z.enum(["running", "completed", "failed", "interrupted"]).optional(),
   })
   .strict();
 const tokenUsageSchema = z
@@ -62,24 +48,14 @@ const sessionSchema = z
     provider: z.enum(["claude", "codex"]),
     model: z.string().min(1).max(120),
     effort: z.enum(["low", "medium", "high", "xhigh", "max"]),
-    permissionMode: z.enum(["supervised", "auto-edit"]),
     title: z.string().min(1).max(1_024),
-    status: z.enum([
-      "idle",
-      "starting",
-      "working",
-      "waiting",
-      "completed",
-      "interrupted",
-      "failed",
-    ]),
+    status: z.enum(["idle", "starting", "working", "completed", "interrupted", "failed"]),
     createdAt: timestamp,
     updatedAt: timestamp,
     providerSessionId: boundedId.optional(),
     activeTurnId: boundedId.optional(),
     tokenUsage: tokenUsageSchema.optional(),
     events: z.array(eventSchema).max(600),
-    checkpoints: z.array(checkpointSchema).max(10_000),
   })
   .strict();
 const stateSchema = z
@@ -89,6 +65,33 @@ const stateSchema = z
     sessions: z.array(sessionSchema).max(1_000),
   })
   .strict();
+const legacyEventSchema = eventSchema.extend({
+  kind: z.enum([
+    "user-message",
+    "assistant-message",
+    "reasoning",
+    "tool-started",
+    "tool-completed",
+    "turn-result",
+    "notice",
+    "error",
+    "approval-requested",
+    "approval-resolved",
+    "checkpoint",
+  ]),
+  status: z.enum(["running", "completed", "failed", "interrupted", "declined"]).optional(),
+  requestId: boundedId.optional(),
+  destructive: z.boolean().optional(),
+});
+const legacySessionSchema = sessionSchema.extend({
+  status: z.enum(["idle", "starting", "working", "waiting", "completed", "interrupted", "failed"]),
+  permissionMode: z.enum(["supervised", "auto-edit"]).optional(),
+  events: z.array(legacyEventSchema).max(600),
+  checkpoints: z.array(z.unknown()).max(10_000).optional(),
+});
+const readableStateSchema = stateSchema.extend({
+  sessions: z.array(legacySessionSchema).max(1_000),
+});
 
 export interface PersistedAgentState {
   version: 1;
@@ -105,7 +108,29 @@ export class AgentSessionStore {
     const value = JSON.parse(
       await this.#files.readText(this.path, MAX_AGENT_STATE_BYTES),
     ) as unknown;
-    return stateSchema.parse(value) as PersistedAgentState;
+    const parsed = readableStateSchema.parse(value);
+    const migrated = {
+      ...parsed,
+      sessions: parsed.sessions.map(
+        ({ permissionMode: _permissionMode, checkpoints: _checkpoints, ...session }) => ({
+          ...session,
+          status: session.status === "waiting" ? "interrupted" : session.status,
+          ...(session.status === "waiting" ? { activeTurnId: undefined } : {}),
+          events: session.events
+            .filter(
+              (event) =>
+                event.kind !== "approval-requested" &&
+                event.kind !== "approval-resolved" &&
+                event.kind !== "checkpoint",
+            )
+            .map(({ requestId: _requestId, destructive: _destructive, status, ...event }) => ({
+              ...event,
+              ...(status && status !== "declined" ? { status } : {}),
+            })),
+        }),
+      ),
+    };
+    return stateSchema.parse(migrated) as PersistedAgentState;
   }
 
   async write(value: PersistedAgentState): Promise<void> {

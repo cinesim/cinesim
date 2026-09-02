@@ -4,10 +4,12 @@ import {
   compileVideo,
   DEFAULT_COMPILER_BUDGETS,
   parseCompilerConfig,
+  printNodeTemplate,
   rewriteSourceValue,
   type CompilerConfig,
   type CompilerHost,
 } from "@cinesim/compiler";
+import { irTimeUs } from "@cinesim/ir";
 
 const config: CompilerConfig = {
   languageVersion: 1,
@@ -38,6 +40,23 @@ const wrapper = (content: string): string =>
   `export const main = <composition id="sequence_main" width={1920} height={1080} fps={30}><timeline id="timeline_main"><track id="track_overlay" kind="overlay" name="Overlay"><clip id="clip_scene" start={seconds(0)} duration={seconds(2)}>${content}</clip></track></timeline></composition>; export default main;`;
 
 describe("compiler", () => {
+  it("lowers explicit time-bounded adjustment-layer scope and effects", async () => {
+    const source = `export const main = <composition id="sequence_main" width={1920} height={1080} fps={30}><timeline id="timeline_main"><track id="track_adjust" kind="overlay" name="Adjustments"><adjustmentlayer id="look" start={seconds(1)} duration={seconds(2)} scope="tracks" tracks="track_video"><colorgrade id="look/grade" exposure={0.5}><animate property="exposure"><key at={seconds(0)} value={0.5} /><key at={seconds(2)} value={1} easing="ease-in" /></animate></colorgrade><vignette id="look/vignette" amount={0.4} softness={0.25} /></adjustmentlayer></track><track id="track_video" kind="video" name="Video"><clip id="clip_camera" asset={asset("asset_camera")} media="video" start={seconds(0)} in={seconds(0)} duration={seconds(4)} x={px(0)}><animate property="x"><key at={seconds(0)} value={px(0)} /><key at={seconds(4)} value={px(200)} /></animate></clip></track></timeline></composition>; export default main;`;
+    const result = await compileVideo("main.jsx", config, host({ "main.jsx": source }));
+    expect(result.ir.compositions[0]!.timeline.tracks[0]!.adjustments?.[0]).toMatchObject({
+      id: "look",
+      timelineStartUs: 1_000_000,
+      durationUs: 2_000_000,
+      scope: "tracks",
+      targetTrackIds: ["track_video"],
+      effects: [{ kind: "colorgrade" }, { kind: "vignette" }],
+    });
+    expect(
+      result.ir.compositions[0]!.timeline.tracks[0]!.adjustments?.[0]?.effects[0]?.animations,
+    ).toHaveLength(1);
+    expect(result.ir.compositions[0]!.timeline.tracks[1]!.clips[0]!.animations).toHaveLength(1);
+  });
+
   it("lowers explicit timelines and imported components with call-site provenance", async () => {
     const files = {
       "main.jsx": `import { Card } from "./Card.jsx"; ${wrapper('<Card id="title" text="Hello" />')}`,
@@ -100,6 +119,36 @@ describe("compiler", () => {
     ).rejects.toMatchObject({ diagnostic: expect.objectContaining({ code: "UNKNOWN_HELPER" }) });
   });
 
+  it("rejects undocumented keyframe easing", async () => {
+    await expect(
+      compileVideo(
+        "main.jsx",
+        config,
+        host({
+          "main.jsx": wrapper(
+            '<rect id="panel" opacity={0}><animate property="opacity"><key at={seconds(0)} value={0} /><key at={seconds(1)} value={1} easing="spring" /></animate></rect>',
+          ),
+        }),
+      ),
+    ).rejects.toMatchObject({ diagnostic: expect.objectContaining({ code: "KEYFRAME_EASING" }) });
+  });
+
+  it("lowers deterministic audio ducking against a separate sidechain track", async () => {
+    const source = `export const main = <composition id="sequence_main" width={1920} height={1080} fps={30}><timeline id="timeline_main"><track id="track_music" kind="audio" name="Music"><clip id="clip_music" asset={asset("asset_camera")} media="audio" start={seconds(0)} duration={seconds(10)}><ducker id="duck_music" sidechain="track_dialogue" reduction={db(-12)} attack={milliseconds(80)} release={milliseconds(250)} /></clip></track><track id="track_dialogue" kind="audio" name="Dialogue"><clip id="clip_dialogue" asset={asset("asset_camera")} media="audio" start={seconds(2)} duration={seconds(3)} /></track></timeline></composition>; export default main;`;
+    const result = await compileVideo("main.jsx", config, host({ "main.jsx": source }));
+
+    expect(result.ir.compositions[0]!.timeline.tracks[0]!.clips[0]!.effects[0]).toMatchObject({
+      id: "duck_music",
+      kind: "ducker",
+      props: {
+        sidechain: { kind: "string", value: "track_dialogue" },
+        reduction: { kind: "decibels", value: -12 },
+        attack: { kind: "time", valueUs: 80_000 },
+        release: { kind: "time", valueUs: 250_000 },
+      },
+    });
+  });
+
   it("collects multiple compositions and parses the project manifest boundary", async () => {
     const source = `export const main = <composition id="sequence_main" width={1920} height={1080} fps={30}><timeline id="timeline_main" /></composition>; export const selects = <composition id="sequence_selects" width={1280} height={720} fps={24}><timeline id="timeline_selects" /></composition>; export default main;`;
     const result = await compileVideo("main.jsx", config, host({ "main.jsx": source }));
@@ -108,24 +157,158 @@ describe("compiler", () => {
       "sequence_selects",
     ]);
     expect(
-      parseCompilerConfig({
-        format_version: 2,
-        language_version: 1,
-        project: {
-          id: "project_test",
-          name: "Test",
-          entry: "main.jsx",
-          active_composition: "sequence_main",
+      parseCompilerConfig(
+        {
+          format_version: 3,
+          language_version: 1,
+          project: {
+            id: "project_test",
+            name: "Test",
+            entry: "main.jsx",
+            active_composition: "sequence_main",
+          },
+          compiler: { strict: true },
         },
-        compiler: { strict: true },
-        assets: { asset_camera: {} },
-      }),
+        ["asset_camera"],
+      ),
     ).toMatchObject({
       projectId: "project_test",
       entry: "main.jsx",
       assetIds: ["asset_camera"],
       output: ".video/compiler",
     });
+  });
+
+  it("lowers structured non-rendering timeline notes", async () => {
+    const source = `export const main = <composition id="sequence_main" width={1920} height={1080} fps={30}><timeline id="timeline_main"><note id="note_scene" at={seconds(2)} duration={seconds(3)} kind="scene" text="Move into the kitchen" /></timeline></composition>; export default main;`;
+    const result = await compileVideo("main.jsx", config, host({ "main.jsx": source }));
+    expect(result.ir.compositions[0]?.timeline.notes).toEqual([
+      {
+        id: "note_scene",
+        atUs: 2_000_000,
+        durationUs: 3_000_000,
+        kind: "scene",
+        text: "Move into the kitchen",
+      },
+    ]);
+    expect(result.sourceMap.nodes.note_scene?.structural.nodeKind).toBe("note");
+  });
+
+  it("lowers dedicated editable caption tracks, cues, words, and typed animation", async () => {
+    const source = `export const main = <composition id="sequence_main" width={1920} height={1080} fps={30}><timeline id="timeline_main"><captiontrack id="captions_en" name="English" transcriptFingerprint="sha256:fixture" language="en" fontSize={px(64)} placement="bottom"><cue id="cue_intro" start={seconds(1)} duration={seconds(2)} text="Welcome home" speaker="HOST" scale={1}><captionword id="word_welcome" start={seconds(0)} duration={milliseconds(800)} text="Welcome" /><captionword id="word_home" start={milliseconds(800)} duration={milliseconds(700)} text="home" /><animate property="scale"><key at={seconds(0)} value={0.9} easing="ease-out" /><key at={milliseconds(150)} value={1} easing="ease-out" /></animate></cue></captiontrack></timeline></composition>; export default main;`;
+    const result = await compileVideo("main.jsx", config, host({ "main.jsx": source }));
+
+    expect(result.ir.compositions[0]!.timeline.captionTracks).toMatchObject([
+      {
+        id: "captions_en",
+        name: "English",
+        transcriptFingerprint: "sha256:fixture",
+        language: "en",
+        props: { fontSize: { kind: "length", unit: "px", value: 64 } },
+        cues: [
+          {
+            id: "cue_intro",
+            startUs: 1_000_000,
+            durationUs: 2_000_000,
+            text: "Welcome home",
+            speaker: "HOST",
+            words: [
+              { id: "word_welcome", startUs: 0, durationUs: 800_000, text: "Welcome" },
+              { id: "word_home", startUs: 800_000, durationUs: 700_000, text: "home" },
+            ],
+            animations: [
+              {
+                property: "scale",
+                keyframes: [
+                  { at: 0, value: { kind: "number", value: 0.9 }, easing: "ease-out" },
+                  { at: 150_000, value: { kind: "number", value: 1 }, easing: "ease-out" },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+    ]);
+    expect(result.sourceMap.nodes.cue_intro?.structural.nodeKind).toBe("cue");
+  });
+
+  it("compiles expressive caption presets into ordinary typed animation", async () => {
+    const source = `export const main = <composition id="sequence_main" width={1920} height={1080} fps={30}><timeline id="timeline_main"><captiontrack id="captions_en" name="English" animationPreset="word-emphasis"><cue id="cue_intro" start={seconds(1)} duration={seconds(2)} text="Welcome home"><captionword id="word_welcome" start={seconds(0)} duration={milliseconds(800)} text="Welcome" /><captionword id="word_home" start={milliseconds(800)} duration={milliseconds(700)} text="home" /></cue></captiontrack></timeline></composition>; export default main;`;
+    const result = await compileVideo("main.jsx", config, host({ "main.jsx": source }));
+
+    expect(result.ir.compositions[0]!.timeline.captionTracks[0]!.cues[0]!.animations).toEqual([
+      {
+        property: "wordProgress",
+        keyframes: [
+          { at: 0, value: { kind: "number", value: 0 }, easing: "hold" },
+          { at: 800_000, value: { kind: "number", value: 1 }, easing: "hold" },
+          { at: 1_500_000, value: { kind: "number", value: -1 }, easing: "hold" },
+        ],
+      },
+    ]);
+  });
+
+  it("prints generated caption tracks as canonical editable JSX", () => {
+    const source = printNodeTemplate({
+      kind: "captiontrack",
+      track: {
+        id: "captiontrack_generated",
+        name: "Generated captions",
+        transcriptFingerprint: "transcript-v1-source",
+        props: { fill: { kind: "color", value: "#ffffff" } },
+        cues: [
+          {
+            id: "cue_generated",
+            startUs: irTimeUs(1_000_000),
+            durationUs: irTimeUs(800_000),
+            text: "Hello",
+            props: {},
+            animations: [],
+            words: [
+              {
+                id: "captionword_generated",
+                startUs: irTimeUs(0),
+                durationUs: irTimeUs(800_000),
+                text: "Hello",
+              },
+            ],
+          },
+        ],
+      },
+    });
+
+    expect(source).toContain('<captiontrack id="captiontrack_generated"');
+    expect(source).toContain('transcriptFingerprint="transcript-v1-source"');
+    expect(source).toContain('<captionword id="captionword_generated"');
+  });
+
+  it("lowers visual transitions and independent audio crossfades with typed parameters", async () => {
+    const source = `export const main = <composition id="sequence_main" width={1920} height={1080} fps={30}><timeline id="timeline_main"><track id="track_video" kind="video" name="Video"><clip id="clip_from" asset={asset("asset_camera")} media="video" start={seconds(0)} in={seconds(0)} duration={seconds(3)} /><clip id="clip_to" asset={asset("asset_camera")} media="video" start={seconds(3)} in={seconds(2)} duration={seconds(3)} /></track><track id="track_audio" kind="audio" name="Audio"><clip id="clip_audio_from" asset={asset("asset_camera")} media="audio" start={seconds(0)} in={seconds(0)} duration={seconds(3)} /><clip id="clip_audio_to" asset={asset("asset_camera")} media="audio" start={seconds(3)} in={seconds(2)} duration={seconds(3)} /></track><transition id="transition_picture" from="clip_from" to="clip_to" kind="wipe" duration={seconds(1)} easing="ease-out" direction="left" softness={percent(3)} /><audiocrossfade id="transition_audio" from="clip_audio_from" to="clip_audio_to" duration={seconds(1)} curve="equal-power" /></timeline></composition>; export default main;`;
+    const result = await compileVideo("main.jsx", config, host({ "main.jsx": source }));
+    const timeline = result.ir.compositions[0]!.timeline;
+
+    expect(timeline.transitions).toEqual([
+      expect.objectContaining({
+        id: "transition_picture",
+        kind: "wipe",
+        durationUs: 1_000_000,
+        easing: "ease-out",
+        props: expect.objectContaining({
+          direction: { kind: "string", value: "left" },
+          softness: { kind: "percent", value: 3 },
+        }),
+      }),
+    ]);
+    expect(timeline.audioTransitions).toEqual([
+      {
+        id: "transition_audio",
+        fromClipId: "clip_audio_from",
+        toClipId: "clip_audio_to",
+        durationUs: 1_000_000,
+        easing: "linear",
+        curve: "equal-power",
+      },
+    ]);
   });
 
   it("enforces component depth and source budgets", async () => {

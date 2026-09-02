@@ -1,4 +1,4 @@
-import type { Project, ProjectSettings } from "@cinesim/core";
+import type { AssetId, DecoderAvailability, Project, ProjectSettings } from "@cinesim/core";
 import type { BuiltinSchema } from "@cinesim/compiler";
 import type { IrDiagnostic, IrEditMap, IrProgram, TimelineProjection } from "@cinesim/ir";
 import type { DerivedProjectScope } from "./derived-media";
@@ -13,6 +13,8 @@ export interface DesktopProjectSession {
   editMap: IrEditMap;
   propertySchemas: Readonly<Record<string, BuiltinSchema>>;
   diagnostics: IrDiagnostic[];
+  diskValid: boolean;
+  candidateDiagnostics: IrDiagnostic[];
   settings: ProjectSettings;
   generation: string;
   revision: number;
@@ -20,9 +22,46 @@ export interface DesktopProjectSession {
   canRedo: boolean;
 }
 
+export interface DesktopProjectGuidance {
+  managedBlock: string;
+  defaultCustomInstructions: string;
+  projectCustomInstructions: string | null;
+}
+
 export interface CreateProjectLocation {
   token: string;
   directory: string;
+}
+
+export interface MediaDecoderConfigProbe {
+  codec: string;
+  description?: Uint8Array;
+  codedWidth?: number;
+  codedHeight?: number;
+  sampleRate?: number;
+  numberOfChannels?: number;
+}
+
+export interface MediaDecoderTrackProbe {
+  availability: DecoderAvailability;
+  config?: MediaDecoderConfigProbe;
+}
+
+export interface MediaDecoderProbe {
+  assetId: AssetId;
+  video?: MediaDecoderTrackProbe;
+  audio?: MediaDecoderTrackProbe;
+}
+
+export interface PreparedMediaImport {
+  token: string;
+  probes: MediaDecoderProbe[];
+}
+
+export interface MediaDecoderProbeResult {
+  assetId: AssetId;
+  video?: DecoderAvailability;
+  audio?: DecoderAvailability;
 }
 
 export const PROJECT_OPEN_TARGET_IDS = [

@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { timeUs } from "@cinesim/core";
@@ -34,6 +34,109 @@ afterEach(async () => {
 });
 
 describe("source-backed semantic commands", () => {
+  it("commits a keyframe gesture as one validated source transaction", async () => {
+    const { directory, service } = await setup();
+    const mainPath = join(directory, "main.jsx");
+    const original = await readFile(mainPath, "utf8");
+    const animated = original.replace(
+      '<track id="track_video_1" kind="video" name="Video 1" muted={false} locked={false} />',
+      '<track id="track_video_1" kind="video" name="Video 1" muted={false} locked={false}><clip id="clip_keyed" asset={asset("asset_camera")} media="video" start={seconds(0)} in={seconds(0)} duration={seconds(4)} x={px(0)}><animate property="x"><key at={seconds(0)} value={px(0)} /><key at={seconds(2)} value={px(50)} /></animate></clip></track>',
+    );
+    await writeFile(mainPath, animated);
+    await service.acceptExternal(await service.repository.load());
+    const result = await service.execute({
+      type: "keyframe.set",
+      nodeId: "clip_keyed",
+      property: "x",
+      index: 1,
+      atUs: timeUs(3_000_000),
+      value: { kind: "length", unit: "px", value: 100 },
+    });
+    const clip = result.snapshot.compilation.ir.compositions[0]!.timeline.tracks.flatMap(
+      (track) => track.clips,
+    ).find(({ id }) => id === "clip_keyed");
+    expect(clip?.animations?.[0]?.keyframes[1]).toMatchObject({
+      at: 3_000_000,
+      value: { value: 100 },
+    });
+    expect(result.snapshot.sources["main.jsx"]).toContain(
+      "<key at={microseconds(3000000)} value={px(100)} />",
+    );
+    const added = await service.execute({
+      type: "keyframe.add",
+      nodeId: "clip_keyed",
+      property: "x",
+      atUs: timeUs(1_000_000),
+      value: { kind: "length", unit: "px", value: 25 },
+      easing: "ease-in",
+    });
+    expect(added.snapshot.sources["main.jsx"]).toContain(
+      '<key at={microseconds(1000000)} value={px(25)} easing="ease-in" />',
+    );
+    const initialEasing = await service.execute({
+      type: "keyframe.set",
+      nodeId: "clip_keyed",
+      property: "x",
+      index: 0,
+      easing: "hold",
+    });
+    expect(initialEasing.snapshot.sources["main.jsx"]).toContain(
+      '<key at={seconds(0)} value={px(0)} easing="hold" />',
+    );
+    const eased = await service.execute({
+      type: "keyframe.set",
+      nodeId: "clip_keyed",
+      property: "x",
+      index: 1,
+      easing: "ease-in-out",
+    });
+    expect(eased.snapshot.sources["main.jsx"]).toContain('easing="ease-in-out"');
+    const removed = await service.execute({
+      type: "keyframe.remove",
+      nodeId: "clip_keyed",
+      property: "x",
+      index: 1,
+    });
+    expect(removed.snapshot.sources["main.jsx"]).not.toContain("value={px(25)}");
+    const undone = await service.undo();
+    expect(undone.sources["main.jsx"]).toContain("value={px(25)}");
+  });
+
+  it("records accepted filesystem generations in global undo and restores complete source sets", async () => {
+    const { directory, service } = await setup();
+    const mainPath = join(directory, "main.jsx");
+    const extraPath = join(directory, "Extra.jsx");
+    const originalMain = await readFile(mainPath, "utf8");
+    const withExtra = `import { Extra } from "./Extra.jsx";\n${originalMain.replace(
+      '<track id="track_overlay_1" kind="overlay" name="Titles" muted={false} locked={false} />',
+      '<track id="track_overlay_1" kind="overlay" name="Titles" muted={false} locked={false}><clip id="clip_external" start={seconds(0)} duration={seconds(1)}><Extra id="external" /></clip></track>',
+    )}`;
+    await Promise.all([
+      writeFile(
+        extraPath,
+        'export function Extra() { return <rect id="panel" width={px(100)} height={px(100)} />; }\n',
+      ),
+      writeFile(mainPath, withExtra),
+    ]);
+    const withExtraSnapshot = await service.repository.load();
+    await service.acceptExternal(withExtraSnapshot);
+    expect(service.canUndo).toBe(true);
+    expect(Object.keys(service.snapshot.sources)).toContain("Extra.jsx");
+
+    await writeFile(mainPath, originalMain.replace('name="Main timeline"', 'name="Disk edit"'));
+    const withoutExtraSnapshot = await service.repository.load();
+    await service.acceptExternal(withoutExtraSnapshot);
+    expect(Object.keys(service.snapshot.sources)).not.toContain("Extra.jsx");
+
+    const reopened = await SourceCommandService.open(directory);
+    expect(reopened.canUndo).toBe(true);
+    const restored = await reopened.undo();
+    expect(restored.sources["Extra.jsx"]).toBeDefined();
+    const redone = await reopened.redo();
+    expect(redone.sources["Extra.jsx"]).toBeUndefined();
+    await expect(readFile(extraPath, "utf8")).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
   it("adds linked media, moves, trims, fades, splits, and undo/redoes as source transactions", async () => {
     const { service } = await setup();
     const added = await service.execute({
@@ -87,6 +190,70 @@ describe("source-backed semantic commands", () => {
     expect(
       redone.compilation.ir.compositions[0]!.timeline.tracks.flatMap((track) => track.clips),
     ).toHaveLength(4);
+  });
+
+  it("commits linked audio split edits atomically and preserves independent mixing properties", async () => {
+    const { service } = await setup();
+    const added = await service.execute({
+      type: "clip.add",
+      trackId: "track_video_1",
+      audioTrackId: "track_audio_1",
+      assetId: "asset_camera",
+      timelineStartUs: timeUs(2_000_000),
+      sourceStartUs: timeUs(2_000_000),
+      sourceEndUs: timeUs(8_000_000),
+    });
+    const [videoId, audioId] = added.createdIds;
+    const split = await service.execute({
+      type: "clip.splitEdit",
+      clipId: videoId! as `clip_${string}`,
+      component: "audio",
+      edge: "start",
+      atUs: timeUs(1_000_000),
+    });
+    const clips = split.snapshot.compilation.ir.compositions[0]!.timeline.tracks.flatMap(
+      ({ clips }) => clips,
+    );
+    expect(clips.find(({ id }) => id === audioId)).toMatchObject({
+      linkedClipId: videoId,
+      timelineStartUs: 1_000_000,
+      sourceStartUs: 1_000_000,
+      durationUs: 7_000_000,
+    });
+    expect(clips.find(({ id }) => id === videoId)).toMatchObject({
+      linkedClipId: audioId,
+      timelineStartUs: 2_000_000,
+      durationUs: 6_000_000,
+    });
+    const mixed = await service.execute({
+      type: "property.setMany",
+      nodeId: audioId!,
+      updates: [
+        { property: "gain", value: { kind: "decibels", value: -4.5 } },
+        { property: "pan", value: { kind: "number", value: -0.25 } },
+      ],
+    });
+    expect(
+      mixed.snapshot.compilation.ir.compositions[0]!.timeline.tracks.flatMap(
+        ({ clips }) => clips,
+      ).find(({ id }) => id === audioId)?.audio,
+    ).toMatchObject({ gainDb: -4.5, pan: -0.25 });
+    const undone = await service.undo();
+    expect(
+      undone.compilation.ir.compositions[0]!.timeline.tracks.flatMap(({ clips }) => clips).find(
+        ({ id }) => id === audioId,
+      )?.audio,
+    ).toMatchObject({ gainDb: 0, pan: 0 });
+    const splitUndone = await service.undo();
+    expect(
+      splitUndone.compilation.ir.compositions[0]!.timeline.tracks.flatMap(
+        ({ clips }) => clips,
+      ).find(({ id }) => id === audioId),
+    ).toMatchObject({
+      timelineStartUs: 2_000_000,
+      sourceStartUs: 2_000_000,
+      durationUs: 6_000_000,
+    });
   });
 
   it("uses property bindings for minimal inspector edits and rejects stale sessions", async () => {
@@ -336,5 +503,68 @@ export default main;
       createdSequenceId,
     ]);
     expect(removed.snapshot.sources["main.jsx"]).not.toContain('id="sequence_main"');
+  });
+
+  it("persists project, asset, and timeline notes through one validated history", async () => {
+    const { service } = await setup();
+    const projectNote = await service.execute({
+      type: "note.upsert",
+      target: "project",
+      note: { id: "note_intent", kind: "story-intent", text: "Open quietly" },
+    });
+    expect(projectNote.snapshot.manifest.notes).toEqual([
+      { id: "note_intent", kind: "story-intent", text: "Open quietly" },
+    ]);
+
+    const assetNote = await service.execute({
+      type: "note.upsert",
+      target: "asset",
+      assetId: "asset_camera",
+      note: { id: "note_eyeline", kind: "continuity", text: "Watch the eyeline" },
+    });
+    expect(assetNote.snapshot.assets[0]?.notes).toEqual([
+      { id: "note_eyeline", kind: "continuity", text: "Watch the eyeline" },
+    ]);
+
+    const timelineNote = await service.execute({
+      type: "note.upsert",
+      target: "timeline",
+      sequenceId: "sequence_main",
+      note: {
+        id: "note_scene",
+        kind: "scene",
+        text: "Kitchen",
+        atUs: timeUs(2_000_000),
+        durationUs: timeUs(3_000_000),
+      },
+    });
+    expect(timelineNote.snapshot.compilation.ir.compositions[0]?.timeline.notes).toEqual([
+      expect.objectContaining({ id: "note_scene", atUs: 2_000_000, text: "Kitchen" }),
+    ]);
+    expect(timelineNote.snapshot.sources["main.jsx"]).toContain('<note id="note_scene"');
+
+    const updated = await service.execute({
+      type: "note.upsert",
+      target: "timeline",
+      sequenceId: "sequence_main",
+      note: {
+        id: "note_scene",
+        kind: "edit-task",
+        text: "Tighten the entrance",
+        atUs: timeUs(2_500_000),
+      },
+    });
+    expect(updated.snapshot.compilation.ir.compositions[0]?.timeline.notes[0]).toMatchObject({
+      kind: "edit-task",
+      text: "Tighten the entrance",
+      atUs: 2_500_000,
+    });
+    const removed = await service.execute({
+      type: "note.remove",
+      target: "project",
+      noteId: "note_intent",
+    });
+    expect(removed.snapshot.manifest.notes).toEqual([]);
+    expect((await service.undo()).manifest.notes).toHaveLength(1);
   });
 });

@@ -219,7 +219,7 @@ export const BUILTIN_REGISTRY: Readonly<Record<string, BuiltinSchema>> = {
     name: "timeline",
     category: "temporal",
     properties: { id },
-    allowedChildren: ["track", "marker", "transition"],
+    allowedChildren: ["track", "captiontrack", "note", "marker", "transition", "audiocrossfade"],
   },
   track: {
     name: "track",
@@ -243,6 +243,7 @@ export const BUILTIN_REGISTRY: Readonly<Record<string, BuiltinSchema>> = {
     },
     allowedChildren: [
       "clip",
+      "adjustmentlayer",
       "colorgrade",
       "blur",
       "shadow",
@@ -250,7 +251,140 @@ export const BUILTIN_REGISTRY: Readonly<Record<string, BuiltinSchema>> = {
       "chromakey",
       "vignette",
       "grain",
+      "ducker",
     ],
+  },
+  adjustmentlayer: {
+    name: "adjustmentlayer",
+    category: "temporal",
+    properties: {
+      id,
+      start: required(property("start", "time", "timing", "number", { animatable: false })),
+      duration: required(property("duration", "time", "timing", "number", { animatable: false })),
+      scope: property("scope", "string", "structure", "select", {
+        animatable: false,
+        defaultValue: value({ kind: "string", value: "below" }),
+        options: ["below", "tracks"],
+      }),
+      depth: property("depth", "number", "structure", "number", {
+        animatable: false,
+        defaultValue: value({ kind: "number", value: 1 }),
+      }),
+      tracks: property("tracks", "string", "structure", "text", { animatable: false }),
+      enabled: property("enabled", "boolean", "structure", "toggle", {
+        defaultValue: value({ kind: "boolean", value: true }),
+      }),
+    },
+    allowedChildren: ["animate", "colorgrade", "blur", "shadow", "chromakey", "vignette", "grain"],
+  },
+  captiontrack: {
+    name: "captiontrack",
+    category: "temporal",
+    properties: {
+      id,
+      name: required(property("name", "string", "structure", "text", { animatable: false })),
+      transcriptFingerprint: property("transcriptFingerprint", "string", "structure", "text", {
+        animatable: false,
+      }),
+      language: property("language", "string", "structure", "text", { animatable: false }),
+      fontFamily: property("fontFamily", "string", "text", "text", {
+        defaultValue: value({ kind: "string", value: "Instrument Sans" }),
+      }),
+      fontSize: property("fontSize", "length", "text", "number", {
+        defaultValue: value({ kind: "length", unit: "px", value: 64 }),
+      }),
+      fontWeight: property("fontWeight", "number", "text", "number", {
+        defaultValue: value({ kind: "number", value: 600 }),
+      }),
+      lineHeight: property("lineHeight", "number", "text", "number", {
+        defaultValue: value({ kind: "number", value: 1.15 }),
+      }),
+      placement: property("placement", "string", "text", "select", {
+        defaultValue: value({ kind: "string", value: "bottom" }),
+        options: ["top", "center", "bottom"],
+      }),
+      align: property("align", "string", "text", "select", {
+        defaultValue: value({ kind: "string", value: "center" }),
+        options: ["left", "center", "right"],
+      }),
+      fill: property("fill", "color", "text", "color", {
+        defaultValue: value({ kind: "color", value: "#ffffff" }),
+      }),
+      outlineColor: property("outlineColor", "color", "text", "color", {
+        defaultValue: value({ kind: "color", value: "#000000" }),
+      }),
+      outlineWidth: property("outlineWidth", "length", "text", "number", {
+        defaultValue: value({ kind: "length", unit: "px", value: 3 }),
+      }),
+      shadowColor: property("shadowColor", "color", "text", "color", {
+        defaultValue: value({ kind: "color", value: "#00000099" }),
+      }),
+      shadowBlur: property("shadowBlur", "length", "text", "number", {
+        defaultValue: value({ kind: "length", unit: "px", value: 8 }),
+      }),
+      shadowX: property("shadowX", "length", "text", "number", {
+        defaultValue: value({ kind: "length", unit: "px", value: 0 }),
+      }),
+      shadowY: property("shadowY", "length", "text", "number", {
+        defaultValue: value({ kind: "length", unit: "px", value: 4 }),
+      }),
+      background: property("background", "color", "text", "color", {
+        defaultValue: value({ kind: "color", value: "#00000000" }),
+      }),
+      safeMarginX: property("safeMarginX", "percent", "text", "slider", {
+        defaultValue: value({ kind: "percent", value: 8 }),
+      }),
+      safeMarginY: property("safeMarginY", "percent", "text", "slider", {
+        defaultValue: value({ kind: "percent", value: 8 }),
+      }),
+      animationPreset: property("animationPreset", "string", "text", "select", {
+        defaultValue: value({ kind: "string", value: "none" }),
+        options: ["none", "word-emphasis", "pop", "scale", "color", "position"],
+      }),
+      emphasisFill: property("emphasisFill", "color", "text", "color", {
+        defaultValue: value({ kind: "color", value: "#ffd54a" }),
+      }),
+      emphasisScale: property("emphasisScale", "number", "text", "number", {
+        defaultValue: value({ kind: "number", value: 1.08 }),
+      }),
+    },
+    allowedChildren: ["cue"],
+  },
+  cue: {
+    name: "cue",
+    category: "temporal",
+    properties: {
+      ...scene,
+      start: required(property("start", "time", "timing", "number", { animatable: false })),
+      duration: required(property("duration", "time", "timing", "number", { animatable: false })),
+      text: required(property("text", "string", "text", "text", { animatable: false })),
+      speaker: property("speaker", "string", "structure", "text", { animatable: false }),
+      fontSize: property("fontSize", "length", "text", "number"),
+      fontWeight: property("fontWeight", "number", "text", "number"),
+      fill: property("fill", "color", "text", "color"),
+      outlineColor: property("outlineColor", "color", "text", "color"),
+      outlineWidth: property("outlineWidth", "length", "text", "number"),
+      background: property("background", "color", "text", "color"),
+      animationPreset: property("animationPreset", "string", "text", "select", {
+        options: ["none", "word-emphasis", "pop", "scale", "color", "position"],
+      }),
+      emphasisFill: property("emphasisFill", "color", "text", "color"),
+      emphasisScale: property("emphasisScale", "number", "text", "number"),
+      wordProgress: property("wordProgress", "number", "text", "number", {
+        defaultValue: value({ kind: "number", value: -1 }),
+      }),
+    },
+    allowedChildren: ["captionword", "animate"],
+  },
+  captionword: {
+    name: "captionword",
+    category: "temporal",
+    properties: {
+      id,
+      start: required(property("start", "time", "timing", "number", { animatable: false })),
+      duration: required(property("duration", "time", "timing", "number", { animatable: false })),
+      text: required(property("text", "string", "text", "text", { animatable: false })),
+    },
   },
   clip: { name: "clip", category: "temporal", properties: clipProps, allowedChildren: "scene" },
   marker: {
@@ -261,6 +395,29 @@ export const BUILTIN_REGISTRY: Readonly<Record<string, BuiltinSchema>> = {
       at: required(property("at", "time", "timing", "number", { animatable: false })),
       name: required(property("name", "string", "structure", "text", { animatable: false })),
       color: property("color", "color", "appearance", "color"),
+    },
+  },
+  note: {
+    name: "note",
+    category: "temporal",
+    properties: {
+      id,
+      at: required(property("at", "time", "timing", "number", { animatable: false })),
+      duration: property("duration", "time", "timing", "number", { animatable: false }),
+      kind: required(
+        property("kind", "string", "structure", "select", {
+          animatable: false,
+          options: [
+            "story-intent",
+            "scene",
+            "continuity",
+            "edit-task",
+            "review-feedback",
+            "general",
+          ],
+        }),
+      ),
+      text: required(property("text", "string", "structure", "text", { animatable: false })),
     },
   },
   transition: {
@@ -277,6 +434,44 @@ export const BUILTIN_REGISTRY: Readonly<Record<string, BuiltinSchema>> = {
         }),
       ),
       duration: required(property("duration", "time", "timing", "number", { animatable: false })),
+      easing: property("easing", "string", "timing", "select", {
+        animatable: false,
+        defaultValue: value({ kind: "string", value: "ease-in-out" }),
+        options: ["linear", "ease-in", "ease-out", "ease-in-out"],
+      }),
+      direction: property("direction", "string", "effect", "select", {
+        defaultValue: value({ kind: "string", value: "left" }),
+        options: ["left", "right", "up", "down"],
+      }),
+      color: property("color", "color", "effect", "color", {
+        defaultValue: value({ kind: "color", value: "#000000" }),
+      }),
+      softness: property("softness", "percent", "effect", "slider", {
+        defaultValue: value({ kind: "percent", value: 2 }),
+      }),
+      intensity: property("intensity", "number", "effect", "slider", {
+        defaultValue: value({ kind: "number", value: 1 }),
+      }),
+    },
+  },
+  audiocrossfade: {
+    name: "audiocrossfade",
+    category: "temporal",
+    properties: {
+      id,
+      from: required(property("from", "string", "structure", "text", { animatable: false })),
+      to: required(property("to", "string", "structure", "text", { animatable: false })),
+      duration: required(property("duration", "time", "timing", "number", { animatable: false })),
+      easing: property("easing", "string", "timing", "select", {
+        animatable: false,
+        defaultValue: value({ kind: "string", value: "linear" }),
+        options: ["linear", "ease-in", "ease-out", "ease-in-out"],
+      }),
+      curve: property("curve", "string", "audio", "select", {
+        animatable: false,
+        defaultValue: value({ kind: "string", value: "equal-power" }),
+        options: ["linear", "equal-power"],
+      }),
     },
   },
   video: {
@@ -343,14 +538,6 @@ export const BUILTIN_REGISTRY: Readonly<Record<string, BuiltinSchema>> = {
       text: required(property("text", "string", "text", "text")),
       color: property("color", "color", "text", "color"),
       fontWeight: property("fontWeight", "number", "text", "number"),
-    },
-  },
-  captions: {
-    name: "captions",
-    category: "content",
-    properties: {
-      ...scene,
-      source: required(property("source", "resource", "structure", "asset", { animatable: false })),
     },
   },
   group: { name: "group", category: "layout", properties: scene, allowedChildren: "scene" },
@@ -441,13 +628,36 @@ export const BUILTIN_REGISTRY: Readonly<Record<string, BuiltinSchema>> = {
     amount: property("amount", "number", "effect", "slider"),
     size: property("size", "number", "effect", "number"),
   }),
+  ducker: effect("ducker", {
+    sidechain: required(property("sidechain", "string", "audio", "text", { animatable: false })),
+    reduction: property("reduction", "decibels", "audio", "number", {
+      defaultValue: value({ kind: "decibels", value: -12 }),
+      minimum: value({ kind: "decibels", value: -60 }),
+      maximum: value({ kind: "decibels", value: 0 }),
+      step: 0.1,
+    }),
+    attack: property("attack", "time", "audio", "number", {
+      animatable: false,
+      defaultValue: value({ kind: "time", valueUs: irTimeUs(80_000) }),
+    }),
+    release: property("release", "time", "audio", "number", {
+      animatable: false,
+      defaultValue: value({ kind: "time", valueUs: irTimeUs(250_000) }),
+    }),
+  }),
 };
 
 export const TEMPORAL_BUILTINS = new Set([
   "composition",
   "timeline",
   "track",
+  "adjustmentlayer",
+  "captiontrack",
+  "cue",
+  "captionword",
+  "audiocrossfade",
   "clip",
+  "note",
   "marker",
   "transition",
 ]);
@@ -459,6 +669,7 @@ export const EFFECT_BUILTINS = new Set([
   "chromakey",
   "vignette",
   "grain",
+  "ducker",
 ]);
 
 export function getBuiltinSchema(kind: string): BuiltinSchema | undefined {

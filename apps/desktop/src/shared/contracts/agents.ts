@@ -1,17 +1,16 @@
 export type AgentProviderKind = "claude" | "codex";
-export type AgentPermissionMode = "supervised" | "auto-edit";
 export type AgentEffort = "low" | "medium" | "high" | "xhigh" | "max";
 
 export interface AgentProviderSettings {
   executablePath: string;
   model: string;
   effort: AgentEffort;
-  permissionMode: AgentPermissionMode;
 }
 
 export interface AgentSettings {
   version: 1;
   defaultProvider: AgentProviderKind;
+  projectInstructions: string;
   providers: Record<AgentProviderKind, AgentProviderSettings>;
 }
 
@@ -28,7 +27,6 @@ export type AgentSessionStatus =
   | "idle"
   | "starting"
   | "working"
-  | "waiting"
   | "completed"
   | "interrupted"
   | "failed";
@@ -39,9 +37,7 @@ export type AgentEventKind =
   | "reasoning"
   | "tool-started"
   | "tool-completed"
-  | "approval-requested"
-  | "approval-resolved"
-  | "checkpoint"
+  | "turn-result"
   | "notice"
   | "error";
 
@@ -55,18 +51,7 @@ export interface AgentEvent {
   title?: string;
   detail?: string;
   toolName?: string;
-  requestId?: string;
-  destructive?: boolean;
-  status?: "running" | "completed" | "failed" | "declined";
-}
-
-export interface AgentCheckpoint {
-  turnId: string;
-  turnNumber: number;
-  beforeRef: string;
-  afterRef: string;
-  summary: string;
-  createdAt: string;
+  status?: "running" | "completed" | "failed" | "interrupted";
 }
 
 export interface AgentTokenUsage {
@@ -86,7 +71,6 @@ export interface AgentSessionSnapshot {
   provider: AgentProviderKind;
   model: string;
   effort: AgentEffort;
-  permissionMode: AgentPermissionMode;
   title: string;
   status: AgentSessionStatus;
   createdAt: string;
@@ -95,7 +79,6 @@ export interface AgentSessionSnapshot {
   activeTurnId?: string | undefined;
   tokenUsage?: AgentTokenUsage | undefined;
   events: AgentEvent[];
-  checkpoints: AgentCheckpoint[];
 }
 
 export interface AgentProjectSnapshot {
@@ -106,7 +89,7 @@ export interface AgentProjectSnapshot {
 }
 
 export type AgentSessionMetadataPatch = Partial<
-  Omit<AgentSessionSnapshot, "id" | "projectDirectory" | "events" | "checkpoints" | "tokenUsage">
+  Omit<AgentSessionSnapshot, "id" | "projectDirectory" | "events" | "tokenUsage">
 >;
 
 export type AgentProjectDeltaOperation =
@@ -125,7 +108,6 @@ export type AgentProjectDeltaOperation =
     }
   | { type: "event-patched"; sessionId: string; event: AgentEvent }
   | { type: "events-pruned"; sessionId: string; eventIds: string[] }
-  | { type: "checkpoints-replaced"; sessionId: string; checkpoints: AgentCheckpoint[] }
   | { type: "token-usage-changed"; sessionId: string; usage: AgentTokenUsage | null };
 
 export interface AgentProjectDelta {
@@ -136,9 +118,17 @@ export interface AgentProjectDelta {
 }
 
 export interface AgentTurnContext {
+  workspace?: "media" | "cut" | "edit" | "effects";
   activeSequenceId?: string;
   playheadUs?: number;
   selectedIds?: string[];
+  selectedAssetIds?: string[];
+  selectedClipIds?: string[];
+  compiler?: {
+    diskValid: boolean;
+    diagnosticCount: number;
+    diagnostics: Array<{ code: string; message: string }>;
+  };
 }
 
 export interface AgentCreateInput {
@@ -146,19 +136,17 @@ export interface AgentCreateInput {
   provider: AgentProviderKind;
   model?: string;
   effort?: AgentEffort;
-  permissionMode?: AgentPermissionMode;
 }
 
 export interface AgentSessionUpdate {
   model?: string;
   effort?: AgentEffort;
-  permissionMode?: AgentPermissionMode;
 }
 
 export interface AgentSettingsUpdate {
   defaultProvider?: AgentProviderKind;
+  projectInstructions?: string;
   provider?: AgentProviderKind;
   model?: string;
   effort?: AgentEffort;
-  permissionMode?: AgentPermissionMode;
 }

@@ -14,6 +14,8 @@ export type TrimGestureState =
       snapCandidatesUs: readonly TimeUs[];
       snapToleranceUs: TimeUs;
       clip: Clip;
+      splitComponent?: "audio" | "video";
+      assetDurationUs?: TimeUs;
       previewAtUs: TimeUs;
     };
 
@@ -28,6 +30,8 @@ export type TrimGestureEvent =
       snapCandidatesUs?: readonly TimeUs[];
       snapToleranceUs?: TimeUs;
       clip: Clip;
+      splitComponent?: "audio" | "video";
+      assetDurationUs?: TimeUs;
     }
   | { type: "move"; pointerId: number; clientX: number }
   | { type: "finish"; pointerId: number; clientX: number }
@@ -57,9 +61,34 @@ function startTransition(state: TrimGestureState, event: TrimStartEvent): TrimGe
       snapCandidatesUs: event.snapCandidatesUs ?? [],
       snapToleranceUs: event.snapToleranceUs ?? timeUs(0),
       clip: event.clip,
+      ...(event.splitComponent === undefined
+        ? {}
+        : { splitComponent: event.splitComponent, assetDurationUs: event.assetDurationUs }),
       previewAtUs: event.edge === "start" ? event.clip.timelineStartUs : clipEndUs(event.clip),
     },
   };
+}
+
+function trimBounds(state: TrimmingState): { minimumUs: number; maximumUs: number } {
+  const clipStartUs = state.clip.timelineStartUs;
+  const clipEnd = clipEndUs(state.clip);
+  if (state.splitComponent === undefined) {
+    return state.edge === "start"
+      ? { minimumUs: clipStartUs, maximumUs: clipEnd - 1 }
+      : { minimumUs: clipStartUs + 1, maximumUs: clipEnd };
+  }
+  const playbackRate = state.clip.playbackRate ?? 1;
+  const sourceDurationUs = state.assetDurationUs ?? state.clip.sourceEndUs;
+  return state.edge === "start"
+    ? {
+        minimumUs: Math.max(0, clipStartUs - Math.floor(state.clip.sourceStartUs / playbackRate)),
+        maximumUs: clipEnd - 1,
+      }
+    : {
+        minimumUs: clipStartUs + 1,
+        maximumUs:
+          clipStartUs + Math.floor((sourceDurationUs - state.clip.sourceStartUs) / playbackRate),
+      };
 }
 
 function trimTime(state: TrimmingState, clientX: number): TimeUs {
@@ -73,9 +102,8 @@ function trimTime(state: TrimmingState, clientX: number): TimeUs {
     ? snapTimelineTime(rawAtUs, state.frameRate, state.snapCandidatesUs, state.snapToleranceUs)
         .timeUs
     : rawAtUs;
-  return state.edge === "start"
-    ? timeUs(Math.min(clipEnd - 1, Math.max(clipStartUs, proposedAtUs)))
-    : timeUs(Math.max(clipStartUs + 1, Math.min(clipEnd, proposedAtUs)));
+  const bounds = trimBounds(state);
+  return timeUs(Math.min(bounds.maximumUs, Math.max(bounds.minimumUs, proposedAtUs)));
 }
 
 function finishTransition(state: TrimmingState, atUs: TimeUs): TrimGestureTransition {
@@ -84,11 +112,20 @@ function finishTransition(state: TrimmingState, atUs: TimeUs): TrimGestureTransi
   if (unchanged) return { state: IDLE_TRIM_GESTURE };
   return {
     state: IDLE_TRIM_GESTURE,
-    command: {
-      type: state.edge === "start" ? "clip.trimStart" : "clip.trimEnd",
-      clipId: state.clip.id,
-      atUs,
-    },
+    command:
+      state.splitComponent === undefined
+        ? {
+            type: state.edge === "start" ? "clip.trimStart" : "clip.trimEnd",
+            clipId: state.clip.id,
+            atUs,
+          }
+        : {
+            type: "clip.splitEdit",
+            clipId: state.clip.id,
+            component: state.splitComponent,
+            edge: state.edge,
+            atUs,
+          },
   };
 }
 

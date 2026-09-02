@@ -12,8 +12,9 @@ Select assets in the Media Pool in the order you want them, then create a timeli
 selection. Cinesim places them end to end, creates the tracks it needs, and makes the new sequence
 active — in one undo step.
 
-Video files with sound produce linked video and audio clips on separate tracks. They stay in sync
-through every subsequent edit.
+Video files with sound produce reciprocal linked video and audio clips on separate tracks. Ordinary
+move, trim, split, and delete edits keep the pair together. Their boundaries may differ for a split
+edit without losing the relationship.
 
 ## Choose a tool
 
@@ -30,6 +31,11 @@ feedback when a placement would overlap; the edit commits when you release.
 
 Drag a clip's edge to trim it. Trimming clamps any existing fades to the new duration.
 
+Option-drag a linked audio or video edge with the Trim tool to change only that component. Extending
+the next shot's audio before its picture makes a J-cut; extending the previous shot's audio beyond
+its picture makes an L-cut. The gesture is bounded by available source media and commits one command
+and one undo step.
+
 Split the selected clip at the playhead with <kbd>⌘&#92;</kbd>, or cut anywhere with the Blade tool. A
 split preserves the outer fades and clears the two new interior edges.
 
@@ -40,6 +46,73 @@ single edit.
 
 Drag a clip's fade handle to set a linear fade-in or fade-out — opacity on video, gain on audio.
 Combined fades cannot exceed the clip's duration, and the drag commits as one undo step.
+
+Select an audio clip to set its independent gain, stereo pan, and mute state in the Inspector.
+Overlapping clips are summed through the master stereo mix. For deterministic dialogue ducking,
+attach a direct effect to a music clip or audio track in JSX:
+
+```jsx
+<ducker
+  id="duck_music"
+  sidechain="track_dialogue"
+  reduction={db(-12)}
+  attack={milliseconds(80)}
+  release={milliseconds(250)}
+/>
+```
+
+The sidechain must name a different audio track. Cinesim ramps down before an active sidechain clip
+and releases afterward, so the same timeline always produces the same automation.
+
+## Author transitions
+
+Transitions are explicit timeline children in canonical JSX. They reference the stable IDs on both
+sides of an edit instead of overlapping the clips:
+
+```jsx
+<transition
+  id="transition_scene"
+  from="clip_scene_a"
+  to="clip_scene_b"
+  kind="wipe"
+  duration={seconds(1)}
+  easing="ease-in-out"
+  direction="left"
+  softness={percent(3)}
+/>
+<audiocrossfade
+  id="transition_dialogue"
+  from="clip_audio_a"
+  to="clip_audio_b"
+  duration={milliseconds(400)}
+  curve="equal-power"
+/>
+```
+
+The incoming clip needs at least the transition duration before its selected source `in` point.
+Transition diamonds appear at their edit points in the full timeline. Picture and audio transitions
+remain independent canonical elements.
+
+## Animate typed properties
+
+Place an `animate` block under a clip, effect, caption cue, mask, or other scene node. Its `property`
+must name an existing typed property, it must contain at least two keys at unique local times, and
+every value must retain the property's type. Supported easing is `linear`, `hold`, `ease-in`,
+`ease-out`, or `ease-in-out`.
+
+```jsx
+<blur id="blur_focus" radius={px(0)}>
+  <animate property="radius">
+    <key at={seconds(0)} value={px(0)} easing="linear" />
+    <key at={seconds(1)} value={px(24)} easing="ease-in-out" />
+  </animate>
+</blur>
+```
+
+The Effects workspace uses the ordinary project viewer and timeline. Its capability-backed browser
+shows effects that execute in preview, and its keyframe editor can add a key at the playhead, move
+it, change any typed value or easing, and delete it while retaining the required two keys. Each
+completed control gesture is one validated command and one global undo step.
 
 ## Manage tracks
 
@@ -66,6 +139,19 @@ and fullscreen. Its header reports whether you are watching **Proxy** or **Origi
 
 Hovering an asset in the Media Pool previews that source in the viewer and restores your timeline
 frame when you leave — timeline transport and source preview stay separate.
+
+## Export an MP4
+
+Choose **Export** in the project header, select the 1080p or source-size H.264/AAC SDR preset, and
+render the full active timeline or an explicit second-based range. Progress and the final path stay
+visible in the dialog, and an active job can be canceled without publishing a partial file.
+
+Export renders the last accepted generation, not an invalid source candidate. Picture uses the same
+bounded WebGPU render graph as preview and exact timeline frames. Audio is mixed in bounded chunks
+over the identical range, including split edits, fades, gain, pan, equal-power crossfades, and
+sidechain ducking. Completed MP4s are atomically published under `.video/exports/`; copy the
+deliverable elsewhere before clearing derived project data. Agents can perform the same explicit
+operation with `export_capabilities`, `export_start`, `export_status`, and `export_cancel`.
 
 ## Undo
 

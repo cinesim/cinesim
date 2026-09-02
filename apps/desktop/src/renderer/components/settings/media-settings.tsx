@@ -2,6 +2,7 @@ import { Film, Input, Notice, Select } from "@cinesim/ui";
 import { sessionFromLifecycle } from "../../store/renderer-store";
 import { useRendererStore } from "../../store/renderer-store-context";
 import { SettingRow, SettingsHeading } from "./settings-layout";
+import { projectSettingPresentation } from "./project-setting-presentation";
 
 const PROXY_PRESETS = {
   "space-saver": { proxyMaxLongEdge: 960, proxyFrameRateCap: 30, proxyQuality: "low" },
@@ -37,10 +38,18 @@ export function MediaSettings() {
         editing, and the original is moved to Trash only after both upload and proxy finish.
       </Notice>
       <div className="divide-y divide-border rounded-xl border border-border bg-panel">
-        <SettingRow
-          title="Automatic proxying"
-          detail="Create edit proxies in the background after media is imported."
-        >
+        <SettingRow {...projectSettingPresentation("defaultFilmstripIntervalSeconds")}>
+          <Input
+            type="number"
+            min={0.1}
+            step={0.1}
+            value={settings.defaultFilmstripIntervalSeconds}
+            onChange={(event) =>
+              void update({ defaultFilmstripIntervalSeconds: Number(event.target.value) })
+            }
+          />
+        </SettingRow>
+        <SettingRow {...projectSettingPresentation("proxyGeneration")}>
           <Select
             value={settings.proxyGeneration}
             onChange={(event) =>
@@ -51,10 +60,7 @@ export function MediaSettings() {
             <option value="manual">Manual</option>
           </Select>
         </SettingRow>
-        <SettingRow
-          title="Proxy profile"
-          detail="Controls proxy resolution, frame rate, and quality."
-        >
+        <SettingRow {...projectSettingPresentation("proxyProfile")}>
           <Select
             value={settings.proxyProfile}
             onChange={(event) =>
@@ -69,10 +75,7 @@ export function MediaSettings() {
         </SettingRow>
         {settings.proxyProfile === "custom" && (
           <>
-            <SettingRow
-              title="Maximum long edge"
-              detail="The largest proxy width or height in pixels."
-            >
+            <SettingRow {...projectSettingPresentation("proxyMaxLongEdge")}>
               <Input
                 type="number"
                 min={320}
@@ -81,7 +84,7 @@ export function MediaSettings() {
                 onChange={(event) => void update({ proxyMaxLongEdge: Number(event.target.value) })}
               />
             </SettingRow>
-            <SettingRow title="Frame-rate cap" detail="Preserves lower source frame rates.">
+            <SettingRow {...projectSettingPresentation("proxyFrameRateCap")}>
               <Select
                 value={settings.proxyFrameRateCap}
                 onChange={(event) =>
@@ -92,10 +95,7 @@ export function MediaSettings() {
                 <option value={60}>60 fps</option>
               </Select>
             </SettingRow>
-            <SettingRow
-              title="Encoding quality"
-              detail="Higher quality uses more local cache space."
-            >
+            <SettingRow {...projectSettingPresentation("proxyQuality")}>
               <Select
                 value={settings.proxyQuality}
                 onChange={(event) =>
@@ -111,6 +111,41 @@ export function MediaSettings() {
             </SettingRow>
           </>
         )}
+        <SettingRow {...projectSettingPresentation("workingColorSpace")}>
+          <Select value={settings.workingColorSpace} disabled>
+            <option value="linear-rec709">Linear Rec.709</option>
+          </Select>
+        </SettingRow>
+        <SettingRow {...projectSettingPresentation("outputColorSpace")}>
+          <Select value={settings.outputColorSpace} disabled>
+            <option value="rec709-sdr">Rec.709 SDR</option>
+          </Select>
+        </SettingRow>
+        <SettingRow {...projectSettingPresentation("toneMapping")}>
+          <Select
+            value={settings.toneMapping}
+            onChange={(event) =>
+              void update({ toneMapping: event.target.value as typeof settings.toneMapping })
+            }
+          >
+            <option value="automatic">Automatic</option>
+            <option value="off">Off</option>
+          </Select>
+        </SettingRow>
+        <SettingRow {...projectSettingPresentation("uncertainColorHandling")}>
+          <Select
+            value={settings.uncertainColorHandling}
+            onChange={(event) =>
+              void update({
+                uncertainColorHandling: event.target
+                  .value as typeof settings.uncertainColorHandling,
+              })
+            }
+          >
+            <option value="warn">Warn</option>
+            <option value="assume-rec709">Assume Rec.709</option>
+          </Select>
+        </SettingRow>
       </div>
     </>
   );

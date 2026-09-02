@@ -48,7 +48,7 @@ function removeSequence(
 }
 
 function emptyTrack(id: string, kind: "video" | "audio", name: string): IrTrack {
-  return { id, kind, name, muted: false, locked: false, clips: [], effects: [] };
+  return { id, kind, name, muted: false, locked: false, clips: [], adjustments: [], effects: [] };
 }
 
 function appendAssetClips(
@@ -115,8 +115,11 @@ function createSequence(
     timeline: {
       id: `timeline_${sequenceId.replace(/^sequence_/u, "")}`,
       tracks: [videoTrack, audioTrack],
+      captionTracks: [],
+      notes: [],
       markers: [],
       transitions: [],
+      audioTransitions: [],
     },
   };
   context.program.compositions.push(composition);

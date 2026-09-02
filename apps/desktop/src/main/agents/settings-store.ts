@@ -16,13 +16,13 @@ import type { AgentExecutableIdentity } from "./executable-trust";
 const DEFAULT_SETTINGS: AgentSettings = {
   version: 1,
   defaultProvider: "claude",
+  projectInstructions: "",
   providers: {
-    claude: { executablePath: "", model: "sonnet", effort: "high", permissionMode: "supervised" },
+    claude: { executablePath: "", model: "sonnet", effort: "high" },
     codex: {
       executablePath: "",
       model: "gpt-5.6-sol",
       effort: "high",
-      permissionMode: "supervised",
     },
   },
 };
@@ -60,6 +60,10 @@ function parseSettings(value: unknown): AgentSettings {
   return {
     version: 1,
     defaultProvider: isProvider(candidate.defaultProvider) ? candidate.defaultProvider : "claude",
+    projectInstructions:
+      typeof candidate.projectInstructions === "string"
+        ? candidate.projectInstructions.slice(0, 20_000)
+        : "",
     providers: {
       claude: parseProviderSettings("claude", providers.claude),
       codex: parseProviderSettings("codex", providers.codex),
@@ -74,7 +78,6 @@ function parseProviderSettings(provider: AgentProviderKind, value: unknown) {
     executablePath: typeof raw.executablePath === "string" ? raw.executablePath : "",
     model: typeof raw.model === "string" && raw.model.trim() ? raw.model : defaults.model,
     effort: isEffort(raw.effort) ? raw.effort : defaults.effort,
-    permissionMode: raw.permissionMode === "auto-edit" ? "auto-edit" : "supervised",
   } as const;
 }
 
@@ -127,13 +130,14 @@ export class AgentSettingsStore {
 
   async update(update: AgentSettingsUpdate): Promise<AgentSettings> {
     if (update.defaultProvider) this.#settings.defaultProvider = update.defaultProvider;
+    if (update.projectInstructions !== undefined)
+      this.#settings.projectInstructions = update.projectInstructions.slice(0, 20_000);
     if (update.provider) {
       const current = this.#settings.providers[update.provider];
       this.#settings.providers[update.provider] = {
         executablePath: current.executablePath,
         model: update.model?.trim() || current.model,
         effort: update.effort ?? current.effort,
-        permissionMode: update.permissionMode ?? current.permissionMode,
       };
     }
     await this.#queueSave();

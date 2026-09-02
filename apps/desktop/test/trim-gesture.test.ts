@@ -70,6 +70,42 @@ describe("timeline trim gesture", () => {
     });
   });
 
+  it("commits one component-only split-edit command and previews available handles", () => {
+    const started = transitionTrimGesture(IDLE_TRIM_GESTURE, {
+      type: "start",
+      pointerId: 10,
+      edge: "start",
+      clientX: 100,
+      pixelsPerUs: 0.0001,
+      clip: { ...clip, mediaKind: "audio", linkedClipId: "clip_video" as Clip["id"] },
+      splitComponent: "audio",
+      assetDurationUs: timeUs(9_000_000),
+    });
+    const moved = transitionTrimGesture(started.state, {
+      type: "move",
+      pointerId: 10,
+      clientX: -100,
+    });
+
+    expect(trimPreviewClip(moved.state)).toMatchObject({
+      timelineStartUs: timeUs(1_000_000),
+      sourceStartUs: timeUs(0),
+    });
+    expect(
+      transitionTrimGesture(moved.state, {
+        type: "finish",
+        pointerId: 10,
+        clientX: -100,
+      }).command,
+    ).toEqual({
+      type: "clip.splitEdit",
+      clipId: clip.id,
+      component: "audio",
+      edge: "start",
+      atUs: timeUs(1_000_000),
+    });
+  });
+
   it("quantizes trim points to frames and optional nearby edit points", () => {
     const started = transitionTrimGesture(IDLE_TRIM_GESTURE, {
       type: "start",

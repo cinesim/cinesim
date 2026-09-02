@@ -27,6 +27,7 @@ const PROJECT_ITEMS = [
   { section: "media", label: "Media", icon: Library, shortcut: "1" },
   { section: "cut", label: "Cut", icon: Scissors, shortcut: "2" },
   { section: "edit", label: "Edit", icon: Film, shortcut: "3" },
+  { section: "effects", label: "Effects", icon: SlidersHorizontal, shortcut: "4" },
 ] as const;
 
 export function AppSidebarNavigation() {

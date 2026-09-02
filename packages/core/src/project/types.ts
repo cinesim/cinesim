@@ -66,6 +66,86 @@ export interface CloudAssetSource {
 
 export type AssetSource = LocalAssetSource | CloudAssetSource;
 
+export type DecoderAvailability = "supported" | "unsupported" | "unknown";
+
+export interface AssetFrameRateMetadata {
+  mode: "constant" | "variable";
+  nominal: number;
+  minimum: number;
+  maximum: number;
+  average: number;
+  probedFrames: number;
+}
+
+export interface AssetColorMetadata {
+  primaries?: string;
+  transfer?: string;
+  matrix?: string;
+  fullRange?: boolean;
+  bitDepth?: number;
+  hdr: boolean;
+  uncertain: boolean;
+}
+
+export interface AssetVideoMetadata {
+  codec?: string;
+  codecParameters?: string;
+  internalCodecId?: string;
+  decoderAvailability: DecoderAvailability;
+  codedWidth: number;
+  codedHeight: number;
+  displayWidth: number;
+  displayHeight: number;
+  pixelAspectRatio: { numerator: number; denominator: number };
+  rotationDegrees: number;
+  frameRate: AssetFrameRateMetadata;
+  color: AssetColorMetadata;
+}
+
+export interface AssetAudioMetadata {
+  codec?: string;
+  codecParameters?: string;
+  internalCodecId?: string;
+  decoderAvailability: DecoderAvailability;
+  sampleRate: number;
+  channels: number;
+  channelLayout: string;
+}
+
+export interface AssetTechnicalMetadata {
+  containerMimeType: string;
+  durationSeconds: number;
+  compatibility: "supported" | "partial" | "unsupported" | "unknown";
+  video?: AssetVideoMetadata;
+  audio?: AssetAudioMetadata;
+}
+
+export interface AssetInputColorInterpretation {
+  policy: "source-metadata" | "assume-rec709";
+}
+
+export const EDITORIAL_NOTE_KINDS = [
+  "story-intent",
+  "scene",
+  "continuity",
+  "edit-task",
+  "review-feedback",
+  "general",
+] as const;
+
+export type EditorialNoteKind = (typeof EDITORIAL_NOTE_KINDS)[number];
+
+export interface EditorialNote {
+  id: string;
+  kind: EditorialNoteKind;
+  text: string;
+}
+
+export interface TimelineNote extends EditorialNote {
+  atUs: TimeUs;
+  durationUs?: TimeUs;
+}
+
 export interface Asset {
   id: AssetId;
   kind: "video" | "audio" | "image";
@@ -76,6 +156,9 @@ export interface Asset {
   height?: number;
   frameRate?: number;
   hasAudio?: boolean;
+  technical?: AssetTechnicalMetadata;
+  inputColor?: AssetInputColorInterpretation;
+  notes?: EditorialNote[];
 }
 
 export interface Clip {
@@ -95,6 +178,9 @@ export interface Clip {
   fadeInUs?: TimeUs;
   /** Linear fade to silence/transparent at the clip's timeline end. */
   fadeOutUs?: TimeUs;
+  gainDb?: number;
+  pan?: number;
+  muted?: boolean;
   transform: Transform;
 }
 
@@ -134,6 +220,7 @@ export interface Sequence {
   height: number;
   frameRate: number;
   tracks: Track[];
+  notes: TimelineNote[];
 }
 
 export interface Project {
@@ -143,6 +230,7 @@ export interface Project {
   activeSequenceId: SequenceId;
   assets: Asset[];
   sequences: Sequence[];
+  notes: EditorialNote[];
 }
 
 export interface ProjectSettings {
@@ -155,19 +243,12 @@ export interface ProjectSettings {
   proxyMaxLongEdge: number;
   proxyFrameRateCap: 30 | 60;
   proxyQuality: "low" | "medium" | "high";
+  compilerStrict: boolean;
+  workingColorSpace: "linear-rec709";
+  outputColorSpace: "rec709-sdr";
+  toneMapping: "automatic" | "off";
+  uncertainColorHandling: "warn" | "assume-rec709";
 }
-
-export const DEFAULT_SETTINGS: ProjectSettings = {
-  autosave: true,
-  defaultFilmstripIntervalSeconds: 5,
-  previewQuality: "half",
-  backgroundColor: "#09090b",
-  proxyGeneration: "automatic",
-  proxyProfile: "balanced",
-  proxyMaxLongEdge: 1280,
-  proxyFrameRateCap: 60,
-  proxyQuality: "medium",
-};
 
 export function clipDurationUs(clip: Clip): TimeUs {
   return clip.durationUs ?? timeUs(clip.sourceEndUs - clip.sourceStartUs);

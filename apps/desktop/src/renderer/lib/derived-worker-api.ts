@@ -13,6 +13,24 @@ export interface CancelDerivedRequest {
   jobId: string;
 }
 
+export interface GenerateFrameRequest {
+  type: "frame";
+  jobId: string;
+  assetId: string;
+  projectScope: DerivedProjectScope;
+  atUs: TimeUs;
+  width: number;
+  height: number;
+}
+
+export interface AnalyzeVisualIndexRequest {
+  type: "visual-index";
+  jobId: string;
+  assetId: string;
+  projectScope: DerivedProjectScope;
+  durationUs: TimeUs;
+}
+
 export interface GenerateProxyRequest {
   type: "proxy";
   jobId: string;
@@ -68,6 +86,8 @@ export interface SetTranscriptPausedRequest {
 export type DerivedWorkerRequest =
   | GenerateDerivedRequest
   | GenerateProxyRequest
+  | GenerateFrameRequest
+  | AnalyzeVisualIndexRequest
   | CancelDerivedRequest
   | ProxyChunkAck
   | SetProxyPausedRequest
@@ -138,6 +158,22 @@ export type DerivedWorkerResponse =
       sourceEndUs: TimeUs;
       data: ArrayBuffer;
     }
-  | { type: "transcript-complete"; jobId: string };
+  | { type: "transcript-complete"; jobId: string }
+  | {
+      type: "frame-complete";
+      jobId: string;
+      frame: ArrayBuffer;
+      renderedTimeUs: TimeUs;
+      width: number;
+      height: number;
+    }
+  | {
+      type: "visual-index-complete";
+      jobId: string;
+      options: Record<string, boolean | number | string | null>;
+      coverage: VisualIndexRange[];
+      observations: VisualIndexObservation[];
+    };
 import type { TimeUs } from "@cinesim/core";
+import type { VisualIndexObservation, VisualIndexRange } from "@cinesim/project-io";
 import type { DerivedProjectScope, DerivedWorkerStage } from "../../shared/contracts";

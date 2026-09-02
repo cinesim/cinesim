@@ -98,4 +98,34 @@ describe("editor command protocol", () => {
       }),
     ).toThrow();
   });
+
+  it("validates complete typed keyframe gestures", () => {
+    expect(
+      editorCommandSchema.parse({
+        type: "keyframe.add",
+        nodeId: "title:root",
+        property: "opacity",
+        atUs: 500_000,
+        value: { kind: "number", value: 0.5 },
+        easing: "ease-in-out",
+      }),
+    ).toMatchObject({ type: "keyframe.add", easing: "ease-in-out" });
+    expect(
+      editorCommandSchema.parse({
+        type: "keyframe.remove",
+        nodeId: "title:root",
+        property: "opacity",
+        index: 1,
+      }),
+    ).toMatchObject({ type: "keyframe.remove", index: 1 });
+    expect(() =>
+      editorCommandSchema.parse({
+        type: "keyframe.set",
+        nodeId: "title:root",
+        property: "opacity",
+        index: 0,
+        easing: "spring",
+      }),
+    ).toThrow();
+  });
 });

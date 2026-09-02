@@ -1,144 +1,34 @@
 import { useMemo, useState } from "react";
 import { useDraggable } from "@dnd-kit/core";
-import { Cloud, Film, Plus, RotateCcw, Sparkles, X } from "@cinesim/ui";
+import { Film, Plus } from "@cinesim/ui";
 import {
   Button,
-  cn,
   Empty,
   EmptyDescription,
   EmptyHeader,
   EmptyIcon,
   EmptyTitle,
   PaneHeader,
-  PreviewCard,
   SearchField,
 } from "@cinesim/ui";
 import type { Asset, Project } from "@cinesim/core";
-import type { TranscriptAssetSnapshot } from "../../../shared/transcript";
-import { formatDuration } from "../../lib/format";
 import { useRendererStore } from "../../store/renderer-store-context";
 import { useEditorDnd } from "../workspace/editor-dnd-context";
 import { useEditorTransport } from "../workspace/editor-transport-context";
-import { AssetSourceMetadata } from "./asset-source-metadata";
-import { MediaSkimSurface } from "./media-skim-surface";
+import { assetNeedsEditProxy, retryableAssetId, transcriptActionFor } from "./media-actions";
+import { MediaAssetCard } from "./media-asset-presentation";
+import { MediaAssetContextMenu } from "./media-bin-context-menu";
+import { assetStoragePresentation } from "./media-bin-model";
 
 interface EditMediaPoolProps {
   project: Project;
   sequenceId: string;
 }
 
-const transcriptLabels = {
-  missing: "Not transcribed",
-  queued: "Transcript queued",
-  running: "Transcribing",
-  ready: "Transcript ready",
-  failed: "Transcript failed",
-} as const;
-
-function transcriptStatusClass(state: keyof typeof transcriptLabels): string {
-  if (state === "ready") return "bg-accent";
-  if (state === "failed") return "bg-primary";
-  return state === "queued" || state === "running"
-    ? "animate-pulse bg-primary"
-    : "bg-border-strong";
-}
-
-function TranscriptAction({
-  asset,
-  available,
-  onCancel,
-  onRequest,
-  state,
-}: {
-  asset: Asset;
-  available: boolean;
-  onCancel: () => Promise<unknown>;
-  onRequest: () => void;
-  state: keyof typeof transcriptLabels;
-}) {
-  if (state === "queued" || state === "running") {
-    return (
-      <button
-        type="button"
-        className="inline-flex size-5 shrink-0 items-center justify-center rounded text-secondary hover:bg-surface hover:text-primary"
-        aria-label={`Cancel transcript for ${asset.name}`}
-        title="Cancel transcription"
-        onPointerDown={(event) => event.stopPropagation()}
-        onClick={(event) => {
-          event.stopPropagation();
-          void onCancel();
-        }}
-      >
-        <X size={11} />
-      </button>
-    );
-  }
-  if (state !== "missing" && state !== "failed") return null;
-  const action = state === "failed" ? "Retry" : "Generate";
-  return (
-    <button
-      type="button"
-      className="inline-flex size-5 shrink-0 items-center justify-center rounded text-secondary hover:bg-surface hover:text-primary disabled:opacity-40"
-      aria-label={`${action} transcript for ${asset.name}`}
-      title={available ? `${action} transcript` : "Sign in to transcribe"}
-      disabled={!available}
-      onPointerDown={(event) => event.stopPropagation()}
-      onClick={(event) => {
-        event.stopPropagation();
-        onRequest();
-      }}
-    >
-      {state === "failed" ? <RotateCcw size={11} /> : <Sparkles size={11} />}
-    </button>
-  );
-}
-
-function TranscriptStatus({
-  asset,
-  available,
-  onCancel,
-  onRequest,
-  transcript,
-}: {
-  asset: Asset;
-  available: boolean;
-  onCancel: () => Promise<unknown>;
-  onRequest: () => void;
-  transcript: TranscriptAssetSnapshot | undefined;
-}) {
-  const supported = asset.kind === "audio" || (asset.kind === "video" && asset.hasAudio === true);
-  if (!supported) return null;
-  const state = transcript?.state ?? "missing";
-  const progress =
-    state === "running" && transcript?.progress !== undefined
-      ? ` · ${Math.round(transcript.progress * 100)}%`
-      : "";
-  return (
-    <div className="mt-1 flex min-w-0 items-center gap-1.5 text-[10px]">
-      <span className={cn("size-1.5 shrink-0 rounded-full", transcriptStatusClass(state))} />
-      <span className="min-w-0 flex-1 truncate text-muted">
-        {transcriptLabels[state]}
-        {progress}
-      </span>
-      <TranscriptAction
-        asset={asset}
-        available={available}
-        onCancel={onCancel}
-        onRequest={onRequest}
-        state={state}
-      />
-    </div>
-  );
-}
-
 export function EditMediaPool({ project, sequenceId }: EditMediaPoolProps) {
   const [query, setQuery] = useState("");
   const appendAsset = useRendererStore((state) => state.appendAsset);
   const importMedia = useRendererStore((state) => state.importMedia);
-  const transcripts = useRendererStore((state) => state.transcripts);
-  const account = useRendererStore((state) => state.account);
-  const requestTranscripts = useRendererStore((state) => state.requestTranscripts);
-  const cancelTranscripts = useRendererStore((state) => state.cancelTranscripts);
   const normalizedQuery = query.trim().toLowerCase();
   const assets = useMemo(
     () => project.assets.filter((asset) => asset.name.toLowerCase().includes(normalizedQuery)),
@@ -164,10 +54,6 @@ export function EditMediaPool({ project, sequenceId }: EditMediaPoolProps) {
               <DraggableAssetCard
                 key={asset.id}
                 asset={asset}
-                transcript={transcripts?.assets[asset.id]}
-                transcriptionAvailable={account.status === "signed-in" && account.transcription}
-                onRequestTranscript={() => void requestTranscripts([asset.id])}
-                onCancelTranscript={() => cancelTranscripts([asset.id])}
                 onAddAsset={(asset) => appendAsset(asset.id, sequenceId)}
               />
             ))}
@@ -198,92 +84,105 @@ export function EditMediaPool({ project, sequenceId }: EditMediaPoolProps) {
 
 function DraggableAssetCard({
   asset,
-  transcript,
-  transcriptionAvailable,
-  onRequestTranscript,
-  onCancelTranscript,
   onAddAsset,
 }: {
   asset: Asset;
-  transcript: TranscriptAssetSnapshot | undefined;
-  transcriptionAvailable: boolean;
-  onRequestTranscript: () => void;
-  onCancelTranscript: () => Promise<unknown>;
   onAddAsset: (asset: Asset) => Promise<unknown>;
 }) {
   const editorDrag = useEditorDnd();
   const transport = useEditorTransport();
+  const cloudTransfers = useRendererStore((state) => state.cloudTransfers);
+  const derivedMedia = useRendererStore((state) => state.derivedMedia);
+  const transcripts = useRendererStore((state) => state.transcripts);
+  const account = useRendererStore((state) => state.account);
+  const requestTranscripts = useRendererStore((state) => state.requestTranscripts);
+  const regenerateTranscripts = useRendererStore((state) => state.regenerateTranscripts);
+  const cancelTranscripts = useRendererStore((state) => state.cancelTranscripts);
+  const downloadedCloudOriginals = useRendererStore((state) => state.downloadedCloudOriginals);
+  const retryCloudTransfer = useRendererStore((state) => state.retryCloudTransfer);
+  const keepCloudOriginalDownloaded = useRendererStore(
+    (state) => state.keepCloudOriginalDownloaded,
+  );
+  const removeCloudOriginalDownload = useRendererStore(
+    (state) => state.removeCloudOriginalDownload,
+  );
+  const derivedScope = useRendererStore((state) =>
+    state.project.status === "ready" ? state.project.session.derivedScope : null,
+  );
+  const transfer = cloudTransfers.find((candidate) => candidate.assetId === asset.id);
+  const cloudDownloaded = downloadedCloudOriginals.includes(asset.id);
+  const storage = assetStoragePresentation(asset, transfer, cloudDownloaded);
+  const transcriptAsset = asset.kind === "audio" || (asset.kind === "video" && asset.hasAudio);
+  const transcriptAction = transcriptActionFor(transcriptAsset ? [asset] : [], transcripts);
+  const needsProxy = assetNeedsEditProxy(asset, derivedMedia?.assets[asset.id]);
+  const retryAssetId = retryableAssetId(asset, transfer);
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
     id: `asset:${asset.id}`,
     data: { kind: "asset", assetId: asset.id },
   });
+
+  function runTranscriptAction() {
+    if (transcriptAction === "cancel") void cancelTranscripts([asset.id]);
+    else if (transcriptAction === "regenerate") void regenerateTranscripts([asset.id]);
+    else if (transcriptAction === "generate") void requestTranscripts([asset.id]);
+  }
+
+  function toggleCloudOriginal() {
+    if (cloudDownloaded) void removeCloudOriginalDownload(asset.id);
+    else void keepCloudOriginalDownloaded(asset.id);
+  }
+
   return (
-    <div
-      ref={setNodeRef}
-      {...attributes}
-      {...listeners}
-      className={isDragging ? "opacity-45" : undefined}
+    <MediaAssetContextMenu
+      canRevealAsset={asset.source.kind === "local"}
+      cloudAssetId={asset.source.kind === "cloud" ? asset.id : null}
+      cloudOriginalDownloaded={cloudDownloaded}
+      hasProxyAssets={needsProxy}
+      retryAssetId={retryAssetId}
+      selectedCount={1}
+      timelineActionLabel="Add to active timeline"
+      transcriptAction={transcriptAction}
+      transcriptionAvailable={account.status === "signed-in" && account.transcription}
+      onCreateTimeline={() => void onAddAsset(asset)}
+      onGenerateProxies={() => {
+        if (derivedScope) void window.cinesim.derived.requestProxies(derivedScope, [asset.id]);
+      }}
+      onRetryCloudTransfer={(assetId) => void retryCloudTransfer(assetId)}
+      onRevealAsset={() => {
+        void window.cinesim.project.revealAsset(asset.id).catch(() => undefined);
+      }}
+      onToggleCloudOriginal={toggleCloudOriginal}
+      onTranscriptAction={runTranscriptAction}
     >
-      <PreviewCard
-        ariaLabel={`Add ${asset.name} to the active timeline`}
-        title="Double-click to add to the active timeline"
-        size="compact"
-        previewClassName="media-thumbnail"
-        preview={
-          <MediaSkimSurface
-            asset={asset}
-            disabled={editorDrag.dragging}
-            onPreviewTime={(sourceTimeUs) => transport.previewAsset(asset.id, sourceTimeUs)}
-            onPreviewEnd={() => void transport.exitAssetPreview()}
-          />
-        }
-        bottomCorner={
-          <div className="flex items-center gap-1">
-            {asset.source.kind === "cloud" && (
-              <span
-                className="grid size-5 place-items-center rounded bg-panel/90 text-secondary"
-                title="Cloud original"
-              >
-                <Cloud size={10} />
-              </span>
-            )}
-            <span className="rounded bg-panel/90 px-1 py-0.5 text-[10px] tabular-nums text-secondary">
-              {formatDuration(asset.durationUs)}
-            </span>
-          </div>
-        }
-        action={
-          <Button
-            className="opacity-80 transition-opacity hover:opacity-100"
-            size="icon"
-            variant="ghost"
-            aria-label={`Add ${asset.name} to the active timeline`}
-            title="Add to active timeline"
-            onClick={() => void onAddAsset(asset)}
-          >
-            <Plus size={13} />
-          </Button>
-        }
-        onDoubleClick={() => void onAddAsset(asset)}
+      <div
+        ref={setNodeRef}
+        {...attributes}
+        {...listeners}
+        className={isDragging ? "opacity-45" : undefined}
       >
-        <p className="truncate text-ui-xs font-medium text-primary" title={asset.name}>
-          {asset.name}
-        </p>
-        <p className="edit-media-card-secondary mt-0.5 truncate text-[10px] text-muted tabular-nums">
-          {asset.id}
-        </p>
-        <AssetSourceMetadata
+        <MediaAssetCard
           asset={asset}
-          className="edit-media-card-secondary mt-0.5 truncate text-[10px] text-muted tabular-nums"
+          compact
+          storage={storage}
+          {...(transfer?.error ? { storageDetail: transfer.error } : {})}
+          previewDisabled={editorDrag.dragging}
+          onPreviewTime={(sourceTimeUs) => transport.previewAsset(asset.id, sourceTimeUs)}
+          onPreviewEnd={() => void transport.exitAssetPreview()}
+          action={
+            <Button
+              className="opacity-80 transition-opacity hover:opacity-100"
+              size="icon"
+              variant="ghost"
+              aria-label={`Add ${asset.name} to the active timeline`}
+              title="Add to active timeline"
+              onClick={() => void onAddAsset(asset)}
+            >
+              <Plus size={13} />
+            </Button>
+          }
+          onDoubleClick={() => void onAddAsset(asset)}
         />
-        <TranscriptStatus
-          asset={asset}
-          available={transcriptionAvailable}
-          onCancel={onCancelTranscript}
-          onRequest={onRequestTranscript}
-          transcript={transcript}
-        />
-      </PreviewCard>
-    </div>
+      </div>
+    </MediaAssetContextMenu>
   );
 }

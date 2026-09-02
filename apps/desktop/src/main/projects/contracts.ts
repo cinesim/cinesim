@@ -1,16 +1,24 @@
 import { z } from "zod";
-import type { ProjectSettings, SemanticEditorCommand } from "@cinesim/core";
-import { settingsSchema } from "@cinesim/core";
+import type {
+  AssetId,
+  DecoderAvailability,
+  ProjectSettings,
+  SemanticEditorCommand,
+} from "@cinesim/core";
+import { assetIdSchema, settingsSchema } from "@cinesim/core";
 import { editorCommandSchema } from "@cinesim/protocol";
 import { PROJECT_OPEN_TARGET_IDS } from "../../shared/contracts";
 import type {
   CreateProjectLocation,
   DesktopAppState,
   DesktopCommandResult,
+  DesktopProjectGuidance,
   DesktopProjectSession,
   ProjectOpenTarget,
   ProjectOpenTargetId,
   RecentProjectDetails,
+  MediaDecoderProbeResult,
+  PreparedMediaImport,
 } from "../../shared/contracts";
 import { invokeChannels } from "../../shared/contracts/channels";
 import { defineInvokeContract } from "../app/ipc-contract";
@@ -27,6 +35,18 @@ const appStateContract = (channel: string, privilege: "reversible-mutation" | "d
     request: z.tuple([z.object({ directory: desktopPathSchema }).strict()]),
     privilege,
   });
+const decoderAvailabilitySchema = z.enum([
+  "supported",
+  "unsupported",
+  "unknown",
+]) as z.ZodType<DecoderAvailability>;
+const decoderProbeResultSchema = z
+  .object({
+    assetId: assetIdSchema,
+    video: decoderAvailabilitySchema.optional(),
+    audio: decoderAvailabilitySchema.optional(),
+  })
+  .strict() as z.ZodType<MediaDecoderProbeResult>;
 
 export const projectContracts = {
   chooseCreateLocation: defineInvokeContract<[], CreateProjectLocation | null>({
@@ -50,6 +70,16 @@ export const projectContracts = {
     ]),
     privilege: "reversible-mutation",
   }),
+  guidanceGet: defineInvokeContract<[], DesktopProjectGuidance>({
+    channel: invokeChannels.project.guidanceGet,
+    request: emptyRequestSchema,
+    privilege: "read",
+  }),
+  guidanceUpdate: defineInvokeContract<[{ customInstructions: string }], DesktopProjectGuidance>({
+    channel: invokeChannels.project.guidanceUpdate,
+    request: z.tuple([z.object({ customInstructions: z.string().max(20_000) }).strict()]),
+    privilege: "reversible-mutation",
+  }),
   open: defineInvokeContract<[], DesktopProjectSession | null>({
     channel: invokeChannels.project.open,
     request: emptyRequestSchema,
@@ -59,6 +89,11 @@ export const projectContracts = {
     invokeChannels.project.openRecent,
     z.tuple([z.object({ directory: desktopPathSchema }).strict()]),
   ),
+  revealAsset: defineInvokeContract<[{ assetId: AssetId }], void>({
+    channel: invokeChannels.project.revealAsset,
+    request: z.tuple([z.object({ assetId: assetIdSchema }).strict()]),
+    privilege: "process-launch",
+  }),
   session: defineInvokeContract<[], DesktopProjectSession | null>({
     channel: invokeChannels.project.session,
     request: emptyRequestSchema,
@@ -93,11 +128,23 @@ export const projectContracts = {
   }),
   forget: appStateContract(invokeChannels.project.forget, "reversible-mutation"),
   trash: appStateContract(invokeChannels.project.trash, "destructive"),
-  importMedia: defineInvokeContract<[], DesktopProjectSession | null>({
+  importMedia: defineInvokeContract<[], PreparedMediaImport | null>({
     channel: invokeChannels.project.importMedia,
     request: emptyRequestSchema,
-    privilege: "canonical-command",
+    privilege: "read",
   }),
+  importMediaCommit: sessionContract(
+    invokeChannels.project.importMediaCommit,
+    z.tuple([
+      z
+        .object({
+          token: z.uuid(),
+          results: z.array(decoderProbeResultSchema).min(1).max(100),
+        })
+        .strict(),
+    ]),
+    "canonical-command",
+  ),
   execute: defineInvokeContract<
     [{ command: SemanticEditorCommand; expectedGeneration?: string | undefined }],
     { session: DesktopProjectSession; result: DesktopCommandResult }

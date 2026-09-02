@@ -37,6 +37,7 @@ function addTrack(
     muted: false,
     locked: false,
     clips: [],
+    adjustments: [],
     effects: [],
   };
   const index = command.kind === "audio" ? composition.timeline.tracks.length : 0;

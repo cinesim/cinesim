@@ -1,5 +1,6 @@
 import { secondsToTimeUs, timeSeconds, timeUs, timeUsToSeconds } from "@cinesim/core";
 import type { TimeUs } from "@cinesim/core";
+import type { IrGainAutomationPoint } from "@cinesim/ir";
 import type { AudioBufferChunk, AudioSource } from "../media/video-source";
 
 export interface PlaybackAudioScheduler {
@@ -23,10 +24,13 @@ export interface AudioFadeEnvelope {
   fadeInUs: TimeUs;
   fadeOutUs: TimeUs;
   gain?: number;
+  pan?: number;
+  ducking?: readonly IrGainAutomationPoint[];
 }
 
 interface ScheduledAudioNode {
   gain: GainNode;
+  panner: StereoPannerNode;
   node: AudioBufferSourceNode;
 }
 
@@ -39,6 +43,21 @@ export function audioFadeGainAt(envelope: AudioFadeEnvelope, timelineUs: TimeUs)
   const fadeInGain = fadeInUs > 0 ? Math.min(1, elapsedUs / fadeInUs) : 1;
   const fadeOutGain = fadeOutUs > 0 ? Math.min(1, (durationUs - elapsedUs) / fadeOutUs) : 1;
   return Math.max(0, Math.min(fadeInGain, fadeOutGain)) * (envelope.gain ?? 1);
+}
+
+function duckingGainAt(points: readonly IrGainAutomationPoint[], timelineUs: number): number {
+  const rightIndex = points.findIndex((point) => point.timelineUs >= timelineUs);
+  if (rightIndex < 0) return points.at(-1)?.gain ?? 1;
+  const right = points[rightIndex]!;
+  const left = points[rightIndex - 1];
+  if (!left || right.timelineUs === left.timelineUs) return right.gain;
+  const progress = (timelineUs - left.timelineUs) / (right.timelineUs - left.timelineUs);
+  return left.gain + (right.gain - left.gain) * progress;
+}
+
+export function audioMixGainAt(envelope: AudioFadeEnvelope, timelineUs: TimeUs): number {
+  const ducking = envelope.ducking ? duckingGainAt(envelope.ducking, timelineUs) : 1;
+  return audioFadeGainAt(envelope, timelineUs) * ducking;
 }
 
 export class WebAudioScheduler implements PlaybackAudioScheduler {
@@ -117,9 +136,12 @@ export class WebAudioScheduler implements PlaybackAudioScheduler {
     const node = this.#context.createBufferSource();
     node.buffer = chunk.buffer;
     const gain = this.#context.createGain();
+    const panner = this.#context.createStereoPanner();
+    panner.pan.value = Math.max(-1, Math.min(1, envelope?.pan ?? 0));
     node.connect(gain);
-    gain.connect(this.#master);
-    const scheduled = { gain, node };
+    gain.connect(panner);
+    panner.connect(this.#master);
+    const scheduled = { gain, panner, node };
     node.onended = () => this.#release(scheduled);
     if (envelope)
       scheduleFadeAutomation(
@@ -178,7 +200,7 @@ export class WebAudioScheduler implements PlaybackAudioScheduler {
     this.#disconnect(scheduled);
   }
 
-  #disconnect({ gain, node }: ScheduledAudioNode): void {
+  #disconnect({ gain, panner, node }: ScheduledAudioNode): void {
     try {
       node.disconnect();
     } catch {
@@ -188,6 +210,11 @@ export class WebAudioScheduler implements PlaybackAudioScheduler {
       gain.disconnect();
     } catch {
       // The gain may already be disconnected during overlapping cleanup.
+    }
+    try {
+      panner.disconnect();
+    } catch {
+      // The panner may already be disconnected during overlapping cleanup.
     }
   }
 }
@@ -246,15 +273,16 @@ function scheduleFadeAutomation(
     timeUs(envelope.timelineStartUs + envelope.fadeInUs),
     timeUs(envelope.timelineEndUs - envelope.fadeOutUs),
     timelineEndUs,
+    ...(envelope.ducking?.map((point) => timeUs(point.timelineUs)) ?? []),
   ]
     .filter((timeUs) => timeUs >= timelineStartUs && timeUs <= timelineEndUs)
     .sort((left, right) => left - right)
     .filter((timeUs, index, values) => index === 0 || timeUs !== values[index - 1]);
   const firstUs = points[0] ?? timelineStartUs;
-  gain.setValueAtTime(audioFadeGainAt(envelope, firstUs), contextStart);
+  gain.setValueAtTime(audioMixGainAt(envelope, firstUs), contextStart);
   for (const pointUs of points.slice(1)) {
     gain.linearRampToValueAtTime(
-      audioFadeGainAt(envelope, pointUs),
+      audioMixGainAt(envelope, pointUs),
       contextStart + timeUsToSeconds(timeUs(pointUs - timelineStartUs)),
     );
   }

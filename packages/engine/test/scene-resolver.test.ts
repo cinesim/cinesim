@@ -4,7 +4,11 @@ import type { Asset } from "@cinesim/core";
 import { applyCommand, createProject, projectToIr } from "../../core/test/project-fixtures";
 import { irTimeUs } from "@cinesim/ir";
 import type { IrSceneNode } from "@cinesim/ir";
-import { resolveScene, resolveSceneFrame } from "../src/playback/scene-resolver";
+import {
+  inputColorTransform,
+  resolveScene,
+  resolveSceneFrame,
+} from "../src/playback/scene-resolver";
 
 const asset: Asset = {
   id: "asset_layer",
@@ -15,6 +19,194 @@ const asset: Asset = {
 };
 
 describe("timeline visual layer order", () => {
+  it("derives reversible HDR input transforms from canonical metadata and policy", () => {
+    const hdrAsset: Asset = {
+      ...asset,
+      inputColor: { policy: "source-metadata" },
+      technical: {
+        containerMimeType: "video/mp4",
+        durationSeconds: 1,
+        compatibility: "supported",
+        video: {
+          decoderAvailability: "supported",
+          codedWidth: 1920,
+          codedHeight: 1080,
+          displayWidth: 1920,
+          displayHeight: 1080,
+          pixelAspectRatio: { numerator: 1, denominator: 1 },
+          rotationDegrees: 0,
+          frameRate: {
+            mode: "constant",
+            nominal: 30,
+            minimum: 30,
+            maximum: 30,
+            average: 30,
+            probedFrames: 30,
+          },
+          color: {
+            primaries: "bt2020",
+            transfer: "arib-std-b67",
+            matrix: "bt2020-ncl",
+            hdr: true,
+            uncertain: false,
+          },
+        },
+      },
+    };
+    expect(inputColorTransform(hdrAsset, DEFAULT_SETTINGS)).toEqual({
+      transfer: "hlg",
+      primaries: "rec2020",
+      toneMap: true,
+    });
+    expect(inputColorTransform(hdrAsset, { ...DEFAULT_SETTINGS, toneMapping: "off" })).toEqual({
+      transfer: "hlg",
+      primaries: "rec2020",
+      toneMap: false,
+    });
+    expect(
+      inputColorTransform(
+        { ...hdrAsset, inputColor: { policy: "assume-rec709" } },
+        DEFAULT_SETTINGS,
+      ),
+    ).toEqual({ transfer: "rec709", primaries: "rec709", toneMap: false });
+  });
+
+  it("projects edit-point wipe and dip transitions into compositor layers", () => {
+    const longAsset = { ...asset, durationUs: timeUs(5_000_000) };
+    let project = applyCommand(createProject({ name: "Transitions" }), {
+      type: "asset.import",
+      asset: longAsset,
+    }).project;
+    const trackId = project.sequences[0]!.tracks[0]!.id;
+    project = applyCommand(project, {
+      type: "clip.add",
+      trackId,
+      assetId: longAsset.id,
+      timelineStartUs: timeUs(0),
+      sourceStartUs: timeUs(0),
+      sourceEndUs: timeUs(2_000_000),
+    }).project;
+    project = applyCommand(project, {
+      type: "clip.add",
+      trackId,
+      assetId: longAsset.id,
+      timelineStartUs: timeUs(2_000_000),
+      sourceStartUs: timeUs(1_000_000),
+      sourceEndUs: timeUs(3_000_000),
+    }).project;
+    const program = projectToIr(project, DEFAULT_SETTINGS);
+    const [from, to] = program.compositions[0]!.timeline.tracks[0]!.clips;
+    program.compositions[0]!.timeline.transitions.push({
+      id: "transition_edit",
+      fromClipId: from!.id,
+      toClipId: to!.id,
+      kind: "wipe",
+      durationUs: irTimeUs(1_000_000),
+      easing: "linear",
+      props: {
+        direction: { kind: "string", value: "left" },
+        softness: { kind: "percent", value: 3 },
+      },
+    });
+
+    const wipe = resolveSceneFrame({ program, assets: project.assets }, timeUs(1_500_000));
+    expect(wipe.media).toHaveLength(2);
+    expect(wipe.media[1]).toMatchObject({
+      sourceTimeUs: 500_000,
+      transition: { kind: "wipe", progress: 0.5, direction: "left", softness: 0.03 },
+    });
+
+    program.compositions[0]!.timeline.transitions[0]!.kind = "dip";
+    program.compositions[0]!.timeline.transitions[0]!.props.color = {
+      kind: "color",
+      value: "#102030",
+    };
+    const dip = resolveSceneFrame({ program, assets: project.assets }, timeUs(1_500_000));
+    expect(dip.graphics).toEqual([
+      expect.objectContaining({
+        nodeId: "transition_edit/dip",
+        color: [16 / 255, 32 / 255, 48 / 255, 1],
+      }),
+    ]);
+  });
+
+  it("projects active caption cues as shaped text with style, safe placement, and typed animation", () => {
+    const project = createProject({ name: "Caption preview" });
+    const program = projectToIr(project, DEFAULT_SETTINGS);
+    program.compositions[0]!.timeline.captionTracks.push({
+      id: "captiontrack_main",
+      name: "English",
+      transcriptFingerprint: "transcript-v1-source",
+      props: {
+        fontSize: { kind: "length", unit: "px", value: 72 },
+        placement: { kind: "string", value: "bottom" },
+        fill: { kind: "color", value: "#fefefe" },
+        outlineColor: { kind: "color", value: "#111111" },
+        outlineWidth: { kind: "length", unit: "px", value: 4 },
+        safeMarginX: { kind: "percent", value: 10 },
+        safeMarginY: { kind: "percent", value: 10 },
+        background: { kind: "color", value: "#00000088" },
+      },
+      cues: [
+        {
+          id: "cue_main",
+          startUs: irTimeUs(1_000_000),
+          durationUs: irTimeUs(2_000_000),
+          text: "Production captions",
+          props: {
+            wordProgress: { kind: "number", value: 0 },
+            emphasisFill: { kind: "color", value: "#ffd54a" },
+            emphasisScale: { kind: "number", value: 1.08 },
+          },
+          animations: [
+            {
+              property: "scale",
+              keyframes: [
+                { at: irTimeUs(0), value: { kind: "number", value: 0.8 }, easing: "linear" },
+                {
+                  at: irTimeUs(500_000),
+                  value: { kind: "number", value: 1 },
+                  easing: "linear",
+                },
+              ],
+            },
+          ],
+          words: [
+            {
+              id: "captionword_production",
+              startUs: irTimeUs(0),
+              durationUs: irTimeUs(800_000),
+              text: "Production",
+            },
+            {
+              id: "captionword_captions",
+              startUs: irTimeUs(800_000),
+              durationUs: irTimeUs(900_000),
+              text: "captions",
+            },
+          ],
+        },
+      ],
+    });
+
+    const resolved = resolveSceneFrame({ program, assets: [] }, timeUs(1_250_000));
+    expect(resolved.text).toEqual([
+      expect.objectContaining({
+        nodeId: "cue_main",
+        text: "Production captions",
+        fontSize: 72,
+        originX: 192,
+        maxWidth: 1536,
+        scale: 0.9,
+        color: [254 / 255, 254 / 255, 254 / 255, 1],
+        emphasis: { start: 0, end: 10, color: [1, 213 / 255, 74 / 255, 1], scale: 1.08 },
+      }),
+    ]);
+    expect(resolved.graphics).toEqual([
+      expect.objectContaining({ nodeId: "cue_main/background", kind: "solid" }),
+    ]);
+  });
+
   it("normalizes pixel clip offsets and preserves rotation for the compositor", () => {
     let project = applyCommand(createProject({ name: "Transforms" }), {
       type: "asset.import",
@@ -212,6 +404,16 @@ describe("timeline visual layer order", () => {
         },
       ],
     };
+    const grid = content.children[1]!;
+    const firstSpeaker = grid.children[0]!;
+    grid.children[0] = {
+      id: "speaker_mask",
+      kind: "mask",
+      props: visualDefaults,
+      animations: [],
+      effects: [],
+      children: [firstSpeaker],
+    };
     clip.content = content;
 
     const resolved = resolveSceneFrame({ program: ir, assets }, timeUs(500_000));
@@ -225,6 +427,12 @@ describe("timeline visual layer order", () => {
       fit: "cover",
     });
     expect(resolved.media[0]!.cornerRadiusPx).toBe(24);
+    expect(resolved.media[0]!.maskRect).toMatchObject({
+      x: 72,
+      y: 72,
+      width: expect.closeTo(578.67, 1),
+      height: 415,
+    });
     expect(resolved.graphics.find((graphic) => graphic.nodeId === "background")?.order).toBe(0);
     expect(resolved.media[0]!.order).toBe(1);
     expect(resolved.media[0]!.colorAdjustment).toMatchObject({
@@ -234,6 +442,13 @@ describe("timeline visual layer order", () => {
     expect(resolved.graphics.find((graphic) => graphic.nodeId === "panel")?.transform.opacity).toBe(
       0.5,
     );
-    expect(resolved.graphics.filter((graphic) => graphic.kind === "glyph")).toHaveLength(4);
+    expect(resolved.text).toEqual([
+      expect.objectContaining({
+        nodeId: "name",
+        text: "Maya",
+        fontSize: 42,
+        order: 7,
+      }),
+    ]);
   });
 });
