@@ -65,7 +65,6 @@ export function AgentsSidebar({ session, onConfigure }: AgentsSidebarProps) {
     selectAgent,
     deleteAgent,
     interruptAgent,
-    respondApproval,
   } = useAgentProjectController(session);
   const availableProviders = providers.filter((provider) => provider.state === "connected");
   const awaitingInitialState = !snapshot || !settings;
@@ -76,10 +75,7 @@ export function AgentsSidebar({ session, onConfigure }: AgentsSidebarProps) {
     ) : (
       <div className="h-full bg-panel" aria-busy="true" aria-label="Loading agents" />
     );
-  const agentRunning =
-    activeSession?.status === "starting" ||
-    activeSession?.status === "working" ||
-    activeSession?.status === "waiting";
+  const agentRunning = activeSession?.status === "starting" || activeSession?.status === "working";
 
   async function confirmDelete(): Promise<void> {
     if (!deleteTarget) return;
@@ -187,12 +183,7 @@ export function AgentsSidebar({ session, onConfigure }: AgentsSidebarProps) {
         />
       ) : (
         <>
-          <AgentConversation
-            session={activeSession}
-            onApproval={(requestId, decision) =>
-              void respondApproval(activeSession.id, requestId, decision)
-            }
-          />
+          <AgentConversation session={activeSession} />
           {error && <Notice className="mx-3 mb-2">{error}</Notice>}
           <AgentComposer
             session={activeSession}
@@ -370,11 +361,9 @@ function StatusDot({ status }: { status: AgentSessionSnapshot["status"] }) {
         "size-1.5 shrink-0 rounded-full",
         status === "working" || status === "starting"
           ? "animate-pulse bg-emerald-500"
-          : status === "waiting"
-            ? "bg-amber-500"
-            : status === "failed"
-              ? "bg-red-500"
-              : "bg-disabled",
+          : status === "failed"
+            ? "bg-red-500"
+            : "bg-disabled",
       )}
     />
   );

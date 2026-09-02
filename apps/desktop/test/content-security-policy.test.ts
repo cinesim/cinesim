@@ -6,6 +6,13 @@ import {
 } from "../content-security-policy";
 
 describe("renderer content security policy", () => {
+  it("allows production WebAssembly without allowing JavaScript eval", () => {
+    const policy = rendererContentSecurityPolicy(false);
+
+    expect(policy).toContain("script-src 'self' 'wasm-unsafe-eval'");
+    expect(policy).not.toMatch(/(?:^|\s)'unsafe-eval'(?:\s|;|$)/u);
+  });
+
   it("keeps packaged renderers off localhost and WebSockets", () => {
     const policy = rendererContentSecurityPolicy(false);
 

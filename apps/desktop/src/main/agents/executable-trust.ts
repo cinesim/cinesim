@@ -34,7 +34,8 @@ export async function verifyAgentExecutable(expected: AgentExecutableIdentity): 
 function sameExecutable(left: AgentExecutableIdentity, right: AgentExecutableIdentity): boolean {
   return (
     left.path === right.path &&
-    left.device === right.device &&
+    // APFS device identifiers can change across boots and volume remounts even when the file does
+    // not. Keep recording the value for inspection, but do not use it as persistent identity.
     left.inode === right.inode &&
     left.size === right.size &&
     left.modifiedMs === right.modifiedMs

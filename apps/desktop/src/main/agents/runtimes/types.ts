@@ -1,9 +1,4 @@
-import type {
-  AgentEffort,
-  AgentEventKind,
-  AgentPermissionMode,
-  AgentTokenUsage,
-} from "../../../shared/contracts";
+import type { AgentEffort, AgentEventKind, AgentTokenUsage } from "../../../shared/contracts";
 
 export const MAX_PROVIDER_LINE_CHARACTERS = 2_000_000;
 export const MAX_PROVIDER_STRING_CHARACTERS = 1_000_000;
@@ -14,7 +9,7 @@ export interface AgentRuntimeEvent {
   title?: string;
   detail?: string;
   toolName?: string;
-  status?: "running" | "completed" | "failed" | "declined";
+  status?: "running" | "completed" | "failed" | "interrupted";
 }
 
 export interface AgentRuntimeCallbacks {
@@ -23,7 +18,6 @@ export interface AgentRuntimeCallbacks {
   onTurnStarted(providerTurnId?: string): void;
   onTurnCompleted(status: "completed" | "failed" | "interrupted", detail?: string): void;
   onTokenUsage(usage: Omit<AgentTokenUsage, "updatedAt">): void;
-  onApproval(title: string, detail: string): Promise<boolean>;
   onExit(detail?: string): void;
 }
 
@@ -39,7 +33,6 @@ export interface AgentRuntimeLaunchOptions {
   cwd: string;
   model: string;
   effort: AgentEffort;
-  permissionMode: AgentPermissionMode;
   providerSessionId?: string;
   mcpUrl: string;
   mcpToken: string;

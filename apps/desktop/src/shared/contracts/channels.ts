@@ -5,7 +5,6 @@ export const invokeChannels = {
     signOut: "account:sign-out",
   },
   agents: {
-    approval: "agents:approval",
     create: "agents:create",
     delete: "agents:delete",
     ensure: "agents:ensure",

@@ -76,7 +76,21 @@ export class AgentSessionEvents {
     return true;
   }
 
+  completeRunningTools(session: AgentSessionSnapshot, turnId: string, failed: boolean): void {
+    let changed = false;
+    for (const event of session.events) {
+      if (event.turnId !== turnId || event.kind !== "tool-started" || event.status !== "running")
+        continue;
+      event.kind = "tool-completed";
+      event.status = failed ? "failed" : "completed";
+      event.createdAt = now();
+      changed = true;
+    }
+    if (changed) this.#enforceBudget(session, true);
+  }
+
   appendRuntime(session: AgentSessionSnapshot, update: AgentRuntimeEvent): void {
+    if (update.kind === "tool-completed" && this.#completeRuntimeTool(session, update)) return;
     const target = this.#runtimeTextTarget(session, update);
     if (target && update.text) this.#appendText(session, target, update.text);
     else
@@ -85,6 +99,23 @@ export class AgentSessionEvents {
         ...(session.activeTurnId ? { turnId: session.activeTurnId } : {}),
       });
     this.#enforceBudget(session);
+  }
+
+  #completeRuntimeTool(session: AgentSessionSnapshot, update: AgentRuntimeEvent): boolean {
+    const event = session.events.findLast(
+      (candidate) =>
+        candidate.kind === "tool-started" &&
+        candidate.status === "running" &&
+        candidate.turnId === session.activeTurnId &&
+        candidate.toolName === update.toolName,
+    );
+    if (!event) return false;
+    event.kind = "tool-completed";
+    event.status = update.status === "failed" ? "failed" : "completed";
+    if (update.detail) event.detail = update.detail;
+    event.createdAt = now();
+    this.#enforceBudget(session, true);
+    return true;
   }
 
   #runtimeTextTarget(session: AgentSessionSnapshot, update: AgentRuntimeEvent): AgentEvent | null {

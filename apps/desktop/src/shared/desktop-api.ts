@@ -230,11 +230,6 @@ export interface DesktopAgentApi {
     context?: AgentTurnContext,
   ): Promise<AgentProjectSnapshot>;
   interrupt(sessionId: string): Promise<AgentProjectSnapshot>;
-  respondApproval(
-    sessionId: string,
-    requestId: string,
-    decision: "accept" | "decline",
-  ): Promise<AgentProjectSnapshot>;
   onDelta(callback: (delta: AgentProjectDelta) => void): () => void;
 }
 

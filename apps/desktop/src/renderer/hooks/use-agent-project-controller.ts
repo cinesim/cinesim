@@ -270,10 +270,5 @@ export function useAgentProjectController(session: DesktopProjectSession) {
       ),
     interruptAgent: (sessionId: string) =>
       runSnapshotAction(() => window.cinesim.agents.interrupt(sessionId), "Could not stop agent"),
-    respondApproval: (sessionId: string, requestId: string, decision: "accept" | "decline") =>
-      runSnapshotAction(
-        () => window.cinesim.agents.respondApproval(sessionId, requestId, decision),
-        "Could not respond to approval",
-      ),
   };
 }

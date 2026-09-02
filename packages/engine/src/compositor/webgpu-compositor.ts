@@ -428,7 +428,7 @@ fn fragmentMain(input: VertexOutput) -> @location(0) vec4f {
 `;
 
 const COMPOSITE_SHADER = /* wgsl */ `
-struct CompositeUniforms { mode: f32, padding: vec3f, }
+struct CompositeUniforms { modeAndPadding: vec4f, }
 @group(0) @binding(0) var backdropTexture: texture_2d<f32>;
 @group(0) @binding(1) var sourceTexture: texture_2d<f32>;
 @group(0) @binding(2) var compositeSampler: sampler;
@@ -456,15 +456,16 @@ fn vertexMain(@builtin(vertex_index) index: u32) -> VertexOutput {
 }
 
 fn blend(backdrop: vec3f, source: vec3f) -> vec3f {
-  if (composite.mode < 0.5) { return source; }
-  if (composite.mode < 1.5) { return backdrop * source; }
-  if (composite.mode < 2.5) { return 1.0 - (1.0 - backdrop) * (1.0 - source); }
-  if (composite.mode < 3.5) {
+  let mode = composite.modeAndPadding.x;
+  if (mode < 0.5) { return source; }
+  if (mode < 1.5) { return backdrop * source; }
+  if (mode < 2.5) { return 1.0 - (1.0 - backdrop) * (1.0 - source); }
+  if (mode < 3.5) {
     let low = 2.0 * backdrop * source;
     let high = 1.0 - 2.0 * (1.0 - backdrop) * (1.0 - source);
     return select(low, high, backdrop >= vec3f(0.5));
   }
-  if (composite.mode < 4.5) { return min(backdrop, source); }
+  if (mode < 4.5) { return min(backdrop, source); }
   return max(backdrop, source);
 }
 

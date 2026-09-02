@@ -205,8 +205,6 @@ const api: DesktopApi = {
     send: (sessionId, message, context) =>
       invoke(invokeChannels.agents.send, { sessionId, message, context }),
     interrupt: (sessionId) => invoke(invokeChannels.agents.interrupt, { sessionId }),
-    respondApproval: (sessionId, requestId, decision) =>
-      invoke(invokeChannels.agents.approval, { sessionId, requestId, decision }),
     onDelta: (callback) => subscribe(eventChannels.agentsDelta, callback),
   },
   health: { get: () => invoke(invokeChannels.app.health) },

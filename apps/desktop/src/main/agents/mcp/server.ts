@@ -7,7 +7,6 @@ import type { CinesimMcpToolRuntime } from "@cinesim/mcp-tools";
 import { searchLanguageReference } from "@cinesim/compiler";
 import { timeUs } from "@cinesim/core";
 import { ProjectPaths } from "@cinesim/project-io";
-import type { AgentPermissionMode } from "../../../shared/contracts";
 import type { DesktopProjectStore } from "../../projects/project-store";
 import { projectTimelineTranscript } from "../../../shared/transcript";
 import type { TranscriptSnapshot } from "../../../shared/transcript";
@@ -16,7 +15,6 @@ interface AgentToolSession {
   sessionId: string;
   token: string;
   projectDirectory: string;
-  permissionMode: AgentPermissionMode;
   external: boolean;
 }
 
@@ -35,7 +33,6 @@ export interface AgentToolHooks {
     detail: string,
     failed?: boolean,
   ): Promise<void>;
-  requestApproval(sessionId: string, toolName: string, detail: string): Promise<boolean>;
   onProjectChanged(): void;
 }
 
@@ -106,11 +103,10 @@ export class AgentMcpServer {
     await this.#syncProjectBroker();
   }
 
-  registerSession(input: {
-    sessionId: string;
-    projectDirectory: string;
-    permissionMode: AgentPermissionMode;
-  }): { url: string; token: string } {
+  registerSession(input: { sessionId: string; projectDirectory: string }): {
+    url: string;
+    token: string;
+  } {
     if (!this.#url) throw new Error("Agent MCP server has not started");
     const token = crypto.randomUUID().replaceAll("-", "") + crypto.randomUUID().replaceAll("-", "");
     this.#sessionsByToken.set(token, { ...input, token, external: false });
@@ -152,7 +148,6 @@ export class AgentMcpServer {
       sessionId,
       token,
       projectDirectory,
-      permissionMode: "auto-edit",
       external: true,
     });
     const paths = await ProjectPaths.open(projectDirectory);
@@ -373,13 +368,6 @@ export class AgentMcpServer {
         if (session.external) return jsonResult(await operation());
         const eventId = await this.hooks.onToolStarted(session.sessionId, tool.name, tool.detail);
         try {
-          if (
-            tool.mutating &&
-            session.permissionMode === "supervised" &&
-            !(await this.hooks.requestApproval(session.sessionId, tool.name, tool.detail))
-          ) {
-            throw new Error("The user declined this Cinesim edit");
-          }
           const result = await operation();
           await this.hooks.onToolCompleted(
             session.sessionId,

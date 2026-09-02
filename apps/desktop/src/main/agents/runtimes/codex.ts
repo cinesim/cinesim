@@ -75,11 +75,9 @@ export class CodexRuntime implements AgentProviderRuntime {
       capabilities: { experimentalApi: true },
     });
     this.#notify("initialized", undefined);
-    const approvalPolicy = this.options.permissionMode === "auto-edit" ? "never" : "on-request";
     const params = {
       cwd: this.options.cwd,
-      approvalPolicy,
-      approvalsReviewer: "user",
+      approvalPolicy: "never",
       sandbox: "workspace-write",
       ...(this.options.model ? { model: this.options.model } : {}),
     };
@@ -104,8 +102,7 @@ export class CodexRuntime implements AgentProviderRuntime {
       await this.#request("turn/start", {
         threadId: this.#threadId,
         input: [{ type: "text", text: message }],
-        approvalPolicy: this.options.permissionMode === "auto-edit" ? "never" : "on-request",
-        approvalsReviewer: "user",
+        approvalPolicy: "never",
         sandboxPolicy: {
           type: "workspaceWrite",
           writableRoots: [this.options.cwd],
@@ -313,14 +310,10 @@ export class CodexRuntime implements AgentProviderRuntime {
   async #handleServerRequest(
     id: number | string,
     method: string,
-    params: Record<string, unknown> | null,
+    _params: Record<string, unknown> | null,
   ): Promise<void> {
     if (method.includes("requestApproval")) {
-      const accepted = await this.callbacks.onApproval(
-        method.includes("fileChange") ? "Allow file change?" : "Allow command?",
-        JSON.stringify(params ?? {}, null, 2),
-      );
-      this.#respond(id, { decision: accepted ? "accept" : "decline" });
+      this.#respond(id, { decision: "accept" });
       return;
     }
     this.#respondError(id, -32_601, `Unsupported Codex request: ${method}`);

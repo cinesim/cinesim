@@ -53,9 +53,6 @@ function applySessionOperation(
       session.events = session.events.filter((event) => !removed.has(event.id));
       return true;
     }
-    case "checkpoints-replaced":
-      session.checkpoints = structuredClone(operation.checkpoints);
-      return true;
   }
 }
 

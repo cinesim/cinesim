@@ -37,14 +37,9 @@ describe("AgentMcpServer", () => {
         hasAudio: false,
       },
     });
-    const approvals: string[] = [];
     const server = new AgentMcpServer(projectStore, {
       onToolStarted: async () => crypto.randomUUID(),
       onToolCompleted: async () => undefined,
-      requestApproval: async (_sessionId, toolName) => {
-        approvals.push(toolName);
-        return false;
-      },
       onProjectChanged: () => undefined,
     });
     await server.start();
@@ -101,7 +96,6 @@ describe("AgentMcpServer", () => {
     const credential = server.registerSession({
       sessionId: "session-1",
       projectDirectory: project.directory,
-      permissionMode: "supervised",
     });
     const client = new Client({ name: "cinesim-test", version: "0.1.0" });
     const transport = new StreamableHTTPClientTransport(new URL(credential.url), {
@@ -147,7 +141,6 @@ describe("AgentMcpServer", () => {
       arguments: {},
     });
     expect(unavailableEdit.isError).toBe(true);
-    expect(approvals).toEqual([]);
     expect(projectStore.project?.sequences[0]?.tracks[0]?.clips).toHaveLength(0);
     await expect(
       client.callTool({

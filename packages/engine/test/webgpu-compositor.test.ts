@@ -1,6 +1,12 @@
 import { afterEach, describe, expect, it } from "vite-plus/test";
 import { DEFAULT_TRANSFORM } from "../../core/test/project-fixtures";
-import { packLayerUniform, rec709ChannelToLinear, WebGpuCompositor } from "../src";
+import {
+  COMPOSITE_UNIFORM_BYTE_SIZE,
+  packCompositeUniform,
+  packLayerUniform,
+  rec709ChannelToLinear,
+  WebGpuCompositor,
+} from "../src";
 
 const originalDescriptors = new Map(
   ["navigator", "window", "GPUShaderStage", "GPUBufferUsage", "GPUTextureUsage"].map((key) => [
@@ -33,6 +39,8 @@ describe("WebGpuCompositor resource ownership", () => {
   it("captures a manually sized WebGPU output only after submitted work completes", async () => {
     let submittedWorkSettled = false;
     const pipelineFormats = new Map<string, GPUTextureFormat | undefined>();
+    const shaderSources: string[] = [];
+    const bindGroupLayouts = new Map<string, GPUBindGroupLayoutDescriptor>();
     const pass = {
       setPipeline: () => undefined,
       setBindGroup: () => undefined,
@@ -52,8 +60,14 @@ describe("WebGpuCompositor resource ownership", () => {
       addEventListener: () => undefined,
       removeEventListener: () => undefined,
       createSampler: () => ({}),
-      createShaderModule: () => ({}),
-      createBindGroupLayout: () => ({}),
+      createShaderModule: (descriptor: GPUShaderModuleDescriptor) => {
+        shaderSources.push(descriptor.code);
+        return {};
+      },
+      createBindGroupLayout: (descriptor: GPUBindGroupLayoutDescriptor) => {
+        bindGroupLayouts.set(descriptor.label?.toString() ?? "", descriptor);
+        return {};
+      },
       createPipelineLayout: () => ({}),
       createRenderPipelineAsync: async (descriptor: GPURenderPipelineDescriptor) => {
         pipelineFormats.set(
@@ -119,6 +133,15 @@ describe("WebGpuCompositor resource ownership", () => {
         ["cinesim-preview-composite-pipeline", "rgba16float"],
       ]),
     );
+    const compositeShader = shaderSources.find((source) =>
+      source.includes("struct CompositeUniforms"),
+    );
+    expect(compositeShader).toContain("modeAndPadding: vec4f");
+    expect(compositeShader).toContain("composite.modeAndPadding.x");
+    const compositeLayout = bindGroupLayouts.get("cinesim-preview-composite-layout");
+    const compositeUniformBinding = compositeLayout?.entries.find((entry) => entry.binding === 3);
+    expect(compositeUniformBinding?.buffer?.minBindingSize).toBe(COMPOSITE_UNIFORM_BYTE_SIZE);
+    expect(packCompositeUniform("normal").byteLength).toBe(COMPOSITE_UNIFORM_BYTE_SIZE);
     compositor.render([], { width: 1920, height: 1080 });
 
     await expect(compositor.capturePng()).resolves.toEqual(new Uint8Array([1, 2, 3]).buffer);

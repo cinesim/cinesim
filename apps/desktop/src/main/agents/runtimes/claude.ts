@@ -26,6 +26,19 @@ function resultErrors(value: unknown): string | undefined {
     : undefined;
 }
 
+function toolDetail(name: string, value: unknown): string | undefined {
+  const input = asRecord(value);
+  if (!input) return undefined;
+  if (name === "Bash") return stringValue(input.command);
+  if (name === "WebSearch") return stringValue(input.query);
+  return (
+    stringValue(input.file_path) ??
+    stringValue(input.path) ??
+    stringValue(input.pattern) ??
+    stringValue(input.url)
+  );
+}
+
 export class ClaudeRuntime implements AgentProviderRuntime {
   #child: ChildProcessWithoutNullStreams | null = null;
   #sawAssistantDelta = false;
@@ -57,7 +70,8 @@ export class ClaudeRuntime implements AgentProviderRuntime {
       "--replay-user-messages",
       "--verbose",
       "--permission-mode",
-      this.options.permissionMode === "auto-edit" ? "acceptEdits" : "default",
+      "bypassPermissions",
+      "--dangerously-skip-permissions",
       "--tools",
       "Read,Write,Edit,Bash,WebFetch,WebSearch,mcp__cinesim__*",
       "--mcp-config",
@@ -205,7 +219,14 @@ export class ClaudeRuntime implements AgentProviderRuntime {
     if (block.type !== "tool_use") return;
     const name = stringValue(block.name) ?? "Tool";
     if (name.startsWith("mcp__cinesim__")) return;
-    this.callbacks.onEvent({ kind: "tool-started", toolName: name, title: name });
+    const detail = toolDetail(name, block.input);
+    this.callbacks.onEvent({
+      kind: "tool-started",
+      toolName: name,
+      title: name,
+      ...(detail ? { detail } : {}),
+      status: "running",
+    });
   }
 
   #handleResult(message: Record<string, unknown>): void {

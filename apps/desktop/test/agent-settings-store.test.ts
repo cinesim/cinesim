@@ -28,7 +28,6 @@ describe("AgentSettingsStore", () => {
       provider: "codex",
       model: "gpt-test",
       effort: "max",
-      permissionMode: "auto-edit",
     });
     await store.update({ defaultProvider: "codex" });
     await store.update({ projectInstructions: "Prefer documentary pacing." });
@@ -44,7 +43,6 @@ describe("AgentSettingsStore", () => {
           executablePath: canonicalExecutablePath,
           model: "gpt-test",
           effort: "max",
-          permissionMode: "auto-edit",
         },
       },
     });
@@ -65,6 +63,30 @@ describe("AgentSettingsStore", () => {
     await expect(store.requireTrustedExecutable("codex")).rejects.toThrow("changed");
   });
 
+  it("accepts a trusted executable when only its filesystem device ID changes", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "cinesim-agent-settings-"));
+    temporaryDirectories.push(directory);
+    const path = join(directory, "settings.json");
+    const executablePath = join(directory, "codex");
+    await writeFile(executablePath, "#!/bin/sh\nexit 0\n");
+    await chmod(executablePath, 0o700);
+    const store = new AgentSettingsStore(path);
+    await store.load();
+    await store.trustExecutable("codex", executablePath);
+
+    const persisted = JSON.parse(await readFile(path, "utf8")) as {
+      executableIdentities: { codex: { device: number } };
+    };
+    persisted.executableIdentities.codex.device += 1;
+    await writeFile(path, `${JSON.stringify(persisted)}\n`);
+
+    const reloaded = new AgentSettingsStore(path);
+    await reloaded.load();
+    await expect(reloaded.requireTrustedExecutable("codex")).resolves.toBe(
+      await realpath(executablePath),
+    );
+  });
+
   it("ignores executable paths from unsupported settings formats", async () => {
     const directory = await mkdtemp(join(tmpdir(), "cinesim-agent-settings-"));
     temporaryDirectories.push(directory);
@@ -76,7 +98,7 @@ describe("AgentSettingsStore", () => {
         defaultProvider: "codex",
         providers: {
           claude: {},
-          codex: { executablePath: "/tmp/untrusted", permissionMode: "supervised" },
+          codex: { executablePath: "/tmp/untrusted" },
         },
       }),
     );

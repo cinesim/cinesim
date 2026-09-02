@@ -13,7 +13,6 @@ import {
 } from "@cinesim/ui";
 import type {
   AgentEffort,
-  AgentPermissionMode,
   AgentProviderKind,
   AgentProviderStatus,
   AgentSettings as AgentSettingsState,
@@ -71,11 +70,7 @@ export function AgentSettings() {
     })();
   }, []);
 
-  async function updateProvider(input: {
-    model?: string;
-    effort?: AgentEffort;
-    permissionMode?: AgentPermissionMode;
-  }): Promise<void> {
+  async function updateProvider(input: { model?: string; effort?: AgentEffort }): Promise<void> {
     const next = await window.cinesim.agents.updateSettings({ provider, ...input });
     cacheAgentSettings(next);
     setSettings(next);
@@ -216,21 +211,6 @@ export function AgentSettings() {
                     {effortLabel(effort)}
                   </option>
                 ))}
-              </Select>
-            </SettingRow>
-            <SettingRow
-              title="Editing approvals"
-              detail="Supervised mode asks before provider file and shell operations that require approval."
-            >
-              <Select
-                className="w-full"
-                value={configured.permissionMode}
-                onChange={(event) =>
-                  void updateProvider({ permissionMode: event.target.value as AgentPermissionMode })
-                }
-              >
-                <option value="supervised">Supervised</option>
-                <option value="auto-edit">Automatic workspace operations</option>
               </Select>
             </SettingRow>
             <SettingRow

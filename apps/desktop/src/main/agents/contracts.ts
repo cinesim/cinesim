@@ -18,11 +18,9 @@ export const providerSchema = z.enum(["claude", "codex"]).pipe(z.custom<AgentPro
 const effortSchema = z
   .enum(["low", "medium", "high", "xhigh", "max"])
   .pipe(z.custom<AgentEffort>());
-const permissionModeSchema = z.enum(["supervised", "auto-edit"]);
 const providerSettingsShape = {
   model: z.string().max(120).optional(),
   effort: effortSchema.optional(),
-  permissionMode: permissionModeSchema.optional(),
 };
 const settingsUpdateSchema = z
   .object({
@@ -33,12 +31,7 @@ const settingsUpdateSchema = z
   })
   .strict()
   .superRefine((input, context) => {
-    if (
-      input.provider === undefined &&
-      (input.model !== undefined ||
-        input.effort !== undefined ||
-        input.permissionMode !== undefined)
-    ) {
+    if (input.provider === undefined && (input.model !== undefined || input.effort !== undefined)) {
       context.addIssue({
         code: "custom",
         message: "Choose an agent provider before changing provider settings",
@@ -160,18 +153,5 @@ export const agentContracts = {
   interrupt: snapshotContract(
     invokeChannels.agents.interrupt,
     z.tuple([z.object({ sessionId: boundedIdSchema }).strict()]),
-  ),
-  approval: snapshotContract(
-    invokeChannels.agents.approval,
-    z.tuple([
-      z
-        .object({
-          sessionId: boundedIdSchema,
-          requestId: boundedIdSchema,
-          decision: z.enum(["accept", "decline"]),
-        })
-        .strict(),
-    ]),
-    "trust-change",
   ),
 } as const;

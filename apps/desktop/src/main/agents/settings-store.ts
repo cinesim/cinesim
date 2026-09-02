@@ -18,12 +18,11 @@ const DEFAULT_SETTINGS: AgentSettings = {
   defaultProvider: "claude",
   projectInstructions: "",
   providers: {
-    claude: { executablePath: "", model: "sonnet", effort: "high", permissionMode: "supervised" },
+    claude: { executablePath: "", model: "sonnet", effort: "high" },
     codex: {
       executablePath: "",
       model: "gpt-5.6-sol",
       effort: "high",
-      permissionMode: "supervised",
     },
   },
 };
@@ -79,7 +78,6 @@ function parseProviderSettings(provider: AgentProviderKind, value: unknown) {
     executablePath: typeof raw.executablePath === "string" ? raw.executablePath : "",
     model: typeof raw.model === "string" && raw.model.trim() ? raw.model : defaults.model,
     effort: isEffort(raw.effort) ? raw.effort : defaults.effort,
-    permissionMode: raw.permissionMode === "auto-edit" ? "auto-edit" : "supervised",
   } as const;
 }
 
@@ -140,7 +138,6 @@ export class AgentSettingsStore {
         executablePath: current.executablePath,
         model: update.model?.trim() || current.model,
         effort: update.effort ?? current.effort,
-        permissionMode: update.permissionMode ?? current.permissionMode,
       };
     }
     await this.#queueSave();
